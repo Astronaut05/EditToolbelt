@@ -44,15 +44,19 @@ jobs:
         env:
           APP_ENV: test
           APP_VERSION: ${{ github.sha }}
-      - name: Production build serves the placeholder locally
+      - name: Production build serves the site locally
         run: |
           pnpm --filter @etb/web preview &
           for i in $(seq 1 30); do
-            curl -fs http://localhost:4173/ | grep -q '<h1>EditToolbelt</h1>' && break
+            curl -fs http://localhost:4173/ | grep -q 'id="home-search"' && break
             sleep 1
           done
-          curl -fs http://localhost:4173/ | grep -q '<h1>EditToolbelt</h1>'
+          curl -fs http://localhost:4173/ | grep -q 'id="home-search"'
+          curl -fs http://localhost:4173/photo | grep -q 'Photo tools'
+          curl -fs http://localhost:4173/remove-background | grep -q 'noindex'
+          curl -fs http://localhost:4173/search-index.json | jq -e 'length == 75'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/does-not-exist)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/workshop)" = 404
 
   worker:
     name: Worker · ruff, mypy, pytest, licenses
@@ -111,16 +115,16 @@ jobs:
           set -o pipefail
           docker compose run --rm -T worker python -m etb_worker --once | tee "$RUNNER_TEMP/worker.log"
           jq -e 'select(.event == "job.succeeded") | .service == "worker"' "$RUNNER_TEMP/worker.log"
-      - name: Web dev server serves the placeholder
+      - name: Web dev server serves the home page
         run: |
           docker compose up --detach web
           for i in $(seq 1 60); do
-            if curl -fs http://localhost:3000/ | grep -q '<h1>EditToolbelt</h1>'; then
+            if curl -fs http://localhost:3000/ | grep -q 'id="home-search"'; then
               echo "web is up after ~$((i * 2))s"; exit 0
             fi
             sleep 2
           done
-          echo "web did not serve the placeholder in time"; exit 1
+          echo "web did not serve the home page in time"; exit 1
       - name: Web logs are JSON
         run: |
           set -o pipefail

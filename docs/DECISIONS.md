@@ -73,3 +73,33 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** System / Light / Dark as a segmented control in the footer and in the phone menu. The choice is stored in localStorage as `etb-theme` (not `theme`, to avoid clashing with anything else on the origin), and an inline script applies it before first paint. Nothing is stored for "System".
 **Why:** `03` → Tokens ("manual toggle stored locally"); the design doesn't draw a toggle, and the footer is the calmest place for it.
 **Reverse:** `ThemeToggle` and `themeScript` in `packages/ui`.
+
+## 2026-09-29 · Site skeleton routes
+
+**Decision:** One `[slug]` route renders the 6 hubs and the 75 tool pages, all statically generated from the registry (`dynamicParams = false`); `disabled` tools get no page, so the host answers 404 (a "retired tool" page can come with the first retirement). Every page renders its own header, so the current category is marked on the server with no client JS. `soon` pages are `noindex`. While none of a tool's related tools works yet, the "Until then, try" panel becomes "More photo tools" with the hub and search as rows, rather than linking to more placeholders. Home "Most used" rows link to their pages and aren't dimmed, even while `soon`; hub rows follow the design (dimmed, not links). A `/sign-in` stub says accounts come later. Legal pages are marked drafts; `/contact` publishes no address until Go public (no domain yet); `/licenses` is generated from `licenses.json` (approved, non-dev entries).
+**Why:** `09` → URL scheme; `02` → Status behaviour; `08` → Pages to ship (stubs in M1, final text is off-limits until Go public).
+**Reverse:** `apps/web/src/app/[slug]/page.tsx`, `components/ComingSoon.tsx`, the page files.
+
+## 2026-09-29 · Search loads on first use
+
+**Decision:** The build writes the search index to `/search-index.json` (≈ 20 KB); the header search (`/` or the button) and the home search load it on first focus, so it's never in the initial JS. On desktop the home search takes focus on load (the search line is the hero); on touch screens it doesn't, so no keyboard pops up.
+**Why:** `10` → Initial JS budget; design README → Home.
+**Reverse:** `packages/ui/src/layout/useSearch.ts`, `apps/web/src/components/HomeSearch.tsx`.
+
+## 2026-09-29 · Fonts
+
+**Decision:** Onest (variable) and IBM Plex Mono 400/500 come from the Fontsource packages through `next/font/local`, one call per subset (Latin, Latin-ext, Cyrillic, Cyrillic-ext) with its `unicode-range`, so pages only fetch the subsets their text uses and file names are content-hashed. Only Onest Latin is preloaded; it gets a metric-matched Arial fallback against layout shift. The Latin subset carries U+02BB and U+2018; Cyrillic-ext carries Uzbek қ ғ ҳ.
+**Why:** `10` → Loading strategy; `03` → Tokens.
+**Reverse:** `apps/web/src/app/fonts.ts` and the stacks in `globals.css`.
+
+## 2026-09-29 · A workshop instead of Storybook or Ladle
+
+**Decision:** The design screens (and, in M1b, the component gallery) live in the app itself as `*.workshop.tsx` routes, compiled only when `ETB_WORKSHOP=1` (`pnpm workshop`), so they use the real fonts, tokens and components and never reach a production build. `pnpm design:compare` screenshots each screen at the PNG's size and theme next to the design PNG.
+**Why:** Ladle is unmaintained since November 2025 and pinned to Vite 6; Storybook adds a large second build toolchain for what a few routes do. `12` asks for the components "in Storybook/Ladle"; the gallery covers the same need.
+**Reverse:** add Storybook with `@storybook/nextjs` and move the gallery into stories.
+
+## 2026-09-29 · Sample image and icon
+
+**Decision:** The Remove Background sample and the design screens use a mug scene drawn in CSS (`scripts/samples/mug.html`) and rendered to `public/samples/mug.jpg` and `mug-cutout.png` with `pnpm samples`: ours, license-free, and the same picture the design shows. On phones one sample serves both sizes, so the mug looks smaller than in the phone PNG. The favicon is a placeholder monogram until open question 1 settles the logo.
+**Why:** `CLAUDE.md` → fixtures are small, license-free, generated where possible; `09` → example images are ours.
+**Reverse:** replace the files; `pnpm samples` re-renders them.

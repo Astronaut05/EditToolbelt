@@ -1,0 +1,70 @@
+import type { Metadata } from 'next';
+
+import register from '../../../../../licenses.json';
+import { LegalPage } from '../../components/LegalPage';
+import { SiteFrame } from '../../components/SiteFrame';
+
+export const metadata: Metadata = {
+  title: 'Open-source licenses',
+  description: 'The open-source software and models EditToolbelt is built on, with their licenses.',
+  alternates: { canonical: '/licenses' },
+};
+
+interface Entry {
+  label: string;
+  section: string;
+  license: string;
+  use: string;
+  scope?: string;
+  status: string;
+  source?: string;
+}
+
+// Generated from the license register (licenses.json, docs/13-licenses.md):
+// what ships to the browser or runs on our machines. Build tools are left out.
+const shipped = (register.entries as Entry[]).filter(
+  (entry) => entry.status === 'approved' && entry.scope !== 'dev',
+);
+const sections = [...new Set(shipped.map((entry) => entry.section))];
+
+export default function LicensesPage() {
+  return (
+    <SiteFrame>
+      <LegalPage title="Open-source licenses" label="Credits">
+        <p>
+          EditToolbelt is built on open-source software. This list is generated from our license
+          register and grows as tools go live. No GPL code ships to your browser.
+        </p>
+        {sections.map((section) => (
+          <section key={section}>
+            <h2>{section}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>License</th>
+                  <th>Used for</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shipped
+                  .filter((entry) => entry.section === section)
+                  .map((entry) => (
+                    <tr key={entry.label}>
+                      <td>
+                        {entry.source ? <a href={entry.source}>{entry.label}</a> : entry.label}
+                      </td>
+                      <td>
+                        <code>{entry.license}</code>
+                      </td>
+                      <td>{entry.use}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </section>
+        ))}
+      </LegalPage>
+    </SiteFrame>
+  );
+}
