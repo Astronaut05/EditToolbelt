@@ -8,7 +8,7 @@
 - Autonomous-mode rules, `docs/DECISIONS.md`, this file (#7).
 - Tool registry: all 75 tools with search, conversion pairs and the COOP/COEP route list (#8).
 - Design system: Signal tokens mirrored in Tailwind, every shared component, ToolShell for all six `ui` types against a dummy engine (#9).
-- Clickable skeleton: home with instant search, 6 hubs, 75 `soon` pages, header, footer, search overlay, legal stubs, `/licenses`, 404. The design screens are rebuilt in the workshop and match the PNGs at 1440 and 390 px, light and dark.
+- Clickable skeleton: home with instant search, 6 hubs, 75 `soon` pages, header, footer, search overlay, legal stubs, `/licenses`, 404. The design screens are rebuilt in the workshop and match the PNGs at 1440 and 390 px, light and dark (#10).
 
 ## Next
 
