@@ -1,0 +1,128 @@
+<!doctype html><html><head><meta charset="utf-8"><style>:root{--bg:#FFFFFF;--surface:#F6F6F6;--surface-raised:#FFFFFF;--border:#E4E4E4;--text:#0A0A0A;--text-muted:#6B6B6B;--accent:#4B7000;--accent-contrast:#FFFFFF;--success:#4B7000;--focus-ring:#4B7000;--chk1:#FFFFFF;--chk2:#EDEDED;}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:"Onest",sans-serif;
+  font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased}
+body{position:relative;overflow:hidden}
+.mono{font-family:"IBM Plex Mono",monospace}
+.muted{color:var(--text-muted)}
+.ic{display:inline-block;vertical-align:middle;flex:none}
+button{font:inherit;color:inherit;border:0;background:none}
+/* stand-in photo: before/after canvas */
+.canvas{position:relative;overflow:hidden}
+.canvas .orig,.canvas .trans{position:absolute;inset:0}
+.canvas .orig{clip-path:inset(0 50% 0 0);
+  background:radial-gradient(120% 90% at 18% 12%,#f3e6d6 0%,#e2cfb8 42%,#c9b196 70%,#b39a7f 100%)}
+.canvas .orig::after{content:"";position:absolute;left:0;right:0;bottom:0;height:34%;
+  background:linear-gradient(180deg,#a88d71,#8f7559)}
+.canvas .trans{clip-path:inset(0 0 0 50%);
+  background-image:conic-gradient(var(--chk1) 25%,var(--chk2) 0 50%,var(--chk1) 0 75%,var(--chk2) 0);
+  background-size:22px 22px}
+.canvas .shadow{position:absolute;left:34%;width:36%;bottom:25%;height:6%;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(60,40,20,.55),rgba(60,40,20,0));clip-path:inset(0 42% 0 0)}
+.mug{position:absolute;left:35%;width:30%;bottom:28%;height:46%}
+.mug .body{position:absolute;inset:6% 0 0 0;border-radius:6% 6% 22% 22%/4% 4% 14% 14%;
+  background:linear-gradient(90deg,#6f3a22 0%,#a85a36 16%,#cf7b4f 38%,#e79c70 52%,#c46e45 74%,#8a4629 92%,#6a351f 100%)}
+.mug .rim{position:absolute;left:0;right:0;top:0;height:13%;border-radius:50%;
+  background:radial-gradient(closest-side,#3c1e10 0%,#4a2616 62%,#b86a43 64%,#d98a5f 100%)}
+.mug .handle{position:absolute;right:-24%;top:24%;width:34%;height:44%;border-radius:50%;
+  border:solid #b1603a;border-width:14px 14px 14px 0;border-left-color:transparent;
+  clip-path:inset(0 0 0 30%)}
+.mug .band{position:absolute;left:0;right:0;top:40%;height:9%;background:rgba(255,236,214,.22)}
+.split{position:absolute;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:#fff;opacity:.9}
+.knob{position:absolute;top:50%;left:50%;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;
+  background:#fff;color:#111;display:flex;align-items:center;justify-content:center;
+  font:600 13px "IBM Plex Mono";letter-spacing:-1px}
+.tag{position:absolute;top:14px;font:500 11px "IBM Plex Mono";letter-spacing:.12em;text-transform:uppercase;
+  padding:5px 8px;border-radius:4px;background:rgba(10,10,10,.62);color:#fff}
+.tag.l{left:14px}.tag.r{right:14px}
+body{width:1440px;height:900px}
+.hdr{height:56px;display:flex;align-items:center;gap:26px;padding:0 40px;border-bottom:1px solid var(--border)}
+.logo{font:700 17px "Onest";letter-spacing:-.03em}
+.logo em{font-style:normal;color:var(--accent)}
+.nav{display:flex;gap:22px;font-size:14px;color:var(--text-muted)}
+.nav .on{color:var(--text)}
+.srch{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted)}
+.signin{font-size:14px;font-weight:500;border-left:1px solid var(--border);padding-left:22px}
+.cols{display:grid;grid-template-columns:560px 1fr;height:844px}
+.left{padding:34px 40px 0;border-right:1px solid var(--border);display:flex;flex-direction:column}
+.crumb{font:500 11.5px "IBM Plex Mono";letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.left h1{font:650 46px/0.98 "Onest";letter-spacing:-.035em;margin-top:18px}
+.left .tl{font-size:16.5px;color:var(--text-muted);margin-top:14px;line-height:1.45}
+.priv{display:flex;align-items:center;gap:10px;margin-top:16px;font-size:13.5px}
+.priv i{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.form{margin-top:26px;border-top:1px solid var(--border)}
+.fr{display:flex;align-items:center;justify-content:space-between;height:54px;border-bottom:1px solid var(--border)}
+.fr .k{font-size:14px;color:var(--text-muted)}
+.opts{display:flex;gap:16px;font-size:14px;color:var(--text-muted)}
+.opts .on{color:var(--text);font-weight:600;box-shadow:0 2px 0 var(--accent)}
+.fr .mono{font-size:12.5px;color:var(--text-muted)}
+.cta{margin-top:26px;display:flex;gap:12px}
+.btn{height:52px;display:flex;align-items:center;justify-content:center;gap:10px;font:650 16px "Onest";border-radius:4px}
+.btn.pri{flex:1;background:var(--accent);color:var(--accent-contrast)}
+.btn.sec{width:160px;border:1px solid var(--border);font-weight:500;font-size:14.5px}
+.foot{margin-top:14px;font-size:14px;color:var(--text-muted)}
+.foot u{text-decoration:none;color:var(--text);border-bottom:1px solid var(--accent)}
+.right{position:relative}
+.right .canvas{position:absolute;inset:0}
+.readout{position:absolute;left:24px;bottom:24px;display:flex;gap:0;font:500 12px "IBM Plex Mono";letter-spacing:.08em;text-transform:uppercase;background:rgba(10,10,10,.82);color:#f2f2f2;border-radius:4px}
+.readout span{white-space:nowrap;padding:10px 14px;border-right:1px solid rgba(255,255,255,.12)}
+.readout span:last-child{border-right:0;color:#B9E04C}
+/* home */
+.hh{padding:60px 40px 0}
+.q{font:500 12px "IBM Plex Mono";letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted)}
+.big{display:flex;align-items:center;gap:6px;font:600 72px/1 "Onest";letter-spacing:-.045em;margin-top:18px;padding-bottom:20px;border-bottom:2px solid var(--text)}
+.big .ph2{color:var(--text-muted);opacity:.45}
+.caret{width:4px;height:64px;background:var(--accent)}
+.big .k{margin-left:auto;font:500 12px "IBM Plex Mono";letter-spacing:.1em;color:var(--text-muted);border:1px solid var(--border);padding:6px 9px;border-radius:4px}
+.res{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--border)}
+.res div{padding:16px 0;font-size:17px;display:flex;justify-content:space-between;padding-right:32px}
+.res div span{font:400 12px "IBM Plex Mono";color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase}
+.res .hit{color:var(--accent)}
+.lists{display:grid;grid-template-columns:1fr 1fr 360px;gap:40px;margin-top:36px}
+.lh{font:500 12px "IBM Plex Mono";letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px}
+.nl div{display:flex;align-items:baseline;gap:16px;height:38px;border-bottom:1px solid var(--border);font-size:16px}
+.nl .n{font:400 12px "IBM Plex Mono";color:var(--text-muted);width:22px}
+.nl .c{margin-left:auto;font:400 11px "IBM Plex Mono";letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)}
+.cl div{display:flex;justify-content:space-between;height:38px;align-items:center;border-bottom:1px solid var(--border);font-size:16px}
+.cl span{font:400 13px "IBM Plex Mono";color:var(--text-muted)}
+.tagline{margin-top:18px;font-size:14px;color:var(--text-muted);line-height:1.5}
+/* phone */
+.ph .hdr{height:52px;padding:0 16px;gap:0}
+.ph .hdr .r{margin-left:auto;display:flex;gap:18px}
+.ph .crumb{padding:22px 16px 0}
+.ph h1{padding:12px 16px 0;font:650 34px/0.98 "Onest";letter-spacing:-.035em}
+.ph .tl{padding:12px 16px 0;font-size:15.5px;line-height:1.45;color:var(--text-muted)}
+.ph .priv{padding:0 16px}
+.ph .tap{margin:22px 16px 0;height:210px;background:var(--accent);color:var(--accent-contrast);border-radius:4px;display:flex;flex-direction:column;justify-content:space-between;padding:18px}
+.ph .tap b{font:650 26px/1 "Onest";letter-spacing:-.03em}
+.ph .tap span{font:500 11.5px "IBM Plex Mono";letter-spacing:.08em;text-transform:uppercase}
+.ph .tap .row{display:flex;justify-content:space-between;align-items:flex-end}
+.ph .alt{margin:0 16px;display:flex;border:1px solid var(--border);border-top:0}
+.ph .alt div{flex:1;height:48px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;border-right:1px solid var(--border)}
+.ph .alt div:last-child{border-right:0}
+.ph .fm{padding:14px 16px 0;font:400 11.5px "IBM Plex Mono";color:var(--text-muted);letter-spacing:.04em}
+</style></head><body><div class="hdr"><div class="logo">Edit<em>Toolbelt</em></div><div class="nav"><span class="on">Photo</span><span class="">Video</span><span class="">Audio</span><span class="">Color</span><span class="">Subtitles & Time</span><span class="">Utility</span></div><div class="srch"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>Search</div><span class="signin">Sign in</span></div>
+<div class="cols">
+  <div class="left">
+    <div class="crumb">Photo / Remove Background</div>
+    <h1>Remove Background<br>from Image</h1>
+    <p class="tl">Cut out the subject and download a transparent PNG.</p>
+    <div class="priv"><i></i>Runs in your browser. Your image never leaves your device.</div>
+    <div class="form">
+      <div class="fr"><span class="k">Background</span><div class="opts"><span class="on">Transparent</span><span>Color</span><span>Blur</span><span>Image</span></div></div>
+      <div class="fr"><span class="k">Edges</span><div class="opts"><span class="on">Soft</span><span>Hard</span></div></div>
+      <div class="fr"><span class="k">Format</span><div class="opts"><span class="on">PNG</span><span>WebP</span></div></div>
+      <div class="fr"><span class="k">AI model</span><span class="mono">QUALITY · 115 MB · CACHED</span></div>
+    </div>
+    <div class="cta"><div class="btn pri"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Download PNG · 3.1 MB</div><div class="btn sec">Start over</div></div>
+    <div class="foot">Next: <u>Resize Image</u> &nbsp; <u>Compress Image</u> &nbsp; <u>Add Text</u></div>
+  </div>
+  <div class="right"><div class="canvas " style="">
+  <div class="orig"></div><div class="shadow"></div><div class="trans"></div>
+  <div class="mug"><div class="body"></div><div class="band"></div><div class="rim"></div><div class="handle"></div></div>
+  <div class="split"></div><div class="knob">‹›</div>
+  <span class="tag l">Original</span><span class="tag r">Result</span>
+</div>
+    <div class="readout"><span>3024 × 4032 px</span><span>4.8 MB → 3.1 MB</span><span>1.9 s</span><span>WebGPU</span></div>
+  </div>
+</div></body></html>

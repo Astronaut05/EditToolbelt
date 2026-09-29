@@ -1,0 +1,128 @@
+/*
+ * EditToolbelt design tokens: direction C "Signal" (signed off 2026-09-30).
+ * Token names follow docs/03-design-system.md. Copy into packages/ui/tokens.css
+ * and mirror in the Tailwind config. Components use these, never raw hex.
+ *
+ * Theme: follows the system by default; a manual toggle sets
+ * <html data-theme="light|dark"> (stored locally, strictly-necessary preference).
+ * Every text/background pair below was checked against WCAG AA (see README).
+ */
+
+:root {
+  /* ---- colour: light ---- */
+  --bg: #FFFFFF;
+  --surface: #F6F6F6;
+  --surface-raised: #FFFFFF;
+  --border: #E4E4E4;
+  --border-strong: #0A0A0A;        /* 2px rule under big headings / home search */
+  --text: #0A0A0A;
+  --text-muted: #6B6B6B;
+  --accent: #4B7000;               /* same hue as dark lime, darkened for contrast on white */
+  --accent-contrast: #FFFFFF;
+  --success: #4B7000;
+  --warning: #8A5A00;
+  --danger: #C4271A;
+  --focus-ring: #4B7000;
+
+  /* category tints: small tags and icon backgrounds only */
+  --cat-photo: #EEF2F7;
+  --cat-video: #F6EFEC;
+  --cat-audio: #F1EEF6;
+  --cat-color: #F5F2E6;
+  --cat-time: #EEF3E6;
+  --cat-utility: #F0F0F0;
+
+  /* transparency checkerboard behind cut-outs */
+  --checker-1: #FFFFFF;
+  --checker-2: #EDEDED;
+
+  /* ---- overlays on media (image/video previews): ALWAYS dark, in both themes ---- */
+  --media-scrim: rgba(10, 10, 10, 0.82);
+  --media-text: #F2F2F2;
+  --media-text-muted: #A8A8A8;
+  --media-accent: #B9E04C;
+
+  /* ---- type ---- */
+  --font-sans: "Onest", system-ui, sans-serif;           /* variable 100-900, self-hosted */
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;  /* 400/500, self-hosted */
+  --text-12: 12px;   /* mono micro-labels (uppercase, +0.14em) */
+  --text-14: 14px;   /* secondary UI, nav, table rows */
+  --text-16: 16px;   /* body, buttons */
+  --text-18: 18px;   /* lead / tagline (added to the 03 scale) */
+  --text-24: 24px;   /* phone section titles */
+  --text-32: 32px;   /* phone H1 */
+  --text-46: 46px;   /* desktop tool H1 (added) */
+  --text-72: 72px;   /* home search line, hub H1 (added) */
+  --weight-display: 650;        /* H1s: tracking -0.035em, line-height 0.98 */
+  --weight-strong: 600;
+  --weight-body: 400;
+  --tracking-display: -0.035em;
+  --tracking-label: 0.14em;
+
+  /* ---- space: 4-pt grid (03) ---- */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px;
+
+  /* ---- shape: Signal is sharp (overrides 03's 6/12/16) ---- */
+  --radius-control: 4px;
+  --radius-card: 4px;
+  --radius-workspace: 0px;      /* preview bleeds to the viewport edge */
+  --hairline: 1px;
+
+  /* ---- layout ---- */
+  --header-h: 56px;
+  --tool-left-col: 560px;       /* ≥1024px: settings column; preview fills the rest */
+  --page-gutter: 40px;          /* desktop; 16px on phones */
+  --content-max: 1440px;
+
+  /* ---- motion (03) ---- */
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0A0A0A;
+    --surface: #121212;
+    --surface-raised: #181818;
+    --border: #262626;
+    --border-strong: #F2F2F2;
+    --text: #F2F2F2;
+    --text-muted: #8C8C8C;
+    --accent: #B9E04C;
+    --accent-contrast: #0A0A0A;
+    --success: #B9E04C;
+    --warning: #F2B43A;
+    --danger: #FF6B5E;
+    --focus-ring: #B9E04C;
+    --cat-photo: #151A21; --cat-video: #1E1715; --cat-audio: #1A1720;
+    --cat-color: #1D1B12; --cat-time: #171D12; --cat-utility: #181818;
+    --checker-1: #141414;
+    --checker-2: #1C1C1C;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0A0A0A;
+  --surface: #121212;
+  --surface-raised: #181818;
+  --border: #262626;
+  --border-strong: #F2F2F2;
+  --text: #F2F2F2;
+  --text-muted: #8C8C8C;
+  --accent: #B9E04C;
+  --accent-contrast: #0A0A0A;
+  --success: #B9E04C;
+  --warning: #F2B43A;
+  --danger: #FF6B5E;
+  --focus-ring: #B9E04C;
+  --cat-photo: #151A21; --cat-video: #1E1715; --cat-audio: #1A1720;
+  --cat-color: #1D1B12; --cat-time: #171D12; --cat-utility: #181818;
+  --checker-1: #141414;
+  --checker-2: #1C1C1C;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur: 0ms; }
+}
