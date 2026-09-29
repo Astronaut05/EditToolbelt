@@ -1,0 +1,19 @@
+# Local development image for apps/web (next dev with hot reload). Build context: repo root.
+# Production is a static export on Cloudflare Pages; there is no production web image until M5.
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    CI=1
+
+RUN corepack enable
+
+WORKDIR /repo
+# Whole repo (minus .dockerignore). compose watch rebuilds this image when a
+# manifest or the lockfile changes, and syncs source files in place otherwise.
+COPY . .
+RUN pnpm install --frozen-lockfile --filter @etb/web...
+
+EXPOSE 3000
+CMD ["pnpm", "--filter", "@etb/web", "dev", "--hostname", "0.0.0.0", "--port", "3000"]

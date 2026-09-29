@@ -1,0 +1,64 @@
+# Weekly dependency updates (docs/11-security.md → Secrets and supply chain).
+# Every update still has to pass the license check in CI (docs/13-licenses.md).
+# The ignore rules hold decided versions (CHANGES.md → M0 sign-off): Node on its
+# LTS line (.nvmrc), Python 3.12, TypeScript 6.0 until typescript-eslint supports
+# newer, Postgres 18. Bump those by hand, on purpose.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      lint-and-types:
+        patterns:
+          [
+            'eslint',
+            '@eslint/*',
+            'typescript-eslint',
+            'eslint-*',
+            '@next/eslint-plugin-next',
+            '@types/*',
+            'typescript',
+          ]
+      next-and-react:
+        patterns: ['next', 'react', 'react-dom']
+    ignore:
+      # typescript-eslint supports TypeScript < 6.1 only.
+      - dependency-name: typescript
+        versions: ['>= 6.1']
+      # Types follow the Node LTS line in .nvmrc.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: uv
+    directory: /apps/worker
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directories: [/apps/worker, /apps/web]
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+      - dependency-name: python
+        versions: ['>= 3.13']
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: postgres
+        update-types: ['version-update:semver-major']

@@ -46,13 +46,21 @@ Tool specs are split by category: `tools/photo.md`, `tools/video.md`, `tools/aud
 - `apps/worker`: Python 3.12 job workers (ffmpeg, ML models). Talks to Postgres and object storage only.
 - `apps/panel`: Premiere UXP panel (milestone 7).
 - `packages/ui` design system · `packages/registry` tool registry · `packages/engines` browser processing engines · `packages/core` pure logic shared by web and panel (calculators, subtitle parsing, timecode) · `packages/db` Drizzle schema + migrations · `packages/api-client` typed client for web and panel.
-- Postgres (also the job queue). S3-compatible object storage (Cloudflare R2 in production, MinIO locally). Cloudflare in front for CDN, TLS and edge rate limiting.
+- Postgres (also the job queue). S3-compatible object storage (Cloudflare R2 in production, Versity S3 Gateway locally; MinIO is AGPL, see `docs/13-licenses.md`). Cloudflare in front for CDN, TLS and edge rate limiting, from the Go public step on; until then everything runs locally on Astro's PC (no domain, no Cloudflare).
 - Auth: Better Auth — email magic link + Google. Payments: Paddle (merchant of record) behind a `PaymentProvider` interface.
-- Local dev: `docker compose up` gives Postgres, MinIO, worker, and web with hot reload.
+- Local dev: `docker compose up --watch` gives Postgres, S3 storage, worker, and web with hot reload.
+
+## Commands
+
+- `docker compose up --watch`: the whole local stack (web on :3000, worker, Postgres, storage).
+- `pnpm preview`: production build (static export) served locally on :4173, the way Cloudflare Pages will serve it. Milestones are signed off against this.
+- `pnpm check`: format, lint, typecheck, unit tests, license and host checks for the JS side. `pnpm worker:check`: the same for `apps/worker` (ruff, mypy, pytest, licenses).
+- Adding a dependency: row in `docs/13-licenses.md` + entry in `licenses.json` first, or CI fails.
 
 ## Conventions
 
 - Zod schemas at every boundary (API input, registry entries, env vars, job payloads).
+- No domain or host in code: absolute URLs from `SITE_URL`, model/WASM files from `MODELS_BASE_URL` (`pnpm hosts:check` enforces it).
 - Errors to clients use RFC 9457 `application/problem+json`.
 - Every tool has unit tests for its pure logic and one Playwright test that drops a fixture file and checks the output.
 - Fixtures live in `fixtures/` (small, license-free, generated where possible).

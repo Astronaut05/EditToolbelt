@@ -58,7 +58,7 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
   - `run(ctx) -> Result` — does the work, reports progress through `ctx.progress(pct, stage)`.
 
 ### GPU backend
-- `GpuBackend` interface, two production implementations (plus `LocalGpu`, dev only: the Pascal card in M3–M4 staging, see Hosting):
+- `GpuBackend` interface, two production implementations (plus `LocalGpu`, dev only: the Pascal card in the M3–M4 local stack, see Hosting):
   - `ServerlessGpu` (start here): our own Docker images with our chosen models, deployed to a per-second-billed serverless GPU provider. No idle cost, cold starts of seconds to tens of seconds. This satisfies "self-hosted models, not someone else's API" without a fixed monthly GPU bill.
   - `DedicatedGpu`: a rented GPU server running the **same images**, switched on when monthly GPU-seconds make it cheaper (break-even formula in `05-credits-and-payments.md`).
 - The CPU worker claims GPU jobs too, forwards them to the backend, then does upload/cleanup as usual — switching backend is a config change.
@@ -77,27 +77,40 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 
 ## Hosting
 
-### Until the project is finished: free (decided 2026-09-29)
+### Until Go public: everything runs locally (decided 2026-09-29, M0 sign-off)
 
-- **Code on GitHub** (private repo). GitHub Pages is **not** used: its terms forbid using it to run an online business or SaaS, and it can't set response headers (CSP, COOP/COEP).
-- **Public site, M1–M2b: Cloudflare Pages (free)**, auto-deployed from the GitHub repo on merge to `main`. This works because every launch-set and M2b tool runs in the browser: `apps/web` is built as a Next.js static export (`output: 'export'`; images pre-built as AVIF/WebP, no `next/image` optimisation), and headers (CSP, and COOP/COEP on M2b's ffmpeg.wasm routes) come from a `_headers` file (max 100 rules).
-  - Limits to design for: **25 MiB max per file**, 20,000 files. ML models and big WASM files are served from an R2 bucket on a `models.` subdomain (R2's free tier, no egress fees) with CORS, immutable caching and `Cross-Origin-Resource-Policy: cross-origin` (needed once COEP routes load them).
-- **Buy the domain now** (edittoolbelt.com, or .app) and point it at Cloudflare Pages. Search ranking belongs to the domain, so moving to paid hosting later is a DNS change; launching on a `*.pages.dev` address would mean starting SEO over.
-- **Server parts, M3–M4: your own PC** runs the full stack with `docker compose` as private staging, reachable through a free Cloudflare Tunnel (no router ports opened). Only you and testers use it — no real users' files and no payments go through a home PC (uptime, home upload speed, and the privacy page promises EU hosting). While the public site is static, admin status flags apply to the local stack only; tool status on the public site changes by redeploy.
-- **Local GPU for M3–M4: Astro's GTX 1080 Ti.** The `server-gpu` tools run on this card in local staging, so GPU jobs are tested end-to-end before renting anything. It's a Pascal card (compute capability 6.1), which sets hard rules for the dev worker image:
+No Cloudflare, no domain and no hosting bill until Astro decides to go public (the **Go public** step in `12-milestones.md`). Nothing is public before then, so nothing needs redirects afterwards.
+
+- **Code on GitHub** (private repo). CI runs lint, typecheck, tests and license checks on every PR. GitHub Pages is **not** used: its terms forbid using it to run an online business or SaaS, and it can't set response headers (CSP, COOP/COEP).
+- **The site runs on Astro's PC.** `docker compose up --watch` for development; `pnpm preview` builds the Next.js static export (`output: 'export'`; images pre-built as AVIF/WebP, no `next/image` optimisation) and serves it locally the way Cloudflare Pages will, including the headers from the `_headers` file (CSP, and COOP/COEP on M2b's ffmpeg.wasm routes; the local server applies them from M1). Milestones are signed off against that production build.
+- **No host is hard-coded.** Every absolute URL (canonical, sitemap, OG, JSON-LD, robots.txt) is built from `SITE_URL` (default `http://localhost:3000`). Model and WASM files load from `MODELS_BASE_URL` (default `/models`, a local path under `apps/web/public/models/`, not committed). CI fails on a hard-coded domain or host in code (`pnpm hosts:check`).
+- **Phones** reach the PC over USB (Android, port forwarding: `localhost` is a secure context) or over Wi-Fi with local HTTPS (mkcert). Plain `http://192.168.x.x` is not a secure context, so service workers, WebGPU and `crossOriginIsolated` all fail there. See README → Testing on phones.
+- **Server parts, M3–M4: the same PC** runs the full stack with `docker compose`. Only Astro uses it — no real users' files and no payments go through a home PC (uptime, home upload speed, and the privacy page promises EU hosting).
+- The Cloudflare Pages deploy job stays in `.github/workflows/ci.yml` and is skipped while the `CLOUDFLARE_API_TOKEN` secret is absent.
+
+### Go public (when Astro decides; required before M5)
+
+- **Buy the domain** (edittoolbelt.com, .app or .io; open question 1) and point it at Cloudflare Pages. Search ranking belongs to the domain, so later moves are DNS changes.
+- **Public site: Cloudflare Pages (free)**, deployed by CI from `main` once the Cloudflare secrets and the `SITE_URL` variable are set. The static export works there because every launch-set and M2b tool runs in the browser; headers come from the same `_headers` file (max 100 rules).
+  - Limits to design for: **25 MiB max per file**, 20,000 files. ML models and big WASM files are served from an R2 bucket on a `models.` subdomain (R2's free tier, no egress fees) with CORS, immutable caching and `Cross-Origin-Resource-Policy: cross-origin` (needed once COEP routes load them); `MODELS_BASE_URL` points there.
+- Search Console and Bing verification, sitemap submission, and the Paddle seller application (Paddle's onboarding reviews the live website).
+
+### Local GPU and paid hosting
+
+- **Local GPU for M3–M4: Astro's GTX 1080 Ti.** The `server-gpu` tools run on this card in the local stack, so GPU jobs are tested end-to-end before renting anything. It's a Pascal card (compute capability 6.1), which sets hard rules for the dev worker image:
   - **Pin PyTorch to a build that still includes Pascal.** PyTorch removed Maxwell/Pascal from its CUDA 12.8+ wheels (starting with 2.8). CI check in the dev image: `torch.cuda.get_arch_list()` must contain `sm_61`, else fail the build.
   - **NVIDIA driver 580 is the last branch for Pascal.** Stay on it; don't pull CUDA 13 into the dev image.
   - **Run models in fp32 (or int8 where the runtime supports it on this card).** Consumer Pascal has almost no fp16 throughput, so fp16 is slower, not faster.
   - Memory: 11 GB on a 1080 Ti (8 GB if it's a plain 1080 — check Task Manager → Performance → GPU). Real-ESRGAN and BiRefNet run tiled; Demucs splits into segments; one GPU job at a time (`limits.maxConcurrent = 1` in local config).
   - This is a **dev-only** image (`apps/worker/Dockerfile.gpu-pascal`). The production GPU image targets current cards and CUDA and is built separately. Speed numbers measured on the 1080 Ti are not used for pricing.
-- **Buy hosting before M5** (first public server jobs and payments) and move to the production setup below. The domain doesn't change.
+- **Buy hosting before M5** (first public server jobs and payments; Go public must have happened) and move to the production setup below. The domain doesn't change.
 
 ### Production (from M5)
 
 - `apps/web` and `apps/worker` as Docker containers on EU VPS (Hetzner or equivalent), behind Cloudflare.
 - Postgres: managed or self-run on the same provider, daily backups + 7-day point-in-time recovery if available. DB holds no user files, so backups are small.
 - Object storage: Cloudflare R2 (no egress fees — matters for download-heavy tools), EU jurisdiction bucket.
-- Environments: `local` (docker compose, also the M3–M4 staging via Cloudflare Tunnel), `staging`, `production`. Identical config shape, separate DBs and buckets.
+- Environments: `local` (docker compose on Astro's PC, which is also where M3–M4 are tested), `staging`, `production`. Identical config shape, separate DBs and buckets.
 - CI (GitHub Actions): lint, typecheck, unit tests, Playwright on staging, then deploy. Migrations run as a separate step before new containers start; migrations must be backward-compatible with the previous release.
 - Why EU: GDPR-friendly default for the largest paying audience; also satisfies the "adequate protection" route for keeping Uzbek users' (non-sensitive) personal data abroad (see `08-legal-and-privacy.md`).
 

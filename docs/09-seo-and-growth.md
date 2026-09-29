@@ -44,7 +44,7 @@ Architecture is i18n-ready from day one (next-intl, all UI strings in message fi
 
 ## Measuring
 
-- Google Search Console + Bing Webmaster Tools from launch day.
+- Google Search Console + Bing Webmaster Tools from the Go public step (`12-milestones.md`); nothing is public before it.
 - Cookieless analytics (self-hosted Umami or similar): page views, referrers, and these custom events — all without personal data:
 
 | Event | Props |

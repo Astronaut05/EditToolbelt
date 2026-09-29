@@ -1,0 +1,11 @@
+pnpm-lock.yaml
+apps/worker/
+**/.next/
+**/out/
+**/.turbo/
+
+# The spec is authored prose with hand-aligned tables; don't reflow it.
+CLAUDE.md
+CHANGES.md
+docs/
+tools/

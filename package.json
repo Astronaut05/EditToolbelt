@@ -1,0 +1,37 @@
+{
+  "name": "edittoolbelt",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "preview": "turbo run build --filter=@etb/web && pnpm --filter @etb/web preview",
+    "lint": "turbo run lint && eslint scripts eslint.config.mjs",
+    "typecheck": "turbo run typecheck && tsc -p scripts",
+    "test": "turbo run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "licenses:check": "node scripts/check-licenses.ts",
+    "worker:check": "cd apps/worker && uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest && uv run python scripts/check_licenses.py",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm licenses:check && pnpm hosts:check",
+    "hosts:check": "node scripts/check-hosts.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "^16.3.6",
+    "@types/node": "^24.19.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.9",
+    "turbo": "^2.11.4",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.2",
+    "zod": "^4.6.5"
+  }
+}

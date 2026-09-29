@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+  - config
+
+# Supply chain: don't install versions published less than a day ago.
+minimumReleaseAge: 1440
+
+# Next.js pulls sharp (libvips, LGPL) as an optional dependency for image
+# optimisation. We build a static export with images.unoptimized, so it is
+# never used. See docs/13-licenses.md.
+ignoredOptionalDependencies:
+  - sharp
