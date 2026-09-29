@@ -5,7 +5,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "env": ["APP_ENV", "APP_VERSION", "LOG_LEVEL", "NEXT_PUBLIC_SITE_URL"],
+      "env": ["APP_ENV", "APP_VERSION", "LOG_LEVEL", "SITE_URL", "MODELS_BASE_URL"],
       "outputs": ["out/**", ".next/**", "!.next/cache/**"]
     },
     "lint": {},

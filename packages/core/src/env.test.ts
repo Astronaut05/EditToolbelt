@@ -19,7 +19,8 @@ describe('webEnvSchema', () => {
         APP_ENV: 'local',
         APP_VERSION: 'dev',
         LOG_LEVEL: 'info',
-        NEXT_PUBLIC_SITE_URL: 'http://localhost:3000',
+        SITE_URL: 'http://localhost:3000',
+        MODELS_BASE_URL: '/models',
       },
     });
   });
@@ -33,7 +34,7 @@ describe('webEnvSchema', () => {
     const result = parseEnv(webEnvSchema, { APP_ENV: 'production' });
     expect(result).toEqual({
       ok: false,
-      errors: ['NEXT_PUBLIC_SITE_URL: must be the public URL when APP_ENV=production'],
+      errors: ['SITE_URL: must be the public URL when APP_ENV=production'],
     });
   });
 
@@ -41,13 +42,41 @@ describe('webEnvSchema', () => {
     const result = parseEnv(webEnvSchema, {
       APP_ENV: 'production',
       LOG_LEVEL: 'debug',
-      NEXT_PUBLIC_SITE_URL: 'https://edittoolbelt.com',
+      SITE_URL: 'https://example.com',
     });
     expect(result).toEqual({
       ok: false,
       errors: ['LOG_LEVEL: debug logging is not allowed in production'],
     });
   });
+
+  it('treats loopback addresses as local too', () => {
+    const result = parseEnv(webEnvSchema, {
+      APP_ENV: 'staging',
+      SITE_URL: 'http://127.0.0.1:4173',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it.each([
+    '/models',
+    '/assets/models/',
+    'http://localhost:4173/models',
+    'https://models.example.com',
+  ])('accepts %s as MODELS_BASE_URL', (value) => {
+    expect(parseEnv(webEnvSchema, { MODELS_BASE_URL: value }).ok).toBe(true);
+  });
+
+  it.each(['models', '//cdn.example.com/models', 'ftp://example.com/models', 'https://'])(
+    'rejects %s as MODELS_BASE_URL',
+    (value) => {
+      const result = parseEnv(webEnvSchema, { MODELS_BASE_URL: value });
+      expect(result).toEqual({
+        ok: false,
+        errors: ['MODELS_BASE_URL: must be a root-relative path like /models or an http(s) URL'],
+      });
+    },
+  );
 
   it('rejects unknown enum values', () => {
     const result = parseEnv(webEnvSchema, { APP_ENV: 'prod' });

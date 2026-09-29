@@ -8,7 +8,8 @@
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "preview": "node scripts/serve.ts"
   },
   "dependencies": {
     "@etb/core": "workspace:*",

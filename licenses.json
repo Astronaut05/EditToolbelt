@@ -809,6 +809,19 @@
       "checked": "2026-09-29"
     },
     {
+      "label": "mkcert",
+      "section": "Development, build and CI",
+      "ecosystem": "system",
+      "packages": ["mkcert"],
+      "use": "local HTTPS certificates for testing on phones (installed by the developer, not by the repo)",
+      "license": "BSD-3-Clause",
+      "scope": "dev",
+      "status": "approved",
+      "version": "v1.4.4",
+      "source": "https://github.com/FiloSottile/mkcert/blob/master/LICENSE",
+      "checked": "2026-09-29"
+    },
+    {
       "label": "GitHub Actions: checkout, setup-node, upload/download-artifact",
       "section": "Development, build and CI",
       "ecosystem": "github-action",

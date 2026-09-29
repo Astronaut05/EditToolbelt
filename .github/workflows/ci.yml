@@ -1,5 +1,5 @@
-# CI (docs/12-milestones.md → M0): lint, typecheck, test on every PR.
-# On merge to main: static export deployed to Cloudflare Pages (docs/01 → Hosting).
+# CI (docs/12-milestones.md → M0): lint, typecheck, tests, license and host checks on every PR.
+# Deploy to Cloudflare Pages on merge to main is dormant until Go public (docs/01 → Hosting).
 # Third-party actions are pinned by commit and listed in licenses.json.
 name: CI
 
@@ -22,7 +22,7 @@ env:
 
 jobs:
   js:
-    name: JS · format, lint, typecheck, test, licenses, build
+    name: JS · format, lint, typecheck, test, licenses, hosts, build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -38,11 +38,21 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm licenses:check
+      - run: pnpm hosts:check
       - name: Build static export
         run: pnpm build
         env:
           APP_ENV: test
           APP_VERSION: ${{ github.sha }}
+      - name: Production build serves the placeholder locally
+        run: |
+          pnpm --filter @etb/web preview &
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:4173/ | grep -q '<h1>EditToolbelt</h1>' && break
+            sleep 1
+          done
+          curl -fs http://localhost:4173/ | grep -q '<h1>EditToolbelt</h1>'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/does-not-exist)" = 404
 
   worker:
     name: Worker · ruff, mypy, pytest, licenses
@@ -122,52 +132,65 @@ jobs:
         if: always()
         run: docker compose down --volumes
 
+  # Dormant until Go public (docs/12-milestones.md): without the
+  # CLOUDFLARE_API_TOKEN secret the deploy job below is skipped, not failed.
+  deploy-gate:
+    name: Deploy gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        run: |
+          echo "enabled=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::notice::No CLOUDFLARE_API_TOKEN secret: the site stays local until Go public, deploy skipped."
+          fi
+
   deploy:
     name: Deploy to Cloudflare Pages
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [js, worker, stack]
+    needs: [deploy-gate, js, worker, stack]
+    if: needs.deploy-gate.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
       name: production
-      url: ${{ steps.site.outputs.url }}
+      url: ${{ vars.SITE_URL }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT || 'edittoolbelt' }}
+      # Hosts come from repository variables, never from this file.
+      SITE_URL: ${{ vars.SITE_URL }}
+      MODELS_BASE_URL: ${{ vars.MODELS_BASE_URL }}
     steps:
-      - name: Check Cloudflare credentials
-        id: creds
+      - name: Check deploy settings
         run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set; skipping deploy. See README → Deploy."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          missing=""
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID (secret)"
+          [ -n "$SITE_URL" ] || missing="$missing SITE_URL (variable)"
+          if [ -n "$missing" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is set but these are missing:$missing. See README → Go public."
+            exit 1
           fi
-      - name: Site URL
-        id: site
-        run: echo "url=${{ vars.SITE_URL || format('https://{0}.pages.dev', vars.CF_PAGES_PROJECT || 'edittoolbelt') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.creds.outputs.ready == 'true'
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        if: steps.creds.outputs.ready == 'true'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: steps.creds.outputs.ready == 'true'
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - name: Build static export
-        if: steps.creds.outputs.ready == 'true'
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter @etb/web build
         env:
           APP_ENV: production
           APP_VERSION: ${{ github.sha }}
-          NEXT_PUBLIC_SITE_URL: ${{ steps.site.outputs.url }}
       - name: Deploy with Wrangler
-        if: steps.creds.outputs.ready == 'true'
         # Outside the workspace so npx can't touch the repo's package.json or lockfile.
         working-directory: ${{ runner.temp }}
         run: >

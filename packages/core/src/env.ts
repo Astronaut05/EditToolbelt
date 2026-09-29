@@ -36,22 +36,36 @@ function checkShared(env: Shared, ctx: z.RefinementCtx): void {
   }
 }
 
-/** Env for apps/web. Only NEXT_PUBLIC_* values reach the browser bundle. */
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
+
+/** A root-relative path (`/models`) or an absolute http(s) URL. */
+const baseUrl = z
+  .string()
+  .trim()
+  .refine(
+    (value) => (value.startsWith('/') && !value.startsWith('//')) || /^https?:\/\/[^/]/.test(value),
+    'must be a root-relative path like /models or an http(s) URL',
+  );
+
+/**
+ * Env for apps/web. No domain or host is hard-coded anywhere (CI enforces it):
+ * every absolute URL comes from SITE_URL, every model/WASM file from
+ * MODELS_BASE_URL. next.config.ts inlines both into server and client code.
+ */
 export const webEnvSchema = z
   .object({
     ...sharedShape,
-    /** Canonical origin, used for metadata, sitemap and OG URLs. */
-    NEXT_PUBLIC_SITE_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
+    /** Origin for canonical, sitemap, OG, JSON-LD and robots.txt URLs. */
+    SITE_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
+    /** Where model and WASM files load from: a local path until Go public, then the R2 `models.` host. */
+    MODELS_BASE_URL: baseUrl.default('/models'),
   })
   .superRefine((env, ctx) => {
     checkShared(env, ctx);
-    if (
-      DEPLOYED.includes(env.APP_ENV) &&
-      new URL(env.NEXT_PUBLIC_SITE_URL).hostname === 'localhost'
-    ) {
+    if (DEPLOYED.includes(env.APP_ENV) && LOCAL_HOSTNAMES.has(new URL(env.SITE_URL).hostname)) {
       ctx.addIssue({
         code: 'custom',
-        path: ['NEXT_PUBLIC_SITE_URL'],
+        path: ['SITE_URL'],
         message: `must be the public URL when APP_ENV=${env.APP_ENV}`,
       });
     }

@@ -28,3 +28,9 @@ __pycache__/
 Thumbs.db
 .idea/
 *.swp
+
+# large model/WASM files served locally from MODELS_BASE_URL (default /models)
+apps/web/public/models/
+
+# local TLS certificates for phone testing (mkcert, see README)
+certs/

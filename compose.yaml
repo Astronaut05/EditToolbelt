@@ -91,7 +91,8 @@ services:
       APP_ENV: local
       APP_VERSION: dev
       LOG_LEVEL: info
-      NEXT_PUBLIC_SITE_URL: http://localhost:${ETB_WEB_PORT:-3000}
+      SITE_URL: http://localhost:${ETB_WEB_PORT:-3000}
+      MODELS_BASE_URL: /models
     ports:
       - 127.0.0.1:${ETB_WEB_PORT:-3000}:3000
     develop:

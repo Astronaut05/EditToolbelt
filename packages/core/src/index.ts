@@ -6,3 +6,4 @@
  * browser bundle by accident: `@etb/core/env`, `@etb/core/logger`.
  */
 export { REDACTED, isSensitiveKey, redact, redactString } from './redact';
+export { joinUrl } from './urls';

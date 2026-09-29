@@ -78,16 +78,16 @@
   {
     "name": "strips the query string from URLs inside free text",
     "input": {
-      "detail": "GET https://acc.r2.cloudflarestorage.com/etb/out/0192.png?X-Amz-Algorithm=AWS4&X-Amz-Signature=deadbeef failed"
+      "detail": "GET https://storage.example.test/etb/out/0192.png?X-Amz-Algorithm=AWS4&X-Amz-Signature=deadbeef failed"
     },
     "expected": {
-      "detail": "GET https://acc.r2.cloudflarestorage.com/etb/out/0192.png?[redacted] failed"
+      "detail": "GET https://storage.example.test/etb/out/0192.png?[redacted] failed"
     }
   },
   {
     "name": "keeps URLs without a query string",
-    "input": { "detail": "fetched https://models.edittoolbelt.com/birefnet/v1.onnx" },
-    "expected": { "detail": "fetched https://models.edittoolbelt.com/birefnet/v1.onnx" }
+    "input": { "detail": "fetched https://models.example.com/birefnet/v1.onnx" },
+    "expected": { "detail": "fetched https://models.example.com/birefnet/v1.onnx" }
   },
   {
     "name": "scrubs bearer tokens, API keys and emails from free text",
