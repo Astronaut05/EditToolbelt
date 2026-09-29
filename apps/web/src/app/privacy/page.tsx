@@ -2,13 +2,14 @@ import type { Metadata } from 'next';
 
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
+import { pageMetadata } from '../../lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Privacy',
+export const metadata: Metadata = pageMetadata({
+  title: 'Privacy | EditToolbelt',
   description:
     'What EditToolbelt collects, why, and for how long. Browser tools never send your files anywhere.',
-  alternates: { canonical: '/privacy' },
-};
+  path: '/privacy',
+});
 
 export default function PrivacyPage() {
   return (

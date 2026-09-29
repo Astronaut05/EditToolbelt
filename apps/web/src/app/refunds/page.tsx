@@ -2,13 +2,14 @@ import type { Metadata } from 'next';
 
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
+import { pageMetadata } from '../../lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Refunds',
+export const metadata: Metadata = pageMetadata({
+  title: 'Refunds | EditToolbelt',
   description:
     'When credits come back automatically, and how to ask for a refund of a credit pack.',
-  alternates: { canonical: '/refunds' },
-};
+  path: '/refunds',
+});
 
 export default function RefundsPage() {
   return (

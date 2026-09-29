@@ -3,12 +3,13 @@ import type { Metadata } from 'next';
 import register from '../../../../../licenses.json';
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
+import { pageMetadata } from '../../lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Open-source licenses',
+export const metadata: Metadata = pageMetadata({
+  title: 'Open-source licenses | EditToolbelt',
   description: 'The open-source software and models EditToolbelt is built on, with their licenses.',
-  alternates: { canonical: '/licenses' },
-};
+  path: '/licenses',
+});
 
 interface Entry {
   label: string;

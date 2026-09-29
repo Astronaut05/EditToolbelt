@@ -2,12 +2,13 @@ import type { Metadata } from 'next';
 
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
+import { pageMetadata } from '../../lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Contact',
+export const metadata: Metadata = pageMetadata({
+  title: 'Contact | EditToolbelt',
   description: 'How to reach EditToolbelt: questions, abuse reports and privacy requests.',
-  alternates: { canonical: '/contact' },
-};
+  path: '/contact',
+});
 
 export default function ContactPage() {
   return (
