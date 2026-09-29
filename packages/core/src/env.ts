@@ -59,9 +59,22 @@ export const webEnvSchema = z
     SITE_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
     /** Where model and WASM files load from: a local path until Go public, then the R2 `models.` host. */
     MODELS_BASE_URL: baseUrl.default('/models'),
+    /**
+     * Cookieless analytics (docs/09 → Measuring): the base URL of a self-hosted,
+     * Umami-compatible collector and the site's id there. Both unset = off.
+     */
+    ANALYTICS_URL: z.url({ protocol: /^https?$/ }).optional(),
+    ANALYTICS_WEBSITE_ID: z.uuid().optional(),
   })
   .superRefine((env, ctx) => {
     checkShared(env, ctx);
+    if (Boolean(env.ANALYTICS_URL) !== Boolean(env.ANALYTICS_WEBSITE_ID)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [env.ANALYTICS_URL ? 'ANALYTICS_WEBSITE_ID' : 'ANALYTICS_URL'],
+        message: 'set both ANALYTICS_URL and ANALYTICS_WEBSITE_ID, or neither',
+      });
+    }
     if (DEPLOYED.includes(env.APP_ENV) && LOCAL_HOSTNAMES.has(new URL(env.SITE_URL).hostname)) {
       ctx.addIssue({
         code: 'custom',

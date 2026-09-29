@@ -44,3 +44,23 @@ export function matchesAccept(file: { name: string; type: string }, accept: stri
           : type === rule,
     );
 }
+
+/** Analytics size bucket: never the exact size (docs/09 → no personal data). */
+export function sizeBucket(bytes: number): string {
+  const mb = bytes / 1_000_000;
+  if (mb < 1) return '<1MB';
+  if (mb < 10) return '1-10MB';
+  if (mb < 100) return '10-100MB';
+  if (mb < 1000) return '100MB-1GB';
+  return '>1GB';
+}
+
+/** Analytics duration bucket. */
+export function durationBucket(ms: number): string {
+  const s = ms / 1000;
+  if (s < 1) return '<1s';
+  if (s < 3) return '1-3s';
+  if (s < 10) return '3-10s';
+  if (s < 60) return '10-60s';
+  return '>60s';
+}

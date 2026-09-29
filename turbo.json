@@ -5,7 +5,16 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "env": ["APP_ENV", "APP_VERSION", "LOG_LEVEL", "SITE_URL", "MODELS_BASE_URL", "ETB_WORKSHOP"],
+      "env": [
+        "APP_ENV",
+        "APP_VERSION",
+        "LOG_LEVEL",
+        "SITE_URL",
+        "MODELS_BASE_URL",
+        "ETB_WORKSHOP",
+        "ANALYTICS_URL",
+        "ANALYTICS_WEBSITE_ID"
+      ],
       "outputs": ["out/**", ".next/**", "!.next/cache/**"]
     },
     "lint": {},

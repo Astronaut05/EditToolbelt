@@ -20,7 +20,7 @@ import { BeforeAfter, MediaTag } from './BeforeAfter';
 import { CanvasEditor, type EditorMode } from './CanvasEditor';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
-import { formatBytes, outputName } from './format';
+import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import { Readout, ReadoutRow, type Fact } from './Readout';
 import { Timeline, type TimelineRange } from './Timeline';
@@ -128,7 +128,7 @@ export interface ToolShellProps {
   /** Start in a given state: design screens and tests. */
   initialState?: ShellState;
   initialOptions?: Record<string, string>;
-  /** Called with analytics events (docs/09). */
+  /** Analytics events from docs/09 (bucketed, no file names or contents). */
   onEvent?: (name: string, props: Record<string, string>) => void;
 }
 
@@ -207,7 +207,10 @@ export function ToolShell({
         const url = URL.createObjectURL(out.blob);
         urls.current.push(url);
         const seconds = (performance.now() - started) / 1000;
-        track('tool_run_succeeded', { engine_path: out.path });
+        track('tool_run_succeeded', {
+          engine_path: out.path,
+          duration: durationBucket(seconds * 1000),
+        });
         setState({
           kind: 'result',
           input,
@@ -227,7 +230,7 @@ export function ToolShell({
           setState({ kind: 'empty' });
           return;
         }
-        track('tool_run_failed', { error_code: 'engine' });
+        track('tool_run_failed', { error_code: 'engine', engine_path: 'client' });
         setState({
           kind: 'error',
           label: "Couldn't process this file",
@@ -246,7 +249,10 @@ export function ToolShell({
       const url = URL.createObjectURL(file);
       urls.current.push(url);
       const input: InputInfo = { name: file.name, size: file.size, url };
-      track('tool_file_added', { mime: file.type.split('/')[0] ?? 'unknown' });
+      track('tool_file_added', {
+        mime: file.type.split('/')[0] || 'unknown',
+        size: sizeBucket(file.size),
+      });
       if (tool.ui === 'batch') {
         setBatch(
           files.map((f, i) => ({
@@ -445,7 +451,7 @@ export function ToolShell({
           href={link.href}
           className="link-accent"
           onClick={() => {
-            track('tool_handoff', { to_tool: link.href.slice(1) });
+            onEvent?.('tool_handoff', { from_tool: tool.id, to_tool: link.href.slice(1) });
           }}
         >
           {link.name}

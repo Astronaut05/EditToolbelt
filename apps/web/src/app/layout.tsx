@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 import { SearchOverlay, themeScript } from '@etb/ui';
 
+import { Analytics } from '../components/Analytics';
 import { ServiceWorker } from '../components/ServiceWorker';
 import { env } from '../lib/env';
 import { absoluteUrl } from '../lib/urls';
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {children}
         <SearchOverlay />
         <ServiceWorker />
+        <Analytics />
       </body>
     </html>
   );
