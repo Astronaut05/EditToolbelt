@@ -35,6 +35,17 @@ pnpm preview        # next build (static export), then http://localhost:4173
 
 The server is `apps/web/scripts/serve.ts` (Node only, no dependencies). `pnpm preview --lan --https` serves it to phones on your Wi-Fi; see [Testing on phones](#testing-on-phones).
 
+## Design workshop
+
+The design screens in `docs/design/screens/` are rebuilt from the real components, with the fixture data they were drawn with (a typed search, some tools live, a run in progress), in a local-only workshop. Workshop routes never reach `pnpm preview` or CI builds.
+
+```sh
+pnpm workshop            # build with the workshop, serve on http://localhost:4173/workshop
+pnpm design:compare      # second terminal: design PNG next to the build, light and dark, into ./screens-compare
+```
+
+`design:compare` and `pnpm samples` (re-renders the sample images) drive Chromium through Playwright; install it once with `pnpm exec playwright install chromium`.
+
 ## Checks
 
 Outside Docker you need Node 24 (22.18+ works) with Corepack, and [uv](https://docs.astral.sh/uv/) for the worker.

@@ -34,3 +34,6 @@ apps/web/public/models/
 
 # local TLS certificates for phone testing (mkcert, see README)
 certs/
+
+# design check output (pnpm design:compare)
+screens-compare/
