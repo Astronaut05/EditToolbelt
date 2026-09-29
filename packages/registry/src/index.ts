@@ -92,6 +92,26 @@ export function runsInBrowser(tool: Pick<ToolDef, 'runtime'>): boolean {
   return tool.runtime === 'client' || tool.runtime === 'hybrid';
 }
 
+/**
+ * Engines that compile WebAssembly in the browser. Their pages need
+ * `'wasm-unsafe-eval'` in the CSP (docs/11 → only on tool routes that need
+ * WASM). Refined per engine as the engines land in M2.
+ */
+export const WASM_ENGINES: ReadonlySet<EngineId> = new Set([
+  'image-codec',
+  'image-vector',
+  'image-ml',
+  'video-webcodecs',
+  'video-ffmpeg-wasm',
+  'audio-dsp',
+  'media-probe',
+]);
+
+/** A working tool page that loads WebAssembly. `soon` pages load no tool code. */
+export function needsWasm(tool: Pick<ToolDef, 'engines' | 'status'>): boolean {
+  return isAvailable(tool) && tool.engines.some((engine) => WASM_ENGINES.has(engine));
+}
+
 /** The mono runtime tag on hub rows: BROWSER, AI · BROWSER, AI · CREDITS, CREDITS. */
 export function runtimeTag(tool: Pick<ToolDef, 'runtime' | 'engines'>): string {
   const where = runsInBrowser(tool) ? 'Browser' : 'Credits';

@@ -9,6 +9,7 @@ import {
   getCategory,
   isAvailable,
   isListed,
+  needsWasm,
   toolPath,
   tools,
   toolsInCategory,
@@ -57,6 +58,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     alternates: { canonical: toolPath(tool) },
     // Placeholders stay out of search (docs/09 → Quality rules).
     robots: isAvailable(tool) ? undefined : { index: false, follow: true },
+    // Read and removed by scripts/postbuild.ts: adds 'wasm-unsafe-eval' to this page's CSP.
+    other: needsWasm(tool) ? { 'etb-csp': 'wasm' } : undefined,
   };
 }
 
