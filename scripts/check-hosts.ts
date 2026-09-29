@@ -60,8 +60,11 @@ export function findHosts(text: string): Finding[] {
   const findings: Finding[] = [];
   text.split('\n').forEach((line, index) => {
     if (/["']?\$schema["']?\s*:/.test(line)) return;
-    // XML namespace URIs (xmlns="http://www.w3.org/2000/svg") are names, never fetched.
-    line = line.replace(/\bxmlns(?::\w+)?\s*=\s*(["'])[^"']*\1/g, '');
+    // XML namespace URIs (xmlns="http://www.w3.org/2000/svg") and the JSON-LD
+    // vocabulary (@context: https://schema.org) are names, never fetched.
+    line = line
+      .replace(/\bxmlns(?::\w+)?\s*=\s*(["'])[^"']*\1/g, '')
+      .replace(/(["'])https:\/\/schema\.org\1/g, '');
     for (const match of line.matchAll(URL_PATTERN)) {
       const host = match[1] ?? '';
       if (!isAllowedHost(host)) findings.push({ line: index + 1, host });

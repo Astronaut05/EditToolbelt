@@ -4,13 +4,14 @@ import { THEME_STORAGE_KEY } from '@etb/ui';
 
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
+import { pageMetadata } from '../../lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Cookies',
+export const metadata: Metadata = pageMetadata({
+  title: 'Cookies | EditToolbelt',
   description:
     'EditToolbelt uses no tracking cookies. Every cookie and storage item the site uses, and why.',
-  alternates: { canonical: '/cookies' },
-};
+  path: '/cookies',
+});
 
 export default function CookiesPage() {
   return (

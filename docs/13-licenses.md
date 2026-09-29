@@ -33,7 +33,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | next-intl | i18n | MIT | 🔍 |
 | Lucide | icons | ISC | ✅ lucide-react 1.49.0, checked 2026-09-30 |
 | Onest (variable) + IBM Plex Mono | UI and numeric fonts, self-hosted | OFL-1.1 | ✅ |
-| Fontsource packages for Onest and IBM Plex Mono (`@fontsource-variable/onest`, `@fontsource/ibm-plex-mono`) | where the self-hosted font files come from (copied into the build, subset by `unicode-range`) | OFL-1.1 | ✅ 5.3.1 / 5.3.0, checked 2026-09-30 |
+| Fontsource packages for Onest and IBM Plex Mono (`@fontsource-variable/onest`, `@fontsource/onest`, `@fontsource/ibm-plex-mono`) | where the self-hosted font files come from (copied into the build, subset by `unicode-range`); static Onest weights for the build-time OG images | OFL-1.1 | ✅ 5.3.1 / 5.3.1 / 5.3.0, checked 2026-09-29 |
 | PostCSS | CSS build pipeline for Tailwind (build time only) | MIT | ✅ checked 2026-09-30 |
 | Umami (self-hosted) | cookieless analytics | MIT | 🔍 |
 | Sentry SDKs / GlitchTip | error tracking | MIT / MIT | 🔍 |

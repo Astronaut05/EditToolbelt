@@ -22,6 +22,7 @@ import { ComingSoon, type SoonLink } from '../../components/ComingSoon';
 import { HubList } from '../../components/HubList';
 import { SiteFrame } from '../../components/SiteFrame';
 import { hubRows } from '../../lib/hub';
+import { breadcrumbJsonLd, JsonLd, pageMetadata, toolJsonLd } from '../../lib/seo';
 
 // Hubs (/photo) and tools (/remove-background) share the top level
 // (docs/09 → URL scheme), so one route renders both from the registry.
@@ -44,20 +45,22 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const category = findCategory(slug);
   if (category) {
-    return {
-      title: { absolute: category.seoTitle },
+    return pageMetadata({
+      title: category.seoTitle,
       description: category.seoDescription,
-      alternates: { canonical: categoryPath(category) },
-    };
+      path: categoryPath(category),
+    });
   }
   const tool = findToolBySlug(slug);
   if (!tool) return {};
   return {
-    title: { absolute: tool.seo.title },
-    description: tool.seo.description,
-    alternates: { canonical: toolPath(tool) },
     // Placeholders stay out of search (docs/09 → Quality rules).
-    robots: isAvailable(tool) ? undefined : { index: false, follow: true },
+    ...pageMetadata({
+      title: tool.seo.title,
+      description: tool.seo.description,
+      path: toolPath(tool),
+      noindex: !isAvailable(tool),
+    }),
     // Read and removed by scripts/postbuild.ts: adds 'wasm-unsafe-eval' to this page's CSP.
     other: needsWasm(tool) ? { 'etb-csp': 'wasm' } : undefined,
   };
@@ -66,6 +69,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 function Hub({ category }: { category: Category }) {
   return (
     <SiteFrame current={category.id}>
+      <JsonLd
+        data={breadcrumbJsonLd([
+          { name: 'Home', path: '/' },
+          { name: category.name, path: categoryPath(category) },
+        ])}
+      />
       <div className="px-4 pt-5.5 lg:px-10 lg:pt-8.5">
         <Breadcrumb items={[{ label: 'Home', href: '/' }, { label: category.name }]} />
         <h1 className="mt-3 text-46 leading-display-xl font-display tracking-display-xl lg:mt-4.5 lg:text-72">
@@ -101,6 +110,7 @@ function Tool({ tool }: { tool: ToolDef }) {
         ];
   return (
     <SiteFrame current={tool.category}>
+      <JsonLd data={toolJsonLd(tool, category)} />
       <ComingSoon
         category={{ name: category.name, href: categoryPath(category) }}
         name={tool.name}

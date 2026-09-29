@@ -2,13 +2,14 @@ import type { Metadata } from 'next';
 
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
+import { pageMetadata } from '../../lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Terms',
+export const metadata: Metadata = pageMetadata({
+  title: 'Terms | EditToolbelt',
   description:
     'The rules for using EditToolbelt: your files stay yours, what you may not do, and how credits work.',
-  alternates: { canonical: '/terms' },
-};
+  path: '/terms',
+});
 
 export default function TermsPage() {
   return (
