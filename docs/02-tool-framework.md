@@ -20,15 +20,16 @@ export type ToolDef = {
   category: 'photo' | 'video' | 'audio' | 'color' | 'subtitles-time' | 'utility';
   name: string;                  // "Remove Background"
   tagline: string;               // one line under the H1
+  summary: string;               // ≤ 48 chars: hub rows, "Until then, try" rows
   status: 'live' | 'beta' | 'soon' | 'disabled';   // default; admin can override at runtime
   wave: 1 | 2 | 3;
   runtime: 'client' | 'server-cpu' | 'server-gpu' | 'hybrid';
-  engine: EngineId;              // see engines table
+  engines: EngineId[];          // see engines table; hybrid tools list the client and the server engine
   ui: 'canvas-editor' | 'timeline' | 'form' | 'analyzer' | 'calculator' | 'batch';
-  accepts: string[];             // MIME types / extensions
-  outputs: string[];
+  accepts?: string[];            // MIME types / extensions (required once live or beta)
+  outputs?: string[];            // required once live or beta
   batch: boolean;                // can take multiple files at once
-  limits: {                      // per tier; server tools only use the server limits
+  limits?: {                     // per tier; server tools only use the server limits (required once live or beta)
     client?: { maxBytes: number; maxPixels?: number; maxDurationSec?: number };
     server?: Record<'free' | 'paid', { maxBytes: number; maxDurationSec?: number; maxPixels?: number }>;
     maxConcurrent?: number; timeoutSec?: number;
@@ -36,16 +37,18 @@ export type ToolDef = {
   cost: CreditRule;              // { kind: 'free' } | { kind: 'flat', credits } | { kind: 'perMinute', credits, min } | { kind: 'perMegapixel', ... }
   surfaces: ('web' | 'mobile' | 'panel' | 'api')[];
   desktopBest?: boolean;
+  crossOriginIsolated?: boolean; // needs COOP/COEP (multi-threaded ffmpeg.wasm); links into it are full page loads
   seo: {
     title: string;               // <title>, ≤ 60 chars, starts with the search phrase
     description: string;         // ≤ 155 chars
     h1: string;                  // = primary search phrase, natural wording
     primaryQuery: string;        // e.g. "remove background from image"
     secondaryQueries: string[];
-    howTo: string[];             // 3–5 short steps shown under the tool
-    faq: { q: string; a: string }[];   // 3–6, unique per tool, real answers
+    howTo?: string[];            // 3–5 short steps shown under the tool (required once live or beta)
+    faq?: { q: string; a: string }[];  // 3–6, unique per tool, real answers (required once live or beta)
   };
   related: string[];             // tool ids, 3–6
+  willDo: string[];              // 2–4 lines: "what it will do" on the coming-soon page
   presets?: Preset[];            // named option sets, e.g. "Instagram Story 1080×1920"
 };
 ```
@@ -53,7 +56,8 @@ export type ToolDef = {
 Rules:
 - `id` and `slug` are kebab-case, unique, and never renamed after `live` (a rename needs a 301 redirect entry in `packages/registry/redirects.ts`).
 - `status` in code is the default. `tool_flags` in the DB overrides it at runtime (see `07-admin-and-logging.md`). Resolution order: DB flag → code default.
-- `soon` tools must still have `name`, `slug`, `category`, `tagline` and `seo.title` so the greyed-out card and placeholder page render.
+- `soon` tools must still have `name`, `slug`, `category`, `tagline`, `summary`, `willDo` and `seo.title` so the greyed-out card and placeholder page render. `live` and `beta` tools also need `accepts`, `outputs`, `limits`, `seo.howTo` and `seo.faq` (the schema enforces it).
+- The schema (`packages/registry/src/schema.ts`) is checked in tests, not at runtime, so Zod never ships to the browser. Copy fields reject em and en dashes (`03` → Copy rules).
 - A CI check fails if any registry entry is missing from `tools/README.md` or vice versa (match on `code`).
 
 ## Engines
