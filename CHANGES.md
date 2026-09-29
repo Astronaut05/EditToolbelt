@@ -103,3 +103,22 @@ Decisions and deviations made while building M0. #1 needs your sign-off (open qu
 7. **Supply chain defaults:** pnpm `minimumReleaseAge` and uv `exclude-newer` of 1 day, GitHub Actions pinned by commit, Docker images pinned by digest, Dependabot weekly with a 3-day cooldown. `sharp` (LGPL libvips) is excluded: the static export never optimises images.
 8. **License register is enforced for transitive npm and Python packages too,** not only direct ones: anything outside the `allowed` list needs a register entry or a `reviewedTransitive` note. GitHub Actions and Docker images are checked as well.
 9. Next.js 16.3's dev server writes `apps/web/AGENTS.md` and a one-line `apps/web/CLAUDE.md` that point agents at the Next docs bundled in `node_modules`. They're committed so the tree stays clean.
+
+## M0 sign-off (2026-09-29)
+
+Astro's decisions on the M0 build notes above, and a hosting change.
+
+1. **Versity S3 Gateway approved** for local storage. Bucket lifecycle rules only matter in production: the lifecycle check runs against R2 later, and locally the retention sweeper is the only cleanup path, which is what we test. SeaweedFS only if Versity blocks something we need. Open question 18 closed. → `14`
+2. **`docker compose up --watch` approved** as the one command. → `README`, `CLAUDE.md`
+3. **ESLint 10 without Next's preset approved.** No going back to ESLint 9 (end of life 2026-08-06). M1 carries a tracked item to re-add Next's preset and the React, jsx-a11y and import plugins once they support ESLint 10; axe in Playwright is the accessibility gate until then. → `12`, `eslint.config.mjs`
+4. **TypeScript 6 and Postgres 18 approved.** Ids default to Postgres 18's native `uuidv7()`. → `04`
+5. **`main` created** from the spec-only commit; M0 goes in through a pull request so CI runs on it.
+6. **Everything runs locally until Go public.** No Cloudflare and no domain for now; the site runs on Astro's PC.
+    - The Cloudflare Pages deploy job stays in CI and is skipped (not failed) while the `CLOUDFLARE_API_TOKEN` secret is absent. Its site URL comes from the `SITE_URL` repository variable; there is no `pages.dev` fallback.
+    - Every absolute URL comes from `SITE_URL` (default `http://localhost:3000`, was `NEXT_PUBLIC_SITE_URL`); model and WASM files load from `MODELS_BASE_URL` (default `/models`). `pnpm hosts:check` fails CI on a hard-coded domain or host in code.
+    - `pnpm preview` builds the static export and serves it locally the way Pages will (`apps/web/scripts/serve.ts`, no dependencies). M1 teaches it the `_headers` file so the CSP and COOP/COEP proofs run locally.
+    - Phones: plain `http://192.168.x.x` isn't a secure context, so service workers, WebGPU and `crossOriginIsolated` fail there. README → Testing on phones covers Android over USB (port forwarding to `localhost`) and local HTTPS with mkcert (`pnpm preview --lan --https`) for any phone, including iPhone.
+    - M2's done-when is now local: the launch set works against the production build, Playwright is green on desktop browsers, Lighthouse budgets are met locally. Going live on the domain, Search Console/Bing, sitemap submission, final legal text and the Paddle seller application move to a new **Go public** step, which Astro triggers and which must come before M5. No redirects needed: nothing was public before it.
+    - The M3–M4 local stack drops the Cloudflare Tunnel.
+    → `01`, `09`, `10`, `12`, `14` (#1, #5), `README`, `CLAUDE.md`
+

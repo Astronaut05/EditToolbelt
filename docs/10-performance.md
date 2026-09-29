@@ -28,7 +28,7 @@ Measure: Lighthouse CI on every PR for 5 representative tool pages (budget file 
 
 - Tool pages are Server Components; the workspace is a client component that renders instantly with the drop zone. **The engine is not in the initial bundle.**
 - On idle (`requestIdleCallback`) after page load, prefetch the tool's engine JS (small). WASM/model files load on first file drop, or on hover/focus of the drop zone on desktop.
-- WASM and model files: served from our CDN with immutable cache headers and content-hash filenames; stored in Cache Storage by the service worker; streamed compilation (`WebAssembly.instantiateStreaming`).
+- WASM and model files: loaded from `MODELS_BASE_URL` (a local path until Go public, then the R2 `models.` subdomain behind the CDN) with immutable cache headers and content-hash filenames; stored in Cache Storage by the service worker; streamed compilation (`WebAssembly.instantiateStreaming`).
 - ML model size budget for browser models: **≤ 120 MB** (decided 2026-09-29, to fit BiRefNet_lite fp16 at 115 MB). Show a one-time progress bar: "Downloading the AI model (115 MB), first time only". On metered/slow connections (`navigator.connection.saveData` or effective type 2g/3g) ask before downloading. Models over 25 MiB are served from the R2 `models.` subdomain (`01` → Hosting). Offer server processing if the device can't load it, once the server path exists.
 - Fonts: Onest (variable) + IBM Plex Mono, subset to Latin + Cyrillic **plus U+02BB and U+2018** (Uzbek oʻ gʻ live outside the basic Latin subset — without them the ʻ falls back to another font), `font-display: swap`, preload the UI font.
 - Images on pages: AVIF/WebP, sized, lazy below the fold.

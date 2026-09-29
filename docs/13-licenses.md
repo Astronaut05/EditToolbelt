@@ -109,7 +109,8 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | pytest | Python tests | MIT | ✅ 9.1.1, checked 2026-09-29 |
 | uv / uv_build | Python package manager, build backend | MIT OR Apache-2.0 | ✅ 0.12.20, checked 2026-09-29 |
 | pip-audit | Python vulnerability audit in CI | Apache-2.0 | ✅ 2.10.1, checked 2026-09-29 |
-| Wrangler | Cloudflare Pages deploy from CI (run with npx, pinned version) | MIT OR Apache-2.0 | ✅ 4.143.0, checked 2026-09-29 |
+| Wrangler | Cloudflare Pages deploy from CI after Go public (run with npx, pinned version) | MIT OR Apache-2.0 | ✅ 4.143.0, checked 2026-09-29 |
+| mkcert | local HTTPS certificates for testing on phones (installed on the dev machine, see README) | BSD-3-Clause | ✅ v1.4.4, checked 2026-09-29 |
 | GitHub Actions: checkout, setup-node, upload/download-artifact | CI | MIT | ✅ pinned by commit, checked 2026-09-29 |
 | pnpm/action-setup | CI: install pnpm | MIT | ✅ pinned by commit, checked 2026-09-29 |
 | astral-sh/setup-uv | CI: install uv | MIT | ✅ pinned by commit, checked 2026-09-29 |

@@ -2,7 +2,7 @@
 
 Postgres, Drizzle ORM, migrations in `packages/db/migrations`. The database holds accounts, money, and job metadata. **Never** user files, filenames, or file contents.
 
-Conventions: `id` is UUIDv7 (time-sortable) unless noted; `created_at`/`updated_at` `timestamptz` default `now()`; money in integer minor units; credits in integers.
+Conventions: `id` is UUIDv7 (time-sortable) unless noted, with Postgres 18's native `uuidv7()` as the column default (decided 2026-09-29); `created_at`/`updated_at` `timestamptz` default `now()`; money in integer minor units; credits in integers.
 
 ## Tables
 

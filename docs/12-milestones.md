@@ -1,6 +1,8 @@
 # 12 — Milestones
 
-Build the skeleton properly first, with every tool listed but disabled, then switch tools on in waves. Each milestone ends with a demo on staging and **explicit sign-off** before the next begins.
+Build the skeleton properly first, with every tool listed but disabled, then switch tools on in waves. Each milestone ends with a demo and **explicit sign-off** before the next begins.
+
+**Everything runs locally until Go public** (decided 2026-09-29): demos run on Astro's PC against the production build (`pnpm preview`) or the dev stack. No domain, no Cloudflare, no public URL until the Go public step below, which Astro triggers when ready (it must happen before M5).
 
 Waves (from `tools/README.md`): **Wave 1** = launch set, all browser-only, zero server cost. **Wave 2** = server tools, AI tools, credits. **Wave 3** = extras.
 
@@ -13,11 +15,12 @@ Repo and pipeline, nothing user-facing.
 - TypeScript strict, ESLint, Prettier, Vitest; Python: ruff, mypy, pytest.
 - `docker compose up` (`--watch` for hot reload): Postgres, S3-compatible storage (Versity S3 Gateway; MinIO dropped in M0 as AGPL, see `13`), web (hot reload), worker (hello-world job).
 - Env validation (`packages/core/env.ts`), `config/business.ts` skeleton.
-- CI: lint, typecheck, test on every PR. On merge to `main`: static export deployed to Cloudflare Pages (see `01` → Hosting). Buy the domain and connect it.
+- CI: lint, typecheck, test and license checks on every PR. The Cloudflare Pages deploy job is in the repo but skipped until Go public (no `CLOUDFLARE_API_TOKEN`).
+- No hard-coded domain or host: absolute URLs from `SITE_URL`, model/WASM files from `MODELS_BASE_URL`; CI check fails on a hard-coded one.
 - Structured logging set up in web and worker (pino/structlog, shared fields, redaction).
 - License register initialised (`13-licenses.md` → machine-readable `licenses.json` + CI check that every dependency is listed).
 
-**Done when:** a fresh clone runs locally with one command; CI green; staging URL serves a placeholder page; logs appear in JSON.
+**Done when:** a fresh clone runs locally with one command; CI green; the production build (static export) serves the placeholder page locally; logs appear in JSON.
 
 ## M1 — Skeleton and design system
 The whole site structure with every tool present as "coming soon".
@@ -31,16 +34,17 @@ The whole site structure with every tool present as "coming soon".
 - Legal page stubs (`/privacy`, `/terms`, `/refunds`, `/cookies`, `/licenses` auto-generated, `/contact`).
 - SEO scaffolding: metadata from registry, JSON-LD, sitemap (live/beta only — empty for now), robots, OG image generation.
 - PWA manifest + service worker (app shell precache).
-- Security headers and CSP baseline; COOP/COEP per-route mechanism.
+- Security headers and CSP baseline; COOP/COEP per-route mechanism. The local static server (`pnpm preview`) applies the `_headers` file exactly as Cloudflare Pages will, so the proofs below run locally.
 - Prove the CSP approach from `11` on a static tool page (static render, zero CSP violations) and the COOP/COEP navigation test from `01`.
 - Measure the empty shell's initial JS against the 120 KB budget before any tool code lands; if the framework alone takes most of it, re-set the budget with sign-off now rather than discover it in M2.
 - Cookieless analytics wired with the event list from `09`.
-- Lighthouse CI budgets in place.
+- Lighthouse CI budgets in place, run against the local production build.
+- **Tracked: lint plugins back on ESLint 10.** Re-add Next's full preset and the React, jsx-a11y and import plugins as soon as each supports ESLint 10 (they crash on it today; ESLint 9 reached end of life on 2026-08-06, so no going back). Until then axe in Playwright is the accessibility gate. Check at the start and end of M1; carry forward if still blocked.
 
 **Done when:** every tool appears on its hub as a greyed card; every placeholder page renders; Lighthouse budgets pass; axe shows no serious issues; the look is signed off in light and dark, desktop and phone, with none of the AI tells listed in `03`.
 
-## M2 — Browser engines + first launch 🚀
-First public launch with the **launch set**: 15 of the 26 Wave 1 tools, chosen for search demand and to need only 6 engines (see `tools/README.md` → Launch set). The other 11 Wave 1 tools follow in **M2b**. Getting indexed early matters more than launching complete — new pages take months to rank.
+## M2 — Browser engines + launch set 🚀
+The **launch set**, ready to go public: 15 of the 26 Wave 1 tools, chosen for search demand and to need only 6 engines (see `tools/README.md` → Launch set). The other 11 Wave 1 tools follow in **M2b**. Going public early still matters — new pages take months to rank — but it's the separate Go public step, Astro's call.
 
 - Capability detection.
 - Engines: `image-geometry`, `image-codec`, `image-ml` (client path only), `video-webcodecs`, `audio-dsp`, `text`. (`video-ffmpeg-wasm` and `media-probe` come with M2b.)
@@ -49,16 +53,26 @@ First public launch with the **launch set**: 15 of the 26 Wave 1 tools, chosen f
 - Conversion pair pages only for pairs whose tool is live: the 10 image pairs, mp4/mov-to-gif, mp4/mov-to-mp3, srt↔vtt, ass-to-srt (17). Video and audio converter pairs arrive with M2b.
 - "Use in another tool" handoff.
 - Hybrid tools (P07, V02; V03 in M2b) ship client-only; their server paths stay off until M4/M5 (see `02`, Routing).
-- Start the Paddle seller application once the site is live on its domain (Paddle's onboarding includes a website review) — don't leave it to M5.
-- Background removal: BiRefNet_lite fp16 (115 MB) as the quality model + a small light-mode model for devices without WebGPU fp16 (see P07). Benchmark on the 5 fixture images, desktop and 2 real phones: IoU, time to result, download size. Models on the R2 `models.` subdomain, cached by the service worker.
-- Search Console, Bing verified; sitemap live.
+- Background removal: BiRefNet_lite fp16 (115 MB) as the quality model + a small light-mode model for devices without WebGPU fp16 (see P07). Benchmark on the 5 fixture images, desktop and 2 real phones: IoU, time to result, download size. Models load from `MODELS_BASE_URL` (a local path until Go public, then the R2 `models.` subdomain), cached by the service worker.
 
-**Done when:** all launch-set tools pass their Playwright tests on Chrome, Safari, Firefox (desktop) and Chrome Android + Safari iOS (BrowserStack or real devices); performance budgets met; legal pages have final text (lawyer-reviewed items can wait for M5 since no money yet); site is live on the real domain.
+**Done when:** the launch set works locally against the production build (`next build` + static export served locally with `pnpm preview`); Playwright green on desktop browsers (Chrome, Safari/WebKit, Firefox); Lighthouse budgets met locally. Phones are checked by hand over USB or local HTTPS (README → Testing on phones).
 
 ## M2b — Rest of Wave 1 (after launch, one tool at a time)
 V03 Video Converter (+ `video-ffmpeg-wasm`, video pair pages), V05 GIF to MP4, V07 Mute Video, V08 Video Info (+ `media-probe`), P04 Rotate & Flip, A01 Audio Converter (+ audio pair pages), A02 Trim Audio, A03 BPM & Key Finder, C01 Palette, C02 Colour Picker, T02 Subtitle Shift. Each goes through the checklist in `02` (`beta` first, then `live`). Also V01 precise mode "smart cut". Can run alongside M3.
 
 **Done when:** all 26 Wave 1 tools are `live`.
+
+## Go public (when Astro decides; required before M5)
+Nothing was public before this, so there is nothing to redirect.
+
+- Buy the domain (open question 1) and connect it to a Cloudflare Pages project.
+- Set the GitHub secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and the variable `SITE_URL`; the deploy job in CI starts deploying `main`.
+- R2 bucket on the `models.` subdomain for model and WASM files (CORS, immutable caching, `Cross-Origin-Resource-Policy: cross-origin`); `MODELS_BASE_URL` points there.
+- Legal pages carry their final text (lawyer-reviewed items can wait for M5, since no money is taken yet).
+- Search Console and Bing Webmaster Tools verified; sitemap submitted.
+- Start the Paddle seller application (Paddle's onboarding reviews the live website). Don't leave it to M5.
+
+**Done when:** the site is live on the real domain over HTTPS, deployed by CI from `main`; models load from R2; Search Console and Bing are verified with the sitemap submitted; the Paddle application is in.
 
 ## M3 — Accounts, database, admin, flags
 - Better Auth (magic link + Google), account settings, data export, account deletion.
@@ -67,22 +81,23 @@ V03 Video Converter (+ `video-ffmpeg-wasm`, video pair pages), V05 GIF to MP4, V
 - Registry resolution from DB flags (30 s cache).
 - Telegram alerts + daily digest wiring (with the rules that apply so far).
 
-**Done when:** on the local staging stack (your PC, via Cloudflare Tunnel) you can sign in, flip any tool's status from admin and see it change within 30 s, and export/delete an account. The public site stays static until M5.
+**Done when:** on the local stack (your PC) you can sign in, flip any tool's status from admin and see it change within 30 s, and export/delete an account. Any public site (after Go public) stays static until M5.
 
 ## M4 — Server job pipeline
 - Upload API (multipart presign), jobs API, quote endpoint, SSE progress, cancel.
 - Worker: claim/heartbeat/reaper, processor interface, ffmpeg sandboxing per `11-security.md`.
-- Retention: immediate input deletion, 60-min output sweeper (also aborts stale multipart uploads), 1-day lifecycle rules incl. multipart abort + admin check.
+- Retention: immediate input deletion, 60-min output sweeper (also aborts stale multipart uploads), 1-day lifecycle rules incl. multipart abort + admin check. Lifecycle rules exist only on R2 (Versity S3 Gateway has none), so locally the sweeper is the only cleanup path and is what M4 tests; the lifecycle check runs against R2 once there is one, and reports "not supported" locally instead of failing.
 - Free quota (per signed-in user, daily) and per-user concurrency limits; server tools ask anonymous visitors to sign in.
 - Hybrid routing UI (server fallback offer with reason).
 - First **server-cpu** tools from Wave 2 (e.g. VFR→CFR, large-file video compress, burn subtitles).
-- `LocalGpu` backend on the 1080 Ti (pinned Pascal image, see `01` → Hosting): upscale, stems and transcription run end-to-end in local staging, so M5 only has to swap the backend and add payments.
+- `LocalGpu` backend on the 1080 Ti (pinned Pascal image, see `01` → Hosting): upscale, stems and transcription run end-to-end in the local stack, so M5 only has to swap the backend and add payments.
 - Admin Jobs page, job stats, failure alerts.
 - Runbooks folder started.
 
 **Done when:** a 1 GB video compresses on the server end-to-end with live progress; input is gone from storage immediately after, output gone within the hour; killing a worker mid-job requeues it; malformed-file fixtures fail cleanly.
 
 ## M5 — Credits, payments, GPU tools 💳
+- Requires Go public (Paddle only onboards a live, reviewed site).
 - **Move to paid EU hosting first** (`01` → Production): web + worker + Postgres on the VPS, public site served by the Next.js server or kept on Cloudflare Pages.
 - Ledger functions, reserve/capture/release, quotes, `402` flow, welcome grant after email verification.
 - Paddle sandbox → live: packs, checkout on a non-COEP route, webhooks (idempotent), purchase history, refunds/chargebacks handling.

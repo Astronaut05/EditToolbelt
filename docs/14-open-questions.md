@@ -4,11 +4,11 @@ Decisions not made yet. Claude Code: when a milestone depends on one of these, *
 
 | # | Question | Needed by | Default if not decided |
 |---|---|---|---|
-| 1 | **Domain, logo, accent colour.** Name decided: **EditToolbelt** (renamed from Editbench on 2026-09-29: "EditBench" is already a Google Research image-editing benchmark and an ICML code-editing benchmark). Pick domain from edittoolbelt.com / .app / .io (whichever is free) | M1 sign-off (tokens), M2 launch (domain) | Wordmark "EditToolbelt" in the UI font, grey-blue accent |
+| 1 | **Domain, logo, accent colour.** Name decided: **EditToolbelt** (renamed from Editbench on 2026-09-29: "EditBench" is already a Google Research image-editing benchmark and an ICML code-editing benchmark). Pick domain from edittoolbelt.com / .app / .io (whichever is free) when going public | M1 sign-off (tokens), Go public (domain) | Wordmark "EditToolbelt" in the UI font, grey-blue accent |
 | 2 | Final credit pack sizes and prices | M5 | Placeholders in `05` |
 | 3 | Free allowance numbers (signed-in daily jobs, welcome grant) | M4/M5 | Placeholders in `05` |
 | 4 | Serverless GPU provider (EU region, per-second billing, custom containers, DPA, no input retention) | M5 | — must decide |
-| 5 | Paid hosting provider for web/worker/DB | M5 | Hetzner (EU) + Cloudflare + R2. **Until then (decided 2026-09-29):** GitHub + Cloudflare Pages (free) for the static site, your PC + Cloudflare Tunnel for server staging |
+| 5 | Paid hosting provider for web/worker/DB | M5 | Hetzner (EU) + Cloudflare + R2. **Until Go public (decided 2026-09-29, M0 sign-off):** everything runs locally on your PC (dev stack + production build served locally); code and CI on GitHub; no Cloudflare, no domain. At Go public: Cloudflare Pages (free) for the static site and R2 for model files (see `12` → Go public) |
 | 6 | Transactional email provider (magic links, receipts) | M3 | Any EU-capable provider with DPA |
 | 7 | Launch languages beyond English (Russian? Uzbek?) | M8 | English only; i18n-ready |
 | 8 | Business form in Uzbekistan for Paddle payouts, tax treatment (sole proprietor vs IT Park resident) | Before M5 live payments | — accountant/lawyer |
@@ -21,4 +21,4 @@ Decisions not made yet. Claude Code: when a milestone depends on one of these, *
 | 15 | ~~Smallest pack price~~ | — | **Decided 2026-09-29:** $5 minimum; placeholder packs $5 / $15 / $40 |
 | 16 | ~~Launch scope~~ | — | **Decided 2026-09-29:** 15-tool launch set in M2, rest of Wave 1 in M2b |
 | 17 | ~~Premiere panel timing~~ | — | **Decided 2026-09-29:** panel is M7, right after the API; remaining Wave 2 + mobile is M8 |
-| 18 | Local S3 server now that MinIO is out (AGPL, image no longer published) | M0 sign-off | **Versity S3 Gateway** (Apache-2.0), in use since M0; no bucket lifecycle rules. Alternative: SeaweedFS (Apache-2.0) |
+| 18 | ~~Local S3 server now that MinIO is out~~ | — | **Decided 2026-09-29 (M0 sign-off):** Versity S3 Gateway (Apache-2.0). It has no bucket lifecycle rules, which only matter in production: the lifecycle check runs against R2 later, and locally the retention sweeper is the only cleanup path, which is what we test. Switch to SeaweedFS only if Versity blocks something we need |

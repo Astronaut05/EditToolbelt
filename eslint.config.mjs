@@ -33,9 +33,10 @@ export default defineConfig(
   },
 
   // eslint-config-next isn't used: eslint-plugin-react, -import and -jsx-a11y
-  // don't support ESLint 10 yet. The Next and React Hooks plugins do.
-  // TODO(M1): add jsx-a11y (or an equivalent) once it supports ESLint 10;
-  // until then axe in Playwright covers accessibility.
+  // crash on ESLint 10, and ESLint 9 is end-of-life (2026-08-06), so no going back.
+  // TODO(M1, tracked in docs/12-milestones.md): re-add Next's full preset and the
+  // React, jsx-a11y and import plugins once each supports ESLint 10. Until then
+  // axe in Playwright is the accessibility gate.
   {
     files: ['apps/web/**/*.{ts,tsx}', 'packages/ui/**/*.{ts,tsx}'],
     extends: [nextPlugin.configs['core-web-vitals'], reactHooks.configs.flat['recommended-latest']],
