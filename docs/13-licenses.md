@@ -24,15 +24,17 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Package | Use | License | Status |
 |---|---|---|---|
 | Next.js, React | web app | MIT | ✅ |
-| Tailwind CSS | styling | MIT | ✅ |
+| Tailwind CSS (`tailwindcss`, `@tailwindcss/postcss`) | styling | MIT | ✅ 4.3.3, checked 2026-09-30 |
 | Zod | validation | MIT | ✅ |
 | Drizzle ORM | DB | Apache-2.0 | ✅ |
 | Better Auth | auth | MIT | 🔍 |
 | pino | logging | MIT | ✅ |
 | structlog | Python logging | MIT / Apache-2.0 | ✅ |
 | next-intl | i18n | MIT | 🔍 |
-| Lucide | icons | ISC | ✅ |
+| Lucide | icons | ISC | ✅ lucide-react 1.49.0, checked 2026-09-30 |
 | Onest (variable) + IBM Plex Mono | UI and numeric fonts, self-hosted | OFL-1.1 | ✅ |
+| Fontsource packages for Onest and IBM Plex Mono (`@fontsource-variable/onest`, `@fontsource/ibm-plex-mono`) | where the self-hosted font files come from (copied into the build, subset by `unicode-range`) | OFL-1.1 | ✅ 5.3.1 / 5.3.0, checked 2026-09-30 |
+| PostCSS | CSS build pipeline for Tailwind (build time only) | MIT | ✅ checked 2026-09-30 |
 | Umami (self-hosted) | cookieless analytics | MIT | 🔍 |
 | Sentry SDKs / GlitchTip | error tracking | MIT / MIT | 🔍 |
 | Paddle.js | checkout | vendor terms | ⚠️ checkout route only |
@@ -109,6 +111,9 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | pytest | Python tests | MIT | ✅ 9.1.1, checked 2026-09-29 |
 | uv / uv_build | Python package manager, build backend | MIT OR Apache-2.0 | ✅ 0.12.20, checked 2026-09-29 |
 | pip-audit | Python vulnerability audit in CI | Apache-2.0 | ✅ 2.10.1, checked 2026-09-29 |
+| Playwright (`@playwright/test`) | end-to-end tests, screenshots, design comparison | Apache-2.0 | ✅ 1.63.0, checked 2026-09-30 |
+| axe-core for Playwright (`@axe-core/playwright`) | accessibility checks in e2e tests | MPL-2.0 | ✅ 4.13.0, checked 2026-09-30 (never shipped) |
+| Lighthouse CI (`@lhci/cli`) | Lighthouse budgets against the local production build | Apache-2.0 | ✅ 0.15.1, checked 2026-09-30. Its dependency `parse-cache-control` says "BSD"; the file is BSD-3-Clause (reviewed transitive in `licenses.json`) |
 | Wrangler | Cloudflare Pages deploy from CI after Go public (run with npx, pinned version) | MIT OR Apache-2.0 | ✅ 4.143.0, checked 2026-09-29 |
 | mkcert | local HTTPS certificates for testing on phones (installed on the dev machine, see README) | BSD-3-Clause | ✅ v1.4.4, checked 2026-09-29 |
 | GitHub Actions: checkout, setup-node, upload/download-artifact | CI | MIT | ✅ pinned by commit, checked 2026-09-29 |

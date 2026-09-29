@@ -9,6 +9,7 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
-  }
+    "test": "vitest run"
+  },
+  "sideEffects": false
 }

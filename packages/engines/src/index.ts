@@ -1,6 +1,8 @@
 /**
- * @etb/engines: browser processing engines and capability detection (docs/02-tool-framework.md).
+ * @etb/engines: browser processing engines (docs/02 → Engines).
  *
- * Empty until M2 (see docs/12-milestones.md). Don't build ahead.
+ * M1 ships only the engine contract and a dummy engine for the ToolShell; the
+ * real engines arrive in M2 (docs/12-milestones.md).
  */
-export {};
+export type { Capabilities, Engine, EngineOutput, InputMeta, RunContext } from './types';
+export { dummyEngine, EngineAbortError, type DummyOptions } from './dummy';
