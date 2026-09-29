@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 import { SearchOverlay, themeScript } from '@etb/ui';
 
+import { ServiceWorker } from '../components/ServiceWorker';
 import { env } from '../lib/env';
 import { absoluteUrl } from '../lib/urls';
 import { fontVariables } from './fonts';
@@ -14,6 +15,8 @@ export const metadata: Metadata = {
   description:
     'Fast, no-install tools for video, photo and audio editors. Most run in your browser.',
   applicationName: 'EditToolbelt',
+  icons: { apple: '/icons/apple-touch-icon.png' },
+  appleWebApp: { capable: true, title: 'EditToolbelt', statusBarStyle: 'black-translucent' },
   other: { 'etb-version': env.APP_VERSION },
 };
 
@@ -36,6 +39,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         {children}
         <SearchOverlay />
+        <ServiceWorker />
       </body>
     </html>
   );
