@@ -49,3 +49,27 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** Search ranks exact phrase > phrase prefix > contains > all typed words (the last may be half-typed) over the tool name, primary query, secondary queries and H1. A tool ranks above the conversion pairs it powers, which reproduces the home design ("mp4 to gif": Video to GIF, MP4 to GIF, GIF to MP4). Conversion pairs join the index only once their tool is live or beta. Search results link to `soon` placeholder pages; hub rows for `soon` tools are not links (design and `02`).
 **Why:** the design's example result order; `12` → M2 (pair pages only for live tools).
 **Reverse:** `packages/registry/src/search.ts`.
+
+## 2026-09-29 · Tokens and the Tailwind theme
+
+**Decision:** `docs/design/tokens.css` is copied to `packages/ui/tokens.css` unchanged apart from Prettier formatting. `packages/ui/theme.css` mirrors every token in Tailwind v4's `@theme inline` (`bg-surface` → `var(--surface)`) and removes Tailwind's default palette, type scale, radii and weights, so an off-token colour or size doesn't compile to anything. A test reproduces the handover's contrast table from `tokens.css` (±0.15) and checks focus ring, strong border and media overlays too.
+**Why:** `03` → Tokens ("mirrored in Tailwind config", "CI runs a contrast check on the token table").
+**Reverse:** edit `theme.css`; the token names are the contract.
+
+## 2026-09-29 · Where the design screens and the handover README disagree, the screens win
+
+**Decision:** Three places: the "Until then, try" hatch lines are drawn in `--bg` (README: `--border`); the tool tagline is 16.5 px (README: 18); the `AI · BROWSER` hub tag is in the accent (not in rule 1's list). The theme also carries the half-step sizes the screens use (11, 11.5, 12.5, 13, 13.5, 14.5, 15, 15.5, 16.5, 17, 22, 26, 34) and the body uses the fonts' normal line height, as the screens do.
+**Why:** the task is to match the PNGs at 1440 and 390 px; they were rendered from the reference HTML, which is the measurement source.
+**Reverse:** `hatch` utility and sizes in `packages/ui/theme.css`, `Tag` tone in `HubList`.
+
+## 2026-09-29 · Shared components and the ToolShell
+
+**Decision:** `packages/ui` has every component in `03`'s table. The ToolShell renders all six `ui` types from a registry entry plus a preset (options, copy, output naming), against the engine contract from `02`, which now lives in `packages/engines` with a dummy engine for M1. The canvas editor, timeline and batch list are working shells (modes, 50-step undo, zoom, in/out handles with I/O and frame keys, per-file status); their pixel work comes with the engines in M2. Calculators get a placeholder aspect-ratio calculator until their own presets land. Components import `next/link` directly (only `apps/web` uses them); a plain `<a>` is used for routes that need cross-origin isolation.
+**Why:** `12` → M1 ("ToolShell with all `ui` types working against a dummy engine"); `03` → Shared components.
+**Reverse:** per component.
+
+## 2026-09-29 · Theme choice
+
+**Decision:** System / Light / Dark as a segmented control in the footer and in the phone menu. The choice is stored in localStorage as `etb-theme` (not `theme`, to avoid clashing with anything else on the origin), and an inline script applies it before first paint. Nothing is stored for "System".
+**Why:** `03` → Tokens ("manual toggle stored locally"); the design doesn't draw a toggle, and the footer is the calmest place for it.
+**Reverse:** `ThemeToggle` and `themeScript` in `packages/ui`.

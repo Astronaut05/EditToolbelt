@@ -17,11 +17,13 @@ Defined as CSS custom properties in `packages/ui/tokens.css`, mirrored in Tailwi
 - **Colour roles:** `--bg`, `--surface`, `--surface-raised`, `--border`, `--text`, `--text-muted`, `--accent`, `--accent-contrast`, `--success`, `--warning`, `--danger`, `--focus-ring`. Category tints for hub cards and icons: `--cat-photo`, `--cat-video`, `--cat-audio`, `--cat-color`, `--cat-time`, `--cat-utility` (used sparingly: icon backgrounds, small tags).
 - **Themes:** light and dark, follow system by default, manual toggle stored locally (strictly-necessary preference, see legal doc). Every token pair must pass WCAG AA contrast (4.5:1 text, 3:1 UI) — CI runs a contrast check on the token table.
 - **Type:** **Onest** (variable 100–900, OFL) for all UI, **IBM Plex Mono** (OFL, 400/500) for timecodes and numeric readouts. Both cover Uzbek Latin `ʻ` (U+02BB) and Uzbek Cyrillic қ ғ ҳ ў; Onest has tabular figures (`tnum`). Inter, Roboto, Arial and system fonts are not used (taste rules below). Self-hosted font files (no Google Fonts requests — privacy and speed). Tabular numerals for all numbers.
-- **Scale:** type 12/14/16/20/24/32/40; spacing 4-pt grid (4, 8, 12, 16, 24, 32, 48, 64); radius 6 (controls) / 12 (cards) / 16 (workspace); one elevation level + one for dialogs.
+- **Scale:** type 12/14/16/18/24/32/46/72 (18, 46 and 72 added by direction C; `packages/ui/theme.css` also carries the half-steps the handover screens are drawn with, e.g. 11.5 for mono labels and 16.5 for taglines); H1 weight 650, tracking −0.035em (−0.045em at 72 px); spacing 4-pt grid (4, 8, 12, 16, 24, 32, 48, 64); radius 4 (controls and cards) / 0 (the preview, which bleeds to the window edge); no drop shadows: the only elevation is the dark media scrim, plus the dialog backdrop.
 - **Motion:** 120–200 ms, ease-out; progress and state changes only; everything disabled under `prefers-reduced-motion`.
 - **Icons:** one open-licensed icon set (Lucide, ISC) — no mixing sets. Each tool has an icon in the registry.
 
-Visual direction (logo, accent colour) comes from the `/design-taste-frontend` design round in M1 (below). Until it's signed off, build with a neutral placeholder accent; tokens make the swap a one-file change.
+**Direction C "Signal" was picked and signed off (2026-09-30).** The handover is `docs/design/`: `tokens.css` (copied to `packages/ui/tokens.css`, mirrored in Tailwind by `packages/ui/theme.css`), the target screens at 1440 and 390 px in light and dark, and its README, whose "Rules that make it Signal" govern anything not drawn. Near-black or white ground, hairlines instead of boxes, one lime accent (`#B9E04C` dark, `#4B7000` light) used only for the primary action, the current selection, status dots, the search-hit highlight and the caret; sharp 4 px corners; every number and unit in IBM Plex Mono.
+
+**Logo:** the wordmark "Edit**Toolbelt**" (second word in the accent) is a placeholder until open question 1 decides the logo.
 
 ## Visual direction and taste rules (from `/design-taste-frontend`)
 
@@ -35,12 +37,12 @@ Astro's `/design-taste-frontend` skill (adapted from Leonxlnx/taste-skill) is th
 
 | Page | V | D | T |
 |---|---|---|---|
-| Tool page | 2 | 5 | 3 |
-| Category hub | 3 | 6 | 4 |
+| Tool page | 2 | 5 | 5 |
+| Category hub | 3 | 6 | 5 |
 | Home | 4 | 4 | 5 |
 | Admin | 1 | 8 | 2 |
 
-The tool is the page, so tool pages are calm, aligned and dense with real numbers; drama belongs to marketing graphics, not the workspace.
+The tool is the page, so tool pages are calm, aligned and dense with real numbers. Direction C keeps that calm layout density (tool page V2/D5) but sets type drama higher than first planned (T5 instead of T3): 46 px tool H1s, 72 px home search line and hub H1s. That's the "Signal" choice.
 
 **Taste rules for the UI:**
 - **Type:** max 2 families (Onest + IBM Plex Mono). Hierarchy by weight, size and case, not a third font. Display sizes: tracking −1 to −3%, line-height 0.95–1.05. All-caps micro-labels: +12 to +20% tracking. Uzbek Latin always uses `ʻ` (U+02BB), never an apostrophe or backtick.
@@ -58,8 +60,8 @@ The tool is the page, so tool pages are calm, aligned and dense with real number
 ## Layout
 
 - **Header:** logo, category menu (Photo, Video, Audio, Color, Subtitles & Time, Utility), search (instant, client-side over the registry: name, secondary queries, tags), credits balance + account (when signed in) or "Sign in".
-- **Tool page:** single column, max content width 1200 px; workspace can go full width for `canvas-editor` and `timeline`. On ≥1024 px the options panel sits right of the preview; below that it stacks under.
-- **Hub page per category:** grid of tool cards (icon, name, one line, runtime badge "In-browser" / "AI · credits"), "soon" cards greyed at the end.
+- **Tool page:** from 1024 px, a 560 px settings column on the left (breadcrumb, H1, tagline, privacy line, settings rows, actions) and the preview filling the rest, edge to edge, full height below the header. Below 1024 px it stacks: header block and a big tap area when empty; after a file, the preview goes full-bleed at the top and settings collapse into rows that open a bottom sheet.
+- **Hub page per category:** 72 px H1, lead, filter tabs (All / In browser / AI, with counts), then numbered tool rows in two columns: name, one line (`summary`), mono runtime tag (`BROWSER`, `AI · BROWSER`, `AI · CREDITS`, `CREDITS`). `soon` rows come last, dimmed, tagged `SOON`, and are not links.
 - **Home:** search box first, then the most-used tools (from analytics; start with a fixed list), then categories.
 - **Footer:** categories, legal links (Privacy, Terms, Refunds, Cookies, Open-source licenses), contact, language (later).
 
@@ -88,7 +90,7 @@ The tool is the page, so tool pages are calm, aligned and dense with real number
 | `CapabilityNotice` | Explains when a browser can't do something and offers the alternative. |
 | `EmptyState`, `ErrorState`, `Toast`, `Dialog`, `Tabs`, `Tooltip`, `Tag`, `Card`, `Button`, `Input`, `Select`, `Slider`, `Switch`, `SegmentedControl`, `ColorInput`, `NumberWithUnit` | Standard set, all keyboard accessible. |
 
-Storybook (or Ladle) for `packages/ui` with every component in light/dark, used in milestone 1 review.
+Every component is shown in light and dark in the component gallery (M1b), used in milestone reviews.
 
 ## Copy rules
 

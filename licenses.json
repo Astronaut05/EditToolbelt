@@ -54,11 +54,14 @@
       "label": "Tailwind CSS",
       "section": "Platform and app",
       "ecosystem": "npm",
-      "packages": ["tailwindcss"],
+      "packages": ["tailwindcss", "@tailwindcss/postcss"],
       "use": "styling",
       "license": "MIT",
       "scope": "browser",
-      "status": "approved"
+      "status": "approved",
+      "version": "4.3.3",
+      "source": "https://github.com/tailwindlabs/tailwindcss/blob/main/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "Zod",
@@ -137,7 +140,10 @@
       "use": "icons",
       "license": "ISC",
       "scope": "browser",
-      "status": "approved"
+      "status": "approved",
+      "version": "lucide-react 1.49.0",
+      "source": "https://github.com/lucide-icons/lucide/blob/main/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "Onest (variable) + IBM Plex Mono",
@@ -147,7 +153,9 @@
       "use": "UI and numeric fonts, self-hosted",
       "license": "OFL-1.1",
       "scope": "browser",
-      "status": "approved"
+      "status": "approved",
+      "version": "Onest 5.3.1, IBM Plex Mono 5.3.0 (via Fontsource)",
+      "checked": "2026-09-30"
     },
     {
       "label": "Umami (self-hosted)",
@@ -189,6 +197,32 @@
       "scope": "browser",
       "status": "conditional",
       "condition": "checkout route only"
+    },
+    {
+      "label": "Fontsource packages for Onest and IBM Plex Mono",
+      "section": "Platform and app",
+      "ecosystem": "npm",
+      "packages": ["@fontsource-variable/onest", "@fontsource/ibm-plex-mono"],
+      "use": "source of the self-hosted font files (copied into the build, subset by unicode-range)",
+      "license": "OFL-1.1",
+      "scope": "browser",
+      "status": "approved",
+      "version": "5.3.1 / 5.3.0",
+      "source": "https://github.com/fontsource/font-files/tree/main/fonts/variable/onest",
+      "checked": "2026-09-30"
+    },
+    {
+      "label": "PostCSS",
+      "section": "Platform and app",
+      "ecosystem": "npm",
+      "packages": ["postcss"],
+      "use": "CSS build pipeline for Tailwind (build time only)",
+      "license": "MIT",
+      "scope": "dev",
+      "status": "approved",
+      "version": "8.5.x",
+      "source": "https://github.com/postcss/postcss/blob/main/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "Pillow",
@@ -796,6 +830,45 @@
       "checked": "2026-09-29"
     },
     {
+      "label": "Playwright",
+      "section": "Development, build and CI",
+      "ecosystem": "npm",
+      "packages": ["@playwright/test"],
+      "use": "end-to-end tests, screenshots, design comparison",
+      "license": "Apache-2.0",
+      "scope": "dev",
+      "status": "approved",
+      "version": "1.63.0",
+      "source": "https://github.com/microsoft/playwright/blob/main/LICENSE",
+      "checked": "2026-09-30"
+    },
+    {
+      "label": "axe-core for Playwright",
+      "section": "Development, build and CI",
+      "ecosystem": "npm",
+      "packages": ["@axe-core/playwright"],
+      "use": "accessibility checks in e2e tests (never shipped)",
+      "license": "MPL-2.0",
+      "scope": "dev",
+      "status": "approved",
+      "version": "4.13.0",
+      "source": "https://github.com/dequelabs/axe-core-npm/blob/develop/LICENSE",
+      "checked": "2026-09-30"
+    },
+    {
+      "label": "Lighthouse CI",
+      "section": "Development, build and CI",
+      "ecosystem": "npm",
+      "packages": ["@lhci/cli"],
+      "use": "Lighthouse budgets against the local production build",
+      "license": "Apache-2.0",
+      "scope": "dev",
+      "status": "approved",
+      "version": "0.15.1 (Lighthouse 12.6.1)",
+      "source": "https://github.com/GoogleChrome/lighthouse-ci/blob/main/LICENSE",
+      "checked": "2026-09-30"
+    },
+    {
       "label": "Wrangler",
       "section": "Development, build and CI",
       "ecosystem": "npm",
@@ -974,5 +1047,12 @@
       "reason": "Commercial TypeType font licensed to Uzcosmos for Uzcosmos work only; embedding it in a website distributes it"
     }
   ],
-  "reviewedTransitive": []
+  "reviewedTransitive": [
+    {
+      "ecosystem": "npm",
+      "package": "parse-cache-control",
+      "license": "BSD-3-Clause",
+      "reason": "package.json says \"BSD\"; its LICENSE file is the BSD 3-clause text (checked 2026-09-30). Dependency of @lhci/cli, CI only, never shipped."
+    }
+  ]
 }
