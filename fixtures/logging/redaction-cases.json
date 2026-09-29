@@ -1,0 +1,131 @@
+[
+  {
+    "name": "redacts sensitive keys by exact name",
+    "input": {
+      "event": "upload.created",
+      "ip": "203.0.113.7",
+      "body": { "anything": 1 },
+      "payload": "raw webhook",
+      "content": "file bytes as text",
+      "session": "abc"
+    },
+    "expected": {
+      "event": "upload.created",
+      "ip": "[redacted]",
+      "body": "[redacted]",
+      "payload": "[redacted]",
+      "content": "[redacted]",
+      "session": "[redacted]"
+    }
+  },
+  {
+    "name": "redacts keys that contain a sensitive word, in any case or separator style",
+    "input": {
+      "original_filename": "holiday.mov",
+      "fileName": "holiday.mov",
+      "user_email": "someone@example.com",
+      "Authorization": "Bearer abc",
+      "s3_secret_access_key": "x",
+      "S3_ACCESS_KEY_ID": "y",
+      "api-key": "z",
+      "refresh_token": "t",
+      "presigned_url": "https://r2.example/obj?X-Amz-Signature=1",
+      "set-cookie": "sid=1"
+    },
+    "expected": {
+      "original_filename": "[redacted]",
+      "fileName": "[redacted]",
+      "user_email": "[redacted]",
+      "Authorization": "[redacted]",
+      "s3_secret_access_key": "[redacted]",
+      "S3_ACCESS_KEY_ID": "[redacted]",
+      "api-key": "[redacted]",
+      "refresh_token": "[redacted]",
+      "presigned_url": "[redacted]",
+      "set-cookie": "[redacted]"
+    }
+  },
+  {
+    "name": "keeps the shared log fields untouched",
+    "input": {
+      "event": "job.succeeded",
+      "request_id": "req_1",
+      "job_id": "0192a7c0-0000-7000-8000-000000000000",
+      "tool_id": "remove-background",
+      "user_ref": "0192a7c0-0000-7000-8000-000000000001",
+      "duration_ms": 1234,
+      "error_code": null,
+      "bytes": 1048576,
+      "ok": true
+    },
+    "expected": {
+      "event": "job.succeeded",
+      "request_id": "req_1",
+      "job_id": "0192a7c0-0000-7000-8000-000000000000",
+      "tool_id": "remove-background",
+      "user_ref": "0192a7c0-0000-7000-8000-000000000001",
+      "duration_ms": 1234,
+      "error_code": null,
+      "bytes": 1048576,
+      "ok": true
+    }
+  },
+  {
+    "name": "does not treat words that merely contain 'ip' as IP fields",
+    "input": { "zip": 1, "pipeline": "a", "recipe": "b" },
+    "expected": { "zip": 1, "pipeline": "a", "recipe": "b" }
+  },
+  {
+    "name": "strips the query string from URLs inside free text",
+    "input": {
+      "detail": "GET https://acc.r2.cloudflarestorage.com/etb/out/0192.png?X-Amz-Algorithm=AWS4&X-Amz-Signature=deadbeef failed"
+    },
+    "expected": {
+      "detail": "GET https://acc.r2.cloudflarestorage.com/etb/out/0192.png?[redacted] failed"
+    }
+  },
+  {
+    "name": "keeps URLs without a query string",
+    "input": { "detail": "fetched https://models.edittoolbelt.com/birefnet/v1.onnx" },
+    "expected": { "detail": "fetched https://models.edittoolbelt.com/birefnet/v1.onnx" }
+  },
+  {
+    "name": "scrubs bearer tokens, API keys and emails from free text",
+    "input": {
+      "detail": "header was bearer eyJhbGciOi.abc-_ from etb_live_ab12CD34ef for Someone.Name+tag@example.co.uk"
+    },
+    "expected": {
+      "detail": "header was Bearer [redacted] from [redacted-key] for [redacted-email]"
+    }
+  },
+  {
+    "name": "walks nested objects and arrays",
+    "input": {
+      "attempts": [
+        { "worker_id": "w1", "email": "a@b.io" },
+        { "worker_id": "w2", "detail": "retry for a@b.io" }
+      ],
+      "meta": { "input": { "bytes": 10, "filename": "x.mp4" } }
+    },
+    "expected": {
+      "attempts": [
+        { "worker_id": "w1", "email": "[redacted]" },
+        { "worker_id": "w2", "detail": "retry for [redacted-email]" }
+      ],
+      "meta": { "input": { "bytes": 10, "filename": "[redacted]" } }
+    }
+  },
+  {
+    "name": "truncates payloads nested deeper than 10 levels",
+    "input": {
+      "a": {
+        "b": { "c": { "d": { "e": { "f": { "g": { "h": { "i": { "j": { "k": 1 } } } } } } } } }
+      }
+    },
+    "expected": {
+      "a": {
+        "b": { "c": { "d": { "e": { "f": { "g": { "h": { "i": { "j": "[truncated]" } } } } } } } }
+      }
+    }
+  }
+]
