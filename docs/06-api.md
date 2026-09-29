@@ -1,0 +1,66 @@
+# 06 — Public API
+
+One API for everything: the website's own tool pages, the Premiere panel, the mobile PWA, and (later) third-party developers. The website does not use private shortcuts — if the site can do it, the API can.
+
+## Basics
+
+- Base: `/api/v1`. Breaking changes → `/api/v2`; v1 kept for at least 6 months after.
+- JSON in/out. Errors are RFC 9457 `application/problem+json`: `{ type, title, status, detail, code, ...extra }` with stable `code` values (`INSUFFICIENT_CREDITS`, `FILE_TOO_LARGE`, `UNSUPPORTED_FORMAT`, `TOOL_UNAVAILABLE`, `RATE_LIMITED`, `QUOTA_EXCEEDED`, `NOT_FOUND`, `UNAUTHORIZED`).
+- Schemas defined once in Zod (`packages/core/api-schemas.ts`) → OpenAPI 3.1 generated at build → published at `/api/v1/openapi.json` and a docs page at `/developers`.
+- Typed client `packages/api-client` generated from the same schemas; used by the web app and the panel.
+- Rate-limit headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
+- CORS: our own origins only for cookie auth; API-key auth allowed from any origin (keys are secret, so browser use is the developer's own risk — docs say so).
+
+## Auth
+
+| Caller | Method |
+|---|---|
+| Website / PWA | Session cookie (Better Auth). Anonymous calls allowed for read-only endpoints (`GET /tools`); uploads and jobs need a signed-in user or an API key. |
+| Premiere panel | API key obtained via **device-code flow**: panel calls `POST /auth/device` → shows a short code + opens `/connect` in the browser → user signs in and approves → panel polls `POST /auth/device/token` → receives a key scoped `jobs:read jobs:write account:read`, named "Premiere panel". |
+| Developers | API key created in settings, shown once. Header: `Authorization: Bearer etb_live_…`. |
+
+Keys are stored hashed; revocable; `last_used_at` updated at most once per minute.
+
+## Endpoints
+
+| Method & path | Purpose |
+|---|---|
+| `GET /tools` | Registry view: id, name, category, status, runtime, surfaces, accepts, limits for caller's tier, cost rule. Filter `?surface=panel`. |
+| `GET /tools/:id` | One tool, including option schema (JSON Schema from Zod) so clients can render forms. |
+| `POST /uploads` | `{ tool_id, bytes, mime }` → `{ upload_id, parts: [{ n, url }], part_size, complete_url }`. Validates size/type for tier. |
+| `POST /uploads/:id/parts` | `{ from, count }` → fresh presigned URLs for the next parts. Part URLs expire in 15 min, so large uploads fetch them in batches. |
+| `POST /uploads/:id/complete` | `{ parts: [{ n, etag }] }` → completes multipart. |
+| `POST /jobs/quote` | `{ tool_id, upload_id, options }` → `{ credits, balance_after, estimate_seconds }` after server probe. |
+| `POST /jobs` | `{ tool_id, upload_id, options, quote_credits }` + `Idempotency-Key` header → `{ job }`. Rejects if the quote changed. |
+| `GET /jobs/:id` | Job status, progress, result (when done: `download_url` presigned, expires in 10 min, `expires_at` of the object). |
+| `GET /jobs/:id/events` | SSE progress stream. |
+| `POST /jobs/:id/cancel` | Cancel queued/running; releases credits. |
+| `GET /jobs` | Caller's recent jobs (metadata only), paginated by cursor. |
+| `GET /me` | Profile, tier, balance, free allowance left today. |
+| `GET /me/credits` | Ledger, paginated. |
+| `POST /credits/checkout` | `{ pack_id }` → Paddle checkout data. Web only. |
+| `POST /auth/device`, `POST /auth/device/token` | Panel connect flow. |
+| `POST /webhooks/paddle` | Payment webhooks (not under the public docs). |
+
+Client-only tools have no processing endpoint — they run in the browser. Calculators the panel needs come from `packages/core` directly, not the API.
+
+## Job lifecycle over the API
+
+```
+POST /uploads → PUT parts to storage → POST /uploads/:id/complete
+→ POST /jobs/quote → (user confirms) → POST /jobs
+→ GET /jobs/:id/events (or poll) → GET download_url
+```
+
+## Panel-specific notes
+
+- The panel lists tools from `GET /tools?surface=panel`, so admin toggles apply to the panel instantly.
+- Upload/download happen from the panel runtime with `fetch`; keep part size modest (8 MB) for reliability.
+- Imported results go into a bin named "EditToolbelt"; file names are generated locally from the clip name.
+- The panel shows balance and a "Buy credits" button that opens the website.
+
+## Versioning & stability
+
+- Tool ids and option names are part of the API contract. Renames keep an alias for one version.
+- Adding optional fields is non-breaking; removing/renaming fields is breaking.
+- `GET /tools` includes `deprecated: true` on anything being removed, with `sunset` date.
