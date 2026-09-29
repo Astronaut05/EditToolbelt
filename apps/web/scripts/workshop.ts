@@ -14,7 +14,7 @@ const cwd = fileURLToPath(new URL('..', import.meta.url));
 const env = { ...process.env, ETB_WORKSHOP: '1' };
 const shell = process.platform === 'win32';
 
-const build = spawnSync('pnpm', ['exec', 'next', 'build'], { cwd, env, stdio: 'inherit', shell });
+const build = spawnSync('pnpm', ['run', 'build'], { cwd, env, stdio: 'inherit', shell });
 if (build.status !== 0) process.exit(build.status ?? 1);
 
 console.log('\nWorkshop: http://localhost:4173/workshop\n');

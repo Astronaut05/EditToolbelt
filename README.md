@@ -33,7 +33,7 @@ Milestones are signed off against the real production build, served the way Clou
 pnpm preview        # next build (static export), then http://localhost:4173
 ```
 
-The server is `apps/web/scripts/serve.ts` (Node only, no dependencies). `pnpm preview --lan --https` serves it to phones on your Wi-Fi; see [Testing on phones](#testing-on-phones).
+The server is `apps/web/scripts/serve.ts` (Node only, no dependencies). It applies the build's `_headers` file exactly as Cloudflare Pages will, and every page carries its own Content Security Policy (hashes of its inline scripts, written in by `apps/web/scripts/postbuild.ts`), so security headers and cross-origin isolation behave locally as they will in production. `pnpm preview --lan --https` serves it to phones on your Wi-Fi; see [Testing on phones](#testing-on-phones).
 
 ## Design workshop
 

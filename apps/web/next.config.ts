@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@etb/core', '@etb/engines', '@etb/registry', '@etb/ui'],
   experimental: {
     optimizePackageImports: ['@etb/ui', 'lucide-react'],
+    sri: { algorithm: 'sha256' },
   },
   // Inlined at build time into server and client code; read them through
   // src/lib/urls.ts, never spell out a host.

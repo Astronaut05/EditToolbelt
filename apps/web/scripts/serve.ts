@@ -10,7 +10,10 @@
  * 127.0.0.1), --https (TLS with --cert/--key, default certs/local.pem and
  * certs/local-key.pem at the repo root; see README → Testing on phones).
  *
- * TODO(M1): apply the `_headers` file (CSP, COOP/COEP) exactly as Pages does.
+ * Applies the build's `_headers` file the way Cloudflare Pages does (path
+ * patterns with `*` splats and `:placeholders`, every matching rule applies,
+ * repeated headers are joined with ", ", `! Name` detaches a header), so the
+ * CSP and COOP/COEP proofs run locally.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import {
@@ -83,6 +86,56 @@ export function resolveFile(
   return candidates.find((candidate) => isFile(candidate)) ?? null;
 }
 
+export interface HeaderRule {
+  pattern: RegExp;
+  set: [string, string][];
+  detach: string[];
+}
+
+/** Parses a Cloudflare Pages `_headers` file. */
+export function parseHeaders(text: string): HeaderRule[] {
+  const rules: HeaderRule[] = [];
+  let current: HeaderRule | null = null;
+  for (const raw of text.split(/\r?\n/)) {
+    if (!raw.trim() || raw.trim().startsWith('#')) continue;
+    if (!/^\s/.test(raw)) {
+      const source = raw
+        .trim()
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/:[A-Za-z]\w*/g, '[^/]+');
+      current = { pattern: new RegExp(`^${source}$`), set: [], detach: [] };
+      rules.push(current);
+      continue;
+    }
+    if (!current) continue;
+    const line = raw.trim();
+    if (line.startsWith('!')) {
+      current.detach.push(line.slice(1).trim().toLowerCase());
+      continue;
+    }
+    const colon = line.indexOf(':');
+    if (colon > 0) current.set.push([line.slice(0, colon).trim(), line.slice(colon + 1).trim()]);
+  }
+  return rules;
+}
+
+/** Headers for one request path: all matching rules, repeated names joined. */
+export function headersFor(urlPath: string, rules: HeaderRule[]): Record<string, string> {
+  const path = urlPath.split('?')[0]?.split('#')[0] ?? '/';
+  const out = new Map<string, [string, string]>();
+  for (const rule of rules) {
+    if (!rule.pattern.test(path)) continue;
+    for (const name of rule.detach) out.delete(name);
+    for (const [name, value] of rule.set) {
+      const key = name.toLowerCase();
+      const existing = out.get(key);
+      out.set(key, existing ? [existing[0], `${existing[1]}, ${value}`] : [name, value]);
+    }
+  }
+  return Object.fromEntries(out.values());
+}
+
 function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
@@ -91,13 +144,19 @@ function isFile(path: string): boolean {
   }
 }
 
-function send(res: ServerResponse, req: IncomingMessage, status: number, file: string): void {
+function send(
+  res: ServerResponse,
+  req: IncomingMessage,
+  status: number,
+  file: string,
+  extra: Record<string, string>,
+): void {
   const body = readFileSync(file);
   res.writeHead(status, {
     'Content-Type': contentType(file),
     'Content-Length': body.length,
     'Cache-Control': file.endsWith('.html') ? 'no-cache' : 'public, max-age=0, must-revalidate',
-    'X-Content-Type-Options': 'nosniff',
+    ...extra,
   });
   res.end(req.method === 'HEAD' ? undefined : body);
 }
@@ -123,18 +182,26 @@ function main(): void {
     process.exit(1);
   }
 
+  const headersFile = join(root, '_headers');
+  const rules = existsSync(headersFile) ? parseHeaders(readFileSync(headersFile, 'utf8')) : [];
+  if (rules.length === 0)
+    console.warn('No _headers file in the build: serving without security headers.');
+
   const handler = (req: IncomingMessage, res: ServerResponse): void => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end();
       return;
     }
-    const file = resolveFile(root, req.url ?? '/', isFile);
-    if (file) {
-      send(res, req, 200, file);
+    const url = req.url ?? '/';
+    const extra = headersFor(url, rules);
+    const file = resolveFile(root, url, isFile);
+    // Like Pages, the _headers file itself is never served.
+    if (file && !file.endsWith(`${sep}_headers`)) {
+      send(res, req, 200, file, extra);
       return;
     }
     const notFound = join(root, '404.html');
-    if (isFile(notFound)) send(res, req, 404, notFound);
+    if (isFile(notFound)) send(res, req, 404, notFound, extra);
     else res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
   };
 

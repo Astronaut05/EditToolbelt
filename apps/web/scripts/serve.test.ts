@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { contentType, resolveFile } from './serve';
+import { contentType, headersFor, parseHeaders, resolveFile } from './serve';
 
 const root = resolve('/srv/out');
 const files = new Set(
@@ -47,5 +47,53 @@ describe('contentType', () => {
     ['a.unknown', 'application/octet-stream'],
   ])('%s → %s', (file, type) => {
     expect(contentType(file)).toBe(type);
+  });
+});
+
+describe('_headers', () => {
+  const rules = parseHeaders(`# comment
+/*
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy: frame-ancestors 'none'
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/video-converter
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+
+/blog/:slug
+  X-Blog: 1
+  ! X-Content-Type-Options
+
+/video-converter
+  Content-Security-Policy: sandbox
+`);
+
+  it('applies every matching rule and joins repeated headers', () => {
+    expect(headersFor('/video-converter', rules)).toEqual({
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "frame-ancestors 'none', sandbox",
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    });
+  });
+
+  it('matches splats, placeholders and ignores the query', () => {
+    expect(headersFor('/_next/static/chunks/a.js?v=1', rules)['Cache-Control']).toContain(
+      'immutable',
+    );
+    expect(headersFor('/photo', rules)['Cross-Origin-Embedder-Policy']).toBeUndefined();
+    expect(
+      headersFor('/video-converter/extra', rules)['Cross-Origin-Embedder-Policy'],
+    ).toBeUndefined();
+  });
+
+  it('detaches headers with !', () => {
+    const blog = headersFor('/blog/post', rules);
+    expect(blog['X-Blog']).toBe('1');
+    expect(blog['X-Content-Type-Options']).toBeUndefined();
+    expect(headersFor('/blog/a/b', rules)['X-Blog']).toBeUndefined();
   });
 });
