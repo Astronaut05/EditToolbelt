@@ -1,0 +1,46 @@
+# Weekly dependency updates (docs/11-security.md → Secrets and supply chain).
+# Every update still has to pass the license check in CI (docs/13-licenses.md).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      lint-and-types:
+        patterns:
+          [
+            'eslint',
+            '@eslint/*',
+            'typescript-eslint',
+            'eslint-*',
+            '@next/eslint-plugin-next',
+            '@types/*',
+            'typescript',
+          ]
+      next-and-react:
+        patterns: ['next', 'react', 'react-dom']
+
+  - package-ecosystem: uv
+    directory: /apps/worker
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directories: [/apps/worker, /apps/web]
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly

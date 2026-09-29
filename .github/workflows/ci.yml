@@ -1,0 +1,176 @@
+# CI (docs/12-milestones.md → M0): lint, typecheck, test on every PR.
+# On merge to main: static export deployed to Cloudflare Pages (docs/01 → Hosting).
+# Third-party actions are pinned by commit and listed in licenses.json.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+  UV_VERSION: '0.12.20'
+
+jobs:
+  js:
+    name: JS · format, lint, typecheck, test, licenses, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm licenses:check
+      - name: Build static export
+        run: pnpm build
+        env:
+          APP_ENV: test
+          APP_VERSION: ${{ github.sha }}
+
+  worker:
+    name: Worker · ruff, mypy, pytest, licenses
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/worker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          working-directory: apps/worker
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest
+      - run: uv run python scripts/check_licenses.py
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: pnpm audit
+        run: pnpm audit --audit-level high
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          working-directory: apps/worker
+      - name: pip-audit
+        working-directory: apps/worker
+        run: |
+          uv export --locked --no-dev --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx --from pip-audit==2.10.1 pip-audit --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+  stack:
+    name: Local stack · docker compose smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build images
+        run: docker compose build
+      - name: Start Postgres and storage
+        run: docker compose up --detach --wait postgres storage
+      - name: Worker hello-world job (JSON logs, job succeeds)
+        run: |
+          set -o pipefail
+          docker compose run --rm -T worker python -m etb_worker --once | tee "$RUNNER_TEMP/worker.log"
+          jq -e 'select(.event == "job.succeeded") | .service == "worker"' "$RUNNER_TEMP/worker.log"
+      - name: Web dev server serves the placeholder
+        run: |
+          docker compose up --detach web
+          for i in $(seq 1 60); do
+            if curl -fs http://localhost:3000/ | grep -q '<h1>EditToolbelt</h1>'; then
+              echo "web is up after ~$((i * 2))s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "web did not serve the placeholder in time"; exit 1
+      - name: Web logs are JSON
+        run: |
+          set -o pipefail
+          docker compose logs --no-log-prefix web | grep -m1 '"event":"web.started"' | jq -e '.service == "web"'
+      - name: Show logs
+        if: failure()
+        run: docker compose logs
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [js, worker, stack]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: ${{ steps.site.outputs.url }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT || 'edittoolbelt' }}
+    steps:
+      - name: Check Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set; skipping deploy. See README → Deploy."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Site URL
+        id: site
+        run: echo "url=${{ vars.SITE_URL || format('https://{0}.pages.dev', vars.CF_PAGES_PROJECT || 'edittoolbelt') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.creds.outputs.ready == 'true'
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.creds.outputs.ready == 'true'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Build static export
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @etb/web build
+        env:
+          APP_ENV: production
+          APP_VERSION: ${{ github.sha }}
+          NEXT_PUBLIC_SITE_URL: ${{ steps.site.outputs.url }}
+      - name: Deploy with Wrangler
+        if: steps.creds.outputs.ready == 'true'
+        # Outside the workspace so npx can't touch the repo's package.json or lockfile.
+        working-directory: ${{ runner.temp }}
+        run: >
+          npx --yes wrangler@4.143.0 pages deploy "$GITHUB_WORKSPACE/apps/web/out"
+          --project-name="$CF_PAGES_PROJECT" --branch=main
+          --commit-hash="$GITHUB_SHA" --commit-message="${GITHUB_SHA::7}"
