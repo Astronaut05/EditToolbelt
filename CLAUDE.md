@@ -46,9 +46,15 @@ Tool specs are split by category: `tools/photo.md`, `tools/video.md`, `tools/aud
 - `apps/worker`: Python 3.12 job workers (ffmpeg, ML models). Talks to Postgres and object storage only.
 - `apps/panel`: Premiere UXP panel (milestone 7).
 - `packages/ui` design system · `packages/registry` tool registry · `packages/engines` browser processing engines · `packages/core` pure logic shared by web and panel (calculators, subtitle parsing, timecode) · `packages/db` Drizzle schema + migrations · `packages/api-client` typed client for web and panel.
-- Postgres (also the job queue). S3-compatible object storage (Cloudflare R2 in production, MinIO locally). Cloudflare in front for CDN, TLS and edge rate limiting.
+- Postgres (also the job queue). S3-compatible object storage (Cloudflare R2 in production, Versity S3 Gateway locally; MinIO is AGPL, see `docs/13-licenses.md`). Cloudflare in front for CDN, TLS and edge rate limiting.
 - Auth: Better Auth — email magic link + Google. Payments: Paddle (merchant of record) behind a `PaymentProvider` interface.
-- Local dev: `docker compose up` gives Postgres, MinIO, worker, and web with hot reload.
+- Local dev: `docker compose up --watch` gives Postgres, S3 storage, worker, and web with hot reload.
+
+## Commands
+
+- `docker compose up --watch`: the whole local stack (web on :3000, worker, Postgres, storage).
+- `pnpm check`: format, lint, typecheck, unit tests and license check for the JS side. `pnpm worker:check`: the same for `apps/worker` (ruff, mypy, pytest, licenses).
+- Adding a dependency: row in `docs/13-licenses.md` + entry in `licenses.json` first, or CI fails.
 
 ## Conventions
 

@@ -89,3 +89,17 @@ Fixes applied to the spec, each with the evidence behind it. Decisions that are 
 ## Still open
 
 Open questions #1–11, #13 and #14 in `docs/14-open-questions.md`. Most need a lawyer, an accountant, or real data.
+
+## M0 build notes (2026-09-29)
+
+Decisions and deviations made while building M0. #1 needs your sign-off (open question 18).
+
+1. **MinIO replaced by Versity S3 Gateway for local storage.** MinIO is AGPL-3.0, which rule 6 and the Plausible CE precedent ban anywhere, and `minio/minio` no longer resolves on Docker Hub (upstream stopped publishing images). Versity S3 Gateway is Apache-2.0 and a single small container. Tested against it: presigned PUT/GET, multipart uploads with presigned part URLs, listing and aborting multipart uploads, bucket CORS with preflight. **Not supported: bucket lifecycle rules** (`NotImplemented`), so M4's lifecycle check can only pass against R2; locally it should report "not supported" rather than fail. SeaweedFS (Apache-2.0) is the fallback if that matters. → `CLAUDE.md`, `12`, `13`, `14`
+2. **`docker compose up --watch` is the one command.** Hot reload uses Compose Watch (files are synced into the container) instead of bind mounts: bind-mounted file events don't reach Linux containers reliably on Windows/macOS, and Turbopack has no polling fallback. Plain `docker compose up` runs the same stack without hot reload. → `CLAUDE.md`, `12`
+3. **ESLint 10 without `eslint-config-next`.** Its react/import/jsx-a11y plugins crash on ESLint 10, and ESLint 9 is end-of-life. We use `@next/eslint-plugin-next` + `eslint-plugin-react-hooks` directly. jsx-a11y comes back in M1 once it supports ESLint 10; until then axe in Playwright is the accessibility gate. → `13`
+4. **TypeScript 6.0, not 7.** typescript-eslint supports TypeScript < 6.1. → `13`
+5. **Postgres 18** for its built-in `uuidv7()` (the data model's id type).
+6. **Deploys run from GitHub Actions** (`wrangler pages deploy`, Direct Upload project) after lint/typecheck/tests/stack pass, rather than Cloudflare's Git integration, which would deploy even when CI is red.
+7. **Supply chain defaults:** pnpm `minimumReleaseAge` and uv `exclude-newer` of 1 day, GitHub Actions pinned by commit, Docker images pinned by digest, Dependabot weekly with a 3-day cooldown. `sharp` (LGPL libvips) is excluded: the static export never optimises images.
+8. **License register is enforced for transitive npm and Python packages too,** not only direct ones: anything outside the `allowed` list needs a register entry or a `reviewedTransitive` note. GitHub Actions and Docker images are checked as well.
+9. Next.js 16.3's dev server writes `apps/web/AGENTS.md` and a one-line `apps/web/CLAUDE.md` that point agents at the Next docs bundled in `node_modules`. They're committed so the tree stays clean.

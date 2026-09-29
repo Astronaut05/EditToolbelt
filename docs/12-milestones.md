@@ -11,7 +11,7 @@ Repo and pipeline, nothing user-facing.
 
 - Monorepo (pnpm + Turborepo) with `apps/web`, `apps/worker`, `packages/{ui,registry,engines,core,db,api-client}`.
 - TypeScript strict, ESLint, Prettier, Vitest; Python: ruff, mypy, pytest.
-- `docker compose up`: Postgres, MinIO, web (hot reload), worker (hello-world job).
+- `docker compose up` (`--watch` for hot reload): Postgres, S3-compatible storage (Versity S3 Gateway; MinIO dropped in M0 as AGPL, see `13`), web (hot reload), worker (hello-world job).
 - Env validation (`packages/core/env.ts`), `config/business.ts` skeleton.
 - CI: lint, typecheck, test on every PR. On merge to `main`: static export deployed to Cloudflare Pages (see `01` → Hosting). Buy the domain and connect it.
 - Structured logging set up in web and worker (pino/structlog, shared fields, redaction).

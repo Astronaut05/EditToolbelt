@@ -21,3 +21,4 @@ Decisions not made yet. Claude Code: when a milestone depends on one of these, *
 | 15 | ~~Smallest pack price~~ | — | **Decided 2026-09-29:** $5 minimum; placeholder packs $5 / $15 / $40 |
 | 16 | ~~Launch scope~~ | — | **Decided 2026-09-29:** 15-tool launch set in M2, rest of Wave 1 in M2b |
 | 17 | ~~Premiere panel timing~~ | — | **Decided 2026-09-29:** panel is M7, right after the API; remaining Wave 2 + mobile is M8 |
+| 18 | Local S3 server now that MinIO is out (AGPL, image no longer published) | M0 sign-off | **Versity S3 Gateway** (Apache-2.0), in use since M0; no bucket lifecycle rules. Alternative: SeaweedFS (Apache-2.0) |
