@@ -1,6 +1,6 @@
 # 14 — Open questions
 
-Decisions not made yet. Claude Code: when a milestone depends on one of these, **stop and ask** instead of choosing. Each has a sensible default so work isn't blocked earlier than necessary.
+Decisions not made yet. Claude Code: when a milestone depends on one of these, use its default (or your best judgment where there is none), log it in `DECISIONS.md` and continue. If a license is unclear, don't install it: use a clearly allowed alternative, or leave that tool `soon` and continue. The things that belong to Go public (spending money, domains and hosting, Paddle and payments, final legal texts, real secrets) still wait for Astro.
 
 | # | Question | Needed by | Default if not decided |
 |---|---|---|---|

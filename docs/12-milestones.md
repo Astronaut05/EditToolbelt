@@ -1,6 +1,6 @@
 # 12 — Milestones
 
-Build the skeleton properly first, with every tool listed but disabled, then switch tools on in waves. Each milestone ends with a demo and **explicit sign-off** before the next begins.
+Build the skeleton properly first, with every tool listed but disabled, then switch tools on in waves. Each milestone ends with a demo and **explicit sign-off** before the next begins, except in autonomous mode: from 2026-09-29 until the M2 local launch, work runs through M1 and M2 without waiting, with three checkpoints instead (`CLAUDE.md` rule 10).
 
 **Everything runs locally until Go public** (decided 2026-09-29): demos run on Astro's PC against the production build (`pnpm preview`) or the dev stack. No domain, no Cloudflare, no public URL until the Go public step below, which Astro triggers when ready (it must happen before M5).
 
