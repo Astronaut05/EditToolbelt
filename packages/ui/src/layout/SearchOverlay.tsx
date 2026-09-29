@@ -139,7 +139,7 @@ export function SearchOverlay() {
             <span className="sr-only">Close search</span>
           </button>
         </div>
-        <ul id={listId} role="listbox" aria-label="Results" className="mt-2">
+        <ul id={listId} role="listbox" aria-label="Search results" className="mt-2">
           {hits.map((hit, index) => (
             <li
               key={hit.path}
