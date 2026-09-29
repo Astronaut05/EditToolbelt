@@ -25,6 +25,21 @@ describe('webEnvSchema', () => {
     });
   });
 
+  it('takes analytics as a pair or not at all', () => {
+    const id = '0b6f6b7a-6c8e-4f39-9d0e-3f6b5a1c2d4e';
+    expect(
+      parseEnv(webEnvSchema, {
+        ANALYTICS_URL: 'https://stats.example.com',
+        ANALYTICS_WEBSITE_ID: id,
+      }).ok,
+    ).toBe(true);
+    expect(parseEnv(webEnvSchema, { ANALYTICS_URL: 'https://stats.example.com' })).toEqual({
+      ok: false,
+      errors: ['ANALYTICS_WEBSITE_ID: set both ANALYTICS_URL and ANALYTICS_WEBSITE_ID, or neither'],
+    });
+    expect(parseEnv(webEnvSchema, { ANALYTICS_WEBSITE_ID: 'not-a-uuid' }).ok).toBe(false);
+  });
+
   it('treats empty strings as unset', () => {
     const result = parseEnv(webEnvSchema, { LOG_LEVEL: '' });
     expect(result.ok && result.env.LOG_LEVEL).toBe('info');

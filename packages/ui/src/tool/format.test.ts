@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatBytes, formatTimecode, matchesAccept, outputName } from './format';
+import {
+  durationBucket,
+  formatBytes,
+  formatTimecode,
+  matchesAccept,
+  outputName,
+  sizeBucket,
+} from './format';
 
 describe('format helpers', () => {
   it('formats sizes with one decimal', () => {
@@ -26,5 +33,15 @@ describe('format helpers', () => {
     expect(matchesAccept({ name: 'a.png', type: 'image/png' }, 'image/*')).toBe(true);
     expect(matchesAccept({ name: 'a.mp4', type: 'video/mp4' }, 'image/*,.heic')).toBe(false);
     expect(matchesAccept({ name: 'a.bin', type: '' }, '')).toBe(true);
+  });
+});
+
+describe('analytics buckets', () => {
+  it('buckets sizes and durations', () => {
+    expect(sizeBucket(500_000)).toBe('<1MB');
+    expect(sizeBucket(4_800_000)).toBe('1-10MB');
+    expect(sizeBucket(2_000_000_000)).toBe('>1GB');
+    expect(durationBucket(1900)).toBe('1-3s');
+    expect(durationBucket(120_000)).toBe('>60s');
   });
 });

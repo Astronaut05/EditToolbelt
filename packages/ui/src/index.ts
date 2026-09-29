@@ -51,7 +51,14 @@ export { BeforeAfter, MediaTag } from './tool/BeforeAfter';
 export { CanvasEditor, type EditorMode } from './tool/CanvasEditor';
 export { DropZone, type DropZoneProps } from './tool/DropZone';
 export { FactGrid, type GridFact } from './tool/FactGrid';
-export { formatBytes, formatTimecode, matchesAccept, outputName } from './tool/format';
+export {
+  durationBucket,
+  formatBytes,
+  formatTimecode,
+  matchesAccept,
+  outputName,
+  sizeBucket,
+} from './tool/format';
 export { ProgressBar, type ProgressMeta } from './tool/ProgressBar';
 export { Readout, ReadoutRow, type Fact } from './tool/Readout';
 export { Timeline, type TimelineRange } from './tool/Timeline';
