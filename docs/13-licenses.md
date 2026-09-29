@@ -2,6 +2,8 @@
 
 Every third-party library, model, font and icon set goes here **before** it's installed. CI reads the machine-readable copy (`licenses.json`, created in M0) and fails if a dependency isn't listed. `/licenses` on the site is generated from it.
 
+**Keep both in step.** Add the row here *and* the entry in `licenses.json` (its `label` must appear in a row of this file). `pnpm licenses:check` (npm packages including transitive ones, GitHub Actions, Docker images) and `pnpm worker:check` (Python) enforce it: an unlisted dependency, a 🔍 entry that got installed, a license that changed on upgrade, or a transitive package under a copyleft/unknown license all fail CI. Transitive packages under an `allowed` license (see `policy` in `licenses.json`) need no row.
+
 ## Rules
 
 | Where it runs | Allowed | Not allowed |
@@ -84,6 +86,44 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | pyloudnorm | loudness (reference/tests) | MIT | 🔍 |
 | potrace | vectorise (Wave 3) | GPL-2.0 | ⚠️ server only |
 | vtracer | vectorise alternative | MIT | 🔍 |
+| Pydantic, pydantic-settings | worker env and job payload validation (the Python side of the Zod rule) | MIT | ✅ 2.13.5 / 2.15.0, checked 2026-09-29 |
+| psycopg 3 (`psycopg[binary]`) | Postgres driver for the worker | LGPL-3.0-only | ⚠️ server only (not distributed), used unmodified; 3.3.6 checked 2026-09-29 |
+| boto3 | S3/R2 client for the worker | Apache-2.0 | ✅ 1.43.103, checked 2026-09-29 |
+
+## Development, build and CI (never shipped)
+
+Build, lint, test and deploy tooling. Not distributed, but the rules still apply (no AGPL, no unclear licences). Versions are what was reviewed; the CI check re-reads each installed package's licence on every run.
+
+| Package | Use | License | Status |
+|---|---|---|---|
+| Turborepo (`turbo`) | monorepo task runner | MIT | ✅ 2.11.4, checked 2026-09-29 |
+| TypeScript | type checking | Apache-2.0 | ✅ 6.0.3 (7.x waits for typescript-eslint support), checked 2026-09-29 |
+| ESLint (`eslint`, `@eslint/js`) | linting | MIT | ✅ 10.11.0, checked 2026-09-29 |
+| typescript-eslint | TypeScript lint rules | MIT | ✅ 8.70.1, checked 2026-09-29 |
+| ESLint plugins: Next.js, React Hooks, Prettier config (`@next/eslint-plugin-next`, `eslint-plugin-react-hooks`, `eslint-config-prettier`) | lint rules | MIT | ✅ checked 2026-09-29. `eslint-config-next` is **not** used: its react/import/jsx-a11y plugins don't support ESLint 10 yet |
+| Prettier | formatting | MIT | ✅ 3.9.9, checked 2026-09-29 |
+| Vitest | unit tests | MIT | ✅ 5.0.2, checked 2026-09-29 |
+| DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`) | type definitions | MIT | ✅ checked 2026-09-29 |
+| Ruff | Python lint and format | MIT | ✅ 0.16.9, checked 2026-09-29 |
+| mypy | Python type checking | MIT | ✅ 2.3.1, checked 2026-09-29 |
+| pytest | Python tests | MIT | ✅ 9.1.1, checked 2026-09-29 |
+| uv / uv_build | Python package manager, build backend | MIT OR Apache-2.0 | ✅ 0.12.20, checked 2026-09-29 |
+| pip-audit | Python vulnerability audit in CI | Apache-2.0 | ✅ 2.10.1, checked 2026-09-29 |
+| Wrangler | Cloudflare Pages deploy from CI (run with npx, pinned version) | MIT OR Apache-2.0 | ✅ 4.143.0, checked 2026-09-29 |
+| GitHub Actions: checkout, setup-node, upload/download-artifact | CI | MIT | ✅ pinned by commit, checked 2026-09-29 |
+| pnpm/action-setup | CI: install pnpm | MIT | ✅ pinned by commit, checked 2026-09-29 |
+| astral-sh/setup-uv | CI: install uv | MIT | ✅ pinned by commit, checked 2026-09-29 |
+
+## Container images
+
+Pinned by digest (`11-security.md`). Base images also contain Debian/Alpine packages under their own (mostly GPL/LGPL) licences; that's fine for server and local containers, which we don't distribute.
+
+| Image | Use | License | Status |
+|---|---|---|---|
+| PostgreSQL (`postgres` image) | database, local stack | PostgreSQL | ✅ 18-alpine, checked 2026-09-29 |
+| Versity S3 Gateway (`versity/versitygw` image) | S3-compatible storage standing in for R2 locally (replaces MinIO, see Banned) | Apache-2.0 | ✅ v1.8.0, checked 2026-09-29 |
+| Node.js (`node` image) | base of the web dev container | MIT | ✅ 24-bookworm-slim, checked 2026-09-29 |
+| Python (`python` image) | base of the worker image | PSF-2.0 | ✅ 3.12-slim-trixie, checked 2026-09-29 |
 
 ## Banned (don't use, with reason)
 
@@ -95,6 +135,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Rubber Band library | GPL (commercial license separate) — banned in browser; server only if ever needed |
 | Any ffmpeg build with `--enable-nonfree` (e.g. libfdk_aac) | Not redistributable |
 | Plausible CE (self-hosted) | AGPL — use Umami instead to keep the "no AGPL" rule simple |
+| MinIO (`minio/minio` image) | AGPL-3.0, same reasoning as Plausible CE; upstream also stopped publishing the image (`minio/minio` no longer resolves on Docker Hub, checked 2026-09-29). Local S3 storage uses Versity S3 Gateway |
 | TT Hoves | Commercial TypeType font licensed to Uzcosmos for Uzcosmos work only. Embedding it in a website distributes it. Never use it in EditToolbelt |
 
 ## Pending review
