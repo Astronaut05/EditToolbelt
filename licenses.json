@@ -107,10 +107,26 @@
       "section": "Platform and app",
       "ecosystem": "npm",
       "packages": ["better-auth"],
-      "use": "auth",
+      "use": "accounts: magic-link and Google sign-in, sessions, TOTP for admins (server only; its telemetry is switched off)",
       "license": "MIT",
       "scope": "server",
-      "status": "verify"
+      "status": "approved",
+      "version": "1.7.6",
+      "source": "https://github.com/better-auth/better-auth/blob/main/LICENSE.md",
+      "checked": "2026-09-30"
+    },
+    {
+      "label": "Nodemailer",
+      "section": "Platform and app",
+      "ecosystem": "npm",
+      "packages": ["nodemailer"],
+      "use": "sends sign-in emails over SMTP (Mailpit on the local stack)",
+      "license": "MIT-0",
+      "scope": "server",
+      "status": "approved",
+      "version": "10.0.12",
+      "source": "https://github.com/nodemailer/nodemailer/blob/master/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "pino",
@@ -818,7 +834,14 @@
       "label": "DefinitelyTyped types",
       "section": "Development, build and CI",
       "ecosystem": "npm",
-      "packages": ["@types/node", "@types/react", "@types/react-dom", "@types/qrcode", "@types/pg"],
+      "packages": [
+        "@types/node",
+        "@types/react",
+        "@types/react-dom",
+        "@types/qrcode",
+        "@types/pg",
+        "@types/nodemailer"
+      ],
       "use": "type definitions",
       "license": "MIT",
       "scope": "dev",
@@ -1026,6 +1049,19 @@
       "version": "v1.8.0 (pinned by digest)",
       "source": "https://github.com/versity/versitygw/blob/main/LICENSE",
       "checked": "2026-09-29"
+    },
+    {
+      "label": "Mailpit",
+      "section": "Container images",
+      "ecosystem": "docker",
+      "packages": ["axllent/mailpit"],
+      "use": "catches the local stack's sign-in emails in a web inbox (local only)",
+      "license": "MIT",
+      "scope": "local",
+      "status": "approved",
+      "version": "v1.31.3",
+      "source": "https://github.com/axllent/mailpit/blob/develop/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "Node.js (`node` image)",

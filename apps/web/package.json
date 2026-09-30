@@ -13,23 +13,31 @@
     "workshop": "node scripts/workshop.ts",
     "e2e": "node scripts/workshop.ts --build-only && playwright test",
     "js-budget": "node scripts/js-budget.ts",
-    "models": "node scripts/models.ts"
+    "models": "node scripts/models.ts",
+    "e2e:server": "node scripts/e2e-server.ts",
+    "build:server": "ETB_TARGET=server next build",
+    "start:server": "ETB_TARGET=server next start"
   },
   "dependencies": {
     "@etb/core": "workspace:*",
+    "@etb/db": "workspace:*",
     "@etb/engines": "workspace:*",
     "@etb/registry": "workspace:*",
     "@etb/ui": "workspace:*",
+    "better-auth": "1.7.6",
     "lucide-react": "^1.48.0",
     "next": "^16.3.6",
+    "nodemailer": "10.0.12",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@fontsource-variable/onest": "^5.3.1",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/onest": "^5.3.1",
     "@tailwindcss/postcss": "^4.3.3",
+    "@types/nodemailer": "8.0.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "jsqr": "1.4.0",

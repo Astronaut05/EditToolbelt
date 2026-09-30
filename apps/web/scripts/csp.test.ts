@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
-import { buildCsp, injectCsp, inlineScriptHashes, originOf } from './csp';
+import { buildCsp } from '../src/lib/csp';
+import { injectCsp, inlineScriptHashes, originOf } from './csp';
 
 const sha = (body: string) => `'sha256-${createHash('sha256').update(body).digest('base64')}'`;
 
@@ -22,12 +23,22 @@ describe('CSP', () => {
   });
 
   it('adds wasm-unsafe-eval only when asked, and extra connect origins', () => {
-    const plain = buildCsp([], []);
+    const plain = buildCsp();
     expect(plain).toContain("script-src 'self';");
     expect(plain).not.toContain('wasm-unsafe-eval');
     expect(plain).toContain("frame-src 'none'");
-    expect(buildCsp([], [], { connect: ['https://models.example.com'] })).toContain(
+    expect(plain).not.toContain('frame-ancestors');
+    expect(buildCsp({ connect: ['https://models.example.com'] })).toContain(
       "connect-src 'self' https://models.example.com",
+    );
+  });
+
+  it('uses a nonce with strict-dynamic on pages rendered per request', () => {
+    const csp = buildCsp({ nonce: 'abc123', header: true });
+    expect(csp).toContain("script-src 'self' 'nonce-abc123' 'strict-dynamic';");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(buildCsp({ inline: true, wasm: true })).toContain(
+      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval';",
     );
   });
 

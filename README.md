@@ -12,14 +12,20 @@ You need Docker with Compose 2.22 or newer (Docker Desktop is fine). Then, from 
 docker compose up --watch
 ```
 
-| Service  | Where                 | What                                                                             |
-| -------- | --------------------- | -------------------------------------------------------------------------------- |
-| web      | http://localhost:3000 | Next.js dev server. Edits under `apps/web` and `packages` hot-reload.            |
-| worker   | (no port)             | Python worker. Runs a hello-world job against Postgres and storage, then idles.  |
-| postgres | localhost:5432        | Postgres 18, user / password / db: `etb` / `etb-local-only` / `etb`              |
-| storage  | http://localhost:7070 | S3-compatible storage (Versity S3 Gateway), key `etb-local` / `etb-local-secret` |
+| Service  | Where                 | What                                                                                                            |
+| -------- | --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| web      | http://localhost:3000 | Next.js dev server, the server build: the site plus accounts. Edits under `apps/web` and `packages` hot-reload. |
+| mailpit  | http://localhost:8025 | Inbox for the sign-in emails the stack sends. Nothing leaves your PC.                                           |
+| migrate  | (runs once)           | Applies the database migrations, then exits; web and worker wait for it.                                        |
+| worker   | (no port)             | Python worker. Runs a hello-world job against Postgres and storage, then idles.                                 |
+| postgres | localhost:5432        | Postgres 18, user / password / db: `etb` / `etb-local-only` / `etb`                                             |
+| storage  | http://localhost:7070 | S3-compatible storage (Versity S3 Gateway), key `etb-local` / `etb-local-secret`                                |
 
-`--watch` syncs file changes into the containers (hot reload for web, rebuild for the worker). Plain `docker compose up` runs the same stack without it. Host ports can be moved with `ETB_WEB_PORT`, `ETB_POSTGRES_PORT`, `ETB_STORAGE_PORT`. All credentials above are local placeholders.
+`--watch` syncs file changes into the containers (hot reload for web, rebuild for the worker). Plain `docker compose up` runs the same stack without it. Host ports can be moved with `ETB_WEB_PORT`, `ETB_POSTGRES_PORT`, `ETB_STORAGE_PORT`, `ETB_MAIL_PORT`. All credentials above are local placeholders.
+
+**Signing in on the stack:** open http://localhost:3000/sign-in, enter any email, then open the link from the Mailpit inbox (http://localhost:8025). Your account is at `/account`: profile, "Download my data", and deleting it (signing in within 30 days restores it). For Google sign-in, put your own OAuth client's `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in a `.env` file next to `compose.yaml` (it is git-ignored; never commit it), with `http://localhost:3000/api/auth/callback/google` as the redirect URI.
+
+**Two builds of one app:** the public site is a static export (`pnpm preview`, Cloudflare Pages after Go public). The server build (`ETB_TARGET=server`) is the same pages plus accounts, the admin and the API; the stack runs it, and it's production from M5. Route files named `*.server.tsx`/`.ts` exist only in the server build, `*.static.tsx`/`.ts` only in the static one.
 
 Every service logs one JSON object per line (`ts`, `level`, `service`, `env`, `version`, `event`, …), e.g. `docker compose logs worker`.
 
@@ -56,6 +62,16 @@ pnpm install
 pnpm check          # format, lint, typecheck, unit tests, license and host checks (JS side)
 pnpm worker:check   # ruff, mypy, pytest, license check (apps/worker)
 pnpm build          # static export of apps/web into apps/web/out
+pnpm db:migrate     # apply migrations to DATABASE_URL
+```
+
+The database and server-build tests need a throwaway Postgres 18 database (they write rows that can't be deleted), e.g. one more database in the stack's Postgres:
+
+```sh
+docker compose exec postgres createdb -U etb etb_test
+export TEST_DATABASE_URL=postgresql://etb:etb-local-only@localhost:5432/etb_test
+pnpm test                               # includes packages/db's integration tests
+pnpm --filter @etb/web e2e:server       # migrate, server build, Playwright: sign in, export, delete
 ```
 
 CI runs the same on every pull request, plus a dependency audit, a smoke test of the production build and one of the Docker stack. Next.js sends anonymous telemetry unless told not to; Docker and CI turn it off, and `pnpm --filter @etb/web exec next telemetry disable` turns it off on your machine.

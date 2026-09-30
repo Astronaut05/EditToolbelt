@@ -11,6 +11,7 @@ export default defineConfig(
   globalIgnores([
     '**/node_modules/',
     '**/.next/',
+    '**/.next-server/',
     '**/out/',
     '**/.turbo/',
     '**/next-env.d.ts',

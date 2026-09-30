@@ -11,6 +11,10 @@
  */
 import { createHash } from 'node:crypto';
 
+import { buildCsp } from '../src/lib/csp.ts';
+
+export { originOf } from '../src/lib/csp.ts';
+
 const INLINE_SCRIPT = /<script(?![^>]*\ssrc=)([^>]*)>([\s\S]*?)<\/script>/gi;
 const FLAGS = /<meta name="etb-csp" content="([^"]*)"\/?>/;
 
@@ -30,44 +34,13 @@ export function inlineScriptHashes(html: string): string[] {
   return [...hashes];
 }
 
-export function buildCsp(hashes: string[], flags: string[], options: CspOptions = {}): string {
-  const wasm = flags.includes('wasm') ? " 'wasm-unsafe-eval'" : '';
-  const connect = ["'self'", ...(options.connect ?? [])].join(' ');
-  return [
-    "default-src 'self'",
-    `script-src 'self'${wasm}${hashes.length ? ` ${hashes.join(' ')}` : ''}`,
-    // React sets style attributes (before/after split, progress); we render no user HTML.
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' blob: data:",
-    "media-src 'self' blob:",
-    "font-src 'self'",
-    `connect-src ${connect}`,
-    "worker-src 'self' blob:",
-    "manifest-src 'self'",
-    "frame-src 'none'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ].join('; ');
-}
-
 /** Adds the CSP meta tag to one HTML document and drops the etb-csp marker. */
 export function injectCsp(html: string, options: CspOptions = {}): string {
   const flags = FLAGS.exec(html)?.[1]?.split(/\s+/).filter(Boolean) ?? [];
   const cleaned = html.replace(FLAGS, '');
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${buildCsp(inlineScriptHashes(cleaned), flags, options)}"/>`;
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${buildCsp({ hashes: inlineScriptHashes(cleaned), wasm: flags.includes('wasm'), connect: options.connect ?? [] })}"/>`;
   const charset = /<meta charSet="utf-8"\/>/i;
   if (charset.test(cleaned)) return cleaned.replace(charset, (tag) => tag + meta);
   if (cleaned.includes('<head>')) return cleaned.replace('<head>', `<head>${meta}`);
   throw new Error('No <head> to put the CSP in');
-}
-
-/** The origin of an absolute URL, or null for a path on our own origin. */
-export function originOf(url: string | undefined): string | null {
-  if (!url || url.startsWith('/')) return null;
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
 }

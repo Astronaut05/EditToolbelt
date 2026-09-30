@@ -28,7 +28,8 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Zod | validation | MIT | ✅ |
 | Drizzle ORM | database schema, queries and migrations (`packages/db`) | Apache-2.0 | ✅ 0.45.3, checked 2026-09-30 |
 | node-postgres (`pg`) | Postgres driver for the web server and scripts | MIT | ✅ 8.23.0, checked 2026-09-30 |
-| Better Auth | auth | MIT | 🔍 |
+| Better Auth | accounts: magic-link and Google sign-in, sessions, TOTP for admins (server only; its telemetry is switched off) | MIT | ✅ 1.7.6, checked 2026-09-30 |
+| Nodemailer | sends sign-in emails over SMTP (Mailpit on the local stack) | MIT-0 | ✅ 10.0.12, checked 2026-09-30 |
 | pino | logging | MIT | ✅ |
 | structlog | Python logging | MIT / Apache-2.0 | ✅ |
 | next-intl | i18n | MIT | 🔍 |
@@ -108,7 +109,7 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | Prettier | formatting | MIT | ✅ 3.9.9, checked 2026-09-29 |
 | Vitest | unit tests | MIT | ✅ 5.0.2, checked 2026-09-29 |
 | drizzle-kit | generates SQL migrations from the Drizzle schema | MIT | ✅ 0.31.11, checked 2026-09-30 |
-| DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`, `@types/qrcode`, `@types/pg`) | type definitions | MIT | ✅ checked 2026-09-29 |
+| DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`, `@types/qrcode`, `@types/pg`, `@types/nodemailer`) | type definitions | MIT | ✅ checked 2026-09-29 |
 | Ruff | Python lint and format | MIT | ✅ 0.16.9, checked 2026-09-29 |
 | mypy | Python type checking | MIT | ✅ 2.3.1, checked 2026-09-29 |
 | pytest | Python tests | MIT | ✅ 9.1.1, checked 2026-09-29 |
@@ -131,6 +132,7 @@ Pinned by digest (`11-security.md`). Base images also contain Debian/Alpine pack
 |---|---|---|---|
 | PostgreSQL (`postgres` image) | database, local stack | PostgreSQL | ✅ 18-alpine, checked 2026-09-29 |
 | Versity S3 Gateway (`versity/versitygw` image) | S3-compatible storage standing in for R2 locally (replaces MinIO, see Banned) | Apache-2.0 | ✅ v1.8.0, checked 2026-09-29 |
+| Mailpit (`axllent/mailpit` image) | catches the local stack's sign-in emails in a web inbox (local only) | MIT | ✅ v1.31.3, checked 2026-09-30 |
 | Node.js (`node` image) | base of the web dev container | MIT | ✅ 24-bookworm-slim, checked 2026-09-29 |
 | Python (`python` image) | base of the worker image | PSF-2.0 | ✅ 3.12-slim-trixie, checked 2026-09-29 |
 

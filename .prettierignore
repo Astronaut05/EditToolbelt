@@ -1,6 +1,7 @@
 pnpm-lock.yaml
 apps/worker/
 **/.next/
+**/.next-server/
 **/out/
 **/.turbo/
 

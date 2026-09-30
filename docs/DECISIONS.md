@@ -553,3 +553,36 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 **Why:** `docs/04-data-model.md`, `docs/08` (minimal data), `CLAUDE.md` rule 5 (append-only ledger); M3 in `docs/12`.
 **Reverse:** a new migration changes any of it. The triggers and constraints can be dropped, but the ledger rule says they shouldn't.
 
+## 2026-09-30 · The server build, and accounts (M3)
+
+**Decision:**
+- **One app, two builds.** `ETB_TARGET` picks the build:
+  - The static export (default) stays exactly the public site `pnpm preview` serves and Cloudflare Pages will serve after Go public. No accounts, no API. That matches `12` ("any public site stays static until M5").
+  - The server build (`ETB_TARGET=server`, into `.next-server`) is the same pages plus accounts, and the admin and API next. The local stack runs it, and it becomes production in M5.
+  - Route files named `*.server.tsx`/`.ts` exist only in the server build, and `*.static.tsx`/`.ts` only in the static one: the same `pageExtensions` switch the workshop uses. `/sign-in` has one of each: the static one says accounts come later, the server one signs you in.
+  - The server build skips Next's own type pass, which would read the static build's generated route types. `pnpm typecheck` still checks every file.
+- **Better Auth 1.7 with email magic links, and Google when both Google variables are set.** No passwords.
+  - Links last 15 minutes, work once and are stored hashed. Sessions last 30 days, refreshed daily. The cookie is `etb.session_token`: httpOnly, SameSite=Lax, Secure on https.
+  - The magic-link endpoint gets no IP address (tracking is off), so it's limited per address: 3 links in 15 minutes, keyed by a hash of the email.
+  - A disabled account gets no link, and a session hook refuses it too (for Google).
+  - Signing in during the 30-day grace restores a deleted account.
+  - Better Auth's anonymous telemetry is switched off (`CLAUDE.md` rule 7).
+  - Sessions keep no IP address or user agent (the database refuses them). Google sign-in stores no tokens and no avatar URL: sign-in is all it's for.
+- **Sign-in email:** SMTP through Nodemailer (MIT-0). On the local stack, Mailpit catches everything in a web inbox at port 8025, so nothing leaves the PC. Tests write each email as a JSON file instead (`MAIL_OUTBOX_DIR`, refused outside local and test). The production email provider is chosen at Go public; it only needs an SMTP URL.
+- **`/account`:**
+  - Profile: an optional name, and the product-news opt-in.
+  - Credits: the balance, read-only until M5.
+  - Sign out, and sign out everywhere.
+  - "Download my data": JSON with the profile, how you sign in, purchases, the ledger, 90 days of job metadata and API keys by name. No tokens, no secrets.
+  - Delete: type `delete` to confirm. It signs you out everywhere, revokes API keys, and cancels queued jobs with their credits released through the ledger. The 30-day scrub into a tombstone runs with M3's scheduled jobs.
+  - Forms are server actions: Next checks their Origin (CSRF), and inputs go through Zod.
+- **CSP on the server build:**
+  - Pages rendered per request (`/account`, `/sign-in`, and `/admin` next) get a fresh nonce with `'strict-dynamic'`, plus the root layout's theme script by hash, and `Cache-Control: private, no-store`.
+  - Prerendered pages use the `'unsafe-inline'` fallback `11` allows, until M5 decides how the server build serves public pages.
+  - A proxy (Next's middleware, Edge runtime) also sets the same security headers `_headers` gives the static site.
+- **The server build has no service worker.** Its precache list comes from the static export, and signed-in pages must never come from a cache. It serves its own `/favicon.ico`.
+- **Health:** `/healthz` (up) and `/readyz` (database reachable, registry loaded; 503 problem+json otherwise).
+- **Tests:** `pnpm --filter @etb/web e2e:server` migrates `TEST_DATABASE_URL`, builds the server target and runs Playwright on desktop Chromium, Firefox and WebKit. It covers sign-in with a one-use link, no IP or user agent stored, nonce CSP with zero violations, profile save, data export, delete and restore, disabled accounts, and the health checks. CI runs it in the required JS job against the Postgres service. The stack smoke test checks `/readyz` and the sign-in page.
+**Why:** `docs/12` → M3 (sign in, export and delete an account on the local stack), `docs/11` → Auth, `docs/04` → Account deletion, Data export, `docs/08` → minimal data and self-serve rights.
+**Reverse:** unset `ETB_TARGET` and the site is the static export again. `apps/web/src/server/auth.ts` holds every auth choice.
+

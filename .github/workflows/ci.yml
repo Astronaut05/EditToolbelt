@@ -96,6 +96,10 @@ jobs:
         run: pnpm e2e
         env:
           APP_ENV: test
+      - name: End-to-end, server build (Chromium, Firefox, WebKit) · accounts
+        run: pnpm --filter @etb/web e2e:server
+        env:
+          TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
 
   worker:
     name: Worker · ruff, mypy, pytest, licenses
@@ -159,12 +163,15 @@ jobs:
           set -o pipefail
           docker compose run --rm -T worker python -m etb_worker --once | tee "$RUNNER_TEMP/worker.log"
           jq -e 'select(.event == "job.succeeded") | .service == "worker"' "$RUNNER_TEMP/worker.log"
-      - name: Web dev server serves the home page
+      - name: Web dev server serves the home page, and is ready (database)
         run: |
           docker compose up --detach web
           for i in $(seq 1 60); do
             if curl -fs http://localhost:3000/ | grep -q 'id="home-search"'; then
-              echo "web is up after ~$((i * 2))s"; exit 0
+              echo "web is up after ~$((i * 2))s"
+              curl -fs http://localhost:3000/readyz | jq -e '.checks.database == true'
+              curl -fs http://localhost:3000/sign-in | grep -q 'Email me a link'
+              exit 0
             fi
             sleep 2
           done
