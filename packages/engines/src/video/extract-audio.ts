@@ -94,16 +94,24 @@ export const AUDIO_TARGETS: Record<AudioFormat, Target> = {
   },
 };
 
-/** Loads our own encoder for codecs browsers don't encode; AAC comes only from the browser. */
+/**
+ * MP3 and FLAC always use our own encoders (LAME, libFLAC), even where the
+ * browser has one: WebKit's GStreamer MP3 encoder ignores the bitrate and
+ * drops the last frames. AAC and Opus come only from the browser.
+ */
 async function ensureEncoder(codec: AudioCodec): Promise<void> {
-  if (await canEncodeAudio(codec)) return;
   if (codec === 'mp3') {
     const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder');
     registerMp3Encoder();
-  } else if (codec === 'flac') {
+    return;
+  }
+  if (codec === 'flac') {
     const { registerFlacEncoder } = await import('@mediabunny/flac-encoder');
     registerFlacEncoder();
-  } else if (codec === 'aac') {
+    return;
+  }
+  if (await canEncodeAudio(codec)) return;
+  if (codec === 'aac') {
     throw new MediaInputError(
       'This browser can’t encode AAC, so it can’t make an M4A from this audio. Pick MP3 or WAV, or use Chrome on Windows or macOS, Safari or Edge.',
     );
