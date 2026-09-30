@@ -1,23 +1,27 @@
 /**
- * docs/07 → Health endpoints: ready to serve. The database answers and the
- * registry is loaded (storage joins with M4's uploads). Errors are RFC 9457
- * problem details and say which part is down, never why in detail.
+ * docs/07 → Health endpoints: ready to serve. The database and storage
+ * answer, and the registry is loaded. Errors are RFC 9457 problem details and
+ * say which part is down, never why in detail.
  */
 import { sql } from '@etb/db';
 import { tools } from '@etb/registry';
 
 import { db } from '../../server/db';
+import { storageReady } from '../../server/storage';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const checks = { database: false, registry: tools.length > 0 };
-  try {
-    await db().execute(sql`select 1`);
-    checks.database = true;
-  } catch {
-    // Reported below as not ready.
-  }
+  const [database, storage] = await Promise.all([
+    db()
+      .execute(sql`select 1`)
+      .then(
+        () => true,
+        () => false,
+      ),
+    storageReady(),
+  ]);
+  const checks = { database, storage, registry: tools.length > 0 };
   const ready = Object.values(checks).every(Boolean);
   if (ready) {
     return Response.json({ status: 'ready', checks }, { headers: { 'Cache-Control': 'no-store' } });

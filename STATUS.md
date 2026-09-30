@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M3, accounts, database, admin, flags · **in progress: parts 1 to 4 of 4 in review (the database; the server build and accounts; the admin and tool status from the database; alerts, the digest and scheduled jobs)**. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M4, server job pipeline · **in progress: part 1 of 5 in review (uploads straight to storage)**. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -55,11 +55,13 @@
 - M3, part 3: tool status from the database (admin changes show within 30 s) and the admin: dashboard, tools, users (credits, disable, revoke keys, export, delete), audit log and system, behind TOTP; `pnpm admin:promote` makes the first admin; `GET /api/v1/tools` (#39).
 - M3, part 4: the worker's scheduler. Heartbeats; alerts to Telegram, email as backup, with a 30-minute cool-down (missing heartbeat, database connections, disk, tool failure rate, queue wait, ledger mismatch); every night at 03:00 Tashkent the ledger check, the 30-day account scrub and the retention purges; the daily digest at 09:00 Tashkent. Admin → System lists recent alerts (#40).
 - Dependabot's one alert (esbuild under drizzle-kit, dev only) cleared with a pnpm override (#41).
+- M4, part 1: uploads straight to storage. `POST /api/v1/uploads` checks the tool, limits and type, and hands out presigned part URLs that each accept only their exact size; the browser PUTs the parts to storage itself; `complete` joins them and checks the size. `/readyz` checks storage (#42).
 
 ## Next
 
-1. Checkpoints 1, 2 and 3: sent. M2b is done.
-2. M3 sign-off once parts 1 to 4 are merged. Then M4 (the server job pipeline).
+1. Checkpoints 1, 2 and 3: sent. M2b and M3 are done.
+2. M4, part 2: the worker's job queue (claim, heartbeat, reaper), the probe, the processor interface, sandboxed ffmpeg, and the retention sweeper.
+3. M4, then: the jobs API (quote, create, live progress, cancel) with the free daily quota; Compress Video's server path, VFR to CFR and Burn Subtitles with the hybrid routing UI; the admin's Jobs page.
 
 ## Blocked
 

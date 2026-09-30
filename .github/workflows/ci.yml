@@ -99,7 +99,13 @@ jobs:
         run: pnpm e2e
         env:
           APP_ENV: test
-      - name: End-to-end, server build (Chromium, Firefox, WebKit) · accounts
+      - name: Storage for the server build's tests (the local stack's gateway)
+        run: |
+          docker run --detach --name storage --publish 7070:7070 --tmpfs /data \
+            versity/versitygw:v1.8.0@sha256:30292fc2eeacc67a36993b01f7a7a5e3361a19cced0e80c1d71cfa2a4b0a2499 \
+            --port=:7070 --access=etb-local --secret=etb-local-secret --region=us-east-1 \
+            '--cors-allow-origin=*' --quiet posix /data
+      - name: End-to-end, server build (Chromium, Firefox, WebKit) · accounts, admin, uploads
         run: pnpm --filter @etb/web e2e:server
         env:
           TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test

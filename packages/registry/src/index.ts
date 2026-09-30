@@ -15,6 +15,7 @@ export { categories, getCategory, type Category };
 export { conversions, conversionPath, conversionTitle, type ConversionPair } from './conversions';
 export {
   costOf,
+  hasServerPath,
   limitsOf,
   maintenanceMessage,
   setToolFlags,

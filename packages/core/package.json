@@ -8,7 +8,8 @@
     "./env": "./src/env.ts",
     "./logger": "./src/logger.ts",
     "./qr": "./src/qr/index.ts",
-    "./ranges": "./src/media/ranges.ts"
+    "./ranges": "./src/media/ranges.ts",
+    "./upload": "./src/upload.ts"
   },
   "scripts": {
     "lint": "eslint .",

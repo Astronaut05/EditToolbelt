@@ -30,6 +30,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | node-postgres (`pg`) | Postgres driver for the web server and scripts | MIT | ✅ 8.23.0, checked 2026-09-30 |
 | Better Auth | accounts: magic-link and Google sign-in, sessions, TOTP for admins (server only; its telemetry is switched off) | MIT | ✅ 1.7.6, checked 2026-09-30 |
 | Nodemailer | sends sign-in emails over SMTP (Mailpit on the local stack) | MIT-0 | ✅ 10.0.12, checked 2026-09-30 |
+| aws4fetch | signs S3 requests and presigns upload and download URLs for object storage (server only; no dependencies) | MIT | ✅ 1.0.20, checked 2026-09-30 |
 | pino | logging | MIT | ✅ |
 | structlog | Python logging | MIT / Apache-2.0 | ✅ |
 | next-intl | i18n | MIT | 🔍 |

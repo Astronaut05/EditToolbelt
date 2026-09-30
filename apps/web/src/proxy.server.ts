@@ -16,9 +16,12 @@ import { headerRules } from './lib/headers';
 /** Rendered per request, for one signed-in person: nonce CSP, no caching. */
 const PERSONAL = ['/account', '/sign-in', '/admin'];
 
-const connect = [originOf(process.env.MODELS_BASE_URL), originOf(process.env.ANALYTICS_URL)].filter(
-  (origin): origin is string => origin !== null,
-);
+/** Models, analytics, and storage: browsers upload parts to it and download results from it. */
+const connect = [
+  originOf(process.env.MODELS_BASE_URL),
+  originOf(process.env.ANALYTICS_URL),
+  originOf(process.env.STORAGE_ORIGIN),
+].filter((origin): origin is string => origin !== null);
 
 /** The root layout's one inline script of ours (the saved theme, before paint), allowed by hash. */
 let themeHash: Promise<string> | undefined;

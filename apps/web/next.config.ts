@@ -14,8 +14,8 @@ import { loadEnv, webEnvSchema, webServerEnvSchema } from '@etb/core/env';
 const target = process.env.ETB_TARGET === 'server' ? 'server' : 'static';
 
 // Fail fast, before Next starts compiling, if the env is wrong.
-const env =
-  target === 'server' ? loadEnv('web (server)', webServerEnvSchema) : loadEnv('web', webEnvSchema);
+const server = target === 'server' ? loadEnv('web (server)', webServerEnvSchema) : null;
+const env = server ?? loadEnv('web', webEnvSchema);
 
 // Local-only design workshop (component gallery and the design screens with
 // fixture data): files named `*.workshop.tsx` are routes only when
@@ -53,6 +53,8 @@ const nextConfig: NextConfig = {
     MODELS_BASE_URL: env.MODELS_BASE_URL,
     ANALYTICS_URL: env.ANALYTICS_URL ?? '',
     ANALYTICS_WEBSITE_ID: env.ANALYTICS_WEBSITE_ID ?? '',
+    // Where browsers PUT upload parts and GET results (the CSP's connect-src).
+    STORAGE_ORIGIN: server ? new URL(server.S3_PUBLIC_ENDPOINT ?? server.S3_ENDPOINT).origin : '',
   },
 };
 

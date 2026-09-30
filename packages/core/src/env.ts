@@ -93,6 +93,17 @@ function checkWeb(env: WebShared, ctx: z.RefinementCtx): void {
 export const webEnvSchema = z.object(webShape).superRefine(checkWeb);
 export type WebEnv = z.output<typeof webEnvSchema>;
 
+/** Object storage (S3-compatible: R2 in production, Versity S3 Gateway locally). */
+const storageShape = {
+  S3_ENDPOINT: z.url({ protocol: /^https?$/ }),
+  S3_REGION: z.string().trim().min(1).default('auto'),
+  S3_BUCKET: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'must be a valid S3 bucket name'),
+  S3_ACCESS_KEY_ID: z.string().min(1),
+  S3_SECRET_ACCESS_KEY: z.string().min(1),
+};
+
 /**
  * Env for the web server build (`ETB_TARGET=server`: the local stack from M3,
  * production from M5): the static site's variables plus the database,
@@ -103,6 +114,13 @@ export const webServerEnvSchema = z
   .object({
     ...webShape,
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+    ...storageShape,
+    /**
+     * Where browsers reach storage, for presigned upload and download URLs;
+     * defaults to S3_ENDPOINT. Differs only when the server reaches storage by
+     * another name (compose: `storage:7070` inside, `localhost:7070` outside).
+     */
+    S3_PUBLIC_ENDPOINT: z.url({ protocol: /^https?$/ }).optional(),
     /** Signs sessions and encrypts TOTP secrets: 32+ random characters, one per environment. */
     BETTER_AUTH_SECRET: z.string().min(32, 'must be at least 32 characters'),
     /** Google sign-in: both set, or neither (then the button is hidden). */
@@ -150,19 +168,13 @@ export type WebServerEnv = z.output<typeof webServerEnvSchema>;
 
 /**
  * Env for server processes that touch the database and object storage.
- * Web server routes use it from M3; the worker mirrors it today.
+ * The worker mirrors it; the web server build has its own schema above.
  */
 export const serverEnvSchema = z
   .object({
     ...sharedShape,
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
-    S3_ENDPOINT: z.url({ protocol: /^https?$/ }),
-    S3_REGION: z.string().trim().min(1).default('auto'),
-    S3_BUCKET: z
-      .string()
-      .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'must be a valid S3 bucket name'),
-    S3_ACCESS_KEY_ID: z.string().min(1),
-    S3_SECRET_ACCESS_KEY: z.string().min(1),
+    ...storageShape,
   })
   .superRefine(checkShared);
 export type ServerEnv = z.output<typeof serverEnvSchema>;

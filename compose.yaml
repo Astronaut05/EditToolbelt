@@ -48,7 +48,10 @@ services:
       - --access=etb-local
       - --secret=etb-local-secret
       - --region=us-east-1
-      - --cors-allow-origin=http://localhost:3000
+      # Browsers PUT upload parts here from the dev server (:3000) and the
+      # server build's tests (:4175). The bucket is private: a presigned URL is
+      # the only way in, so allowing any origin opens nothing more.
+      - --cors-allow-origin=*
       - --quiet
       - posix
       - /data
@@ -138,11 +141,21 @@ services:
       # file (never commit it); the button appears when both are set.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Storage for server jobs: the server reaches it as `storage`, your
+      # browser as localhost (presigned upload and download URLs).
+      S3_ENDPOINT: http://storage:7070
+      S3_PUBLIC_ENDPOINT: http://localhost:${ETB_STORAGE_PORT:-7070}
+      S3_REGION: us-east-1
+      S3_BUCKET: etb-local
+      S3_ACCESS_KEY_ID: etb-local
+      S3_SECRET_ACCESS_KEY: etb-local-secret
     depends_on:
       migrate:
         condition: service_completed_successfully
       mailpit:
         condition: service_started
+      storage:
+        condition: service_healthy
     ports:
       - 127.0.0.1:${ETB_WEB_PORT:-3000}:3000
     develop:
