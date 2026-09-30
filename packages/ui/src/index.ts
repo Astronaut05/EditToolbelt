@@ -8,6 +8,7 @@ export { cn } from './cn';
 export { AppLink, type AppLinkProps } from './primitives/AppLink';
 export { Breadcrumb, type Crumb } from './primitives/Breadcrumb';
 export { Button, ButtonLink, type ButtonLinkProps, type ButtonProps } from './primitives/Button';
+export { CopyButton } from './primitives/CopyButton';
 export {
   ColorInput,
   FieldHint,
@@ -48,6 +49,7 @@ export { loadSearchIndex, SEARCH_INDEX_URL, useGo, useSearch } from './layout/us
 
 export { BatchList, type BatchItem } from './tool/BatchList';
 export { BeforeAfter, MediaTag } from './tool/BeforeAfter';
+export { CalculatorShell } from './tool/CalculatorShell';
 export { CanvasEditor, type EditorMode } from './tool/CanvasEditor';
 export { DropZone, type DropZoneProps } from './tool/DropZone';
 export { FactGrid, type GridFact } from './tool/FactGrid';

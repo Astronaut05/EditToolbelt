@@ -21,8 +21,12 @@ import { Breadcrumb } from '@etb/ui';
 import { ComingSoon, type SoonLink } from '../../components/ComingSoon';
 import { HubList } from '../../components/HubList';
 import { SiteFrame } from '../../components/SiteFrame';
+import { ToolDetails } from '../../components/ToolDetails';
 import { hubRows } from '../../lib/hub';
 import { breadcrumbJsonLd, JsonLd, pageMetadata, toolJsonLd } from '../../lib/seo';
+import { relatedLinks, shellTool, whyPoints } from '../../lib/tool';
+import { ToolView } from '../../tools';
+import { hasView } from '../../tools/ids';
 
 // Hubs (/photo) and tools (/remove-background) share the top level
 // (docs/09 → URL scheme), so one route renders both from the registry.
@@ -86,6 +90,32 @@ function Hub({ category }: { category: Category }) {
   );
 }
 
+/** A working tool: the workspace right under the H1, then the page template of docs/09. */
+function LiveTool({ tool }: { tool: ToolDef }) {
+  const category = getCategory(tool.category);
+  if (!hasView(tool.id))
+    throw new Error(`${tool.id} is ${tool.status} but has no view in src/tools`);
+  return (
+    <SiteFrame current={tool.category}>
+      <JsonLd data={toolJsonLd(tool, category)} />
+      <ToolView tool={shellTool(tool)} />
+      <ToolDetails
+        name={tool.name}
+        howTo={tool.seo.howTo ?? []}
+        why={whyPoints(tool)}
+        faq={tool.seo.faq ?? []}
+        related={relatedLinks(tool)}
+        category={{
+          href: categoryPath(category),
+          title: category.title,
+          count: toolsInCategory(category.id).length,
+        }}
+      />
+    </SiteFrame>
+  );
+}
+
+/** A `soon` tool: the noindex placeholder (design: soon-upscale). */
 function Tool({ tool }: { tool: ToolDef }) {
   const category = getCategory(tool.category);
   const working = availableRelated(tool);
@@ -132,6 +162,5 @@ export default async function SlugPage({ params }: Props) {
   if (category) return <Hub category={category} />;
   const tool = findToolBySlug(slug);
   if (!tool || !isListed(tool)) notFound();
-  // Live and beta tools render the ToolShell from M2 on; every tool is `soon` in M1.
-  return <Tool tool={tool} />;
+  return isAvailable(tool) ? <LiveTool tool={tool} /> : <Tool tool={tool} />;
 }

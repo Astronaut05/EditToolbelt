@@ -4,6 +4,7 @@ import { dummyEngine } from '@etb/engines';
 import { ToolShell, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import AspectRatioCalculator from '../tools/aspect-ratio-calculator';
 import type { DemoType } from './demoTypes';
 import { removeBackgroundPreset } from './removeBackground';
 
@@ -213,6 +214,7 @@ const DEMOS: Record<DemoType, { tool: ShellTool; preset: ShellPreset }> = {
 /** A working ToolShell for one ui type, against the dummy engine (docs/12 → M1). */
 export function ToolDemo({ type }: { type: DemoType }) {
   const demo = DEMOS[type];
+  if (type === 'calculator') return <AspectRatioCalculator tool={demo.tool} />;
   return (
     <ToolShell
       tool={demo.tool}

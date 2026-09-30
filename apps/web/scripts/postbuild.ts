@@ -3,8 +3,9 @@
  * 1. Gives generated Open Graph images a .png name (the export writes them
  *    without an extension, which hosts serve as octet-stream) and points the
  *    pages at the new name.
- * 2. Writes the service worker with the app shell precache list (scripts/sw.ts).
- * 3. Writes the per-page CSP into every exported HTML file (scripts/csp.ts),
+ * 2. Writes /favicon.ico from the 32 px icon (scripts/ico.ts).
+ * 3. Writes the service worker with the app shell precache list (scripts/sw.ts).
+ * 4. Writes the per-page CSP into every exported HTML file (scripts/csp.ts),
  *    last, because it hashes the final inline scripts.
  * `_headers` and the rest come from the build itself.
  */
@@ -13,6 +14,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { injectCsp, originOf } from './csp.ts';
+import { pngToIco } from './ico.ts';
 import { assetsIn, serviceWorker } from './sw.ts';
 
 const OUT = fileURLToPath(new URL('../out', import.meta.url));
@@ -35,6 +37,11 @@ for (const file of pages) {
   const fixed = text.replaceAll(`/${OG}?`, `/${OG}.png?`);
   if (fixed !== text) writeFileSync(file, fixed);
 }
+
+writeFileSync(
+  join(OUT, 'favicon.ico'),
+  pngToIco(readFileSync(join(OUT, 'icons/favicon-32.png')), 32),
+);
 
 const connect = [originOf(process.env.MODELS_BASE_URL), originOf(process.env.ANALYTICS_URL)].filter(
   (origin): origin is string => origin !== null,

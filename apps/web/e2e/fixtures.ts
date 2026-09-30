@@ -26,6 +26,7 @@ export const PAGES = [
   { name: 'home', path: '/' },
   { name: 'hub', path: '/photo' },
   { name: 'coming soon', path: '/remove-background' },
+  { name: 'calculator', path: '/aspect-ratio-calculator' },
   { name: 'isolated tool', path: '/video-converter' },
   { name: 'legal', path: '/privacy' },
   { name: 'licenses', path: '/licenses' },

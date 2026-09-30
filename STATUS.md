@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 about 2 % done** (0 of 15 launch tools live) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 about 15 % done** (3 of 15 launch tools live) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -16,11 +16,12 @@
 - Component gallery in the workshop (every `packages/ui` component, light and dark) and a working ToolShell demo for each `ui` type against the dummy engine (#16).
 - Tests and budgets in CI: Playwright on Chromium, Firefox, WebKit and a phone (CSP, isolation, axe on every page type, keyboard, links), Lighthouse on 5 pages, initial JS ≤ 150 KB (see `docs/DECISIONS.md`) (#17).
 - CodeQL findings in the build scripts fixed (#18). **M1 done.**
+- M2: the live tool page (the tool, then how-to, why, FAQ and related tools, with FAQ JSON-LD), and the first three launch tools: Timecode, Aspect Ratio and Bitrate calculators, with inputs in the URL and copy buttons (#20).
 
 ## Next
 
-1. Checkpoint 2 (M1 done): screenshots and commands sent.
-2. M2 launch set, in this order: the live tool page and the three calculators (T04, T05, T06), then C03 and U01, T01 with its pair pages, the photo tools (P02, P03, P05, P06, P07), the video tools (V01, V02, V04, V06).
+1. Checkpoint 2 (M1 done): sent.
+2. M2 launch set, in this order: C03 Color Converter and U01 QR Code, T01 Subtitle Converter with its pair pages, the photo tools (P02, P03, P05, P06, P07), the video tools (V01, V02, V04, V06).
 3. M2b (11 tools), then checkpoint 3.
 
 ## Blocked
@@ -31,7 +32,7 @@
 
 ```sh
 git pull && pnpm install
-pnpm preview                   # production build: http://localhost:4173
+pnpm preview                   # production build: http://localhost:4173 (try /timecode-calculator)
 pnpm workshop                  # design screens, components, ToolShell demos: http://localhost:4173/workshop
 pnpm e2e                       # Playwright (pnpm exec playwright install once)
 pnpm lighthouse                # after pnpm build

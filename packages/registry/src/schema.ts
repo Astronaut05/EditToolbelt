@@ -180,11 +180,18 @@ export const toolDefSchema = z
       ctx.addIssue({ code: 'custom', path: ['cost'], message: 'browser tools are free' });
     }
     // Live and beta pages carry the full page template (docs/09 → Page template).
+    // Calculators take no files, so they have no accepts, outputs or limits.
     if (tool.status === 'live' || tool.status === 'beta') {
+      const files: [unknown, string][] =
+        tool.ui === 'calculator'
+          ? []
+          : [
+              [tool.accepts, 'accepts'],
+              [tool.outputs, 'outputs'],
+              [tool.limits, 'limits'],
+            ];
       const required: [unknown, string][] = [
-        [tool.accepts, 'accepts'],
-        [tool.outputs, 'outputs'],
-        [tool.limits, 'limits'],
+        ...files,
         [tool.seo.howTo, 'seo.howTo'],
         [tool.seo.faq, 'seo.faq'],
       ];
