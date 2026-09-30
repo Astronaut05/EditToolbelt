@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M1b, the rest of M1 · **M1 about 88 % done** · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M1b, the rest of M1 · **M1 about 97 % done** · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -13,11 +13,12 @@
 - SEO scaffolding: metadata and JSON-LD from the registry, sitemap (working pages only), robots.txt, Open Graph images for home, hubs and every tool (#13).
 - PWA: manifest, icons, a service worker that precaches the app shell and works offline (#14).
 - Cookieless analytics: page views, the `09` events and Web Vitals to a self-hosted collector, off unless `ANALYTICS_URL` and `ANALYTICS_WEBSITE_ID` are set (#15).
-- Component gallery in the workshop (every `packages/ui` component, light and dark) and a working ToolShell demo for each `ui` type against the dummy engine.
+- Component gallery in the workshop (every `packages/ui` component, light and dark) and a working ToolShell demo for each `ui` type against the dummy engine (#16).
+- Tests and budgets in CI: Playwright on Chromium, Firefox, WebKit and a phone (CSP, isolation, axe on every page type, keyboard, links), Lighthouse on 5 pages, initial JS ≤ 150 KB (see `docs/DECISIONS.md`).
 
 ## Next
 
-1. M1b: Playwright with axe, Lighthouse budgets. Then checkpoint 2.
+1. Checkpoint 2 (M1 done).
 2. M2 launch set (15 tools), then M2b. Then checkpoint 3.
 
 ## Blocked
@@ -30,5 +31,7 @@
 git pull && pnpm install
 pnpm preview                   # production build: http://localhost:4173
 pnpm workshop                  # design screens, components, ToolShell demos: http://localhost:4173/workshop
+pnpm e2e                       # Playwright (pnpm exec playwright install once)
+pnpm lighthouse                # after pnpm build
 docker compose up --watch      # dev stack: http://localhost:3000
 ```

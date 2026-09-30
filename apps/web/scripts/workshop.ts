@@ -17,9 +17,18 @@ const shell = process.platform === 'win32';
 const build = spawnSync('pnpm', ['run', 'build'], { cwd, env, stdio: 'inherit', shell });
 if (build.status !== 0) process.exit(build.status ?? 1);
 
+if (process.argv.includes('--build-only')) process.exit(0);
+
 console.log('\nWorkshop: http://localhost:4173/workshop\n');
-spawnSync('node', ['scripts/serve.ts', ...process.argv.slice(2).filter((arg) => arg !== '--')], {
-  cwd,
-  stdio: 'inherit',
-  shell,
-});
+spawnSync(
+  'node',
+  [
+    'scripts/serve.ts',
+    ...process.argv.slice(2).filter((arg) => arg !== '--' && arg !== '--build-only'),
+  ],
+  {
+    cwd,
+    stdio: 'inherit',
+    shell,
+  },
+);

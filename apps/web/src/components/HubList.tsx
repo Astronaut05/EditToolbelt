@@ -67,7 +67,7 @@ export function HubList({
                 <span
                   className={cn(
                     'block truncate text-17 font-strong tracking-tight',
-                    row.soon && 'text-text-muted opacity-60',
+                    row.soon && 'text-text-muted',
                   )}
                 >
                   {row.name}

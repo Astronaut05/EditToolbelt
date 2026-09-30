@@ -856,16 +856,16 @@
       "checked": "2026-09-30"
     },
     {
-      "label": "Lighthouse CI",
+      "label": "Lighthouse",
       "section": "Development, build and CI",
       "ecosystem": "npm",
-      "packages": ["@lhci/cli"],
-      "use": "Lighthouse budgets against the local production build",
+      "packages": ["lighthouse"],
+      "use": "Lighthouse budgets against the local production build (scripts/lighthouse.ts)",
       "license": "Apache-2.0",
       "scope": "dev",
       "status": "approved",
-      "version": "0.15.1 (Lighthouse 12.6.1)",
-      "source": "https://github.com/GoogleChrome/lighthouse-ci/blob/main/LICENSE",
+      "version": "13.5.0",
+      "source": "https://github.com/GoogleChrome/lighthouse/blob/main/LICENSE",
       "checked": "2026-09-30"
     },
     {
@@ -1047,12 +1047,5 @@
       "reason": "Commercial TypeType font licensed to Uzcosmos for Uzcosmos work only; embedding it in a website distributes it"
     }
   ],
-  "reviewedTransitive": [
-    {
-      "ecosystem": "npm",
-      "package": "parse-cache-control",
-      "license": "BSD-3-Clause",
-      "reason": "package.json says \"BSD\"; its LICENSE file is the BSD 3-clause text (checked 2026-09-30). Dependency of @lhci/cli, CI only, never shipped."
-    }
-  ]
+  "reviewedTransitive": []
 }

@@ -10,7 +10,9 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "preview": "node scripts/serve.ts",
-    "workshop": "node scripts/workshop.ts"
+    "workshop": "node scripts/workshop.ts",
+    "e2e": "node scripts/workshop.ts --build-only && playwright test",
+    "js-budget": "node scripts/js-budget.ts"
   },
   "dependencies": {
     "@etb/core": "workspace:*",

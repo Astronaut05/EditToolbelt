@@ -113,7 +113,7 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | pip-audit | Python vulnerability audit in CI | Apache-2.0 | ✅ 2.10.1, checked 2026-09-29 |
 | Playwright (`@playwright/test`) | end-to-end tests, screenshots, design comparison | Apache-2.0 | ✅ 1.63.0, checked 2026-09-30 |
 | axe-core for Playwright (`@axe-core/playwright`) | accessibility checks in e2e tests | MPL-2.0 | ✅ 4.13.0, checked 2026-09-30 (never shipped) |
-| Lighthouse CI (`@lhci/cli`) | Lighthouse budgets against the local production build | Apache-2.0 | ✅ 0.15.1, checked 2026-09-30. Its dependency `parse-cache-control` says "BSD"; the file is BSD-3-Clause (reviewed transitive in `licenses.json`) |
+| Lighthouse (`lighthouse`) | Lighthouse budgets against the local production build (`scripts/lighthouse.ts`; replaced `@lhci/cli`, whose Lighthouse 12 pulled audited-vulnerable `extract-zip` and `tmp`) | Apache-2.0 | ✅ 13.5.0, checked 2026-09-30 (never shipped) |
 | Wrangler | Cloudflare Pages deploy from CI after Go public (run with npx, pinned version) | MIT OR Apache-2.0 | ✅ 4.143.0, checked 2026-09-29 |
 | mkcert | local HTTPS certificates for testing on phones (installed on the dev machine, see README) | BSD-3-Clause | ✅ v1.4.4, checked 2026-09-29 |
 | GitHub Actions: checkout, setup-node, upload/download-artifact | CI | MIT | ✅ pinned by commit, checked 2026-09-29 |

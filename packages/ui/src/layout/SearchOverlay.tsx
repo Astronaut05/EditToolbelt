@@ -141,13 +141,11 @@ export function SearchOverlay() {
         </div>
         <ul id={listId} role="listbox" aria-label="Search results" className="mt-2">
           {hits.map((hit, index) => (
-            <li
-              key={hit.path}
-              id={`${listId}-${String(index)}`}
-              role="option"
-              aria-selected={index === active}
-            >
+            <li key={hit.path} role="presentation">
               <AppLink
+                id={`${listId}-${String(index)}`}
+                role="option"
+                aria-selected={index === active}
                 href={hit.path}
                 onClick={(event) => {
                   event.preventDefault();

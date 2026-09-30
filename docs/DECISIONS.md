@@ -127,3 +127,27 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** Page views (on every route change), the `09` event list and real-user Web Vitals go to a self-hosted, Umami-compatible collector (`POST {ANALYTICS_URL}/api/send`) through ~60 lines of our own code, not Umami's script: no cookies or storage, no identifiers, URLs without query strings, referrer as an origin only (internal ones dropped), file sizes and durations only as buckets, and nothing at all under Do Not Track or Global Privacy Control. It's off unless both `ANALYTICS_URL` and `ANALYTICS_WEBSITE_ID` are set at build time (validated as a pair); the post-build step adds that origin to `connect-src`. The ToolShell emits the tool events already bucketed. Running a collector is a hosting question for Go public; nothing is installed.
 **Why:** `09` → Measuring; `CLAUDE.md` rule 7; `10` → real-user Web Vitals.
 **Reverse:** leave the variables unset (sends nothing), or swap `apps/web/src/lib/analytics.ts` for another collector's API.
+
+## 2026-09-30 · Initial JS budget: 150 KB, not 120 KB
+
+**Decision:** The shell's initial JS budget is 150 KB gzip (module scripts, before any engine), enforced in CI by `apps/web/scripts/js-budget.ts` on five pages. Measured on the M1 shell: 143–144 KB, of which React 19 and the Next.js 16 runtime are about 120 KB on their own and our code (header, search, theme, analytics, service worker registration) about 24 KB. The legacy `nomodule` polyfill (38 KB) is excluded: browsers that run modules never load it.
+**Why:** `12` → M1 ("if the framework alone takes most of it, re-set the budget … now rather than discover it in M2"). The framework alone already takes the whole 120 KB. This is the one budget change made without sign-off; flagged at checkpoint 2.
+**Reverse:** lower `BUDGET_KB`; getting under 120 KB means leaving the Next.js client runtime (e.g. plain server-rendered pages with islands), a stack change.
+
+## 2026-09-30 · Tests and budgets in the required CI job
+
+**Decision:** The required "JS · …" job now also runs the initial-JS budget, Lighthouse on five pages (home, a hub, a coming-soon page, the isolated route, a legal page; mobile emulation, simulated slow 4G) through `scripts/lighthouse.ts` and the `lighthouse` package directly, because `@lhci/cli` 0.15 pulls Lighthouse 12 with audited-vulnerable `extract-zip` and `tmp` and Playwright on Chromium, Firefox, WebKit and a phone viewport against the production build with the workshop: zero CSP violations, cross-origin isolation after arriving from the home search, axe (WCAG 2.2 AA, no serious or critical issues) on every page type in light and dark, keyboard (`/`, Esc cancels a run, skip link, arrow keys), every internal link resolves, all 75 tool pages exist and are `noindex`, theme persistence and each ToolShell demo. Lighthouse gates: performance ≥ 0.9, accessibility ≥ 0.95, best practices ≥ 0.9, lab LCP ≤ 2.5 s, CLS ≤ 0.05, TBT ≤ 150 ms, script transfer ≤ 160 KB. Local run: performance 0.98–0.99, accessibility 1.00, CLS ≈ 0, TBT ≤ 82 ms, LCP 1.8–2.4 s. Lab LCP is simulated on a slow 4G, 4× slower CPU; the 1.8 s p75 real-user budget in `10` is watched through the Web Vitals analytics events. Reports stay on disk, never uploaded. `pnpm preview` now compresses like Pages (Brotli/gzip), so transfer sizes are realistic.
+**Why:** `12` → M1 (Playwright proofs, axe, Lighthouse budgets); the ruleset's required checks are fixed, so the gates live inside one of them.
+**Reverse:** move the steps to their own job (then it isn't required unless the ruleset changes).
+
+## 2026-09-30 · Axe over the drawing: dimmed "soon" rows
+
+**Decision:** `soon` tool names on hubs use `--text-muted` alone, not `--text-muted` at 60 % opacity as drawn: the drawn version fails WCAG AA contrast (axe, serious). They still read as dimmer than working tools, which are in `--text`. The search overlay's options are now the links themselves (`role="option"`), fixing a nested-interactive issue.
+**Why:** `CLAUDE.md` rule 9 (WCAG 2.2 AA) is non-negotiable.
+**Reverse:** none intended.
+
+## 2026-09-30 · ESLint plugins still not on ESLint 10
+
+**Decision:** Checked at the end of M1: `eslint-plugin-react` 7.37.5, `eslint-plugin-jsx-a11y` 6.10.2 and `eslint-plugin-import` 2.32.0 still declare ESLint ≤ 9. The tracked item carries forward to M2; axe in Playwright stays the accessibility gate (now in CI on every page type).
+**Why:** `12` → M1 tracked item ("carry forward if still blocked").
+**Reverse:** add the plugins to `eslint.config.mjs` once they support ESLint 10.
