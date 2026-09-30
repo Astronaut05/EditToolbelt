@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./env": "./src/env.ts",
-    "./logger": "./src/logger.ts"
+    "./logger": "./src/logger.ts",
+    "./qr": "./src/qr/index.ts"
   },
   "scripts": {
     "lint": "eslint .",
@@ -15,6 +16,11 @@
   },
   "dependencies": {
     "pino": "^10.3.1",
+    "qrcode": "1.5.4",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "jsqr": "1.4.0"
   }
 }

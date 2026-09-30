@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 about 15 % done** (3 of 15 launch tools live) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 about 25 % done** (5 of 15 launch tools live) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -17,11 +17,12 @@
 - Tests and budgets in CI: Playwright on Chromium, Firefox, WebKit and a phone (CSP, isolation, axe on every page type, keyboard, links), Lighthouse on 5 pages, initial JS ≤ 150 KB (see `docs/DECISIONS.md`) (#17).
 - CodeQL findings in the build scripts fixed (#18). **M1 done.**
 - M2: the live tool page (the tool, then how-to, why, FAQ and related tools, with FAQ JSON-LD), and the first three launch tools: Timecode, Aspect Ratio and Bitrate calculators, with inputs in the URL and copy buttons (#20).
+- M2: Color Converter (every notation, nearest CSS name, tints and shades) and QR Code Generator (7 content types, logo, PNG up to 4096 px and a clean SVG, codes checked by decoding them) (#21).
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
-2. M2 launch set, in this order: C03 Color Converter and U01 QR Code, T01 Subtitle Converter with its pair pages, the photo tools (P02, P03, P05, P06, P07), the video tools (V01, V02, V04, V06).
+2. M2 launch set, in this order: T01 Subtitle Converter with its pair pages, the photo tools (P02, P03, P05, P06, P07), the video tools (V01, V02, V04, V06).
 3. M2b (11 tools), then checkpoint 3.
 
 ## Blocked
@@ -32,7 +33,7 @@
 
 ```sh
 git pull && pnpm install
-pnpm preview                   # production build: http://localhost:4173 (try /timecode-calculator)
+pnpm preview                   # production build: http://localhost:4173 (try /timecode-calculator, /color-converter, /qr-code-generator)
 pnpm workshop                  # design screens, components, ToolShell demos: http://localhost:4173/workshop
 pnpm e2e                       # Playwright (pnpm exec playwright install once)
 pnpm lighthouse                # after pnpm build

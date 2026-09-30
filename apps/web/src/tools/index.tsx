@@ -18,6 +18,8 @@ type View = ComponentType<{ tool: ShellTool }>;
 const VIEWS: Readonly<Record<ToolId, View>> = {
   'aspect-ratio-calculator': dynamic(() => import('./aspect-ratio-calculator')),
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
+  'color-converter': dynamic(() => import('./color-converter')),
+  'qr-code-generator': dynamic(() => import('./qr-code-generator')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
 };
 

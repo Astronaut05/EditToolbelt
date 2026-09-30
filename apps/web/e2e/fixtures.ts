@@ -27,6 +27,8 @@ export const PAGES = [
   { name: 'hub', path: '/photo' },
   { name: 'coming soon', path: '/remove-background' },
   { name: 'calculator', path: '/aspect-ratio-calculator' },
+  { name: 'color converter', path: '/color-converter' },
+  { name: 'qr generator', path: '/qr-code-generator' },
   { name: 'isolated tool', path: '/video-converter' },
   { name: 'legal', path: '/privacy' },
   { name: 'licenses', path: '/licenses' },
