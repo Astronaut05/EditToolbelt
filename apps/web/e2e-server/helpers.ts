@@ -1,0 +1,92 @@
+/**
+ * Shared by the server build's end-to-end tests: the test database, signing
+ * in through the email outbox the server writes (MAIL_OUTBOX_DIR), and TOTP
+ * codes for the admin's two-factor step.
+ */
+import { createHmac, randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { createDb, type Db } from '@etb/db';
+import { expect, type Page } from '@playwright/test';
+
+import { OUTBOX } from '../scripts/server-env.ts';
+
+let made: ReturnType<typeof createDb> | null = null;
+
+/** The test database (TEST_DATABASE_URL), opened on first use. */
+export function testDb(): Db {
+  made ??= createDb(process.env.TEST_DATABASE_URL ?? '', { max: 2 });
+  return made.db;
+}
+
+export async function closeTestDb(): Promise<void> {
+  const pool = made?.pool;
+  made = null;
+  await pool?.end();
+}
+
+export const newEmail = () => `e2e-${randomUUID()}@example.test`;
+
+interface Mail {
+  to: string;
+  text: string;
+}
+
+/** The newest sign-in link sent to `email` once more than `after` have arrived. */
+export async function linkFor(email: string, after = 0): Promise<string> {
+  for (let i = 0; i < 50; i += 1) {
+    let mails: Mail[] = [];
+    try {
+      mails = readdirSync(OUTBOX)
+        .filter((name) => name.endsWith('.json'))
+        .sort()
+        .map((name) => JSON.parse(readFileSync(join(OUTBOX, name), 'utf8')) as Mail);
+    } catch {
+      // No outbox yet.
+    }
+    const mine = mails.filter((mail) => mail.to === email);
+    if (mine.length > after) {
+      const url = /https?:\/\/\S+/.exec(mine[mine.length - 1]?.text ?? '')?.[0];
+      if (url) return url;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('No sign-in email arrived');
+}
+
+export async function askForLink(page: Page, email: string) {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill(email);
+  await page.getByRole('button', { name: 'Email me a link' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+}
+
+export async function signIn(page: Page, email: string, earlier = 0) {
+  await askForLink(page, email);
+  await page.goto(await linkFor(email, earlier));
+  await expect(page).toHaveURL(/\/account$/);
+  await expect(page.getByRole('heading', { name: 'Your account', level: 1 })).toBeVisible();
+}
+
+function base32(text: string): Buffer {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const char of text.replace(/=+$/, '').toUpperCase()) {
+    const value = alphabet.indexOf(char);
+    if (value < 0) throw new Error('not base32');
+    bits += value.toString(2).padStart(5, '0');
+  }
+  const bytes = bits.match(/.{8}/g) ?? [];
+  return Buffer.from(bytes.map((byte) => parseInt(byte, 2)));
+}
+
+/** The current 6-digit TOTP code for a base32 key (RFC 6238: SHA-1, 30 s). */
+export function totp(key: string, at = Date.now()): string {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
+  const mac = createHmac('sha1', base32(key)).update(counter).digest();
+  const offset = (mac[mac.length - 1] ?? 0) & 0x0f;
+  const code = (mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
+  return String(code).padStart(6, '0');
+}

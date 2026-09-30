@@ -7,6 +7,7 @@
  * imports no tool data, so the ranking code stays tiny in the client bundle.
  */
 import type { ConversionPair } from './conversions';
+import { statusOf } from './flags';
 import type { ToolDef } from './schema';
 
 export interface SearchEntry {
@@ -53,21 +54,23 @@ export function buildSearchIndex(
   const byId = new Map(tools.map((tool) => [tool.id, tool]));
   const entries: SearchEntry[] = [];
   for (const tool of tools) {
-    if (tool.status === 'disabled') continue;
+    const status = statusOf(tool);
+    if (status === 'disabled') continue;
     entries.push({
       kind: 'tool',
       title: tool.name,
       path: `/${tool.slug}`,
       tag: CATEGORY_TAG[tool.category],
       summary: tool.summary,
-      soon: tool.status === 'soon',
+      soon: status === 'soon',
       terms: unique([tool.seo.primaryQuery, ...tool.seo.secondaryQueries, tool.seo.h1]),
     });
   }
   for (const pair of pairs) {
     const tool = byId.get(pair.toolId);
     // A pair page exists only while its tool works and nothing holds it (docs/12 → M2).
-    if (pair.hold || (tool?.status !== 'live' && tool?.status !== 'beta')) continue;
+    const status = tool ? statusOf(tool) : undefined;
+    if (!tool || pair.hold || (status !== 'live' && status !== 'beta')) continue;
     entries.push({
       kind: 'pair',
       title: `${pair.from.toUpperCase()} to ${pair.to.toUpperCase()}`,

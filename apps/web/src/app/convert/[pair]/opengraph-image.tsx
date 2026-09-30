@@ -8,7 +8,7 @@ export const contentType = 'image/png';
 export const alt = 'EditToolbelt';
 
 // Same static params as the page: one image per pair page.
-export { generateStaticParams } from './page';
+export { generateStaticParams } from './view';
 
 export default async function Image({ params }: { params: Promise<{ pair: string }> }) {
   const { pair: slug } = await params;

@@ -8,6 +8,7 @@ import {
   conversionTitle,
   getCategory,
   getTool,
+  isAvailable,
   livePairs,
   PAIR_COPY,
   toolPath,
@@ -16,6 +17,7 @@ import {
 
 import { SiteFrame } from '../../../components/SiteFrame';
 import { ToolDetails } from '../../../components/ToolDetails';
+import { loadToolFlags } from '../../../lib/flags';
 import { JsonLd, pageMetadata, pairJsonLd } from '../../../lib/seo';
 import { pairLinks, relatedLinks, shellTool, whyPoints } from '../../../lib/tool';
 import { ToolView } from '../../../tools';
@@ -23,12 +25,13 @@ import { hasView } from '../../../tools/ids';
 
 // Conversion pair pages (docs/09 → URL scheme): the converter preset to one
 // input and output, with copy written for the pair. Only pairs whose tool works.
-export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return livePairs()
-    .filter((pair) => PAIR_COPY[pair.slug])
-    .map((pair) => ({ pair: pair.slug }));
+  // The server build has a page for every pair with copy, so a tool switched
+  // on in admin brings its pairs; they answer 404 while it's off.
+  const pairs =
+    process.env.ETB_TARGET === 'server' ? conversions.filter((pair) => !pair.hold) : livePairs();
+  return pairs.filter((pair) => PAIR_COPY[pair.slug]).map((pair) => ({ pair: pair.slug }));
 }
 
 type Props = { params: Promise<{ pair: string }> };
@@ -41,6 +44,7 @@ function find(slug: string) {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  await loadToolFlags();
   const found = find((await params).pair);
   if (!found) return {};
   // Pair pages canonicalise to themselves: they're distinct intents (docs/09).
@@ -52,8 +56,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function PairPage({ params }: Props) {
+  await loadToolFlags();
   const found = find((await params).pair);
-  if (!found || !hasView(found.tool.id)) notFound();
+  if (!found || found.pair.hold || !hasView(found.tool.id) || !isAvailable(found.tool)) notFound();
   const { pair, copy, tool } = found;
   const category = getCategory(tool.category);
   const title = conversionTitle(pair);

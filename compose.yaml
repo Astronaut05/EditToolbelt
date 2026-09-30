@@ -113,7 +113,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile.dev
     environment:
-      # The server build: the site plus accounts (and, next, the admin).
+      # The server build: the site plus accounts, the admin and the API.
       ETB_TARGET: server
       APP_ENV: local
       APP_VERSION: dev

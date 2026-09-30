@@ -25,6 +25,8 @@ docker compose up --watch
 
 **Signing in on the stack:** open http://localhost:3000/sign-in, enter any email, then open the link from the Mailpit inbox (http://localhost:8025). Your account is at `/account`: profile, "Download my data", and deleting it (signing in within 30 days restores it). For Google sign-in, put your own OAuth client's `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in a `.env` file next to `compose.yaml` (it is git-ignored; never commit it), with `http://localhost:3000/api/auth/callback/google` as the redirect URI.
 
+**The admin on the stack:** sign in once, then `docker compose exec web pnpm admin:promote you@example.com`. Open http://localhost:3000/admin, set up two-factor with an authenticator app, and you're in: Dashboard, Tools (switch any tool's status or add a maintenance message; the site follows within 30 seconds), Users, Audit log and System.
+
 **Two builds of one app:** the public site is a static export (`pnpm preview`, Cloudflare Pages after Go public). The server build (`ETB_TARGET=server`) is the same pages plus accounts, the admin and the API; the stack runs it, and it's production from M5. Route files named `*.server.tsx`/`.ts` exist only in the server build, `*.static.tsx`/`.ts` only in the static one.
 
 Every service logs one JSON object per line (`ts`, `level`, `service`, `env`, `version`, `event`, …), e.g. `docker compose logs worker`.

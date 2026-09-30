@@ -82,7 +82,7 @@ export const creditRuleSchema = z.discriminatedUnion('kind', [
 ]);
 export type CreditRule = z.infer<typeof creditRuleSchema>;
 
-const limitsSchema = z.strictObject({
+export const limitsSchema = z.strictObject({
   client: z
     .strictObject({
       maxBytes: z.number().int().positive(),

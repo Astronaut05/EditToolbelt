@@ -9,6 +9,7 @@ import {
   getCategory,
   isAvailable,
   isListed,
+  maintenanceMessage,
   needsWasm,
   toolPath,
   tools,
@@ -16,12 +17,13 @@ import {
   type Category,
   type ToolDef,
 } from '@etb/registry';
-import { Breadcrumb } from '@etb/ui';
+import { Breadcrumb, CapabilityNotice } from '@etb/ui';
 
 import { ComingSoon, type SoonLink } from '../../components/ComingSoon';
 import { HubList } from '../../components/HubList';
 import { SiteFrame } from '../../components/SiteFrame';
 import { ToolDetails } from '../../components/ToolDetails';
+import { loadToolFlags } from '../../lib/flags';
 import { hubRows } from '../../lib/hub';
 import { breadcrumbJsonLd, JsonLd, pageMetadata, toolJsonLd } from '../../lib/seo';
 import { pairLinks, relatedLinks, shellTool, whyPoints } from '../../lib/tool';
@@ -30,12 +32,15 @@ import { hasView } from '../../tools/ids';
 
 // Hubs (/photo) and tools (/remove-background) share the top level
 // (docs/09 → URL scheme), so one route renders both from the registry.
-export const dynamicParams = false;
 
 export function generateStaticParams() {
   return [
     ...categories.map((category) => ({ slug: category.slug })),
-    ...tools.filter(isListed).map((tool) => ({ slug: tool.slug })),
+    // The server build has a page for every tool, so admin can switch a
+    // disabled one on; it answers 404 while disabled.
+    ...tools
+      .filter((tool) => process.env.ETB_TARGET === 'server' || isListed(tool))
+      .map((tool) => ({ slug: tool.slug })),
   ];
 }
 
@@ -46,6 +51,7 @@ function findCategory(slug: string): Category | undefined {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  await loadToolFlags();
   const { slug } = await params;
   const category = findCategory(slug);
   if (category) {
@@ -95,9 +101,15 @@ function LiveTool({ tool }: { tool: ToolDef }) {
   const category = getCategory(tool.category);
   if (!hasView(tool.id))
     throw new Error(`${tool.id} is ${tool.status} but has no view in src/tools`);
+  const maintenance = maintenanceMessage(tool);
   return (
     <SiteFrame current={tool.category}>
       <JsonLd data={toolJsonLd(tool, category)} />
+      {maintenance && (
+        <div className="px-4 pt-4 lg:px-10">
+          <CapabilityNotice title="Maintenance">{maintenance}</CapabilityNotice>
+        </div>
+      )}
       <ToolView tool={shellTool(tool)} />
       <ToolDetails
         name={tool.name}
@@ -158,6 +170,7 @@ function Tool({ tool }: { tool: ToolDef }) {
 }
 
 export default async function SlugPage({ params }: Props) {
+  await loadToolFlags();
   const { slug } = await params;
   const category = findCategory(slug);
   if (category) return <Hub category={category} />;

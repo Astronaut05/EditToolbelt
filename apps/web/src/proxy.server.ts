@@ -34,8 +34,28 @@ const siteHeaders = (headerRules()[0]?.headers ?? []).filter(
   ([name]) => name !== 'Content-Security-Policy',
 );
 
+/** The client's IP, as Cloudflare or a reverse proxy passes it; only compared, never kept. */
+function clientIp(request: NextRequest): string | null {
+  return (
+    request.headers.get('cf-connecting-ip') ??
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    null
+  );
+}
+
+/** docs/07: an optional IP allowlist in front of /admin. */
+function adminAllowed(request: NextRequest): boolean {
+  const list = process.env.ADMIN_IP_ALLOWLIST;
+  if (!list) return true;
+  const ip = clientIp(request);
+  return ip !== null && list.split(',').some((allowed) => allowed.trim() === ip);
+}
+
 export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if ((pathname === '/admin' || pathname.startsWith('/admin/')) && !adminAllowed(request)) {
+    return new NextResponse('Not found', { status: 404 });
+  }
   const personal = PERSONAL.some((path) => pathname === path || pathname.startsWith(`${path}/`));
   const nonce = personal ? btoa(crypto.randomUUID()) : undefined;
   const csp = buildCsp({

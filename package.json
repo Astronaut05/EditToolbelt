@@ -26,7 +26,8 @@
     "e2e": "pnpm --filter @etb/web e2e",
     "models": "pnpm --filter @etb/web models",
     "db:migrate": "pnpm --filter @etb/db migrate",
-    "db:generate": "pnpm --filter @etb/db generate"
+    "db:generate": "pnpm --filter @etb/db generate",
+    "admin:promote": "pnpm --filter @etb/db admin:promote"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
