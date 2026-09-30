@@ -55,6 +55,23 @@ async function canDecode(page: Page, codec: string, kind: 'video' | 'audio') {
   );
 }
 
+async function canEncode(page: Page, codec: string, kind: 'video' | 'audio') {
+  return page.evaluate(
+    async ([c, k]) =>
+      k === 'video'
+        ? (await VideoEncoder.isConfigSupported({ codec: c, width: 256, height: 144 }))
+            .supported === true
+        : (
+            await AudioEncoder.isConfigSupported({
+              codec: c,
+              sampleRate: 48000,
+              numberOfChannels: 2,
+            })
+          ).supported === true,
+    [codec, kind] as const,
+  );
+}
+
 async function setRange(page: Page, start: string, end: string) {
   await page.getByRole('textbox', { name: 'Out point' }).fill(end);
   await page.getByRole('textbox', { name: 'Out point' }).press('Enter');
@@ -97,6 +114,105 @@ test('precise trim cuts 10.000–20.000 to 10 s, within a frame', async ({ page,
   expect(Math.abs(info.durationSec - 10)).toBeLessThanOrEqual(1 / 30 + 0.001);
   expect(info.video?.codec).toBe('vp9');
   expect(await cspViolations(page)).toEqual([]);
+});
+
+/** Adds a range after the last one and sets it to start–end. */
+async function addRange(page: Page, start: string, end: string) {
+  await page.getByRole('button', { name: 'Add range' }).click();
+  await setRange(page, start, end);
+}
+
+test('smart cut re-encodes only up to the next keyframe and copies the rest', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/trim-video');
+  test.skip(
+    !(await canDecode(page, 'vp09.00.10.08', 'video')) ||
+      !(await canEncode(page, 'vp09.00.10.08', 'video')),
+    'needs a VP9 decoder and encoder',
+  );
+  await drop(page, 'clip-vp9-opus.webm');
+  await setRange(page, '3.5', '12');
+  await choose(page, isMobile, 'Mode', 'Precise');
+  const file = await run(page, 'Trim');
+  await expect(
+    page
+      .getByText(/^Smart cut: re-encoded 0\.50 s as VP9 at the cut, up to the next keyframe/)
+      .filter({ visible: true }),
+  ).toBeVisible();
+  const out = new Blob([readFileSync(await file.path())]);
+  const info = await probeMedia(out);
+  expect(Math.abs(info.durationSec - 8.5)).toBeLessThanOrEqual(1 / 30 + 0.002);
+  expect(info.video?.codec).toBe('vp9');
+  // 15 frames re-encoded (3.5–4 s), then the source's own packets from the keyframe at 4 s.
+  const [kept, source] = await Promise.all([
+    videoPacketHashes(out),
+    videoPacketHashes(new Blob([readFileSync(fixture('clip-vp9-opus.webm'))])),
+  ]);
+  expect(kept).toHaveLength(255);
+  expect(kept.slice(15)).toEqual(source.slice(120, 360));
+  expect(kept.slice(0, 15)).not.toEqual(source.slice(105, 120));
+  expect(await cspViolations(page)).toEqual([]);
+});
+
+test('precise keeps two ranges, cut on the frame, with the audio crossfaded', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/trim-video');
+  test.skip(
+    !(await canDecode(page, 'vp09.00.10.08', 'video')) ||
+      !(await canEncode(page, 'vp09.00.10.08', 'video')) ||
+      !(await canDecode(page, 'opus', 'audio')) ||
+      !(await canEncode(page, 'opus', 'audio')),
+    'needs VP9 and Opus decoders and encoders',
+  );
+  await drop(page, 'clip-vp9-opus.webm');
+  await setRange(page, '1.5', '3');
+  await addRange(page, '9', '10.5');
+  await expect(page.getByText('2 ranges · 3.00 s')).toBeVisible();
+  await choose(page, isMobile, 'Mode', 'Precise');
+  const file = await run(page, 'Trim');
+  await expect(
+    page.getByText('Kept 2 parts, joined: 3.00 s').filter({ visible: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByText('The audio crossfades over 10 ms at the join, so it doesn’t click')
+      .filter({ visible: true }),
+  ).toBeVisible();
+  const out = new Blob([readFileSync(await file.path())]);
+  const times = await videoFrameTimes(out);
+  expect(times).toHaveLength(90);
+  times.forEach((t, i) => {
+    expect(Math.abs(t - i / 30)).toBeLessThan(0.002);
+  });
+  const info = await probeMedia(out);
+  expect(info.audio[0]?.codec).toBe('opus');
+  expect(Math.abs(info.durationSec - 3)).toBeLessThanOrEqual(1 / 30 + 0.002);
+});
+
+test('fast removes two ranges and joins what’s left', async ({ page, isMobile }) => {
+  await page.goto('/trim-video');
+  test.skip(!(await canDecode(page, 'opus', 'audio')), 'needs an Opus decoder');
+  await drop(page, 'clip-vp9-opus.webm');
+  await choose(page, isMobile, 'Selection', 'Remove it');
+  await setRange(page, '4', '20');
+  await addRange(page, '24', '26');
+  const file = await run(page, 'Trim');
+  await expect(
+    page.getByText('Removed 2 parts; 12.0 s left').filter({ visible: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByText('Fast (no re-encode): every part starts on a keyframe, so no quality is lost')
+      .filter({ visible: true }),
+  ).toBeVisible();
+  const out = new Blob([readFileSync(await file.path())]);
+  expect(await videoFrameTimes(out)).toHaveLength(360);
+  const info = await probeMedia(out);
+  expect(Math.abs(info.durationSec - 12)).toBeLessThan(0.05);
 });
 
 test('the timeline shows frames and moves by frame with the keyboard', async ({ page }) => {

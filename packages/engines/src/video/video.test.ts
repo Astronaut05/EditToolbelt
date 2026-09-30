@@ -9,6 +9,8 @@ import { planCompress, sizeForShortSide } from './compress';
 import { encodeAudio, seamless } from './encode-audio';
 import { extractAudioEngine } from './extract-audio';
 import { adtsHeader, readAacConfig } from './adts';
+import { videoPackets } from './convert-video';
+import { videoFrameTimes } from './gif-to-video';
 import { convert, openInput, probeMedia } from './media';
 import { checkRange, keyframeBefore, trimEngine } from './trim';
 
@@ -69,6 +71,72 @@ describe('trim, fast', () => {
     expect(out.ext).toBe('webm');
     const info = await probeMedia(out.blob);
     expect(info.durationSec).toBeCloseTo(4, 1);
+  });
+
+  it('joins several ranges, each from the keyframe at or before its In point', async () => {
+    const source = fixture('clip-h264-aac.mp4');
+    const out = await trimEngine.run(
+      source,
+      {
+        ranges: [
+          { start: 10.5, end: 12 },
+          { start: 2.5, end: 5 },
+        ],
+      },
+      ctx(),
+    );
+    expect(out.ext).toBe('mp4');
+    // 2–5 s and 10–12 s: the parts start at the keyframes at 2 and 10 s.
+    expect(out.durationSec).toBeCloseTo(5, 1);
+    expect(out.notes?.[0]).toBe('Kept 2 parts, joined: 5.00 s');
+    expect(out.notes).toContainEqual(expect.stringMatching(/up to 0\.50 s early/));
+    // Without a decoder (Node) the audio is copied part by part, and says so.
+    expect(out.notes).toContainEqual(expect.stringMatching(/a join may click/));
+    // The frames are the source's, copied, and play on one even clock.
+    const [kept, all] = await Promise.all([videoPackets(out.blob), videoPackets(source)]);
+    const hashes = new Set(all.map((b) => b.join(',')));
+    expect(kept.every((b) => hashes.has(b.join(',')))).toBe(true);
+    const times = await videoFrameTimes(out.blob);
+    expect(times).toHaveLength(150);
+    times.forEach((t, i) => {
+      expect(t).toBeCloseTo(i / 30, 3);
+    });
+    const info = await probeMedia(out.blob);
+    expect(info.audio[0]?.codec).toBe('aac');
+    expect(info.durationSec).toBeCloseTo(5, 1);
+  });
+
+  it('removes ranges and joins what is left', async () => {
+    const out = await trimEngine.run(
+      fixture('clip-vp9-opus.webm'),
+      {
+        selection: 'remove',
+        ranges: [
+          { start: 4, end: 20 },
+          { start: 24, end: 26 },
+        ],
+      },
+      ctx(),
+    );
+    expect(out.ext).toBe('webm');
+    expect(out.notes?.[0]).toBe('Removed 2 parts; 12.0 s left');
+    expect(out.notes).toContain(
+      'Fast (no re-encode): every part starts on a keyframe, so no quality is lost',
+    );
+    const times = await videoFrameTimes(out.blob);
+    expect(times).toHaveLength(360);
+    // WebM keeps time in whole milliseconds.
+    expect(times.at(-1)).toBeCloseTo(359 / 30, 2);
+  });
+
+  it('refuses to remove everything', async () => {
+    await expect(
+      trimEngine.run(
+        fixture('clip-vp9-opus.webm'),
+        { selection: 'remove', start: 0, end: 30 },
+        ctx(),
+      ),
+    ).rejects.toThrow(/whole video/);
   });
 
   it('refuses an empty range', () => {

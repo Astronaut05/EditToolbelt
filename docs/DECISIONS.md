@@ -276,7 +276,7 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - **Trim Fast:** copies the streams from the keyframe at or before In (Mediabunny packet lookup), so the clip can start up to one keyframe interval early (±1 GOP, as the spec's tests allow). The result names the real start ("starts at the keyframe at 10.0 s, 0.50 s before your In point").
   - We chose this over MP4 edit lists that hide the pre-roll: players and editors treat edit lists unevenly, and WebM has none.
 - **Trim Precise:** re-encodes the video, frame-exact, and copies the audio when it fits.
-- **Deferred to M2b, with smart cut:** keeping or removing several ranges and joining them (the V01 spec's multi-range join with 10 ms crossfades). It needs a multi-range timeline and a re-encoding joiner. The page copy no longer promises it, and its FAQ says it's coming.
+- **Deferred to M2b, with smart cut:** keeping or removing several ranges and joining them (the V01 spec's multi-range join with 10 ms crossfades). It needs a multi-range timeline and a re-encoding joiner. The page copy no longer promises it, and its FAQ says it's coming. _Done in M2b: see "Trim Video (V01): several ranges, and smart cut for VP8 and VP9" below._
 - **Extract Audio:** copies when the codec matches: AAC into M4A, AAC into a raw .aac (our own ADTS writer, since Mediabunny would re-encode), Opus into OGG, MP3 into MP3. Otherwise it decodes and encodes.
   - The track picker appears only for files with several audio tracks (ToolShell `probed` options, whose choices come from the file).
   - The optional range stays out of the UI for now; the engine takes start and end, and Trim covers it.
@@ -512,3 +512,17 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - The playhead now follows In and Out when they are edited, so the frame or sample shown is the one the cut is at.
 **Why:** `tools/audio.md` → A02 ("multiple ranges") and `tools/video.md` → V01 ("keep/remove multiple ranges and join them", "crossfade 10 ms at joins"), deferred from the M2 launch set.
 **Reverse:** drop `ranges: true` from a page's preset and it is back to one range; the crossfade length is `JOIN_CROSSFADE` in `packages/engines/src/audio/trim.ts`; the splicer is `packages/core/src/media/splice.ts`.
+
+## 2026-09-30 · Trim Video (V01): several ranges, and smart cut for VP8 and VP9
+
+**Decision:**
+- **Several ranges, kept or removed**, on the timeline A02 uses. One kept part takes the paths V01 already had. Several go through a new join writer (`packages/engines/src/video/join.ts`): each part's timestamps move so the parts play back to back, in one output track.
+- **Fast, several parts:** each part's packets are copied from the keyframe at or before its In point, as a single Fast trim is. The result says how early the earliest part starts. At the Out point it copies every frame shown before Out, plus any frame decoded before one of those (the frames B-frames refer to, which can add a frame or two).
+- **Precise = smart cut for VP8 and VP9 in WebM or Matroska** (profile 0, 8-bit, unrotated, with an encoder for the codec). From each In point to the next keyframe, the frames are decoded and re-encoded in the same codec, at 1.5 × the source's average bitrate, on their own encoder, so they start with a keyframe. From that keyframe to Out, the source packets are copied byte for byte (checked in Playwright). A cut on a keyframe re-encodes nothing.
+  - The track's decoder config is the source's, even when re-encoded frames come first: Mediabunny's WebM writer rewrites every VP9 keyframe's colour-space bits to match the first config, and copied keyframes must stay as they were.
+  - Parts end after their last kept frame's timestamp, not after its duration: WebM rounds times to the millisecond, so a frame's end can land just past the next keyframe.
+- **Precise for everything else (H.264, HEVC, AV1): a full re-encode**, as before, now of all the parts in one pass. We didn't smart-cut H.264: an MP4 track holds one set of parameter sets (SPS and PPS) in its header, and frames from our encoder would need their own. Mixing them breaks decoding in some players. Revisit if Mediabunny writes parameter sets in band.
+- **The audio in a join** goes through A02's splicer: a 10 ms crossfade centred on each join, re-encoded as AAC for MP4 and MOV, Opus for WebM and MKV, when the browser can decode the source and encode the target. Otherwise each part's audio packets are copied back to back and the result says a join may click. Audio that can do neither is left out, and the result says so. In Fast mode this means the video is copied and the audio re-encoded, because copied audio can't crossfade.
+- **Remove** keeps what's around the ranges; a sliver under 0.04 s left beside a removed range (the container's rounding past the last frame) isn't a part.
+**Why:** `tools/video.md` → V01 ("keep/remove multiple ranges and join them", "smart cut comes in M2b", "multi-range join has no audio clicks (crossfade 10 ms at joins)").
+**Reverse:** `smartCutFits` in `packages/engines/src/video/trim.ts` decides smart cut (return false for a full re-encode); `joinParts` in `join.ts` does the join; drop `ranges: true` from `apps/web/src/tools/trim-video.tsx` for one range.

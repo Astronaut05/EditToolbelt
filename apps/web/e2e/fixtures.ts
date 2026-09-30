@@ -1,8 +1,17 @@
 import { test as base, expect, type Page } from '@playwright/test';
 
-/** Every page records CSP violations from the first byte on. */
+/**
+ * Every page records CSP violations from the first byte on. When a test
+ * fails, the page's errors and any alert on screen go to the log, so a CI
+ * failure in a browser we can't run locally still says what went wrong.
+ */
 export const test = base.extend({
-  page: async ({ page }, provide) => {
+  page: async ({ page }, provide, testInfo) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    });
     await page.addInitScript(() => {
       (window as unknown as { __csp: string[] }).__csp = [];
       document.addEventListener('securitypolicyviolation', (event) => {
@@ -12,6 +21,16 @@ export const test = base.extend({
       });
     });
     await provide(page);
+    if (testInfo.status !== testInfo.expectedStatus) {
+      const alerts = await page
+        .getByRole('alert')
+        .allInnerTexts()
+        .catch(() => [] as string[]);
+      const report = [...errors, ...alerts.map((text) => `alert: ${text}`)];
+      if (report.length > 0) {
+        console.log(`[${testInfo.project.name}] ${testInfo.title}\n  ${report.join('\n  ')}`);
+      }
+    }
   },
 });
 

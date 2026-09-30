@@ -77,15 +77,12 @@ export async function spliceAudio(
         const from = Math.max(first, Math.round(window.start * rate), next);
         const to = Math.min(first + frames, Math.round(window.end * rate));
         if (to <= from) continue;
+        // Whole planes, then the part inside the window: WebKit's AudioData.copyTo
+        // is unreliable with a frame offset, and a block is only ~20 ms.
         const planes = Array.from({ length: decoded.numberOfChannels }, (_, c) => {
-          const plane = new Float32Array(to - from);
-          decoded.copyTo(plane, {
-            planeIndex: c,
-            format: 'f32-planar',
-            frameOffset: from - first,
-            frameCount: to - from,
-          });
-          return plane;
+          const plane = new Float32Array(frames);
+          decoded.copyTo(plane, { planeIndex: c, format: 'f32-planar' });
+          return plane.subarray(from - first, to - first);
         });
         await emit(splicer.push(planes, from));
         next = to;
