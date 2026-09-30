@@ -5,7 +5,8 @@ apps/worker/
 **/.turbo/
 
 # The spec is authored prose with hand-aligned tables; don't reflow it.
+# Anchored to the root: apps/web/src/tools and packages/registry/src/tools are code.
 CLAUDE.md
 CHANGES.md
-docs/
-tools/
+/docs/
+/tools/

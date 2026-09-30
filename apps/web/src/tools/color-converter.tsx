@@ -22,7 +22,10 @@ function Chip({ hex, size = 'size-5' }: { hex: string; size?: string }) {
   return (
     <span
       aria-hidden="true"
-      className={cn('checkerboard inline-block flex-none rounded-control border border-border', size)}
+      className={cn(
+        'checkerboard inline-block flex-none rounded-control border border-border',
+        size,
+      )}
     >
       <span className="block size-full rounded-control" style={{ background: hex }} />
     </span>
@@ -64,7 +67,10 @@ export default function ColorConverter({ tool }: { tool: ShellTool }) {
         tool={tool}
         inputs={inputs}
         results={
-          <p className="flex min-h-14 items-center gap-2.5 border-y border-border text-14" role="alert">
+          <p
+            className="flex min-h-14 items-center gap-2.5 border-y border-border text-14"
+            role="alert"
+          >
             <span aria-hidden="true" className="size-2 flex-none rounded-full bg-danger" />
             {result.error}
           </p>
@@ -97,13 +103,24 @@ export default function ColorConverter({ tool }: { tool: ShellTool }) {
           { label: 'RGB', value: all.rgb },
           { label: 'HSL', value: all.hsl },
           { label: 'HSV / HSB', value: all.hsv },
-          { label: 'CMYK', value: all.cmyk, note: 'Approximate, not color-managed. Printers use ICC profiles.' },
-          { label: 'Lab', value: all.lab, note: 'CIE Lab, D50 white, as CSS lab() and Photoshop use.' },
+          {
+            label: 'CMYK',
+            value: all.cmyk,
+            note: 'Approximate, not color-managed. Printers use ICC profiles.',
+          },
+          {
+            label: 'Lab',
+            value: all.lab,
+            note: 'CIE Lab, D50 white, as CSS lab() and Photoshop use.',
+          },
           { label: 'Oklch', value: all.oklch },
           {
             label: 'Name',
             value: name.name,
-            note: name.distance < 0.05 ? 'Exact CSS color name.' : `Nearest CSS color name, ΔE ${name.distance.toFixed(1)} (Oklab).`,
+            note:
+              name.distance < 0.05
+                ? 'Exact CSS color name.'
+                : `Nearest CSS color name, ΔE ${name.distance.toFixed(1)} (Oklab).`,
             lead: <Chip hex={CSS_NAMED_COLORS[name.name] ?? all.hex} />,
           },
         ]}
@@ -129,7 +146,9 @@ export default function ColorConverter({ tool }: { tool: ShellTool }) {
               <span className="checkerboard block h-12 rounded-control border border-border group-hover:border-text">
                 <span className="block size-full rounded-control" style={{ background: hex }} />
               </span>
-              <span className={cn('font-mono text-11.5', index === 4 ? 'text-text' : 'text-text-muted')}>
+              <span
+                className={cn('font-mono text-11.5', index === 4 ? 'text-text' : 'text-text-muted')}
+              >
                 {hex}
               </span>
             </button>
@@ -137,7 +156,8 @@ export default function ColorConverter({ tool }: { tool: ShellTool }) {
         ))}
       </ul>
       <p className="mt-3 text-13.5 text-text-muted">
-        Tints mix toward white and shades toward black in 20% steps, in linear light. Select one to convert it.
+        Tints mix toward white and shades toward black in 20% steps, in linear light. Select one to
+        convert it.
       </p>
     </div>
   );

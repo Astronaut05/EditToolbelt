@@ -6,7 +6,8 @@ export default defineTool({
   slug: 'video-info',
   category: 'video',
   name: 'Video Info & VFR Check',
-  tagline: 'See codecs, frame rate, color and audio details, and whether the frame rate is variable.',
+  tagline:
+    'See codecs, frame rate, color and audio details, and whether the frame rate is variable.',
   summary: 'Codecs, fps, HDR and VFR at a glance',
   status: 'soon',
   wave: 1,

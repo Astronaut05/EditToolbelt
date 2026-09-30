@@ -133,7 +133,10 @@ function save(blob: Blob, name: string) {
  * bar can show the code and the download within thumb reach (docs/03 → Mobile)
  * without covering the preview or the footer.
  */
-function useOffscreenPreview(form: RefObject<HTMLElement | null>, preview: RefObject<HTMLElement | null>) {
+function useOffscreenPreview(
+  form: RefObject<HTMLElement | null>,
+  preview: RefObject<HTMLElement | null>,
+) {
   const [show, setShow] = useState(false);
   useEffect(() => {
     const seen = new Map<Element, boolean>();
@@ -141,7 +144,10 @@ function useOffscreenPreview(form: RefObject<HTMLElement | null>, preview: RefOb
       (entries) => {
         for (const entry of entries) {
           // The preview counts as seen once half of it is on screen; the form, at all.
-          const enough = entry.target === preview.current ? entry.intersectionRatio >= 0.5 : entry.isIntersecting;
+          const enough =
+            entry.target === preview.current
+              ? entry.intersectionRatio >= 0.5
+              : entry.isIntersecting;
           seen.set(entry.target, enough);
         }
         setShow(
@@ -254,14 +260,37 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
           options={TYPES}
         />
         {type === 'url' && (
-          <TextField id="qr-url" label="Link" type="url" value={fields.url} onChange={field('url')} placeholder="example.com/menu" width="w-64" align="left" />
+          <TextField
+            id="qr-url"
+            label="Link"
+            type="url"
+            value={fields.url}
+            onChange={field('url')}
+            placeholder="example.com/menu"
+            width="w-64"
+            align="left"
+          />
         )}
         {type === 'text' && (
-          <TextAreaField id="qr-text" label="Text" value={fields.text} onChange={field('text')} rows={4} />
+          <TextAreaField
+            id="qr-text"
+            label="Text"
+            value={fields.text}
+            onChange={field('text')}
+            rows={4}
+          />
         )}
         {type === 'wifi' && (
           <>
-            <TextField id="qr-ssid" label="Network name" value={fields.ssid} onChange={field('ssid')} placeholder="SSID" width="w-56" align="left" />
+            <TextField
+              id="qr-ssid"
+              label="Network name"
+              value={fields.ssid}
+              onChange={field('ssid')}
+              placeholder="SSID"
+              width="w-56"
+              align="left"
+            />
             <SelectField
               id="qr-security"
               label="Security"
@@ -275,7 +304,14 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
               ]}
             />
             {fields.security !== 'nopass' && (
-              <TextField id="qr-password" label="Password" value={fields.password} onChange={field('password')} width="w-56" align="left" />
+              <TextField
+                id="qr-password"
+                label="Password"
+                value={fields.password}
+                onChange={field('password')}
+                width="w-56"
+                align="left"
+              />
             )}
             <OptionRow label="Hidden network">
               <Switch
@@ -290,27 +326,114 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
         )}
         {type === 'vcard' && (
           <>
-            <TextField id="qr-first" label="First name" value={fields.firstName} onChange={field('firstName')} width="w-56" align="left" />
-            <TextField id="qr-last" label="Last name" value={fields.lastName} onChange={field('lastName')} width="w-56" align="left" />
-            <TextField id="qr-org" label="Company" value={fields.org} onChange={field('org')} width="w-56" align="left" />
-            <TextField id="qr-title" label="Job title" value={fields.title} onChange={field('title')} width="w-56" align="left" />
-            <TextField id="qr-phone" label="Phone" type="tel" value={fields.phone} onChange={field('phone')} width="w-56" align="left" />
-            <TextField id="qr-email" label="Email" type="email" value={fields.email} onChange={field('email')} width="w-56" align="left" />
-            <TextField id="qr-website" label="Website" type="url" value={fields.website} onChange={field('website')} width="w-56" align="left" />
+            <TextField
+              id="qr-first"
+              label="First name"
+              value={fields.firstName}
+              onChange={field('firstName')}
+              width="w-56"
+              align="left"
+            />
+            <TextField
+              id="qr-last"
+              label="Last name"
+              value={fields.lastName}
+              onChange={field('lastName')}
+              width="w-56"
+              align="left"
+            />
+            <TextField
+              id="qr-org"
+              label="Company"
+              value={fields.org}
+              onChange={field('org')}
+              width="w-56"
+              align="left"
+            />
+            <TextField
+              id="qr-title"
+              label="Job title"
+              value={fields.title}
+              onChange={field('title')}
+              width="w-56"
+              align="left"
+            />
+            <TextField
+              id="qr-phone"
+              label="Phone"
+              type="tel"
+              value={fields.phone}
+              onChange={field('phone')}
+              width="w-56"
+              align="left"
+            />
+            <TextField
+              id="qr-email"
+              label="Email"
+              type="email"
+              value={fields.email}
+              onChange={field('email')}
+              width="w-56"
+              align="left"
+            />
+            <TextField
+              id="qr-website"
+              label="Website"
+              type="url"
+              value={fields.website}
+              onChange={field('website')}
+              width="w-56"
+              align="left"
+            />
           </>
         )}
         {type === 'email' && (
           <>
-            <TextField id="qr-to" label="To" type="email" value={fields.to} onChange={field('to')} placeholder="name@example.com" width="w-64" align="left" />
-            <TextField id="qr-subject" label="Subject" value={fields.subject} onChange={field('subject')} width="w-64" align="left" />
-            <TextAreaField id="qr-body" label="Message" value={fields.body} onChange={field('body')} />
+            <TextField
+              id="qr-to"
+              label="To"
+              type="email"
+              value={fields.to}
+              onChange={field('to')}
+              placeholder="name@example.com"
+              width="w-64"
+              align="left"
+            />
+            <TextField
+              id="qr-subject"
+              label="Subject"
+              value={fields.subject}
+              onChange={field('subject')}
+              width="w-64"
+              align="left"
+            />
+            <TextAreaField
+              id="qr-body"
+              label="Message"
+              value={fields.body}
+              onChange={field('body')}
+            />
           </>
         )}
         {(type === 'phone' || type === 'sms') && (
-          <TextField id="qr-number" label="Phone number" type="tel" value={fields.number} onChange={field('number')} placeholder="+1 555 010 0199" width="w-56" align="left" />
+          <TextField
+            id="qr-number"
+            label="Phone number"
+            type="tel"
+            value={fields.number}
+            onChange={field('number')}
+            placeholder="+1 555 010 0199"
+            width="w-56"
+            align="left"
+          />
         )}
         {type === 'sms' && (
-          <TextAreaField id="qr-message" label="Message" value={fields.message} onChange={field('message')} />
+          <TextAreaField
+            id="qr-message"
+            label="Message"
+            value={fields.message}
+            onChange={field('message')}
+          />
         )}
       </Rows>
 
@@ -325,7 +448,10 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
             label="Error correction"
             value={ec}
             onChange={setEc}
-            options={(['L', 'M', 'Q', 'H'] as const).map((level) => ({ value: level, label: level }))}
+            options={(['L', 'M', 'Q', 'H'] as const).map((level) => ({
+              value: level,
+              label: level,
+            }))}
           />
         )}
         <ChoiceRow
@@ -368,7 +494,10 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
           label="PNG size"
           value={size}
           onChange={setSize}
-          options={SIZES.map((px) => ({ value: String(px), label: `${String(px)} × ${String(px)} px` }))}
+          options={SIZES.map((px) => ({
+            value: String(px),
+            label: `${String(px)} × ${String(px)} px`,
+          }))}
         />
         <OptionRow label="Logo">
           <span className="flex items-center gap-2">
@@ -433,7 +562,10 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
   const results = (
     <div className="max-w-140">
       {problem || !svg || !src || !matrix?.ok ? (
-        <p className="flex min-h-14 items-center gap-2.5 border-y border-border text-14" role="alert">
+        <p
+          className="flex min-h-14 items-center gap-2.5 border-y border-border text-14"
+          role="alert"
+        >
           <span aria-hidden="true" className="size-2 flex-none rounded-full bg-danger" />
           {problem ?? 'Nothing to encode yet.'}
         </p>
@@ -478,7 +610,9 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
               icon={<Copy aria-hidden="true" size={16} strokeWidth={1.75} />}
               onClick={() => {
                 png()
-                  .then((blob) => navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]))
+                  .then((blob) =>
+                    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]),
+                  )
                   .then(
                     () => {
                       setStatus('Copied the PNG to the clipboard.');
@@ -497,7 +631,8 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
           </p>
           <p className="mt-4 flex items-center gap-2.5 text-14">
             <span aria-hidden="true" className="size-2 flex-none rounded-full bg-accent" />
-            Your QR code never expires and doesn’t track scans: it holds the text itself, not a link to us.
+            Your QR code never expires and doesn’t track scans: it holds the text itself, not a link
+            to us.
           </p>
           <MonoLabel as="h2" size="md" className="mt-8">
             Encoded text
@@ -509,7 +644,13 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
             <div className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-border bg-bg px-4 py-3 lg:hidden">
               <a href="#qr-preview" className="flex min-h-11 items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element -- a data: URL drawn here */}
-                <img src={src} alt="" width={44} height={44} className="size-11 border border-border" />
+                <img
+                  src={src}
+                  alt=""
+                  width={44}
+                  height={44}
+                  className="size-11 border border-border"
+                />
                 <span className="text-14 underline underline-offset-2">Preview</span>
               </a>
               <Button

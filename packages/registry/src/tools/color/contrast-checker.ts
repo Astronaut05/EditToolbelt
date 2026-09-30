@@ -6,7 +6,8 @@ export default defineTool({
   slug: 'contrast-checker',
   category: 'color',
   name: 'Contrast Checker',
-  tagline: 'Get the WCAG 2.2 contrast ratio of a text and background pair, with AA and AAA results.',
+  tagline:
+    'Get the WCAG 2.2 contrast ratio of a text and background pair, with AA and AAA results.',
   summary: 'WCAG 2.2 AA and AAA pass or fail',
   status: 'soon',
   wave: 2,
