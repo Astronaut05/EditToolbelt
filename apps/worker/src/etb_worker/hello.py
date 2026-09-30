@@ -13,13 +13,12 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import boto3
 import psycopg
-from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from etb_worker.logs import get_logger
 from etb_worker.settings import Settings
+from etb_worker.storage import s3_client
 
 HELLO_TOOL_ID = "hello"
 _HELLO_BODY = b"hello from etb-worker\n"
@@ -49,23 +48,6 @@ def check_database(settings: Settings) -> int:
             return conn.info.server_version
     except psycopg.Error as error:
         raise CheckFailedError("DB_UNAVAILABLE", _describe(error)) from error
-
-
-def s3_client(settings: Settings):  # type: ignore[no-untyped-def]  # boto3 ships no types
-    return boto3.client(
-        "s3",
-        endpoint_url=str(settings.s3_endpoint),
-        region_name=settings.s3_region,
-        aws_access_key_id=settings.s3_access_key_id.get_secret_value(),
-        aws_secret_access_key=settings.s3_secret_access_key.get_secret_value(),
-        config=Config(
-            signature_version="s3v4",
-            s3={"addressing_style": "path"},
-            retries={"max_attempts": 2, "mode": "standard"},
-            connect_timeout=5,
-            read_timeout=10,
-        ),
-    )
 
 
 def check_storage(settings: Settings) -> int:

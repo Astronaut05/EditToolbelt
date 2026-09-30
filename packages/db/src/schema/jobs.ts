@@ -61,6 +61,10 @@ export const jobs = pgTable(
     /** Safe to show; no content. */
     errorDetail: text('error_detail'),
     attempts: smallint('attempts').notNull().default(0),
+    /** From the registry when the job is created: the worker kills the run after this (docs/11). */
+    timeoutSec: integer('timeout_sec').notNull().default(900),
+    /** From the registry: at most this many of the tool's jobs run at once (docs/01 → Queue). */
+    maxConcurrent: smallint('max_concurrent'),
     workerId: text('worker_id'),
     gpuSeconds: numeric('gpu_seconds'),
     cpuSeconds: numeric('cpu_seconds'),
@@ -77,6 +81,9 @@ export const jobs = pgTable(
     index('jobs_queue_idx')
       .on(t.status, t.priority.desc(), t.createdAt)
       .where(sql`${t.status} = 'queued'`),
+    index('jobs_running_idx')
+      .on(t.heartbeatAt)
+      .where(sql`${t.status} = 'running'`),
     index('jobs_user_idx').on(t.userId, t.createdAt.desc()),
     index('jobs_tool_idx').on(t.toolId, t.createdAt),
     index('jobs_sweeper_idx')

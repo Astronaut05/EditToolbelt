@@ -1,9 +1,10 @@
 """Worker entry point: ``python -m etb_worker`` (or ``etb-worker``).
 
 Validate env, configure logging, run the hello-world job (retrying while
-Postgres and storage start up), then run the scheduler until SIGTERM/SIGINT:
-heartbeats, alert rules and the daily jobs (scheduler.py). M4 adds the job
-queue beside it. ``--task NAME`` runs one daily job now and exits.
+Postgres and storage start up), then until SIGTERM/SIGINT run the job slots
+(slots.py: probe uploads, run jobs) beside the scheduler (scheduler.py:
+heartbeats, queue upkeep, the retention sweep, alerts, the daily jobs).
+``--task NAME`` runs one daily job now and exits.
 """
 
 from __future__ import annotations
@@ -18,8 +19,11 @@ from etb_worker.db import connect
 from etb_worker.hello import HelloResult, run_hello
 from etb_worker.logs import configure_logging, get_logger
 from etb_worker.notify import Notifier
+from etb_worker.runner import JobRunner
 from etb_worker.scheduler import DAILY, TICK_SEC, Scheduler
 from etb_worker.settings import Settings, load_settings
+from etb_worker.slots import listen, run_slot
+from etb_worker.storage import Storage
 
 RETRY_DELAYS_SEC = (1, 2, 4, 8, 15)
 
@@ -78,7 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
 
-    scheduler = Scheduler(settings, Notifier(settings))
+    storage = Storage(settings)
+    scheduler = Scheduler(settings, Notifier(settings), storage=storage)
     if args.task:
         with connect(settings) as conn:
             return 0 if scheduler.run(conn, args.task) else 1
@@ -95,9 +100,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         telegram=settings.telegram_enabled,
         email=settings.email_enabled,
     )
+    wake = threading.Event()
+    threading.Thread(target=listen, args=(settings, wake, stop), daemon=True).start()
+    runners = [JobRunner(storage, lambda: connect(settings)) for _ in range(settings.worker_slots)]
+    slots = [
+        threading.Thread(target=run_slot, args=(settings, storage, runner, wake, stop))
+        for runner in runners
+    ]
+    for slot in slots:
+        slot.start()
+    log.info("slots.started", slots=len(slots))
     while not stop.is_set():
         scheduler.tick()
         stop.wait(TICK_SEC)
+    # A clean stop hands running jobs back to the queue at once.
+    for runner in runners:
+        runner.stop_current()
+    wake.set()
+    for slot in slots:
+        slot.join(timeout=20)
     scheduler.leave()
     log.info("worker.stopped")
     return 0

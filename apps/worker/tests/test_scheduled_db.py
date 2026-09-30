@@ -291,7 +291,8 @@ def test_the_scheduler_runs_each_daily_job_once(settings: Settings, db: Conn) ->
         instance=f"test-{uuid.uuid4().hex[:8]}",
         connect=lambda _: connect_url(URL),
     )
-    names = list(DAILY)
+    # The lifecycle check needs storage, which this scheduler has none of (test_jobs_db covers it).
+    names = [name for name in DAILY if name != "lifecycle_rules"]
     db.execute("delete from system_checks where name = any(%s)", (names,))
 
     # Another worker holds the lock: this one only writes its heartbeat.

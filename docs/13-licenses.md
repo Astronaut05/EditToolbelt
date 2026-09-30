@@ -87,7 +87,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 
 | Package | Use | License | Status |
 |---|---|---|---|
-| ffmpeg / ffprobe | server media processing | LGPL/GPL (our build, no nonfree) | ⚠️ server only |
+| ffmpeg / ffprobe | server media processing | LGPL/GPL (Debian's package in the worker image: a GPL build, no nonfree) | ⚠️ server only, checked 2026-09-30 |
 | librosa | analysis helpers | ISC | 🔍 |
 | pyloudnorm | loudness (reference/tests) | MIT | 🔍 |
 | potrace | vectorise (Wave 3) | GPL-2.0 | ⚠️ server only |

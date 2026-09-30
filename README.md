@@ -12,14 +12,14 @@ You need Docker with Compose 2.22 or newer (Docker Desktop is fine). Then, from 
 docker compose up --watch
 ```
 
-| Service  | Where                 | What                                                                                                                                  |
-| -------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| web      | http://localhost:3000 | Next.js dev server, the server build: the site plus accounts. Edits under `apps/web` and `packages` hot-reload.                       |
-| mailpit  | http://localhost:8025 | Inbox for the sign-in, alert and digest emails the stack sends. Nothing leaves your PC.                                               |
-| migrate  | (runs once)           | Applies the database migrations, then exits; web and worker wait for it.                                                              |
-| worker   | (no port)             | Python worker. Runs a hello-world job against Postgres and storage, then its scheduler: heartbeats, alerts, nightly jobs, the digest. |
-| postgres | localhost:5432        | Postgres 18, user / password / db: `etb` / `etb-local-only` / `etb`                                                                   |
-| storage  | http://localhost:7070 | S3-compatible storage (Versity S3 Gateway), key `etb-local` / `etb-local-secret`                                                      |
+| Service  | Where                 | What                                                                                                                                                                                                                                  |
+| -------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| web      | http://localhost:3000 | Next.js dev server, the server build: the site plus accounts. Edits under `apps/web` and `packages` hot-reload.                                                                                                                       |
+| mailpit  | http://localhost:8025 | Inbox for the sign-in, alert and digest emails the stack sends. Nothing leaves your PC.                                                                                                                                               |
+| migrate  | (runs once)           | Applies the database migrations, then exits; web and worker wait for it.                                                                                                                                                              |
+| worker   | (no port)             | Python worker. A hello-world job against Postgres and storage, then its job slots (probe uploads, run jobs in sandboxed ffmpeg) and scheduler: heartbeats, the queue's upkeep, the retention sweep, alerts, nightly jobs, the digest. |
+| postgres | localhost:5432        | Postgres 18, user / password / db: `etb` / `etb-local-only` / `etb`                                                                                                                                                                   |
+| storage  | http://localhost:7070 | S3-compatible storage (Versity S3 Gateway), key `etb-local` / `etb-local-secret`                                                                                                                                                      |
 
 `--watch` syncs file changes into the containers (hot reload for web, rebuild for the worker). Plain `docker compose up` runs the same stack without it. Host ports can be moved with `ETB_WEB_PORT`, `ETB_POSTGRES_PORT`, `ETB_STORAGE_PORT`, `ETB_MAIL_PORT`. All credentials above are local placeholders.
 
