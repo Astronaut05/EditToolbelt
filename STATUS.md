@@ -35,6 +35,7 @@
 - M2: "Use in another tool": the Next links under a result carry the file to the next tool in memory, with no re-upload (#28).
 - M2b: Subtitle Sync (shift by ms, from a cue on; frame rate 23.976 ↔ 25 and more; two-point sync that fixes offset and drift). Only the times are rewritten, so styles, positions and comments stay as they were (#29).
 - M2b: Rotate & Flip Image (straighten by 0.1° with auto-crop or an expanded canvas, 90° turns and flips without resampling, batches of 50). Also fixes a half turn in Crop Image that returned the original pixels (#30).
+- CI: Lighthouse's LCP gate now reads runs with applied throttling (stable 1.6-1.8 s) instead of simulated ones (1.9-2.7 s on one build); the limit is unchanged (#30).
 
 ## Next
 

@@ -380,3 +380,10 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - **Bug fixed on the way:** a half turn (`rotateQuarter(image, 2)`) returned the original pixels, because the size helper hands back the image itself for even turns and its data won the object spread. Crop Image's "Rotate 90°" pressed twice was affected. Fixed in the same PR, with a unit test.
 **Why:** `tools/photo.md` → P04 (its tests: 90° swaps the dimensions, 10° on an expanded canvas gives the expected bounding box, flips are pixel-exact; all three are unit and Playwright tests).
 **Reverse:** `rotateFree`, `expandedSize`, `straightenedCrop` and `flipVertical` in `packages/engines/src/image/geometry.ts`; the Straighten mode in `CanvasEditor`.
+
+## 2026-09-30 · Lighthouse LCP is measured with applied throttling
+
+**Decision:** the LCP gate in `pnpm lighthouse` reads the median of 3 runs with applied throttling (the network and CPU really slowed, as DevTools does) instead of Lighthouse's simulated throttling. The other gates (performance, accessibility, best practices, CLS, TBT, script transfer) still read the median of the 5 simulated runs. The limit stays 2.5 s, stricter than a real phone on 4G would need to meet `docs/10`'s 1.8 s p75.
+**Why:** simulated LCP counts, as part of the paint, everything that happened before the page painted in the real (unthrottled) run. On a local server every script arrives before the first paint, so the value swings with task timing: `/remove-background` gave 1966 to 2651 ms on one build, and CI failed it at 2553 ms (median of 5) on a PR that only adds Rotate & Flip. With applied throttling the H1 paints before the scripts arrive, as it would on a slow phone, and the same pages read 1588 to 1771 ms, run after run. TBT stays simulated because its 150 ms limit was set against simulated values. It costs about 6 minutes of CI time (18 throttled page loads).
+**Reverse:** drop `applied: true` from the LCP budget in `scripts/lighthouse.ts` (and `APPLIED_RUNS` with its loop).
+

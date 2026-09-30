@@ -3,11 +3,18 @@
  * production build, served by `pnpm preview`'s server (headers, CSP,
  * compression). Lighthouse's default mobile config: emulated phone, simulated
  * slow 4G and a 4× slower CPU, so these are lab ceilings, stricter than the
- * real-user p75 budgets. One run swings LCP by a few hundred ms, so each page
- * runs RUNS times and each budget reads the median of its own values across
- * the runs, as Lighthouse's variability guide recommends. Reports (Lighthouse's
- * median run, closest to the median FCP and TTI) go to apps/web/.lighthouse/
- * (never uploaded).
+ * real-user p75 budgets. Each page runs RUNS times and each budget reads the
+ * median of its own values across the runs, as Lighthouse's variability guide
+ * recommends.
+ *
+ * LCP is the exception: it reads APPLIED_RUNS runs with applied throttling
+ * (the network and CPU really slowed, as DevTools does). Simulated LCP on a
+ * localhost trace counts every script that arrived before the first paint,
+ * which on a local server is all of them, so it swings with task timing
+ * (1966 to 2651 ms on one build); applied, the same page reads 1602 to 1771 ms.
+ *
+ * Reports (Lighthouse's median simulated run, closest to the median FCP and
+ * TTI) go to apps/web/.lighthouse/ (never uploaded).
  *
  *   pnpm build && pnpm lighthouse          (CHROME_PATH picks the browser)
  */
@@ -41,9 +48,13 @@ const TOOL_PAGES = new Set(['/remove-background']);
 const TOOL_SCRIPT_MAX = 180_000;
 /** Odd, so each median is one of the runs' values. */
 const RUNS = 5;
+/** Runs with applied throttling, for the budgets marked `applied` (LCP). */
+const APPLIED_RUNS = 3;
 
 interface Budget {
   label: string;
+  /** Read from the runs with applied throttling (see the top of this file). */
+  applied?: boolean;
   read: (lhr: Result) => number;
   max?: number;
   min?: number;
@@ -68,7 +79,13 @@ export const BUDGETS: Budget[] = [
   { label: 'performance', read: score('performance'), min: 90, unit: '' },
   { label: 'accessibility', read: score('accessibility'), min: 95, unit: '' },
   { label: 'best practices', read: score('best-practices'), min: 90, unit: '' },
-  { label: 'LCP', read: metric('largest-contentful-paint'), max: 2500, unit: 'ms' },
+  {
+    label: 'LCP',
+    read: metric('largest-contentful-paint'),
+    max: 2500,
+    unit: 'ms',
+    applied: true,
+  },
   { label: 'CLS', read: metric('cumulative-layout-shift'), max: 0.05, unit: '' },
   { label: 'TBT', read: metric('total-blocking-time'), max: 150, unit: 'ms' },
   {
@@ -161,13 +178,28 @@ async function main(): Promise<number> {
         if (!run) throw new Error(`No result for ${url}`);
         runs.push({ lhr: run.lhr as unknown as Result, report: run.report as string });
       }
+      const applied: Result[] = [];
+      for (let i = 0; i < APPLIED_RUNS; i++) {
+        const run = await lighthouse(
+          url,
+          { port: DEBUG_PORT, output: 'json', logLevel: 'error' },
+          {
+            extends: 'lighthouse:default',
+            settings: { throttlingMethod: 'devtools', onlyCategories: ['performance'] },
+          },
+        );
+        if (!run) throw new Error(`No result for ${url}`);
+        applied.push(run.lhr as unknown as Result);
+      }
       // The saved report is Lighthouse's median run; each budget reads its own
       // median, since the run with the median FCP and TTI can hold any run's
       // LCP (simulated LCP scales with main-thread timing, which varies by run).
       const { report } = medianRun(runs);
       writeFileSync(join(out, `${path === '/' ? 'home' : path.slice(1)}.json`), report);
       const cells = BUDGETS.map((budget) => {
-        const value = medianValue(runs.map((run) => budget.read(run.lhr)));
+        const value = medianValue(
+          budget.applied ? applied.map(budget.read) : runs.map((run) => budget.read(run.lhr)),
+        );
         const max =
           budget.label === 'script transfer' && TOOL_PAGES.has(path) ? TOOL_SCRIPT_MAX : budget.max;
         const ok =
@@ -185,8 +217,8 @@ async function main(): Promise<number> {
     }
     console.log(
       failures.length
-        ? `\nLighthouse budgets failed (median of ${String(RUNS)} runs): ${failures.join(', ')}`
-        : `\nLighthouse budgets met (median of ${String(RUNS)} runs).`,
+        ? `\nLighthouse budgets failed (median of ${String(RUNS)} runs, LCP of ${String(APPLIED_RUNS)} with applied throttling): ${failures.join(', ')}`
+        : `\nLighthouse budgets met (median of ${String(RUNS)} runs, LCP of ${String(APPLIED_RUNS)} with applied throttling).`,
     );
     return failures.length ? 1 : 0;
   } finally {
