@@ -431,3 +431,46 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - **Page weight:** `/video-converter` is a working tool page now, so Lighthouse holds it to the tool script budget (180 KB, see "Script budget for working tool pages"). Its engine loads on the first run and the shared video probe loads Mediabunny with the first file, so neither is in the page's initial scripts: 170 KB measured, down from 335 KB with Mediabunny loaded up front.
 **Why:** `tools/video.md` → V03 (its tests: MOV (H.264) → MP4 is a remux with identical frame hashes, in unit and Playwright tests; MKV (VP9) → MP4 re-encodes to H.264, in Playwright where the browser encodes H.264); `CLAUDE.md` rule 1.
 **Reverse:** `packages/engines/src/video/convert-video.ts` (`FITS`, `ENCODE`, `planConversion`); `TOOL_PAGES` in `scripts/lighthouse.ts`.
+
+## 2026-09-30 · Audio: our own MP3 and FLAC encoders everywhere, one gapless pipeline
+
+**Decision:**
+- MP3 is always encoded with LAME and FLAC with libFLAC (our lazy-loaded WASM builds), even where the browser has its own encoder.
+- Every audio-only re-encode (Extract Audio, Audio Converter, Trim Audio) goes through one pipeline, `encodeAudio`: decode the range, keep the blocks on one unbroken timeline from 0, encode, copy the tags. A block that overlaps the one before loses the overlap; a gap, or a track that ends early, becomes silence, so the file is as long as the part asked for. A frame or two either way is timestamp rounding and left alone.
+**Why:** WebKit's MP3 extract came out 192 ms short. A diagnostic run on CI showed WebKit decodes the whole track (a WAV extract is 30.001 s), but its own GStreamer MP3 encoder, which we used wherever the browser had one, ignores the bitrate (171 KB for 30 s at 192 kbps) and drops the last 8 frames. With our encoders every browser writes the same file. The pipeline keeps the length promise (V06: within 10 ms) whatever a decoder does with damaged frames.
+**Reverse:** `ensureEncoder` in `packages/engines/src/video/extract-audio.ts`; `packages/engines/src/video/encode-audio.ts`.
+
+## 2026-09-30 · Audio Converter (A01) on Mediabunny
+
+**Decision:**
+- Audio Converter uses the engine the video tools already load (Mediabunny with WebCodecs, plus the LAME and libFLAC WASM encoders loaded only when MP3 or FLAC is picked), not a separate `audio-dsp` engine. The registry and `tools/README.md` say `video-webcodecs`.
+- **MP3 is constant bitrate** (128 to 320 kbps). VBR is not offered yet: the encoder is driven by a target bitrate. The FAQ says so.
+- **Bit depth** (16 or 24-bit) is offered for WAV only.
+- **Sample rate** 44.1, 48 or 96 kHz, and **channels** mono or stereo; both default to Keep.
+- A file already in the target codec with nothing to change is copied, not re-encoded. Tags are copied either way.
+- Six pair pages (`/convert/wav-to-mp3`, `mp3-to-wav`, `m4a-to-mp3`, `flac-to-mp3`, `ogg-to-mp3`, `mp3-to-ogg`), each written for its pair.
+**Why:** `tools/audio.md` → A01; `CLAUDE.md` rule 1 (browser first) and `docs/13` (no new dependency).
+**Reverse:** swap the engine in `packages/engines/src/audio/convert.ts`; add VBR if a LAME build with `-V` lands.
+
+## 2026-09-30 · Trim Audio (A02): one range, keep or remove
+
+**Decision:**
+- One range on the timeline, kept or removed. **Multiple ranges are left for later**: the timeline shell has one In and one Out, and a multi-range editor belongs with V01's smart cut. The registry's promises say one range.
+- **Removing** joins the two sides with a 5 ms fade on each side of the join, so it doesn't click. Fade in and out are 0.5 to 3 s, or none.
+- **WAV and FLAC** are cut to the sample and stay lossless. **MP3, AAC and Opus** kept without fades are copied frame by frame (the cut lands on the nearest frame, about 26 ms for MP3); with fades, or when removing a range, they are re-encoded in their own codec at their own bitrate.
+- The timeline shows the **real waveform** (peaks read from the file) and steps by the millisecond; an audio player under it follows the playhead.
+**Why:** `tools/audio.md` → A02 (its test: 5.000 to 15.000 s of a WAV gives 10.000 s, checked to the sample in unit and Playwright tests).
+**Reverse:** `packages/engines/src/audio/trim.ts`; `peaks` on `Timeline` falls back to the stand-in bars when a page passes none.
+
+## 2026-09-30 · BPM & Key Finder (A03): in-house DSP, synthetic test set
+
+**Decision:**
+- **Tempo:** an onset-strength envelope (spectral flux of log magnitudes, 1024-sample frames, 11.6 ms hop at 22.05 kHz, local mean removed, smoothed by σ = 17 ms), autocorrelated. Each BPM from 50 to 220 is scored by a comb over its beat period and multiples (bars), with a broad preference around 120 BPM unless a range is picked (60–90, 90–140, 140–200). Half and double tempo are listed as alternatives.
+- **Beats:** the phase of that period with the most onset strength, each beat taking the strongest onset within 23 ms. Exported as CSV (beat, seconds) or plain text; steady tempo only for now.
+- **Key:** a chromagram (8192-point frames, 55 Hz to 2 kHz, energy near each semitone folded into 12 pitch classes) correlated with the Krumhansl-Kessler major and minor profiles; the name uses sharps or flats as musicians write the key, with its Camelot code.
+- **Tap tempo and metronome** are a shared ToolShell section (`preset.tempo`), usable with no file: the pad (or the T key) reads the median of the last 8 gaps and resets after 2.5 s; the metronome schedules its clicks on the Web Audio clock (2/4 to 6/8, first-beat accent, three sounds).
+- **Whole track only:** analysing a selection is left for later; the analyzer view has no timeline.
+- **Tests:** the spec asks for 30+ labelled, license-free tracks. There's no such set here, so the labelled set is generated in the test: 30 drum loops from 72 to 174 BPM (all 30 within ±1 BPM or exactly half or double, against the ≥ 90 % bar) and 30 chord progressions in all 24 keys plus 6 pop loops (all 30 correct, against the ≥ 75 % bar). Real recordings are harder; the stress test should add a handful of license-free songs.
+- An analyser tool that reads the file first (a probe) now also runs as the file arrives, as `autoRun` asks.
+**Why:** `tools/audio.md` → A03 (in-house DSP, no AGPL libraries); `CLAUDE.md` rules 1 and 6.
+**Reverse:** `packages/core/src/audio/analysis.ts` (`detectTempo`, `detectKey`); swap in a trained model later if accuracy on real music falls short.

@@ -5,7 +5,9 @@
  */
 export const TOOL_IDS = [
   'aspect-ratio-calculator',
+  'audio-converter',
   'bitrate-calculator',
+  'bpm-key-finder',
   'color-converter',
   'compress-image',
   'compress-video',
@@ -21,6 +23,7 @@ export const TOOL_IDS = [
   'subtitle-converter',
   'subtitle-shift',
   'timecode-calculator',
+  'trim-audio',
   'trim-video',
   'video-converter',
   'video-info',

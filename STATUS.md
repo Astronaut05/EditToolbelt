@@ -41,12 +41,17 @@
   - GIF to MP4: our own GIF reader, every frame keeps its own delay, transparency filled, 1 to 10 plays.
   - Mute Video: all the audio (video packets byte-identical) or only a range, with 10 ms fades.
   - Video Info: codec, profile, bit depth, color, HDR, rotation, and a measured VFR check, with what to do about each, as text or JSON.
+- M2b: the audio tools (#32):
+  - Audio Converter: MP3 (LAME, 128-320 kbps), WAV 16/24-bit, M4A/AAC, FLAC, OGG/Opus; sample rate and channels; tags kept. Six pair pages such as `wav-to-mp3`.
+  - Trim Audio: keep or remove one range on the real waveform, to the millisecond; fades in and out; WAV and FLAC cut to the sample.
+  - BPM & Key Finder: tempo with half/double alternatives, beat markers as CSV or text, key with its Camelot code, plus tap tempo and a metronome. Tested on a generated set (30 loops, 30 progressions); real songs are for the stress test.
+  - MP3 and FLAC always use our own encoders, and every audio re-encode goes through one gapless pipeline (WebKit's MP3 encoder dropped the last frames).
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
 2. M2 local-launch checks: Playwright on Chromium, Firefox, WebKit and phone, and the Lighthouse budgets, on the production build.
-3. M2b: 5 tools left (Audio Converter, Trim Audio, BPM & Key; Palette and Color Picker from an image), then checkpoint 3.
+3. M2b: 2 tools left (Palette and Color Picker from an image), then checkpoint 3.
 
 ## Blocked
 

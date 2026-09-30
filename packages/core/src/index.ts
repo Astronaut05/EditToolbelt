@@ -14,3 +14,14 @@ export * as bitrate from './calc/bitrate';
 export * as color from './color/color';
 export { CSS_NAMED_COLORS } from './color/names';
 export * as subtitles from './subtitles';
+export {
+  beatMarkers,
+  beatTimes,
+  detectKey,
+  detectTempo,
+  keysRelated,
+  type KeyResult,
+  type TempoRange,
+  type TempoResult,
+} from './audio/analysis';
+export { addTap, tapBpm } from './audio/tap';

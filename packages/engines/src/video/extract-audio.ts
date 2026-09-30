@@ -99,7 +99,7 @@ export const AUDIO_TARGETS: Record<AudioFormat, Target> = {
  * browser has one: WebKit's GStreamer MP3 encoder ignores the bitrate and
  * drops the last frames. AAC and Opus come only from the browser.
  */
-async function ensureEncoder(codec: AudioCodec): Promise<void> {
+export async function ensureEncoder(codec: AudioCodec): Promise<void> {
   if (codec === 'mp3') {
     const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder');
     registerMp3Encoder();

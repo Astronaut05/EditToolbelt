@@ -96,3 +96,8 @@ export {
   type ConversionPlan,
   type VideoConverterOptions,
 } from './video/convert-video';
+export { AUDIO_LIMITS, audioConverterEngine, type AudioConverterOptions } from './audio/convert';
+export { probeAudio, type AudioProbe } from './audio/probe';
+export { audioPeaks, fadeGain, trimAudioEngine, type TrimAudioOptions } from './audio/trim';
+export { bpmKeyEngine, Downmix, type BpmKeyOptions } from './audio/bpm-key';
+export { addTap, tapBpm } from '@etb/core';
