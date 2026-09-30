@@ -73,6 +73,8 @@ test('signs in with an email link, once, and keeps no IP or user agent', async (
   await page.goto(link);
   await expect(page).toHaveURL(/\/account$/);
   await expect(page.getByText(email)).toBeVisible();
+  // Signed in, the header offers the account, not sign-in.
+  await expect(page.getByRole('banner').getByRole('link', { name: 'Account' })).toBeVisible();
 
   const [user] = await db.select().from(users).where(eq(users.email, email));
   expect(user?.emailVerified).toBe(true);

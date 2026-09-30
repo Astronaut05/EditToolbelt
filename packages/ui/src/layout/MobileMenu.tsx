@@ -14,8 +14,14 @@ export interface NavItem {
   current?: boolean;
 }
 
-/** Phone header menu: categories, sign in and theme in a bottom sheet. */
-export function MobileMenu({ items, signInHref }: { items: NavItem[]; signInHref: string }) {
+/** Phone header menu: categories, sign in (or account) and theme in a bottom sheet. */
+export function MobileMenu({
+  items,
+  account,
+}: {
+  items: NavItem[];
+  account: { href: string; label: string };
+}) {
   const [open, setOpen] = useState(false);
   const close = () => {
     setOpen(false);
@@ -53,11 +59,11 @@ export function MobileMenu({ items, signInHref }: { items: NavItem[]; signInHref
             ))}
             <li>
               <AppLink
-                href={signInHref}
+                href={account.href}
                 onClick={close}
                 className="flex h-12 items-center border-b border-border text-16 font-medium"
               >
-                Sign in
+                {account.label}
               </AppLink>
             </li>
           </ul>

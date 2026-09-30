@@ -32,7 +32,7 @@ export default async function AccountPage({ searchParams }: Props) {
   const methods = ['Email link', ...linked.map((a) => METHOD_NAMES[a.providerId] ?? a.providerId)];
 
   return (
-    <SiteFrame>
+    <SiteFrame signedIn>
       <LegalPage title="Your account" label="Account">
         {params.saved === '1' && <p role="status">Saved.</p>}
         {params.error === 'profile' && (
