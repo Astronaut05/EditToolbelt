@@ -187,6 +187,33 @@ test('5 s at 12 fps makes a looping GIF of 60 frames', async ({ page, isMobile }
   expect(await cspViolations(page)).toEqual([]);
 });
 
+// Every Turbopack worker starts from the same bootstrap script, told its
+// chunks by the URL fragment; the service worker must not mix them up.
+test('after the GIF worker, an image tool still runs its own worker', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'the service worker is the same on phones');
+  await page.goto('/video-to-gif');
+  test.skip(!(await canDecode(page, 'vp09.00.10.08', 'video')), 'needs a VP9 decoder');
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await drop(page, 'clip-vp9-opus.webm');
+  const gif = await run(page, 'Make GIF');
+  await page.goto('/image-converter');
+  await page
+    .locator('input[type=file][data-hydrated]')
+    .first()
+    .setInputFiles({
+      name: 'clip.gif',
+      mimeType: 'image/gif',
+      buffer: readFileSync(await gif.path()),
+    });
+  const jpeg = readFileSync(await (await run(page, 'Convert')).path());
+  expect([jpeg[0], jpeg[1], jpeg[2]]).toEqual([0xff, 0xd8, 0xff]);
+});
+
 test('compress to a size lands under it', async ({ page, isMobile }) => {
   test.skip(isMobile, 'the phone sheet is covered by other tools');
   await page.goto('/compress-video');
