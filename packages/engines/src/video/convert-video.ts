@@ -111,7 +111,7 @@ export function planConversion(
     const fallback = attempt('webm');
     if (fallback) {
       notes.push(
-        `Saved as WebM: this browser can’t encode ${wanted === 'mov' ? 'H.264 or AAC for a MOV' : 'H.264 or AAC for an MP4'}. Chrome, Safari and Edge can.`,
+        `Saved as WebM: this browser can’t encode ${wanted === 'mov' ? 'H.264 or AAC for a MOV' : 'H.264 or AAC for an MP4'}. Chrome on Windows and macOS, Safari and Edge can.`,
       );
       return fallback;
     }

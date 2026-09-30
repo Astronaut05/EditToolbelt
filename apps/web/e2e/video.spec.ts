@@ -374,27 +374,33 @@ test('MOV (H.264) → MP4 is a remux, frame for frame', async ({ page }) => {
 test('MKV (VP9) → MP4 re-encodes to H.264', async ({ page }) => {
   await page.goto('/video-converter');
   test.skip(!(await canDecode(page, 'vp09.00.10.08', 'video')), 'needs a VP9 decoder');
-  // The engine asks for High-profile H.264 (Mediabunny's codec string).
-  // OpenH264, which Chromium and Firefox use on Linux, encodes only Baseline,
-  // so there the file is WebM, with a note.
-  const h264 = await page.evaluate(
-    async () =>
-      (
-        await VideoEncoder.isConfigSupported({
-          codec: 'avc1.64001f',
-          width: 256,
-          height: 144,
-        })
-      ).supported === true,
-  );
+  // An MP4 needs H.264 (High profile, as the engine asks) and AAC for the
+  // Opus audio. Chromium and Firefox on Linux have no AAC encoder, so there
+  // the file is WebM, with a note.
+  const mp4 = await page.evaluate(async () => {
+    const video = await VideoEncoder.isConfigSupported({
+      codec: 'avc1.64001f',
+      width: 256,
+      height: 144,
+    });
+    const audio =
+      typeof AudioEncoder === 'function'
+        ? await AudioEncoder.isConfigSupported({
+            codec: 'mp4a.40.2',
+            sampleRate: 48_000,
+            numberOfChannels: 2,
+          })
+        : { supported: false };
+    return video.supported === true && audio.supported === true;
+  });
   await drop(page, 'clip-vp9-opus.mkv');
   const file = await run(page, 'Convert');
   const info = await probeMedia(new Blob([readFileSync(await file.path())]));
-  if (h264) {
+  if (mp4) {
     expect(file.suggestedFilename()).toBe('clip-vp9-opus.mp4');
     expect(info.video?.codec).toBe('avc');
   } else {
-    // No High-profile H.264 encoder here: WebM, where the VP9 fits as it is.
+    // No H.264 or AAC encoder here: WebM, where the VP9 and Opus fit as they are.
     expect(file.suggestedFilename()).toBe('clip-vp9-opus.webm');
     expect(info.video?.codec).toBe('vp9');
     await expect(page.getByText(/^Saved as WebM/).filter({ visible: true })).toBeVisible();
