@@ -1,11 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { AudioSample, Mp4OutputFormat } from 'mediabunny';
+import { AudioSample, Mp4OutputFormat, WavOutputFormat } from 'mediabunny';
 import { describe, expect, it } from 'vitest';
 
+import { toneWav } from '../audio/tone';
 import { planCompress, sizeForShortSide } from './compress';
-import { continuousAudio, extractAudioEngine } from './extract-audio';
+import { encodeAudio, seamless } from './encode-audio';
+import { extractAudioEngine } from './extract-audio';
 import { adtsHeader, readAacConfig } from './adts';
 import { convert, openInput, probeMedia } from './media';
 import { checkRange, keyframeBefore, trimEngine } from './trim';
@@ -186,7 +188,7 @@ describe('compress plan', () => {
   });
 });
 
-describe('continuous audio', () => {
+describe('seamless audio', () => {
   const block = (timestamp: number, frames: number) =>
     new AudioSample({
       data: new Float32Array(frames).map((_, i) => i / frames),
@@ -197,13 +199,48 @@ describe('continuous audio', () => {
     });
 
   it('trims blocks that overlap the one before, and drops those inside it', () => {
-    const keep = continuousAudio();
-    expect(keep(block(0, 1000))?.numberOfFrames).toBe(1000);
+    const line = seamless();
+    expect(line.add(block(0, 1000)).map((b) => b.numberOfFrames)).toEqual([1000]);
     // Starts 200 ms before the first one ended: the first 200 frames go.
-    const second = keep(block(0.8, 1000));
+    const [second] = line.add(block(0.8, 1000));
     expect(second?.numberOfFrames).toBe(800);
     expect(second?.timestamp).toBeCloseTo(1, 6);
-    expect(keep(block(1.2, 300))).toBeNull();
-    expect(keep(block(1.8, 100))?.numberOfFrames).toBe(100);
+    expect(line.add(block(1.2, 300))).toEqual([]);
+    expect(line.add(block(1.8, 100)).map((b) => b.numberOfFrames)).toEqual([100]);
+    // A frame of timestamp rounding is left alone.
+    expect(line.add(block(1.901, 100)).map((b) => b.numberOfFrames)).toEqual([100]);
+  });
+
+  it('fills a gap, and a tail the decoder dropped, with silence', () => {
+    const line = seamless();
+    // Starts late: silence first.
+    const [lead, first] = line.add(block(0.25, 500));
+    expect(lead?.numberOfFrames).toBe(250);
+    expect(lead?.timestamp).toBe(0);
+    expect(first?.timestamp).toBe(0.25);
+    const [gap] = line.add(block(1, 500));
+    expect(gap?.numberOfFrames).toBe(250);
+    const plane = new Float32Array(250);
+    gap?.copyTo(plane, { planeIndex: 0, format: 'f32-planar' });
+    expect(Math.max(...plane.map(Math.abs))).toBe(0);
+    // The decoder stopped 192 ms short of the 1.692 s asked for.
+    const tail = line.finish(1.692);
+    expect(tail?.numberOfFrames).toBe(192);
+    expect(tail?.timestamp).toBe(1.5);
+    expect(line.finish(1.692)).toBeNull();
+  });
+
+  it('encodes a range of a track to the sample, from 0', async () => {
+    const input = openInput(toneWav(3, 8_000, 200));
+    const track = await input.getPrimaryAudioTrack();
+    if (!track) throw new Error('no audio');
+    const out = await encodeAudio(
+      { input, track, format: new WavOutputFormat(), codec: 'pcm-s16', start: 0.5, end: 2.25 },
+      new AbortController().signal,
+      () => undefined,
+    );
+    input.dispose();
+    // 44-byte header, then 16-bit mono frames.
+    expect((out.bytes.byteLength - 44) / 2).toBe(14_000);
   });
 });
