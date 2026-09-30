@@ -54,7 +54,7 @@ jobs:
           curl -fs http://localhost:4173/ | grep -q 'id="home-search"'
           curl -fs http://localhost:4173/photo | grep -q 'Photo tools'
           curl -fs http://localhost:4173/remove-background | grep -q 'noindex'
-          curl -fs http://localhost:4173/search-index.json | jq -e 'length == 75'
+          curl -fs http://localhost:4173/search-index.json | jq -e '[.[] | select(.kind == "tool")] | length == 75'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/does-not-exist)" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/workshop)" = 404
       # Budgets and end-to-end tests live in this required job, so a PR can't

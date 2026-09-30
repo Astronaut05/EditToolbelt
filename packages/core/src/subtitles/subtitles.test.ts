@@ -72,6 +72,15 @@ describe('parsing fixtures (tools/subtitles-and-time.md → T01 tests)', () => {
     expect(dropped).toEqual({ srtFont: 1, srtPosition: 1, emptyCues: 1 });
   });
 
+  it('leaves no tag behind when tags are nested inside tags', () => {
+    // One pass would remove the inner <span> and leave the outer one behind.
+    const { cues, dropped } = parseSrt(
+      '1\n00:00:01,000 --> 00:00:02,000\n<<span>span>text</span>\n',
+    );
+    expect(cues[0]?.text).toBe('text');
+    expect(dropped.srtFont).toBe(2);
+  });
+
   it('WebVTT: settings, voices, classes and timestamps are removed and counted', () => {
     const { cues, dropped } = parseVtt(text('features.vtt'));
     expect(cues).toHaveLength(3);

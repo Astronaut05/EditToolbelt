@@ -35,7 +35,7 @@ export function detectFormat(text: string, fileName?: string): SubtitleFormat | 
     return byName === 'ssa' ? 'ssa' : 'ass';
   }
   if (body.split('\n', 20).some((line) => SBV_TIMING.test(line))) return 'sbv';
-  if (/-->/.test(body)) return byName === 'vtt' ? 'vtt' : 'srt';
+  if (body.includes('-->')) return byName === 'vtt' ? 'vtt' : 'srt';
   return byName;
 }
 
@@ -116,6 +116,27 @@ function arrowTiming(line: string) {
   return { start: parseTime(match[1] ?? ''), end: parseTime(match[2] ?? ''), rest: match[3] ?? '' };
 }
 
+/**
+ * Removes every match, repeating until none is left, so "<<b>b>" can't leave
+ * a tag behind after one pass. Each removal is reported to `onRemove`.
+ */
+function removeAll(
+  text: string,
+  pattern: RegExp,
+  onRemove: (match: string) => void = () => undefined,
+): string {
+  let out = text;
+  let previous: string;
+  do {
+    previous = out;
+    out = out.replace(pattern, (match) => {
+      onRemove(match);
+      return '';
+    });
+  } while (out !== previous);
+  return out;
+}
+
 /** Keeps <i>, <b> and <u> (any case, with or without attributes or VTT classes) as bare tags. */
 function normalizeBasicTags(text: string): string {
   return text.replace(
@@ -128,15 +149,13 @@ export function parseSrt(text: string): ParsedSubtitles {
   const { cues, dropped } = collect(text, arrowTiming, (body, found) => {
     let out = body;
     // {\an8} and friends: ASS position codes some SRT files carry.
-    out = out.replace(/\{\\[^}]*\}/g, () => {
+    out = removeAll(out, /\{\\[^}]*\}/g, () => {
       count(found, 'srtPosition');
-      return '';
     });
     out = normalizeBasicTags(out);
     // <font color=…>, <span>, <s> …: removed, text kept.
-    out = out.replace(/<\/?(?![ibu]>)[a-z][^>]*>/gi, (tag) => {
+    out = removeAll(out, /<\/?(?![ibu]>)[a-z][^>]*>/gi, (tag) => {
       if (!tag.startsWith('</')) count(found, 'srtFont');
-      return '';
     });
     return out;
   });
@@ -147,9 +166,9 @@ const ENTITIES: Record<string, string> = {
   amp: '&',
   lt: '<',
   gt: '>',
-  nbsp: ' ',
-  lrm: '‎',
-  rlm: '‏',
+  nbsp: '\u00A0',
+  lrm: '\u200E',
+  rlm: '\u200F',
   quot: '"',
   apos: "'",
 };
@@ -175,17 +194,14 @@ export function parseVtt(text: string): ParsedSubtitles {
   const { cues, dropped } = collect(normalized, arrowTiming, (body, found, rest) => {
     if (rest.trim()) count(found, 'vttSettings');
     let out = body;
-    out = out.replace(/<\d{1,2}:\d{2}(?::\d{2})?\.\d{3}>/g, () => {
+    out = removeAll(out, /<\d{1,2}:\d{2}(?::\d{2})?\.\d{3}>/g, () => {
       count(found, 'vttTimestamps');
-      return '';
     });
-    out = out.replace(/<v(?:\.[^\s>]+)?(?:\s[^>]*)?>|<\/v>/g, (tag) => {
+    out = removeAll(out, /<v(?:\.[^\s>]+)?(?:\s[^>]*)?>|<\/v>/g, (tag) => {
       if (tag !== '</v>') count(found, 'vttVoices');
-      return '';
     });
-    out = out.replace(/<\/?(?:c|lang|ruby|rt)(?:[.\s][^>]*)?>/g, (tag) => {
+    out = removeAll(out, /<\/?(?:c|lang|ruby|rt)(?:[.\s][^>]*)?>/g, (tag) => {
       if (!tag.startsWith('</')) count(found, 'vttClasses');
-      return '';
     });
     out = normalizeBasicTags(out);
     return decodeEntities(out);
