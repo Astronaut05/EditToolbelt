@@ -111,12 +111,39 @@ jobs:
     defaults:
       run:
         working-directory: apps/worker
+    services:
+      # The scheduler's tests run against the real schema (packages/db's migrations).
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: etb
+          POSTGRES_PASSWORD: etb-ci-only
+          POSTGRES_DB: etb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U etb -d etb_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: ${{ env.UV_VERSION }}
           working-directory: apps/worker
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Migrate the test database
+        working-directory: ${{ github.workspace }}
+        run: |
+          pnpm install --frozen-lockfile --filter '@etb/db...'
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @etb/db migrate
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -160,7 +187,7 @@ jobs:
         run: |
           docker compose run --rm -T migrate
           docker compose exec -T postgres psql -U etb -d etb -tAc \
-            "select count(*) from information_schema.tables where table_schema = 'public'" | grep -qx 18
+            "select count(*) from information_schema.tables where table_schema = 'public'" | grep -qx 19
       - name: Worker hello-world job (JSON logs, job succeeds)
         run: |
           set -o pipefail
@@ -179,6 +206,21 @@ jobs:
             sleep 2
           done
           echo "web did not serve the home page in time"; exit 1
+      - name: Worker scheduler writes its heartbeat, runs the daily jobs and emails the digest
+        run: |
+          docker compose up --detach worker
+          sql() { docker compose exec -T postgres psql -U etb -d etb -tAc "$1"; }
+          for i in $(seq 1 45); do
+            if [ "$(sql "select count(*) from system_checks where name in ('ledger_invariant', 'account_scrub', 'retention_purge', 'daily_digest')")" = 4 ]; then
+              echo "scheduler ran after ~$((i * 2))s"
+              sql "select count(*) from service_heartbeats where service = 'worker'" | grep -qx 1
+              sql "select ok from system_checks where name = 'ledger_invariant'" | grep -qx t
+              curl -fs http://localhost:8025/api/v1/messages | jq -e '[.messages[].Subject] | any(startswith("EditToolbelt digest"))'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the scheduler did not run its daily jobs in time"; exit 1
       - name: Web logs are JSON
         # Read the logs first: `grep -m1` straight off `docker compose logs`
         # stops reading early, the writer gets SIGPIPE, and pipefail fails the

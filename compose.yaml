@@ -1,8 +1,8 @@
 # Local stack: `docker compose up --watch` (docs/12-milestones.md → M0).
 #   migrate  applies database migrations, then exits; web and worker wait for it
 #   web      http://localhost:3000  Next.js dev server (the server build: accounts), hot reload via compose watch
-#   mailpit  http://localhost:8025  catches sign-in emails; nothing leaves your PC
-#   worker   Python worker, runs the hello-world job then idles
+#   mailpit  http://localhost:8025  catches sign-in and alert emails; nothing leaves your PC
+#   worker   Python worker: the hello-world job, then heartbeats, alerts, daily jobs and the digest
 #   postgres localhost:5432         user/db `etb`
 #   storage  http://localhost:7070  S3-compatible object storage (Versity S3 Gateway)
 #
@@ -78,7 +78,16 @@ services:
   worker:
     build: ./apps/worker
     init: true
-    environment: *server-env
+    environment:
+      <<: *server-env
+      # Alerts and the daily digest (docs/07): email lands in Mailpit. For
+      # Telegram, put TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in a .env file
+      # next to this one (git-ignored); then email is only the backup.
+      SMTP_URL: smtp://mailpit:1025
+      MAIL_FROM: EditToolbelt alerts <alerts@example.test>
+      ALERT_EMAIL: ops@example.test
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +95,8 @@ services:
         condition: service_completed_successfully
       storage:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     # Same hardening the production worker gets (docs/11-security.md).
     read_only: true
     tmpfs:

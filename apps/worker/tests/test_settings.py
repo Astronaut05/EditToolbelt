@@ -73,3 +73,44 @@ def test_load_settings_exits_without_echoing_values(
     assert "DATABASE_URL" in err
     assert "S3_BUCKET" in err
     assert "secret" not in err
+
+
+def _with(clean_env: pytest.MonkeyPatch, **extra: str) -> list[str]:
+    for name, value in {**VALID_ENV, **extra}.items():
+        clean_env.setenv(name, value)
+    try:
+        Settings()
+    except ValidationError as error:
+        return format_errors(error)
+    return []
+
+
+def test_alert_channels_are_optional(settings: Settings) -> None:
+    assert not settings.telegram_enabled
+    assert not settings.email_enabled
+
+
+def test_telegram_needs_both_token_and_chat(clean_env: pytest.MonkeyPatch) -> None:
+    assert _with(clean_env, TELEGRAM_BOT_TOKEN="123:abc") == [
+        "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID: set both, or neither"
+    ]
+    assert _with(clean_env, TELEGRAM_BOT_TOKEN="123:abc", TELEGRAM_CHAT_ID="-100123") == []
+    assert _with(clean_env, TELEGRAM_BOT_TOKEN="123:abc", TELEGRAM_CHAT_ID="me; drop") != []
+
+
+def test_alert_email_needs_smtp(clean_env: pytest.MonkeyPatch) -> None:
+    assert _with(clean_env, ALERT_EMAIL="ops@example.test") == [
+        "ALERT_EMAIL: needs SMTP_URL and MAIL_FROM to send"
+    ]
+    assert _with(clean_env, SMTP_URL="http://mail.test") == [
+        "SMTP_URL: must be an smtp:// or smtps:// URL"
+    ]
+    assert (
+        _with(
+            clean_env,
+            ALERT_EMAIL="ops@example.test",
+            SMTP_URL="smtps://u:secret-pass@mail.test:465",
+            MAIL_FROM="alerts@example.test",
+        )
+        == []
+    )

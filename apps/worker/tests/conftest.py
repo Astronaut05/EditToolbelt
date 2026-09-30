@@ -19,11 +19,23 @@ VALID_ENV = {
     "S3_SECRET_ACCESS_KEY": "super-secret",
 }
 
+OPTIONAL_ENV = (
+    "APP_ENV",
+    "APP_VERSION",
+    "LOG_LEVEL",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "TELEGRAM_API_URL",
+    "SMTP_URL",
+    "MAIL_FROM",
+    "ALERT_EMAIL",
+)
+
 
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     """Remove every variable Settings reads, so tests only see what they set."""
-    for name in (*VALID_ENV, "APP_ENV", "APP_VERSION", "LOG_LEVEL"):
+    for name in (*VALID_ENV, *OPTIONAL_ENV):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 

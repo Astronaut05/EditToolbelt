@@ -611,3 +611,47 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 **Why:** `docs/12` → M3 ("flip any tool's status from admin and see it change within 30 s"; "registry resolution from DB flags, 30 s cache"; "TOTP for admins"), `docs/07` → Admin panel, `docs/11` → Admin, `docs/02` (DB flag, then code default).
 **Reverse:** `apps/web/src/server/flags.ts` (the cache) and `src/server/admin.ts` (the gate); drop `revalidate` from the `page.server.tsx` files to render per request instead.
 
+
+## 2026-09-30 · Alerts, the daily digest and the scheduled jobs (M3)
+
+**Decision:**
+- **The worker runs a scheduler** (`apps/worker/src/etb_worker/scheduler.py`) every 30 s, beside M4's job queue later.
+  - Each worker writes its heartbeat to `service_heartbeats` and removes it on a clean stop, so only a crash reads as missing.
+  - One worker at a time (a Postgres advisory lock) then checks the alert rules and runs whatever daily job is due.
+- **Daily jobs keep their last run in `system_checks`**, so a restart doesn't repeat one and a worker that was down catches up when it starts.
+  - At 03:00 Tashkent: the ledger check, the account scrub and the retention purges.
+  - At 09:00 Tashkent: the digest.
+  - A job that fails alerts and is retried in 10 minutes.
+  - `python -m etb_worker --task <name>` runs one now (`docker compose exec worker …` on the stack).
+- **Tashkent is a fixed UTC+5.** It has had no daylight saving since 1992, so the slim image needs no time-zone database.
+- **The account scrub follows `04` → Account deletion.** 30 days after deletion:
+  - Email, display name, locale and image are nulled.
+  - Sessions, sign-in methods, TOTP and API keys are deleted.
+  - The row's id stays, so the ledger is never updated.
+- **The retention purges:**
+  - Welcome-grant claims after 12 months (`08`).
+  - Expired sign-in links a day after they expire, and expired sessions.
+  - Heartbeats not seen for a day.
+  - Alerts after 90 days.
+- **Alert rules in M3** (`07` → Alerts, each with a 30-minute cool-down per rule and subject):
+  - A heartbeat missing for 2 minutes.
+  - Database connections over 80 % of max.
+  - The worker's disk over 80 %.
+  - A tool's server failure rate over 10 % across 30 minutes with at least 10 jobs.
+  - Queue wait p95 over 2 minutes across 10 minutes. It counts jobs still waiting, so a stuck queue alerts too.
+  - A ledger mismatch alerts at once, with no cool-down.
+- **Rules that watch things that don't exist yet arrive with them:**
+  - The retention sweeper, stale objects, multipart uploads and lifecycle rules in M4.
+  - Webhook errors in M5.
+  - Tool margin, in the digest, once jobs have costs (M4).
+- **Delivery:** Telegram first, email as backup.
+  - Email is used only when Telegram isn't set up or fails. With neither set up, alerts are logged and listed in Admin → System.
+  - Both use the standard library (urllib, smtplib), so there are no new packages.
+  - Messages hold rule names, tool ids, service names and numbers, never personal data.
+  - The bot token sits in the request path, so no URL is ever logged.
+- **A new `alerts` table** records every alert (the cool-down reads it, Admin → System lists the last 20).
+- **The host check allows one third-party host, `api.telegram.org`**, in a named list (`THIRD_PARTY_APIS` in `scripts/check-hosts.ts`). Its provider fixes it, so moving our hosts never changes it. `TELEGRAM_API_URL` overrides it for tests.
+- **On the stack,** alert and digest emails land in Mailpit. Telegram works when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are in a git-ignored `.env`.
+
+**Why:** `docs/12` → M3 ("Telegram alerts and daily digest wiring"), `docs/07` → Alerts, `docs/04` → Account deletion, `docs/05` (the nightly ledger invariant), `docs/08` (retention periods).
+**Reverse:** stop the loop in `main.py` (the worker goes back to idling). Rules and jobs are one entry each in `alerts.DATABASE_RULES` and `scheduler.DAILY`.

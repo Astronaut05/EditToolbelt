@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M3, accounts, database, admin, flags · **in progress: parts 1 to 3 of 4 (the database; the server build and accounts; the admin and tool status from the database)**. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M3, accounts, database, admin, flags · **in progress: parts 1 to 4 of 4 in review (the database; the server build and accounts; the admin and tool status from the database; alerts, the digest and scheduled jobs)**. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -53,11 +53,12 @@
 - M3, part 1: the database. Every table in `docs/04` in `packages/db` (Drizzle, Postgres 18, UUIDv7 ids), SQL migrations (`pnpm db:migrate`, run by the stack's `migrate` service), the append-only ledger (trigger, sign checks, `applyCredit` with row locks) and an append-only audit log. Integration tests run on a real Postgres in CI (#37).
 - M3, part 2: the server build (`ETB_TARGET=server`, what the local stack runs) with accounts. Sign in with an email link (Mailpit catches it on the stack at localhost:8025) or Google, `/account` with profile, "Download my data" and delete (30-day restore), nonce CSP on signed-in pages, `/healthz` and `/readyz` (#38).
 - M3, part 3: tool status from the database (admin changes show within 30 s) and the admin: dashboard, tools, users (credits, disable, revoke keys, export, delete), audit log and system, behind TOTP; `pnpm admin:promote` makes the first admin; `GET /api/v1/tools` (#39).
+- M3, part 4: the worker's scheduler. Heartbeats; alerts to Telegram, email as backup, with a 30-minute cool-down (missing heartbeat, database connections, disk, tool failure rate, queue wait, ledger mismatch); every night at 03:00 Tashkent the ledger check, the 30-day account scrub and the retention purges; the daily digest at 09:00 Tashkent. Admin → System lists recent alerts (#40).
 
 ## Next
 
 1. Checkpoints 1, 2 and 3: sent. M2b is done.
-2. M3, part 4: Telegram alerts, the daily digest and the scheduled checks (ledger invariant, heartbeats, the 30-day account scrub).
+2. M3 sign-off once parts 1 to 4 are merged. Then M4 (the server job pipeline).
 
 ## Blocked
 
@@ -76,4 +77,5 @@ pnpm e2e                       # Playwright (pnpm exec playwright install once)
 pnpm lighthouse                # after pnpm build
 pnpm db:migrate                # apply migrations to DATABASE_URL (the stack's migrate service does it for you)
 docker compose up --watch      # dev stack: http://localhost:3000 (sign in at /sign-in; emails at http://localhost:8025; /admin after pnpm admin:promote)
+docker compose exec worker python -m etb_worker --task daily_digest   # send the digest now (lands in Mailpit, or Telegram if set up)
 ```

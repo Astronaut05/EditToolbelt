@@ -12,20 +12,22 @@ You need Docker with Compose 2.22 or newer (Docker Desktop is fine). Then, from 
 docker compose up --watch
 ```
 
-| Service  | Where                 | What                                                                                                            |
-| -------- | --------------------- | --------------------------------------------------------------------------------------------------------------- |
-| web      | http://localhost:3000 | Next.js dev server, the server build: the site plus accounts. Edits under `apps/web` and `packages` hot-reload. |
-| mailpit  | http://localhost:8025 | Inbox for the sign-in emails the stack sends. Nothing leaves your PC.                                           |
-| migrate  | (runs once)           | Applies the database migrations, then exits; web and worker wait for it.                                        |
-| worker   | (no port)             | Python worker. Runs a hello-world job against Postgres and storage, then idles.                                 |
-| postgres | localhost:5432        | Postgres 18, user / password / db: `etb` / `etb-local-only` / `etb`                                             |
-| storage  | http://localhost:7070 | S3-compatible storage (Versity S3 Gateway), key `etb-local` / `etb-local-secret`                                |
+| Service  | Where                 | What                                                                                                                                  |
+| -------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| web      | http://localhost:3000 | Next.js dev server, the server build: the site plus accounts. Edits under `apps/web` and `packages` hot-reload.                       |
+| mailpit  | http://localhost:8025 | Inbox for the sign-in, alert and digest emails the stack sends. Nothing leaves your PC.                                               |
+| migrate  | (runs once)           | Applies the database migrations, then exits; web and worker wait for it.                                                              |
+| worker   | (no port)             | Python worker. Runs a hello-world job against Postgres and storage, then its scheduler: heartbeats, alerts, nightly jobs, the digest. |
+| postgres | localhost:5432        | Postgres 18, user / password / db: `etb` / `etb-local-only` / `etb`                                                                   |
+| storage  | http://localhost:7070 | S3-compatible storage (Versity S3 Gateway), key `etb-local` / `etb-local-secret`                                                      |
 
 `--watch` syncs file changes into the containers (hot reload for web, rebuild for the worker). Plain `docker compose up` runs the same stack without it. Host ports can be moved with `ETB_WEB_PORT`, `ETB_POSTGRES_PORT`, `ETB_STORAGE_PORT`, `ETB_MAIL_PORT`. All credentials above are local placeholders.
 
 **Signing in on the stack:** open http://localhost:3000/sign-in, enter any email, then open the link from the Mailpit inbox (http://localhost:8025). Your account is at `/account`: profile, "Download my data", and deleting it (signing in within 30 days restores it). For Google sign-in, put your own OAuth client's `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in a `.env` file next to `compose.yaml` (it is git-ignored; never commit it), with `http://localhost:3000/api/auth/callback/google` as the redirect URI.
 
 **The admin on the stack:** sign in once, then `docker compose exec web pnpm admin:promote you@example.com`. Open http://localhost:3000/admin, set up two-factor with an authenticator app, and you're in: Dashboard, Tools (switch any tool's status or add a maintenance message; the site follows within 30 seconds), Users, Audit log and System.
+
+**Alerts and the digest on the stack:** the worker checks its alert rules every 30 seconds, runs the ledger check, account scrub and retention purges nightly at 03:00 Tashkent, and sends a digest at 09:00. On the stack both arrive in Mailpit; to get them on Telegram instead, create a bot with @BotFather and put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in the git-ignored `.env` next to `compose.yaml`. `docker compose exec worker python -m etb_worker --task daily_digest` sends a digest now; Admin → System lists every alert and when each job last ran.
 
 **Two builds of one app:** the public site is a static export (`pnpm preview`, Cloudflare Pages after Go public). The server build (`ETB_TARGET=server`) is the same pages plus accounts, the admin and the API; the stack runs it, and it's production from M5. Route files named `*.server.tsx`/`.ts` exist only in the server build, `*.static.tsx`/`.ts` only in the static one.
 

@@ -6,7 +6,9 @@
  * moving hosts later, is a config change. Allowed in code: loopback addresses,
  * reserved example names (example.com, *.test, *.example, *.invalid,
  * *.localhost; RFC 2606/6761), single-label names such as compose service
- * names (`postgres`, `storage`), and `$schema` URLs for editors.
+ * names (`postgres`, `storage`), `$schema` URLs for editors, and the few
+ * third-party API endpoints in THIRD_PARTY_APIS: fixed by their provider, so
+ * no move of ours ever changes them.
  *
  * Prose is not scanned (Markdown, docs/, tools/), nor lockfiles,
  * licenses.json and models.json, whose URLs point at packages, license texts
@@ -42,6 +44,8 @@ const DENY_PATTERN =
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '[::]']);
 const RESERVED_SUFFIXES = ['.test', '.example', '.invalid', '.localhost'];
 const RESERVED_NAMES = /(^|\.)example\.(com|net|org)$/;
+/** Each needs a reason. Telegram's Bot API: the worker's alerts (docs/07 → Alerts). */
+const THIRD_PARTY_APIS = new Set(['api.telegram.org']);
 
 function isAllowedHost(rawHost: string): boolean {
   const host = rawHost.toLowerCase().replace(/\.$/, '');
@@ -49,7 +53,7 @@ function isAllowedHost(rawHost: string): boolean {
   // Placeholders in templates and CI expressions, e.g. ${HOST} or ${{ vars.X }}.
   if (host.includes('${') || host.includes('{{')) return true;
   if (!host.includes('.') && !host.startsWith('[')) return true; // single-label, e.g. `storage`
-  if (RESERVED_NAMES.test(host)) return true;
+  if (RESERVED_NAMES.test(host) || THIRD_PARTY_APIS.has(host)) return true;
   return RESERVED_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
