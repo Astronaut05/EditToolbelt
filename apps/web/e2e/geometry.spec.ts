@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type { Download, Page } from '@playwright/test';
+import type { Download, Locator, Page } from '@playwright/test';
 
 import { choose, expect, pick, test } from './fixtures';
 
@@ -101,6 +101,13 @@ async function cropFields(page: Page, isMobile: boolean, fill: Record<string, st
 const close = (value: number | undefined, expected: number, within = 6) =>
   Math.abs((value ?? -1000) - expected) <= within;
 
+/** The crop box's position in image px, read from its label ("…, at 460, 125"). */
+async function boxAt(box: Locator) {
+  const label = (await box.getAttribute('aria-label')) ?? '';
+  const [, x = 'NaN', y = 'NaN'] = /at (\d+), (\d+)/.exec(label) ?? [];
+  return { x: Number(x), y: Number(y) };
+}
+
 test('crops 4000 × 3000 to 1:1, centered, as 3000 × 3000', async ({ page, isMobile }) => {
   await page.goto('/crop-image');
   await add(page, 'wide.jpg', await makeImage(page, 4000, 3000, 'image/jpeg'));
@@ -126,27 +133,30 @@ test('crops an exact 1080 × 1350 from a box moved anywhere', async ({ page, isM
   if (isMobile) {
     await cropFields(page, isMobile, { 'Crop left edge, X': '700', 'Crop top edge, Y': '200' });
   } else {
-    // Drag the box, then nudge it with the keyboard.
+    // Drag the box right (staying inside the viewport: Firefox drivers move
+    // out-of-viewport pointers to the corner), then nudge it with the keyboard.
+    const before = await boxAt(box);
     const rect = await box.boundingBox();
     if (!rect) throw new Error('no box');
     await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
     await page.mouse.down();
-    await page.mouse.move(rect.x + rect.width / 2 + 400, rect.y + rect.height / 2 + 400, {
+    await page.mouse.move(rect.x + rect.width / 2 + 120, rect.y + rect.height / 2 + 40, {
       steps: 8,
     });
     await page.mouse.up();
+    const dragged = await boxAt(box);
+    expect(dragged.x).toBeGreaterThan(before.x);
     await box.focus();
     await page.keyboard.press('Shift+ArrowLeft');
+    expect((await boxAt(box)).x).toBe(dragged.x - 10);
   }
-  const label = (await box.getAttribute('aria-label')) ?? '';
-  const [, x = '0', y = '0'] = /at (\d+), (\d+)/.exec(label) ?? [];
-  if (!isMobile) expect(Number(x)).toBeGreaterThan(0);
+  const { x, y } = await boxAt(box);
   const file = await run(page, 'Crop image');
   const out = await inspect(page, file, [[0, 0]]);
   expect([out.width, out.height]).toEqual([1080, 1350]);
   // The first pixel is the source pixel at the box's corner.
-  expect(close(out.pixels[0]?.[0], Math.round((Number(x) / 2000) * 255))).toBe(true);
-  expect(close(out.pixels[0]?.[1], Math.round((Number(y) / 1600) * 255))).toBe(true);
+  expect(close(out.pixels[0]?.[0], Math.round((x / 2000) * 255))).toBe(true);
+  expect(close(out.pixels[0]?.[1], Math.round((y / 1600) * 255))).toBe(true);
 });
 
 test('crop keeps PNG transparency, and turns with Rotate 90°', async ({ page }) => {

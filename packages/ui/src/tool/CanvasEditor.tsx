@@ -154,6 +154,7 @@ export function CanvasEditor({
       edit,
     };
     const bounds = turned;
+    let last = current.edit;
     const follow = (e: globalThis.PointerEvent, done: boolean) => {
       if (e.pointerId !== current.pointer || !current.edit.crop) return;
       const dx = (e.clientX - current.startX) * current.scale;
@@ -170,20 +171,30 @@ export function CanvasEditor({
               ratio,
               Math.ceil(MIN_BOX_PX * current.scale),
             );
-      onEdit({ ...current.edit, crop }, !done);
+      last = { ...current.edit, crop };
+      onEdit(last, !done);
     };
     const move = (e: globalThis.PointerEvent) => {
       follow(e, false);
     };
-    const end = (e: globalThis.PointerEvent) => {
-      follow(e, true);
+    const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
-      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('pointercancel', cancel);
+    };
+    const end = (e: globalThis.PointerEvent) => {
+      follow(e, true);
+      stop();
+    };
+    // A cancelled pointer has no usable position: keep where the box got to.
+    const cancel = (e: globalThis.PointerEvent) => {
+      if (e.pointerId !== current.pointer) return;
+      onEdit(last);
+      stop();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
+    window.addEventListener('pointercancel', cancel);
   }
 
   function onBoxKey(event: KeyboardEvent<HTMLDivElement>) {
