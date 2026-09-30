@@ -11,7 +11,9 @@ export const TOOL_IDS = [
   'compress-video',
   'crop-image',
   'extract-audio',
+  'gif-to-mp4',
   'image-converter',
+  'mute-video',
   'qr-code-generator',
   'remove-background',
   'resize-image',
@@ -20,6 +22,8 @@ export const TOOL_IDS = [
   'subtitle-shift',
   'timecode-calculator',
   'trim-video',
+  'video-converter',
+  'video-info',
   'video-to-gif',
 ] as const;
 

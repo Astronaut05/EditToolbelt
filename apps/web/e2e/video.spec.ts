@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { probeMedia } from '@etb/engines';
+import { probeMedia, videoFrameTimes, videoPackets } from '@etb/engines';
 import type { Download, Page } from '@playwright/test';
 
 import { choose, cspViolations, expect, test } from './fixtures';
@@ -25,6 +26,12 @@ async function run(page: Page, button: string) {
   const saved = page.waitForEvent('download');
   await download.click();
   return saved;
+}
+
+/** A hash of every video packet, in order: equal lists mean the frames were copied. */
+async function videoPacketHashes(file: Blob): Promise<string[]> {
+  const bytes = await videoPackets(file);
+  return bytes.map((b) => createHash('sha256').update(b).digest('hex'));
 }
 
 async function probe(download: Download) {
@@ -236,4 +243,158 @@ test('compress to a size lands under it', async ({ page, isMobile }) => {
   const info = await probe(file);
   expect(Math.abs(info.durationSec - 30)).toBeLessThan(0.1);
   expect(info.audio).toEqual([]);
+});
+
+// V07 Mute Video (tools/video.md → Tests).
+
+test('mute removes the audio and copies the picture', async ({ page }) => {
+  await page.goto('/mute-video');
+  await drop(page, 'clip-h264-aac.mp4');
+  const file = await run(page, 'Mute');
+  expect(file.suggestedFilename()).toBe('clip-h264-aac_muted.mp4');
+  const info = await probe(file);
+  expect(info.audio).toEqual([]);
+  expect(info.video).toMatchObject({ codec: 'avc', width: 256, height: 144 });
+  await expect(page.getByText(/the picture is copied, not re-encoded/).first()).toBeAttached();
+});
+
+test('muting the selection silences only that part', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the timeline is covered on phones by Trim');
+  await page.goto('/mute-video');
+  test.skip(!(await canDecode(page, 'opus', 'audio')), 'needs an Opus decoder');
+  await drop(page, 'clip-vp9-opus.webm');
+  await choose(page, false, 'Mute', 'The selection');
+  await setRange(page, '10', '20');
+  const file = await run(page, 'Mute');
+  const bytes = readFileSync(await file.path()).toString('base64');
+  // Loudness inside the muted range and on either side of it, decoded in the page.
+  const rms = await page.evaluate(async (data) => {
+    const buffer = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)).buffer;
+    const audio = await new AudioContext().decodeAudioData(buffer);
+    const level = (from: number, to: number) => {
+      const samples = audio
+        .getChannelData(0)
+        .subarray(from * audio.sampleRate, to * audio.sampleRate);
+      let sum = 0;
+      for (const s of samples) sum += s * s;
+      return Math.sqrt(sum / samples.length);
+    };
+    return { before: level(2, 9), inside: level(11, 19), after: level(21, 28) };
+  }, bytes);
+  expect(rms.inside).toBeLessThan(0.001);
+  expect(rms.before).toBeGreaterThan(0.01);
+  expect(rms.after).toBeGreaterThan(0.01);
+});
+
+// V08 Video Info & VFR Check (tools/video.md → Tests).
+
+test('video info flags variable frame rate, and not a constant one', async ({ page }) => {
+  await page.goto('/video-info');
+  await drop(page, 'clip-vfr.mp4');
+  await expect(page.getByText(/^Variable frame rate \(about 28/).first()).toBeAttached();
+  const report = page.getByRole('region', { name: 'Workspace' }).getByLabel('Full report');
+  await expect(report).toContainText(/Frame rate\s+28\.\d+ fps, variable/);
+  await page.getByRole('button', { name: 'Start over' }).first().click();
+  await drop(page, 'clip-h264-aac.mp4');
+  await expect(
+    page.getByText('Constant frame rate, SDR, no rotation: ready to edit.').first(),
+  ).toBeAttached();
+  await expect(report).toContainText(/Frame rate\s+30 fps, constant/);
+});
+
+test('video info reports HDR and exports JSON', async ({ page, isMobile }) => {
+  await page.goto('/video-info');
+  await drop(page, 'clip-hlg.mp4');
+  await expect(page.getByText(/^HDR \(HLG\): it will look washed out/).first()).toBeAttached();
+  await choose(page, isMobile, 'Export as', 'JSON');
+  const button = page.getByRole('button', { name: /^Download JSON/ }).first();
+  await expect(button).toBeEnabled();
+  const download = page.waitForEvent('download');
+  await button.click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('clip-hlg_info.json');
+  const json = JSON.parse(readFileSync(await file.path(), 'utf8')) as {
+    video: { transfer: string; hdr: string };
+  };
+  expect(json.video).toMatchObject({ transfer: 'hlg', hdr: 'HLG' });
+});
+
+// V05 GIF to MP4 (tools/video.md → Tests): frame timing preserved.
+
+/**
+ * The length players show: MP4's from its sample table (the probe reads it),
+ * WebM's from the Segment Duration in its header (in ms; Mediabunny's reader
+ * adds up blocks instead, and a WebM block carries no duration).
+ */
+async function playedSeconds(bytes: Buffer<ArrayBuffer>, ext: string): Promise<number> {
+  if (ext === 'mp4') return (await probeMedia(new Blob([bytes]))).durationSec;
+  const at = bytes.indexOf(Buffer.from([0x44, 0x89]));
+  const size = (bytes[at + 2] ?? 0) & 0x7f;
+  return (size === 8 ? bytes.readDoubleBE(at + 3) : bytes.readFloatBE(at + 3)) / 1000;
+}
+test('GIF to MP4 keeps each frame’s own delay', async ({ page }) => {
+  await page.goto('/gif-to-mp4');
+  await drop(page, 'anim-delays.gif');
+  await expect(
+    page.getByText('64 × 48 px · 6 frames · 0.60 s').filter({ visible: true }),
+  ).toBeVisible();
+  const file = await run(page, 'Convert');
+  // H.264 where the browser encodes it (Playwright's Chromium doesn't), else VP9 in WebM.
+  expect(file.suggestedFilename()).toMatch(/^anim-delays\.(mp4|webm)$/);
+  const bytes = readFileSync(await file.path());
+  const times = await videoFrameTimes(new Blob([bytes]));
+  // 30, 70, 0 (played at 100), 250, 40 and 110 ms.
+  expect(times.map((t) => Math.round(t * 1000))).toEqual([0, 30, 100, 200, 450, 490]);
+  const ext = file.suggestedFilename().split('.').pop() ?? '';
+  expect(await playedSeconds(bytes, ext)).toBeCloseTo(0.6, 2);
+  await expect(
+    page.getByText('Transparent areas filled with #ffffff').filter({ visible: true }),
+  ).toBeVisible();
+  expect(await cspViolations(page)).toEqual([]);
+});
+
+// V03 Video Converter (tools/video.md → Tests).
+
+test('MOV (H.264) → MP4 is a remux, frame for frame', async ({ page }) => {
+  await page.goto('/video-converter');
+  await drop(page, 'clip-h264-aac.mov');
+  const file = await run(page, 'Convert');
+  expect(file.suggestedFilename()).toBe('clip-h264-aac.mp4');
+  await expect(
+    page
+      .getByText('Remuxed: the tracks fit the new format as they are, so nothing was re-encoded')
+      .filter({ visible: true }),
+  ).toBeVisible();
+  const out = new Blob([readFileSync(await file.path())]);
+  const source = new Blob([readFileSync(fixture('clip-h264-aac.mov'))]);
+  expect(await videoPacketHashes(out)).toEqual(await videoPacketHashes(source));
+  expect(await cspViolations(page)).toEqual([]);
+});
+
+test('MKV (VP9) → MP4 re-encodes to H.264', async ({ page }) => {
+  await page.goto('/video-converter');
+  test.skip(!(await canDecode(page, 'vp09.00.10.08', 'video')), 'needs a VP9 decoder');
+  const h264 = await page.evaluate(
+    async () =>
+      (
+        await VideoEncoder.isConfigSupported({
+          codec: 'avc1.42001f',
+          width: 256,
+          height: 144,
+        })
+      ).supported === true,
+  );
+  await drop(page, 'clip-vp9-opus.mkv');
+  const file = await run(page, 'Convert');
+  const info = await probeMedia(new Blob([readFileSync(await file.path())]));
+  if (h264) {
+    expect(file.suggestedFilename()).toBe('clip-vp9-opus.mp4');
+    expect(info.video?.codec).toBe('avc');
+  } else {
+    // No H.264 encoder here (Playwright's Chromium): WebM, where the VP9 fits as it is.
+    expect(file.suggestedFilename()).toBe('clip-vp9-opus.webm');
+    expect(info.video?.codec).toBe('vp9');
+    await expect(page.getByText(/^Saved as WebM/).filter({ visible: true })).toBeVisible();
+  }
+  expect(Math.abs(info.durationSec - 4)).toBeLessThan(0.1);
 });

@@ -24,7 +24,9 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'compress-video': dynamic(() => import('./compress-video')),
   'crop-image': dynamic(() => import('./crop-image')),
   'extract-audio': dynamic(() => import('./extract-audio')),
+  'gif-to-mp4': dynamic(() => import('./gif-to-mp4')),
   'image-converter': dynamic(() => import('./image-converter')),
+  'mute-video': dynamic(() => import('./mute-video')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
   'remove-background': dynamic(() => import('./remove-background')),
   'resize-image': dynamic(() => import('./resize-image')),
@@ -33,6 +35,8 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'subtitle-shift': dynamic(() => import('./subtitle-shift')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
   'trim-video': dynamic(() => import('./trim-video')),
+  'video-converter': dynamic(() => import('./video-converter')),
+  'video-info': dynamic(() => import('./video-info')),
   'video-to-gif': dynamic(() => import('./video-to-gif')),
 };
 

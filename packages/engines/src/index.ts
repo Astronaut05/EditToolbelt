@@ -35,6 +35,13 @@ export {
   type MediaInfo,
 } from './video/media';
 export { trimEngine, type TrimOptions } from './video/trim';
+export { muteGain, muteVideoEngine, silence, type MuteOptions } from './video/mute';
+export {
+  videoInfoEngine,
+  videoReport,
+  type VideoInfoOptions,
+  type VideoReport,
+} from './video/info';
 export {
   AUDIO_TARGETS,
   extractAudioEngine,
@@ -75,3 +82,17 @@ export {
   subtitleShiftEngine,
   type SubtitleShiftOptions,
 } from './subtitle-shift';
+export {
+  gifToVideoEngine,
+  GIF_INPUT_LIMITS,
+  videoFrameTimes,
+  type GifToVideoOptions,
+} from './video/gif-to-video';
+export { gifFrames, readGif, type GifInfo } from './video/gif/decode';
+export {
+  planConversion,
+  videoConverterEngine,
+  videoPackets,
+  type ConversionPlan,
+  type VideoConverterOptions,
+} from './video/convert-video';

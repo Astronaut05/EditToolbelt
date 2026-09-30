@@ -387,3 +387,46 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Why:** simulated LCP counts, as part of the paint, everything that happened before the page painted in the real (unthrottled) run. On a local server every script arrives before the first paint, so the value swings with task timing: `/remove-background` gave 1966 to 2651 ms on one build, and CI failed it at 2553 ms (median of 5) on a PR that only adds Rotate & Flip. With applied throttling the H1 paints before the scripts arrive, as it would on a slow phone, and the same pages read 1588 to 1771 ms, run after run. TBT stays simulated because its 150 ms limit was set against simulated values. It costs about 6 minutes of CI time (18 throttled page loads).
 **Reverse:** drop `applied: true` from the LCP budget in `scripts/lighthouse.ts` (and `APPLIED_RUNS` with its loop).
 
+## 2026-09-30 · Mute Video (V07) on the timeline
+
+**Decision:**
+- Mute Video uses the `timeline` workspace, not `form` as its registry entry first said: "mute only a range" needs In and Out, and the Trim timeline already has them (frames, keys, typed times). Muting all the audio is the default, and then the timeline is only a preview.
+- **All the audio:** the audio tracks are dropped and the video packets are copied as they are. A unit test checks that every video packet is byte-identical, for the spec's "video stream byte-identical". The file keeps its container (MP4, MOV, WebM, MKV).
+- **The selection:** the first audio track is decoded, silenced between In and Out with 10 ms linear fades (no click), and encoded again. It uses the source codec where the browser can encode it, else the container's first encodable one, with a note. The picture is still a copy.
+**Why:** `tools/video.md` → V07.
+**Reverse:** `packages/engines/src/video/mute.ts`; the registry's `ui`.
+
+## 2026-09-30 · Video Info (V08) on Mediabunny, not mediainfo.js
+
+**Decision:**
+- Video Info reads files with Mediabunny, already loaded by the video tools and approved, instead of adding mediainfo.js (a 2.5 MB WASM whose bundled libraries would each need a licence check). It reads the headers and the packet table, never the picture, so a 2 GB file is quick.
+- **What it shows:** container, size, duration, overall bitrate, title, date and comment; video codec with profile and level (read from the codec string), bit depth, resolution, coded size, display and pixel aspect, frame rate and whether it's constant or variable, frame count, bitrate, color primaries, transfer, matrix, range, HDR and rotation; each audio track's codec, channels, sample rate, bitrate and language.
+- **Variable frame rate** is measured, not read from a header: Mediabunny fits every frame's time to a frame-rate lattice, and no fit means VFR.
+- **Verdicts first**, each with what to do: VFR (may drift in Premiere), HDR (washed out on an SDR timeline), rotation metadata, or "ready to edit". Then what doesn't block an edit: no audio, several audio tracks, a codec this browser can't play.
+- The analyzer view shows six headline facts, then the full report. The report downloads as text or JSON.
+- **Fixtures** for the spec's tests are remuxed from the existing clip by `packages/engines/scripts/video-fixtures.ts`, without re-encoding: a VFR clip (frames on an irregular clock) and an HLG clip (BT.2020 + HLG tags).
+**Why:** `tools/video.md` → V08; `docs/13` (no new dependency); `CLAUDE.md` rule 1.
+**Reverse:** swap `videoReport` for mediainfo.js if editors need more encoder settings; the analyzer UI stays.
+
+## 2026-09-30 · GIF to MP4 (V05): our own GIF reader, the GIF's own clock
+
+**Decision:**
+- GIFs are read by our own decoder (`packages/engines/src/video/gif/decode.ts`: LZW, disposal, transparency, interlacing), not the browser's `ImageDecoder`: it isn't in every browser we support, it runs in Node for tests, and it composes frames exactly as browsers show them. It decodes one frame at a time, so a long GIF never sits in memory as pictures.
+- **Timing:** every frame keeps its own delay as a video frame of that length (variable frame rate), so the video plays exactly like the GIF. Delays of 0 or 10 ms play at 100 ms, as browsers play them.
+- **Transparency** is filled with a background colour (white by default), since MP4 has no alpha. Odd sizes get one row or column of background, as H.264 needs even sizes.
+- **Plays:** 1 to 10 times in the video. H.264 in MP4 where the browser encodes it, else VP9 in WebM, and the result says so.
+- `/convert/gif-to-mp4` is held: the tool page already is that conversion.
+- The fixture `fixtures/video/anim-delays.gif` is written byte by byte by `packages/engines/scripts/gif-fixtures.ts`, independent of our GIF encoder.
+**Why:** `tools/video.md` → V05 (its test: variable GIF delays mapped correctly, checked frame by frame in Playwright from the output's packet times).
+**Reverse:** `packages/engines/src/video/gif-to-video.ts`; swap the reader for `ImageDecoder` once every supported browser has it.
+
+## 2026-09-30 · Video Converter (V03) in the browser, AVI and ProRes held for the server
+
+**Decision:**
+- The browser path runs on the same WebCodecs engine as the other video tools (Mediabunny), not ffmpeg.wasm: it reads MP4, MOV, WebM and MKV. `video-ffmpeg-wasm` is dropped from the tool's engines; the server path (AVI, ProRes, DNxHD, very large files) comes with the M3 job pipeline, and the page says so when it meets one. `/convert/avi-to-mp4` is held until then.
+- **Remux when the tracks fit** the target the way that container is used, not merely what it can hold: MP4 takes H.264, HEVC and AV1 with AAC, MP3 or AC-3; MOV adds ProRes and PCM; WebM takes VP8, VP9 and AV1 with Opus or Vorbis; MKV takes almost anything. So MKV (VP9) → MP4 re-encodes to H.264, and a track that fits is copied even when the other is re-encoded.
+- **Re-encode** at high quality, in H.264 + AAC for MP4 and MOV, VP9 + Opus for WebM; "Re-encode" with a codec choice forces it. Where the browser can't encode H.264 or AAC, the file becomes WebM and the result says so, as in the other video tools.
+- The route stays cross-origin isolated (COOP/COEP) for the ffmpeg.wasm fallback we may add for rarer codecs; nothing on it needs cross-origin resources.
+- Fixtures: `clip-h264-aac.mov` and `clip-vp9-opus.mkv`, 4 s remuxes of the existing clips by `packages/engines/scripts/converter-fixtures.ts`.
+**Why:** `tools/video.md` → V03 (its tests: MOV (H.264) → MP4 is a remux with identical frame hashes, in unit and Playwright tests; MKV (VP9) → MP4 re-encodes to H.264, in Playwright where the browser encodes H.264); `CLAUDE.md` rule 1.
+**Reverse:** `packages/engines/src/video/convert-video.ts` (`FITS`, `ENCODE`, `planConversion`).

@@ -53,7 +53,7 @@ Totals: 75 tools · Wave 1: 26 · Wave 2: 32 · Wave 3: 17.
 |---|---|---|---|---|---|---|---|
 | V01 | Trim Video | `trim-video` | 1 | client | video-webcodecs | — | W M |
 | V02 | Compress Video | `compress-video` | 1 | hybrid | video-webcodecs / video-ffmpeg-server | 1/min, min 2 | W M A |
-| V03 | Video Converter | `video-converter` | 1 | hybrid | video-webcodecs + video-ffmpeg-wasm / server | 1/min, min 1 | W M A |
+| V03 | Video Converter | `video-converter` | 1 | hybrid | video-webcodecs / server | 1/min, min 1 | W M A |
 | V04 | Video to GIF | `video-to-gif` | 1 | client | video-webcodecs | — | W M |
 | V05 | GIF to MP4 | `gif-to-mp4` | 1 | client | video-webcodecs | — | W M |
 | V06 | Extract Audio from Video | `extract-audio` | 1 | client | video-webcodecs + audio-dsp | — | W M |

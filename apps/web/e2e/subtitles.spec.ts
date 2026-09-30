@@ -93,6 +93,6 @@ test('the converter links to its pair pages, and they are in the sitemap', async
   ]);
   const sitemap = await (await request.get('/sitemap.xml')).text();
   expect(sitemap).toContain('/convert/srt-to-vtt');
-  expect(sitemap).not.toContain('/convert/mov-to-mp4');
-  expect((await request.get('/convert/mov-to-mp4')).status()).toBe(404);
+  expect(sitemap).not.toContain('/convert/avi-to-mp4');
+  expect((await request.get('/convert/avi-to-mp4')).status()).toBe(404);
 });
