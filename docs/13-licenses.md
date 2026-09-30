@@ -46,7 +46,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 |---|---|---|---|
 | Mediabunny | WebCodecs mux/demux, fast video ops | MPL-2.0 | 🔍 |
 | @ffmpeg/ffmpeg + our own core build | wasm fallback | wrapper MIT; core LGPL when built with `--disable-gpl` | ⚠️ LGPL build only, separate file, source offer |
-| jSquash (avif, webp, jpeg, png, oxipng, resize) | image codecs | Apache-2.0 (underlying codecs BSD/IJG/MIT) | 🔍 |
+| jSquash (avif, webp, jpeg, png, oxipng, resize) | image codecs | Apache-2.0 (underlying codecs BSD/IJG/MIT) | ✅ checked 2026-09-30 from the installed codec licence files: MozJPEG/libjpeg-turbo IJG + BSD-3-Clause, libwebp BSD-3-Clause, libavif + libaom BSD-2-Clause (AOM royalty-free patent licence), OxiPNG MIT. Single-threaded builds only |
 | libheif-js (+ libde265) | HEIC decode | LGPL-3.0 | ⚠️ separate lazy-loaded file, source offer; HEVC patent question → open questions |
 | onnxruntime-web | browser ML | MIT | ✅ |
 | mediainfo.js | media info / VFR check | BSD-2-Clause | 🔍 |

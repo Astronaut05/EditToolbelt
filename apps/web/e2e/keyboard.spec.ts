@@ -29,7 +29,7 @@ test.describe('keyboard', () => {
   test('Esc cancels a running job', async ({ page }) => {
     await page.goto('/workshop/tools/form', { waitUntil: 'networkidle' });
     await page
-      .locator('input[type=file]')
+      .locator('input[type=file][data-hydrated]')
       .first()
       .setInputFiles({
         name: 'song.mp3',

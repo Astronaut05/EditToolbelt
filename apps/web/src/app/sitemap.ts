@@ -1,13 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-import {
-  categories,
-  conversionPath,
-  conversions,
-  isAvailable,
-  toolPath,
-  tools,
-} from '@etb/registry';
+import { categories, conversionPath, isAvailable, livePairs, toolPath, tools } from '@etb/registry';
 
 import { absoluteUrl } from '../lib/urls';
 
@@ -17,16 +10,15 @@ const LEGAL = ['/privacy', '/terms', '/refunds', '/cookies', '/licenses', '/cont
 
 /**
  * Only pages with a working tool, plus hubs and legal pages (docs/09): `soon`
- * placeholders are noindex and stay out. In M1 every tool is `soon`.
+ * placeholders are noindex and stay out, and so are pairs without a page.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();
-  const working = new Set(tools.filter(isAvailable).map((tool) => tool.id));
   const paths = [
     '/',
     ...categories.map((category) => `/${category.slug}`),
     ...tools.filter(isAvailable).map(toolPath),
-    ...conversions.filter((pair) => working.has(pair.toolId)).map(conversionPath),
+    ...livePairs().map(conversionPath),
     ...LEGAL,
   ];
   return paths.map((path) => ({ url: absoluteUrl(path), lastModified }));

@@ -7,3 +7,12 @@
 export type { Capabilities, Engine, EngineOutput, InputMeta, RunContext } from './types';
 export { dummyEngine, EngineAbortError, type DummyOptions } from './dummy';
 export { subtitleEngine, type SubtitleEngineOptions } from './subtitles';
+export {
+  checkImage,
+  IMAGE_LIMITS,
+  imageCodecEngine,
+  ImageInputError,
+  type ImageCodecOptions,
+} from './image/image-codec';
+export { FORMAT_LABELS as IMAGE_FORMAT_LABELS, sniffImage, type ImageFormat } from './image/sniff';
+export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';

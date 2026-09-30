@@ -11,6 +11,7 @@ import { Button } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
 import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel } from '../primitives/OptionsPanel';
+import { NumberWithUnit, Slider } from '../primitives/fields';
 import { Dialog } from '../primitives/overlays';
 import { PrivacyBadge, type Noun } from '../primitives/PrivacyBadge';
 import { SegmentedControl } from '../primitives/SegmentedControl';
@@ -42,8 +43,81 @@ export interface ShellTool {
 export interface ShellOption {
   id: string;
   label: string;
-  choices: { value: string; label: string }[];
+  /** choice (default): a segmented control. slider and number: a value with its unit. */
+  kind?: 'choice' | 'slider' | 'number';
+  choices?: { value: string; label: string }[];
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
   default: string;
+  /** Shown only while another option has one of these values (quality only for lossy formats). */
+  when?: { id: string; values: string[] };
+}
+
+/** Whether an option applies with the current values. */
+export function optionVisible(option: ShellOption, values: Record<string, string>): boolean {
+  return !option.when || option.when.values.includes(values[option.when.id] ?? '');
+}
+
+/** The value as the phone settings rows show it: "WebP", "80", "500 KB". */
+export function optionSummary(option: ShellOption, value: string): string {
+  if (option.kind === 'slider' || option.kind === 'number') {
+    return option.unit ? `${value} ${option.unit}` : value;
+  }
+  return option.choices?.find((choice) => choice.value === value)?.label ?? value;
+}
+
+function OptionControl({
+  option,
+  value,
+  onChange,
+}: {
+  option: ShellOption;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  if (option.kind === 'slider') {
+    return (
+      <span className="flex items-center gap-3">
+        <Slider
+          aria-label={option.label}
+          min={option.min}
+          max={option.max}
+          step={option.step ?? 1}
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+          }}
+          className="w-36"
+        />
+        <span className="w-8 text-right font-mono text-14">{value}</span>
+      </span>
+    );
+  }
+  if (option.kind === 'number') {
+    return (
+      <NumberWithUnit
+        aria-label={option.label}
+        unit={option.unit ?? ''}
+        min={option.min}
+        max={option.max}
+        step={option.step ?? 1}
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      />
+    );
+  }
+  return (
+    <SegmentedControl
+      label={option.label}
+      options={option.choices ?? []}
+      value={value}
+      onChange={onChange}
+    />
+  );
 }
 
 /** Tool-specific settings and copy: the "preset" of docs/02. */
@@ -65,6 +139,8 @@ export interface ShellPreset {
   phoneGroups?: string[][];
   /** Read-only facts in the settings list (the AI model). */
   facts?: (state: ShellState) => { label: string; value: string }[];
+  /** Most files taken at once (tools/photo.md → Batch: 50). */
+  maxFiles?: number;
   /** Runs as soon as a file arrives (P07), or waits for the primary action. */
   autoRun?: boolean;
   /** Primary action before a run: "Trim video". */
@@ -237,7 +313,8 @@ export function ToolShell({
           input,
           output: {
             size: out.blob.size,
-            ext: preset.outputExt(options),
+            // The engine knows the real format ("Keep format" depends on the input).
+            ext: out.ext || preset.outputExt(options),
             url,
             blob: out.blob,
             seconds,
@@ -270,6 +347,15 @@ export function ToolShell({
     (files: File[]) => {
       const file = files[0];
       if (!file) return;
+      if (preset.maxFiles && files.length > preset.maxFiles) {
+        setState({
+          kind: 'error',
+          label: 'Too many files',
+          title: `Up to ${String(preset.maxFiles)} files at once`,
+          body: `You added ${String(files.length)}. Choose ${String(preset.maxFiles)} or fewer and try again.`,
+        });
+        return;
+      }
       const url = URL.createObjectURL(file);
       urls.current.push(url);
       const input: InputInfo = { name: file.name, size: file.size, url };
@@ -295,7 +381,7 @@ export function ToolShell({
       if (preset.autoRun) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [preset.autoRun, preset.multiple, run, tool.ui, track],
+    [preset.autoRun, preset.maxFiles, preset.multiple, run, tool.ui, track],
   );
 
   async function trySample() {
@@ -417,7 +503,9 @@ export function ToolShell({
   }, [cancel, download, state.kind]);
 
   const hasFile = state.kind === 'running' || state.kind === 'result' || state.kind === 'ready';
-  const ext = preset.outputExt(options).toUpperCase();
+  const ext = (
+    state.kind === 'result' ? state.output.ext : preset.outputExt(options)
+  ).toUpperCase();
   const facts = preset.facts?.(state) ?? [];
   const phoneGroups = useMemo(
     () => preset.phoneGroups ?? preset.options.map((option) => [option.id]),
@@ -451,13 +539,13 @@ export function ToolShell({
     </div>
   );
 
+  const visibleOptions = preset.options.filter((option) => optionVisible(option, options));
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
-      {preset.options.map((option) => (
+      {visibleOptions.map((option) => (
         <OptionRow key={option.id} label={option.label}>
-          <SegmentedControl
-            label={option.label}
-            options={option.choices}
+          <OptionControl
+            option={option}
             value={options[option.id] ?? option.default}
             onChange={(value) => {
               setOptions({ ...options, [option.id]: value });
@@ -658,8 +746,9 @@ export function ToolShell({
           <div className="mx-4 mt-4 rounded-card border border-border">
             {phoneGroups.map((group, index) => {
               const groupOptions = group
-                .map((id) => preset.options.find((option) => option.id === id))
+                .map((id) => visibleOptions.find((option) => option.id === id))
                 .filter((option): option is ShellOption => Boolean(option));
+              if (groupOptions.length === 0) return null;
               return (
                 <button
                   key={group.join('-')}
@@ -674,11 +763,7 @@ export function ToolShell({
                   </span>
                   <span className="flex items-center gap-1.5 font-strong">
                     {groupOptions
-                      .map(
-                        (option) =>
-                          option.choices.find((choice) => choice.value === options[option.id])
-                            ?.label,
-                      )
+                      .map((option) => optionSummary(option, options[option.id] ?? option.default))
                       .join(' · ')}
                     <ChevronRight aria-hidden="true" size={16} strokeWidth={2} />
                   </span>
@@ -696,13 +781,12 @@ export function ToolShell({
             variant="sheet"
           >
             {(phoneGroups[sheet ?? 0] ?? []).map((id) => {
-              const option = preset.options.find((candidate) => candidate.id === id);
+              const option = visibleOptions.find((candidate) => candidate.id === id);
               if (!option) return null;
               return (
                 <OptionRow key={option.id} label={option.label}>
-                  <SegmentedControl
-                    label={option.label}
-                    options={option.choices}
+                  <OptionControl
+                    option={option}
                     value={options[option.id] ?? option.default}
                     onChange={(value) => {
                       setOptions({ ...options, [option.id]: value });

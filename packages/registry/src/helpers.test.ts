@@ -7,6 +7,7 @@ import {
   livePairs,
   hubOrder,
   isAi,
+  isAvailable,
   ISOLATED_PATHS,
   MOST_USED,
   needsFullPageLoad,
@@ -59,7 +60,9 @@ describe('lookups', () => {
       ...toolsInCategory('photo').filter((tool) => tool.id !== live.id),
       live,
     ]);
-    expect(ordered[0]?.id).toBe('object-eraser');
+    const firstSoon = ordered.findIndex((tool) => !isAvailable(tool));
+    expect(ordered.slice(0, firstSoon).map((tool) => tool.id)).toContain('object-eraser');
+    expect(ordered.slice(firstSoon).every((tool) => !isAvailable(tool))).toBe(true);
   });
 });
 
@@ -138,7 +141,7 @@ describe('search', () => {
 
 describe('WASM pages', () => {
   it('only working tools with a WASM engine get wasm-unsafe-eval', () => {
-    expect(needsWasm(getTool('image-converter'))).toBe(false); // soon
+    expect(needsWasm({ ...getTool('image-converter'), status: 'soon' })).toBe(false);
     expect(needsWasm({ ...getTool('image-converter'), status: 'live' })).toBe(true);
     expect(needsWasm({ ...getTool('timecode-calculator'), status: 'live' })).toBe(false);
   });
