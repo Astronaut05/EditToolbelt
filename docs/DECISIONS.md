@@ -305,3 +305,38 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - **Pair pages:** `mp4-to-gif` and `mov-to-gif` go live with their own copy.
 **Why:** `tools/video.md` → V02, V04; the spec's own formula, bits-per-pixel rule and in-house quantiser (no ffmpeg.wasm in the launch set).
 **Reverse:** `packages/engines/src/video/compress.ts` (`planCompress`, `minBpp`) and `video/gif/*`; the server path joins `compressEngine` in M4/M5.
+
+## 2026-09-30 · Remove Background: models, runtime and the Refine brush
+
+**Decision:**
+- **Models:** Quality mode is BiRefNet_lite fp16 (115 MB, MIT), on WebGPU with `shader-f16`. Light mode is **u2netp** (4.6 MB, Apache-2.0), on WASM.
+  - u2netp wins Light mode on size: ISNet int8 would be about 44 MB, ten times more, for a mode meant for weak devices and users who decline the big download.
+  - The M2 benchmark (quality vs ISNet and an int8 BiRefNet, open question 11) couldn't run here: huggingface.co is blocked in this build environment. The table waits for it; see Blocked in `STATUS.md`.
+  - If quality mode fails to load or run (no model file, a WebGPU error), the tool runs Light mode and says why in the result notes. A problem with the photo itself doesn't fall back.
+- **Where the files live:** `pnpm models` puts the models and ONNX Runtime Web (1.30.0) under `apps/web/public/models`, which is git-ignored and served at `MODELS_BASE_URL`. `build` and `dev` run it first; CI runs it with `--strict`.
+  - Sources are in `models.json` (skipped by the host check, like `licenses.json`). SHA-256 hashes are pinned in `packages/engines/src/image/rmbg/models.ts` and checked on download and again in the browser.
+  - BiRefNet's hash is printed by its first trusted download (CI) and pinned from there. Until then its download is unverified, and it's optional: without it Light mode runs.
+- **Runtime:** ONNX Runtime loads at run time from `MODELS_BASE_URL`, never from the app bundle, because its WASM is 14 to 27 MB.
+  - It runs in a module worker. The WASM build is plain for Light mode and asyncify (WebGPU) for Quality.
+  - It runs single-threaded: tool pages aren't cross-origin isolated, so there's no SharedArrayBuffer.
+  - The page downloads the model and WASM with progress ("74 / 115 MB · Step 1 of 2"), stores them in the `etb-models` cache (shared with the service worker) and hands them to the worker. No file is fetched twice.
+  - The worker keeps the last mask, so changing background, edges, format or Refine strokes takes well under a second.
+  - Because workers get no page CSP, production only needs the models origin in `connect-src` (already done by `postbuild`).
+- **Pipeline:** the model runs at its own size (320 or 1024 px). The mask is fitted to the photo with a guided filter at up to 2048 px, then scaled to full size and composited at full resolution. The browser limit is 24 MP; above that the message suggests Resize Image first, until the server path (M5).
+- **Refine brush:** "Refine by hand" opens a keep/erase brush over the result, with the original shown faintly under the cut-out.
+  - Strokes are stored in image px as a JSON option, painted into the full-size mask by the worker, and cleared when a new image comes in.
+  - ToolShell gains `editor.refine`, `color` and `image` option kinds, and a re-run on any setting change for `autoRun` tools.
+  - Esc inside a settings sheet no longer cancels a run.
+- **Copy:** hybrid tools' "Why use this" says free in the browser, with credits only for server processing.
+**Why:** `tools/photo.md` → P07; `docs/13` (u2netp's weights are published under the repo's Apache-2.0, now ✅); `docs/10` (≤ 120 MB model budget, models cached by the service worker); `CLAUDE.md` rules 1, 4 and 6.
+**Reverse:** swap or add models in `SEGMENT_MODELS` and `models.json`; turn threads on only if tool pages become cross-origin isolated; the server path joins `removeBackgroundEngine` in M5.
+
+## 2026-09-30 · Script budget for working tool pages
+
+**Decision:**
+- Lighthouse now checks 6 pages: the 5 before (home, a hub, a light tool, the isolated route, and `/upscale-image` as the coming-soon page, since `/remove-background` is no longer one) plus `/remove-background`, the heaviest working tool.
+- A page with a working tool gets a 180 KB script-transfer budget; every other page keeps 160 KB. The difference is ToolShell and the tool's own view (about 20 KB), which load with the page so the drop zone works at once. The engine stays out of it.
+- To keep it there, what only some tools use loads when shown: the Canvas Editor, the crop fields, the timeline and the Refine brush are lazy in ToolShell, and Remove Background's engine loads when the first photo arrives (`lazyEngine`, `@etb/engines/remove-background`). Its device checks (WebGPU, cached models) run when the page is idle.
+- The initial-JS budget on module scripts in the HTML (150 KB, `js-budget.ts`) is unchanged.
+**Why:** `docs/10` → Budgets ("the engine is not in the initial bundle"). The 160 KB limit was set in M1, before any page ran a tool; measured on `/remove-background`: 176 KB before this, 169 KB after, against 147 KB for a hub. Made without sign-off; flagged at checkpoint 3.
+**Reverse:** `TOOL_PAGES` and `TOOL_SCRIPT_MAX` in `scripts/lighthouse.ts`.

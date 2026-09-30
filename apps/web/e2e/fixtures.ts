@@ -25,7 +25,7 @@ export async function cspViolations(page: import('@playwright/test').Page): Prom
 export const PAGES = [
   { name: 'home', path: '/' },
   { name: 'hub', path: '/photo' },
-  { name: 'coming soon', path: '/remove-background' },
+  { name: 'coming soon', path: '/upscale-image' },
   { name: 'calculator', path: '/aspect-ratio-calculator' },
   { name: 'color converter', path: '/color-converter' },
   { name: 'qr generator', path: '/qr-code-generator' },

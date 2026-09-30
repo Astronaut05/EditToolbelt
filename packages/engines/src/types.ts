@@ -22,8 +22,11 @@ export interface InputMeta {
 }
 
 export interface RunContext {
-  /** 0-1, with an optional stage label ("Downloading the AI model, first time only"). */
-  progress(fraction: number, stage?: string): void;
+  /**
+   * 0-1, with an optional stage label ("Downloading the AI model, first time
+   * only") and the readout under the bar: amount "74 / 115 MB", step "Step 1 of 2".
+   */
+  progress(fraction: number, stage?: string, detail?: { amount?: string; step?: string }): void;
   signal: AbortSignal;
 }
 

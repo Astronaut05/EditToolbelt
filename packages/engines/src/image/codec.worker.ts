@@ -5,6 +5,7 @@
  * stays responsive while a 12 MP photo encodes.
  */
 import { encodeBmp } from './bmp';
+import { decodeImage, ImageReadError } from './decode';
 import { applyGeometry, GeometryError } from './geometry';
 import {
   cleanExif,
@@ -28,33 +29,7 @@ const post = (message: WorkerMessage, transfer: Transferable[] = []) => {
   scope.postMessage(message, transfer);
 };
 
-class ReadError extends Error {}
-
-async function decode(job: ImageJob): Promise<ImageBitmap> {
-  const blob = new Blob([job.bytes]);
-  try {
-    try {
-      return await createImageBitmap(blob, {
-        imageOrientation: 'from-image',
-        premultiplyAlpha: 'none',
-        colorSpaceConversion: 'default',
-      });
-    } catch (error) {
-      // Older engines reject an option value they don't know; the defaults still apply EXIF orientation.
-      if (error instanceof TypeError) return await createImageBitmap(blob);
-      throw error;
-    }
-  } catch {
-    if (job.format === 'heic') {
-      throw new ReadError(
-        'This browser can’t open HEIC photos. Safari on a Mac, iPhone or iPad can. On an iPhone you can also set Settings > Camera > Formats to Most Compatible.',
-      );
-    }
-    if (job.format === 'tiff')
-      throw new ReadError('This browser can’t open TIFF files. Safari can.');
-    throw new ReadError('This image couldn’t be read. The file may be damaged or incomplete.');
-  }
-}
+const decode = (job: ImageJob) => decodeImage(job.bytes, job.format);
 
 function rgba(bitmap: ImageBitmap, width: number, height: number): ImageData {
   const canvas = new OffscreenCanvas(width, height);
@@ -269,7 +244,7 @@ scope.onmessage = (event) => {
       post({
         type: 'error',
         message:
-          error instanceof ReadError || error instanceof GeometryError
+          error instanceof ImageReadError || error instanceof GeometryError
             ? error.message
             : `The image couldn’t be processed: ${error instanceof Error ? error.message : 'unknown error'}`,
       });

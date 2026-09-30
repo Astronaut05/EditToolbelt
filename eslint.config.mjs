@@ -14,6 +14,8 @@ export default defineConfig(
     '**/out/',
     '**/.turbo/',
     '**/next-env.d.ts',
+    // Model and ONNX Runtime files fetched by `pnpm models` (git-ignored).
+    '**/public/models/',
     'apps/worker/',
   ]),
 

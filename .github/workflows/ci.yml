@@ -39,6 +39,8 @@ jobs:
       - run: pnpm test
       - run: pnpm licenses:check
       - run: pnpm hosts:check
+      - name: AI models and ONNX Runtime for Remove Background, checksums checked
+        run: pnpm models --strict
       - name: Build static export
         run: pnpm build
         env:
@@ -53,7 +55,7 @@ jobs:
           done
           curl -fs http://localhost:4173/ | grep -q 'id="home-search"'
           curl -fs http://localhost:4173/photo | grep -q 'Photo tools'
-          curl -fs http://localhost:4173/remove-background | grep -q 'noindex'
+          curl -fs http://localhost:4173/upscale-image | grep -q 'noindex'
           curl -fs http://localhost:4173/search-index.json | jq -e '[.[] | select(.kind == "tool")] | length == 75'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/does-not-exist)" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/workshop)" = 404

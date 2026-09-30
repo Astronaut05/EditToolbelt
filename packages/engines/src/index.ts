@@ -50,3 +50,19 @@ export {
   videoToGifEngine,
   type VideoToGifOptions,
 } from './video/video-to-gif';
+export {
+  parseHex,
+  removeBackgroundEngine,
+  RMBG_LIMITS,
+  type RemoveBackgroundOptions,
+} from './image/rmbg/remove-background';
+export { canRunQuality, modelCached, pickModel } from './image/rmbg/support';
+export { lazyEngine } from './lazy';
+export {
+  ORT_BUILDS,
+  ORT_FILES,
+  ORT_VERSION,
+  SEGMENT_MODELS,
+  type SegmentModel,
+} from './image/rmbg/models';
+export type { Stroke } from './image/rmbg/mask';

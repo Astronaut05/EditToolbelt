@@ -4,15 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build && node scripts/postbuild.ts",
+    "dev": "node scripts/models.ts && next dev",
+    "build": "node scripts/models.ts && next build && node scripts/postbuild.ts",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "preview": "node scripts/serve.ts",
     "workshop": "node scripts/workshop.ts",
     "e2e": "node scripts/workshop.ts --build-only && playwright test",
-    "js-budget": "node scripts/js-budget.ts"
+    "js-budget": "node scripts/js-budget.ts",
+    "models": "node scripts/models.ts"
   },
   "dependencies": {
     "@etb/core": "workspace:*",

@@ -23,7 +23,8 @@
     "workshop": "pnpm --filter @etb/web workshop",
     "design:compare": "node apps/web/scripts/compare-screens.ts",
     "lighthouse": "node scripts/lighthouse.ts",
-    "e2e": "pnpm --filter @etb/web e2e"
+    "e2e": "pnpm --filter @etb/web e2e",
+    "models": "pnpm --filter @etb/web models"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

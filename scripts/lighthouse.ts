@@ -1,5 +1,5 @@
 /**
- * Lighthouse budgets (docs/10 → Budgets) on 5 representative pages of the
+ * Lighthouse budgets (docs/10 → Budgets) on 6 representative pages of the
  * production build, served by `pnpm preview`'s server (headers, CSP,
  * compression). Lighthouse's default mobile config: emulated phone, simulated
  * slow 4G and a 4× slower CPU, so these are lab ceilings, stricter than the
@@ -22,7 +22,22 @@ import lighthouse from 'lighthouse';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE_PORT = 4175;
 const DEBUG_PORT = 9333;
-const PAGES = ['/', '/photo', '/timecode-calculator', '/remove-background', '/video-converter'];
+/** Home, a hub, a light tool, the heaviest tool (P07), a coming-soon page and the isolated route. */
+const PAGES = [
+  '/',
+  '/photo',
+  '/timecode-calculator',
+  '/remove-background',
+  '/upscale-image',
+  '/video-converter',
+];
+/**
+ * Pages whose working tool (ToolShell and the tool's own view, not its
+ * engine) loads with them: script transfer up to 180 KB instead of 160 KB.
+ * See docs/DECISIONS.md → "Script budget for working tool pages".
+ */
+const TOOL_PAGES = new Set(['/remove-background']);
+const TOOL_SCRIPT_MAX = 180_000;
 /** Odd, so the median is one of the runs. */
 const RUNS = 3;
 
@@ -143,9 +158,10 @@ async function main(): Promise<number> {
       writeFileSync(join(out, `${path === '/' ? 'home' : path.slice(1)}.json`), report);
       const cells = BUDGETS.map((budget) => {
         const value = budget.read(lhr);
+        const max =
+          budget.label === 'script transfer' && TOOL_PAGES.has(path) ? TOOL_SCRIPT_MAX : budget.max;
         const ok =
-          (budget.min === undefined || value >= budget.min) &&
-          (budget.max === undefined || value <= budget.max);
+          (budget.min === undefined || value >= budget.min) && (max === undefined || value <= max);
         if (!ok) failures.push(`${path} ${budget.label}`);
         const shown =
           budget.unit === 'B'

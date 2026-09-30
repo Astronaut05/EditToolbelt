@@ -112,6 +112,8 @@ Listed with explanations in [`.env.example`](.env.example). Each process validat
 
 No domain or host is written into the code. Every absolute URL (canonical, sitemap, OG, JSON-LD, robots.txt) comes from `SITE_URL` (default `http://localhost:3000`), and model and WASM files load from `MODELS_BASE_URL` (default `/models`, i.e. `apps/web/public/models/`, which is not committed). `pnpm hosts:check` fails CI on a hard-coded one.
 
+`pnpm models` fills `apps/web/public/models/`: ONNX Runtime Web from `node_modules`, and the Remove Background models from the sources in `models.json`, each checked against its SHA-256 in `packages/engines/src/image/rmbg/models.ts`. `build` and `dev` run it first, and files already in place are skipped. Without network the build still finishes, with a warning; `pnpm models --strict` (CI) fails instead. The 115 MB quality model is optional: without it the tool runs Light mode.
+
 ## Adding a dependency
 
 Check the license first. Add a row to [`docs/13-licenses.md`](docs/13-licenses.md) and a matching entry to [`licenses.json`](licenses.json), then install. CI fails on unregistered dependencies, on a license that changes with an upgrade, and on any transitive package under a copyleft or unknown license.

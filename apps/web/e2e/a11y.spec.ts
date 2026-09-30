@@ -45,6 +45,22 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test('remove background result and refine brush: no serious issues', async ({ page }) => {
+      await page.goto('/remove-background', { waitUntil: 'networkidle' });
+      const sample = await page.request.get('/samples/mug.jpg');
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles({ name: 'mug.jpg', mimeType: 'image/jpeg', buffer: await sample.body() });
+      await expect(page.getByRole('button', { name: 'Start over' }).first()).toBeVisible({
+        timeout: 60_000,
+      });
+      expect(await seriousViolations(page)).toEqual([]);
+      await page.getByRole('button', { name: 'Refine by hand' }).click();
+      await expect(page.getByRole('toolbar', { name: 'Refine brush' })).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('tool shell demo: no serious issues', async ({ page }) => {
       await page.goto('/workshop/screens/tool-result', { waitUntil: 'networkidle' });
       expect(await seriousViolations(page)).toEqual([]);

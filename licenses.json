@@ -500,11 +500,13 @@
       "section": "Models",
       "ecosystem": "model",
       "packages": ["U2-Net", "u2netp"],
-      "use": "background removal (tiny fallback)",
+      "use": "background removal, Light mode (P07)",
       "license": "Apache-2.0",
       "weightsLicense": "Apache-2.0",
       "scope": "browser",
-      "status": "verify"
+      "status": "approved",
+      "source": "https://github.com/xuebinqin/U-2-Net/blob/master/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "Real-ESRGAN",
