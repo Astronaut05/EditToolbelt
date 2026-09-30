@@ -22,7 +22,9 @@ const projects = [
 
 export default defineConfig({
   testDir: 'e2e-server',
-  fullyParallel: true,
+  // One worker: every test (all three browsers) shares one database, and the
+  // admin tests switch tools off and on for the whole site.
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
