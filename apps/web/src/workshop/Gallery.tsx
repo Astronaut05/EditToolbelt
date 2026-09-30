@@ -13,6 +13,7 @@ import {
   Card,
   ColorInput,
   CreditBadge,
+  CropFields,
   Dialog,
   DropZone,
   EmptyState,
@@ -43,6 +44,7 @@ import {
   Timeline,
   Toast,
   Tooltip,
+  useEditor,
   Wordmark,
 } from '@etb/ui';
 
@@ -66,6 +68,7 @@ export function Gallery() {
   const [dialog, setDialog] = useState<'dialog' | 'sheet' | null>(null);
   const [range, setRange] = useState({ start: 8, end: 26 });
   const [dropped, setDropped] = useState('Nothing yet');
+  const editor = useEditor(4 / 5);
 
   return (
     <div className="max-w-5xl px-4 pb-16 lg:px-10">
@@ -312,11 +315,11 @@ export function Gallery() {
 
       <Section title="Canvas editor, timeline">
         <div className="relative h-100 border border-border">
-          <CanvasEditor
-            // eslint-disable-next-line @next/next/no-img-element -- sample file
-            image={<img src="/samples/mug.jpg" alt="" className="size-full object-contain" />}
-          />
+          <CanvasEditor src="/samples/mug.jpg" editor={editor} ratio={4 / 5} />
         </div>
+        <OptionsPanel className="max-w-120">
+          <CropFields editor={editor} ratio={4 / 5} />
+        </OptionsPanel>
         <Timeline durationSec={60} kind="audio" value={range} onChange={setRange} />
         <Timeline durationSec={60} kind="video" value={range} onChange={setRange} />
       </Section>

@@ -11,7 +11,7 @@ import { Button } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
 import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel } from '../primitives/OptionsPanel';
-import { NumberWithUnit, Slider } from '../primitives/fields';
+import { NumberWithUnit, Select, Slider } from '../primitives/fields';
 import { Dialog } from '../primitives/overlays';
 import { PrivacyBadge, type Noun } from '../primitives/PrivacyBadge';
 import { SegmentedControl } from '../primitives/SegmentedControl';
@@ -20,12 +20,15 @@ import { BatchList, type BatchItem } from './BatchList';
 import { BeforeAfter, MediaTag } from './BeforeAfter';
 import { CalculatorShell } from './CalculatorShell';
 import { CanvasEditor, type EditorMode } from './CanvasEditor';
+import { boxLabel } from './crop';
+import { CropFields } from './CropFields';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import { Readout, ReadoutRow, type Fact } from './Readout';
 import { Timeline, type TimelineRange } from './Timeline';
+import { useEditor, type EditorState } from './useEditor';
 
 /** What the shell needs from the registry entry (serialisable, no Zod). */
 export interface ShellTool {
@@ -43,8 +46,11 @@ export interface ShellTool {
 export interface ShellOption {
   id: string;
   label: string;
-  /** choice (default): a segmented control. slider and number: a value with its unit. */
-  kind?: 'choice' | 'slider' | 'number';
+  /**
+   * choice (default): a segmented control. select: a dropdown, for longer
+   * lists. slider and number: a value with its unit.
+   */
+  kind?: 'choice' | 'select' | 'slider' | 'number';
   choices?: { value: string; label: string }[];
   min?: number;
   max?: number;
@@ -110,6 +116,24 @@ function OptionControl({
       />
     );
   }
+  if (option.kind === 'select') {
+    return (
+      <Select
+        aria-label={option.label}
+        className="w-64"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      >
+        {option.choices?.map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </Select>
+    );
+  }
   return (
     <SegmentedControl
       label={option.label}
@@ -154,8 +178,20 @@ export interface ShellPreset {
   runningNote?: string;
   /** Title over the progress bar for a stage. */
   progressTitle?: (stage: string | undefined) => string;
-  /** Canvas editor presets: the mode it opens in, or compare view. */
-  editor?: { mode?: EditorMode; modes?: EditorMode[]; compare?: boolean };
+  /**
+   * Canvas editor presets: the mode it opens in and the modes it shows, or a
+   * compare view; `ratio` reads the crop ratio lock from the options.
+   */
+  editor?: {
+    mode?: EditorMode;
+    modes?: EditorMode[];
+    compare?: boolean;
+    ratio?: (options: Record<string, string>) => number | null;
+  };
+  /** Result view: before/after (default), or the output alone when its shape changes (crop). */
+  result?: 'compare' | 'output';
+  /** Why the run can't start with these settings, if it can't. */
+  blocked?: (options: Record<string, string>, files: number) => string | undefined;
   /** Analyzer results (dummy data in M1). */
   analyze?: (input: InputInfo) => GridFact[];
   /** Show the start of a text output (subtitles) instead of a file card. */
@@ -204,7 +240,7 @@ export type ShellState =
       step?: string;
       elapsedSec: number;
     }
-  | { kind: 'result'; input: InputInfo; output: OutputInfo }
+  | { kind: 'result'; input: InputInfo; output: OutputInfo; file?: File }
   | { kind: 'error'; label: string; title: string; body: string };
 
 export interface ToolShellProps {
@@ -257,6 +293,13 @@ export function ToolShell({
   const [sheet, setSheet] = useState<number | null>(null);
   const controller = useRef<AbortController | null>(null);
   const urls = useRef<string[]>([]);
+  // Canvas editor tools: the edit (crop box, turns) the engine applies.
+  const ratioOf = preset.editor?.ratio;
+  const ratio = ratioOf?.(options) ?? null;
+  const editor = useEditor(ratio);
+  const resetEditor = editor.reset;
+  const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare;
+  const [cropSheet, setCropSheet] = useState(false);
 
   const track = useCallback(
     (name: string, props: Record<string, string> = {}) => {
@@ -273,7 +316,7 @@ export function ToolShell({
   }, []);
 
   const run = useCallback(
-    async (input: InputInfo, file: Blob) => {
+    async (input: InputInfo, file: File) => {
       controller.current?.abort();
       const abort = new AbortController();
       controller.current = abort;
@@ -281,9 +324,14 @@ export function ToolShell({
       track('tool_run_started', { path: 'client' });
       setState({ kind: 'running', input, fraction: 0, elapsedSec: 0 });
       try {
+        const edit = editor.edit;
         const out = await engine.run(
           file,
-          { ...engineOptions, ...options },
+          {
+            ...engineOptions,
+            ...options,
+            ...(editing && { crop: edit.crop ?? undefined, turns: edit.turns, flip: edit.flip }),
+          },
           {
             signal: abort.signal,
             progress: (fraction, stage) => {
@@ -311,6 +359,7 @@ export function ToolShell({
         setState({
           kind: 'result',
           input,
+          file,
           output: {
             size: out.blob.size,
             // The engine knows the real format ("Keep format" depends on the input).
@@ -340,13 +389,14 @@ export function ToolShell({
         });
       }
     },
-    [engine, engineOptions, options, preset, track],
+    [editing, editor.edit, engine, engineOptions, options, preset, track],
   );
 
   const intake = useCallback(
     (files: File[]) => {
       const file = files[0];
       if (!file) return;
+      resetEditor();
       if (preset.maxFiles && files.length > preset.maxFiles) {
         setState({
           kind: 'error',
@@ -381,7 +431,7 @@ export function ToolShell({
       if (preset.autoRun) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [preset.autoRun, preset.maxFiles, preset.multiple, run, tool.ui, track],
+    [preset.autoRun, preset.maxFiles, preset.multiple, resetEditor, run, tool.ui, track],
   );
 
   async function trySample() {
@@ -469,7 +519,15 @@ export function ToolShell({
     setBatch([]);
     setBatchDone(false);
     batchOutputs.current.clear();
-  }, []);
+    resetEditor();
+  }, [resetEditor]);
+
+  /** Sets an option; a new crop ratio refits the editor's box. */
+  const changeOption = (id: string, value: string) => {
+    const next = { ...options, [id]: value };
+    setOptions(next);
+    if (ratioOf) editor.applyRatio(ratioOf(next));
+  };
 
   const download = useCallback(() => {
     if (state.kind !== 'result' || !state.output.url) return;
@@ -540,6 +598,9 @@ export function ToolShell({
   );
 
   const visibleOptions = preset.options.filter((option) => optionVisible(option, options));
+  const showCrop = editing && state.kind === 'ready' && batch.length === 0;
+  const blocked =
+    state.kind === 'ready' ? preset.blocked?.(options, state.files?.length ?? 1) : undefined;
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
       {visibleOptions.map((option) => (
@@ -548,11 +609,12 @@ export function ToolShell({
             option={option}
             value={options[option.id] ?? option.default}
             onChange={(value) => {
-              setOptions({ ...options, [option.id]: value });
+              changeOption(option.id, value);
             }}
           />
         </OptionRow>
       ))}
+      {showCrop && <CropFields editor={editor} ratio={ratio} />}
       {facts.map((fact) => (
         <OptionFact key={fact.label} label={fact.label}>
           {fact.value}
@@ -582,7 +644,7 @@ export function ToolShell({
           <Button
             variant="primary"
             className="flex-1"
-            disabled={batchRunning}
+            disabled={batchRunning || Boolean(blocked)}
             onClick={() => {
               if (state.kind === 'ready' && state.files) void runBatch(state.files);
             }}
@@ -594,6 +656,7 @@ export function ToolShell({
         <Button
           variant="primary"
           className="flex-1"
+          disabled={Boolean(blocked)}
           onClick={() => {
             if (state.files?.[0]) void run(state.input, state.files[0]);
           }}
@@ -631,6 +694,20 @@ export function ToolShell({
     </div>
   );
 
+  const back = state.kind === 'result' && editing && state.file && (
+    <p className="mt-3.5 px-4 text-14 lg:px-0">
+      <button
+        type="button"
+        className="link-accent"
+        onClick={() => {
+          if (state.file) setState({ kind: 'ready', input: state.input, files: [state.file] });
+        }}
+      >
+        Back to the editor
+      </button>
+    </p>
+  );
+
   const next = result && tool.related.length > 0 && (
     <p className="mt-3.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 text-14 text-text-muted lg:px-0">
       <span>Next:</span>
@@ -658,6 +735,8 @@ export function ToolShell({
       setRange={setRange}
       batch={batch}
       onDownloadItem={downloadItem}
+      editor={editor}
+      ratio={ratio}
     />
   ) : state.kind === 'error' ? (
     <div className="flex h-full flex-col justify-center bg-surface px-4 py-10 lg:px-18">
@@ -711,6 +790,11 @@ export function ToolShell({
         {header}
         {settings}
         {actions}
+        {blocked && (
+          <p role="status" className="mt-3.5 px-4 text-14 leading-body text-text-muted lg:px-0">
+            {blocked}
+          </p>
+        )}
         {running && preset.runningNote && (
           <p className="mt-3.5 hidden text-14 leading-body text-text-muted lg:block">
             {preset.runningNote}
@@ -719,7 +803,12 @@ export function ToolShell({
         {result && state.output.notes && state.output.notes.length > 0 && (
           <Notes notes={state.output.notes} className="mt-6 hidden lg:block" />
         )}
-        {next && <div className="hidden lg:block">{next}</div>}
+        {(back || next) && (
+          <div className="hidden lg:block">
+            {back}
+            {next}
+          </div>
+        )}
         {state.kind === 'empty' && tool.howTo && (
           <NumberedList items={tool.howTo} className="mt-7.5 hidden lg:block" />
         )}
@@ -744,6 +833,21 @@ export function ToolShell({
             <Notes notes={state.output.notes} className="mx-4 mt-4" />
           )}
           <div className="mx-4 mt-4 rounded-card border border-border">
+            {showCrop && editor.edit.crop && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCropSheet(true);
+                }}
+                className="flex h-12 w-full items-center justify-between border-b border-border px-3.5 text-14.5 last:border-b-0"
+              >
+                <span className="text-text-muted">Crop box</span>
+                <span className="flex items-center gap-1.5 font-strong">
+                  {boxLabel(editor.edit.crop)}
+                  <ChevronRight aria-hidden="true" size={16} strokeWidth={2} />
+                </span>
+              </button>
+            )}
             {phoneGroups.map((group, index) => {
               const groupOptions = group
                 .map((id) => visibleOptions.find((option) => option.id === id))
@@ -771,7 +875,20 @@ export function ToolShell({
               );
             })}
           </div>
+          {back}
           {next}
+          {showCrop && (
+            <Dialog
+              open={cropSheet}
+              onClose={() => {
+                setCropSheet(false);
+              }}
+              title="Crop box"
+              variant="sheet"
+            >
+              <CropFields editor={editor} ratio={ratio} />
+            </Dialog>
+          )}
           <Dialog
             open={sheet !== null}
             onClose={() => {
@@ -789,7 +906,7 @@ export function ToolShell({
                     option={option}
                     value={options[option.id] ?? option.default}
                     onChange={(value) => {
-                      setOptions({ ...options, [option.id]: value });
+                      changeOption(option.id, value);
                     }}
                   />
                 </OptionRow>
@@ -860,6 +977,8 @@ function Workspace({
   setRange,
   batch,
   onDownloadItem,
+  editor,
+  ratio,
 }: {
   state: ShellState;
   tool: ShellTool;
@@ -868,6 +987,8 @@ function Workspace({
   setRange: (range: TimelineRange) => void;
   batch: BatchItem[];
   onDownloadItem: (id: string) => void;
+  editor: EditorState;
+  ratio: number | null;
 }) {
   if (state.kind !== 'running' && state.kind !== 'result' && state.kind !== 'ready') return null;
   const frame = 'relative h-98 overflow-hidden lg:absolute lg:inset-0 lg:h-auto';
@@ -893,18 +1014,20 @@ function Workspace({
     );
   }
 
-  if (tool.ui === 'canvas-editor' && state.kind === 'ready' && !preset.editor?.compare) {
+  if (
+    tool.ui === 'canvas-editor' &&
+    state.kind === 'ready' &&
+    !preset.editor?.compare &&
+    state.input.url
+  ) {
     return (
       <div className={frame}>
         <CanvasEditor
+          src={state.input.url}
+          editor={editor}
+          ratio={ratio}
           initialMode={preset.editor?.mode}
           enabledModes={preset.editor?.modes}
-          image={
-            state.input.url ? (
-              // eslint-disable-next-line @next/next/no-img-element -- local object URL
-              <img src={state.input.url} alt="" className="size-full object-contain" />
-            ) : null
-          }
         />
       </div>
     );
@@ -985,7 +1108,17 @@ function Workspace({
   return (
     <>
       <div className={frame}>
-        {isImage(preset) && input.url && output.url ? (
+        {isImage(preset) && output.url && preset.result === 'output' ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface p-8 pb-24">
+            {/* eslint-disable-next-line @next/next/no-img-element -- local object URL */}
+            <img
+              src={output.url}
+              alt="Result"
+              className="checkerboard max-h-full max-w-full border border-border"
+            />
+            <MediaTag className="left-3.5">Result</MediaTag>
+          </div>
+        ) : isImage(preset) && input.url && output.url ? (
           <BeforeAfter
             className="absolute inset-0"
             compact

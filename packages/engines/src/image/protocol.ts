@@ -1,4 +1,5 @@
 /** Messages between the image engines and their worker. */
+import type { GeometryJob } from './geometry';
 import type { ImageFormat } from './sniff';
 
 export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'bmp';
@@ -37,6 +38,8 @@ export interface ImageJob {
   optimise?: boolean;
   /** Return the original file when re-encoding would make it bigger (Compress). */
   neverGrow?: boolean;
+  /** Turn, flip, crop, resize (P02 Crop, P03 Resize). */
+  geometry?: GeometryJob;
 }
 
 export type WorkerMessage =

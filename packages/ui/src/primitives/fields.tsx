@@ -1,5 +1,6 @@
 'use client';
 
+import { ChevronDown } from 'lucide-react';
 import { forwardRef, useId, type ComponentProps, type ReactNode } from 'react';
 
 import { cn } from '../cn';
@@ -39,14 +40,20 @@ export function NumberWithUnit({
   );
 }
 
+/** Native select with a visible chevron; `className` sizes it (w-56). */
 export function Select({ className, children, ...rest }: ComponentProps<'select'>) {
   return (
-    <select
-      className={cn(field, 'w-auto min-w-36 cursor-pointer appearance-none pr-8', className)}
-      {...rest}
-    >
-      {children}
-    </select>
+    <span className={cn('relative inline-flex min-w-36', className)}>
+      <select className={cn(field, 'cursor-pointer appearance-none truncate pr-9')} {...rest}>
+        {children}
+      </select>
+      <ChevronDown
+        aria-hidden="true"
+        size={16}
+        strokeWidth={1.75}
+        className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-text-muted"
+      />
+    </span>
   );
 }
 

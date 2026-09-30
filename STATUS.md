@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 about 50 % done** (8 of 15 launch tools live, 11 of 17 pair pages) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 about 60 % done** (10 of 15 launch tools live, 11 of 17 pair pages) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -20,11 +20,12 @@
 - M2: Color Converter (every notation, nearest CSS name, tints and shades) and QR Code Generator (7 content types, logo, PNG up to 4096 px and a clean SVG, codes checked by decoding them) (#21).
 - M2: Subtitle Converter (SRT, VTT, ASS/SSA, SBV in; SRT, VTT, ASS, SBV, TXT out; encodings detected; a report of what each format drops; batches as a ZIP) and the first pair pages: `/convert/srt-to-vtt`, `/convert/vtt-to-srt`, `/convert/ass-to-srt` (#22).
 - M2: Image Converter and Compress Image on the image engine (WASM codecs in a worker, EXIF kept without GPS, target size, batches of 50), with 8 image pair pages such as `/convert/png-to-jpg` (#23).
+- M2: Crop Image (a real crop box: ratios, exact px, drag or type, Rotate 90°, undo; batches crop to a ratio, centered) and Resize Image (exact W × H with keep ratio, pad, fill or stretch; width, height, %, longest side, presets; Lanczos), on the new `image-geometry` engine (#24).
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
-2. M2 launch set, in this order: Crop and Resize (P02, P03), Remove Background (P07), the video tools (V01, V02, V04, V06).
+2. M2 launch set, in this order: the video tools (V01 Trim and V06 Extract Audio, then V02 Compress and V04 Video to GIF), then Remove Background (P07).
 3. M2b (11 tools), then checkpoint 3.
 
 ## Blocked
@@ -36,7 +37,7 @@
 
 ```sh
 git pull && pnpm install
-pnpm preview                   # production build: http://localhost:4173 (try /image-converter, /compress-image, /subtitle-converter)
+pnpm preview                   # production build: http://localhost:4173 (try /crop-image, /resize-image, /image-converter)
 pnpm workshop                  # design screens, components, ToolShell demos: http://localhost:4173/workshop
 pnpm e2e                       # Playwright (pnpm exec playwright install once)
 pnpm lighthouse                # after pnpm build

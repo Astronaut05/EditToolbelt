@@ -223,3 +223,32 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** A preset option can be a `slider` or a `number` with its unit, as well as the default segmented choice, and can show only while another option has certain values (`when`). This covers quality for lossy formats only, and target size only in target mode. Phone settings rows summarize them ("80", "500 KB"). Presets can cap a batch (`maxFiles`: 50 for photos). The download label and file extension come from the engine's real output, so "Keep format" downloads as what the file actually became.
 **Why:** `tools/photo.md` → P05 controls (quality slider, target size in KB); `CLAUDE.md` rule 2 (the shell grows, tools don't ship their own controls).
 **Reverse:** in `packages/ui/src/tool/ToolShell.tsx`.
+
+## 2026-09-30 · Crop and Resize: geometry in the image worker, a real crop box
+
+**Decision:** P02 Crop and P03 Resize run on `image-geometry`, pure TypeScript in `packages/engines/src/image/geometry.ts`, inside the same worker as the codecs (decode → turn → crop → resize → pad → encode). Crops, quarter turns and flips copy pixels, so they are lossless. Resizing is a separable filter on premultiplied alpha (no dark fringes at transparent edges): Lanczos-3 by default, plus Bicubic (Catmull-Rom), Bilinear and Nearest for pixel art. Coefficients follow Pillow's, and a ring of filtered rows keeps memory at a few rows (12 MP → 3 MP in about 1 s). We wrote it rather than adding `@jsquash/resize`: no new dependency, license check or WASM file, and it is unit tested in Node. Output is capped at 100 MP and 30,000 px a side.
+- **Crop:** the W × H fields set the box in source pixels, and Crop never resamples. "Exact 1080 × 1350" means a 1080 × 1350 px box, placed anywhere. To get all of a bigger photo at 1080 × 1350, crop to 4:5, then resize; the FAQ says so.
+- **Batch crop:** crops each image to the ratio, centered. It needs a ratio, so Free blocks the batch and the tool says why. Per-image adjust in a batch waits for later.
+- **Resize:** "lock ratio" is the Fit choice. Keep ratio (the default) fits inside the box. Pad, Fill and Stretch give the exact box. Presets (HD, Full HD, 4K, square, Story, YouTube thumbnail) are entries in the Resize to list. Enlarging past 100 % works, with a note that it adds no detail. The optional "target file size" is left to Compress Image, which the result links to. Output keeps the input's format by default, at quality 90 for lossy formats.
+**Why:** `tools/photo.md` → P02, P03 and shared rules (lossless geometry, transparency, batch); `CLAUDE.md` rule 1 (browser first) and rule 6 (fewer dependencies to check).
+**Reverse:** swap `resample` for `@jsquash/resize` behind the same signature; per-image batch crop adds a box per file in the batch list.
+
+## 2026-09-30 · CanvasEditor crop mode and ToolShell for editor tools
+
+**Decision:**
+- **Crop box:** CanvasEditor draws the real image, turned and flipped as edited, with a crop box that has 8 handles (24 px targets or larger), thirds lines and its size in px.
+  - Drag to move; handles resize from the opposite side and keep a locked ratio.
+  - The box is focusable, and arrow keys move it (Shift: 10 px).
+- **Fields:** width, height, X, Y and Center are number fields in the settings. On phones they sit in a "Crop box" sheet.
+- **State:** the edit (turns, flip, box) lives in the page (`useEditor`), so the box and the fields are the same state. It has undo and redo (50 steps, one step per drag or per field).
+  - Rotate 90° and Flip are actions. Zoom is hidden on phones, which pinch to zoom.
+- **Box logic:** fit to a ratio, drag, typed sizes and turns are pure functions in `crop.ts`, with tests.
+- **ToolShell additions:**
+  - `select` options, for long lists such as ratios and presets;
+  - `editor.ratio`, which reads the ratio lock from the options;
+  - `result: 'output'`, which shows the result alone when its shape changes;
+  - `blocked`, the reason a run can't start;
+  - a "Back to the editor" link after a crop.
+- **Select primitive:** it gained a visible chevron and a fixed width.
+**Why:** `docs/03` → CanvasEditor (presets open one mode, undo 50 steps); `docs/12` → M2 (crop mode now, other modes with P01/P09/P10); WCAG 2.2 AA (keyboard alternative to dragging, target size).
+**Reverse:** the pieces are independent: `packages/ui/src/tool/{CanvasEditor,CropFields,crop,useEditor}.ts(x)`.

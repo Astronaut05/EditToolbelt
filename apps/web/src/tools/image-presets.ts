@@ -43,3 +43,28 @@ export const METADATA_OPTION: ShellOption = {
   ],
   default: 'keep',
 };
+
+/** Crop and Resize: keep the file's format unless another is picked; quality for lossy output. */
+export const SAME_FORMAT_OPTIONS: ShellOption[] = [
+  {
+    id: 'format',
+    label: 'Format',
+    choices: [
+      { value: 'keep', label: 'Keep' },
+      { value: 'jpeg', label: 'JPG' },
+      { value: 'png', label: 'PNG' },
+      { value: 'webp', label: 'WebP' },
+      { value: 'avif', label: 'AVIF' },
+    ],
+    default: 'keep',
+  },
+  {
+    id: 'quality',
+    label: 'Quality',
+    kind: 'slider',
+    min: 1,
+    max: 100,
+    default: '90',
+    when: { id: 'format', values: ['keep', ...LOSSY] },
+  },
+];
