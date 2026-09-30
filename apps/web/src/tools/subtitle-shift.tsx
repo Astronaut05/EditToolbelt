@@ -77,11 +77,25 @@ const OPTIONS: ShellOption[] = [
   },
 ];
 
+/**
+ * The cue's words for a picker label: markup tags (<i>) and ASS override
+ * blocks ({\an8}) dropped in one pass, an unclosed one to the end.
+ */
+function plainText(text: string): string {
+  let out = '';
+  let close: string | null = null;
+  for (const char of text) {
+    if (close) {
+      if (char === close) close = null;
+    } else if (char === '<') close = '>';
+    else if (char === '{') close = '}';
+    else out += char;
+  }
+  return out;
+}
+
 const clip = (text: string) => {
-  const line = text
-    .replace(/<[^>]+>|\{[^}]*\}/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const line = plainText(text).replace(/\s+/g, ' ').trim();
   return line.length > 32 ? `${line.slice(0, 31)}…` : line;
 };
 
