@@ -1,10 +1,14 @@
 'use client';
 
-import { extractAudioEngine } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
 import { probeVideo, VIDEO_INTAKE } from './video-presets';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.extractAudioEngine, MEDIA_META.extractAudio);
 
 const OPTIONS: ShellOption[] = [
   {
@@ -62,7 +66,5 @@ const PRESET: ShellPreset = {
 
 /** V06 Extract Audio (tools/video.md). */
 export default function ExtractAudio({ tool }: { tool: ShellTool }) {
-  return (
-    <ToolShell tool={tool} preset={PRESET} engine={extractAudioEngine} onEvent={trackUnknown} />
-  );
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

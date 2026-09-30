@@ -16,6 +16,7 @@ import {
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, convert, MediaInputError, openInput, pickOutput } from './media';
 import { containerFormat } from './trim';
+import { MEDIA_META } from '../media-meta';
 
 export interface CompressOptions {
   /** target (a size) or quality */
@@ -151,11 +152,7 @@ async function audioBitrate(input: Input): Promise<number> {
 const CODECS: readonly string[] = ['avc', 'hevc', 'av1', 'vp9'];
 
 export const compressEngine: Engine<CompressOptions> = {
-  capabilities: () => ({
-    supported: typeof VideoEncoder === 'function',
-    reason: 'This browser can’t encode video yet. Try a current Chrome, Edge or Safari.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(2, input.size / 8_000_000) }),
+  ...MEDIA_META.compress,
   async run(file, opts, ctx): Promise<EngineOutput> {
     const input = openInput(file);
     try {

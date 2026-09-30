@@ -16,6 +16,7 @@ import {
   type VideoCodec,
 } from 'mediabunny';
 
+import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, convert, MediaInputError, openInput } from './media';
 import { containerFormat } from './trim';
@@ -138,8 +139,7 @@ export async function videoPackets(file: Blob): Promise<Uint8Array[]> {
 }
 
 export const videoConverterEngine: Engine<VideoConverterOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 100_000_000) }),
+  ...MEDIA_META.videoConverter,
   async run(file, opts, ctx): Promise<EngineOutput> {
     const input = openInput(file);
     try {

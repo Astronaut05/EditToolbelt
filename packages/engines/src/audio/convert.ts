@@ -11,6 +11,7 @@ import type { Engine, EngineOutput } from '../types';
 import { encodeAudio } from '../video/encode-audio';
 import { AUDIO_TARGETS, ensureEncoder, type AudioFormat } from '../video/extract-audio';
 import { codecLabel, convert, MediaInputError, openInput } from '../video/media';
+import { AUDIO_LIMITS, MEDIA_META } from '../media-meta';
 
 export interface AudioConverterOptions {
   format?: string;
@@ -25,17 +26,13 @@ export interface AudioConverterOptions {
 }
 
 /** tools/audio.md → Limits: long recordings are fine, but not a whole day. */
-export const AUDIO_LIMITS = { maxBytes: 1024 ** 3, maxSeconds: 4 * 60 * 60 };
+export { AUDIO_LIMITS };
 
 const kHz = (rate: number) => `${String(rate / 1000)} kHz`;
 const CHANNEL_NAMES: Record<number, string> = { 1: 'mono', 2: 'stereo' };
 
 export const audioConverterEngine: Engine<AudioConverterOptions> = {
-  capabilities: () => ({
-    supported: typeof AudioDecoder === 'function',
-    reason: 'This browser can’t read audio yet. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 60_000_000) }),
+  ...MEDIA_META.audioConverter,
   async run(file, opts, ctx): Promise<EngineOutput> {
     if (file.size > AUDIO_LIMITS.maxBytes) {
       throw new MediaInputError('This file is over 1 GB, the browser limit for audio.');

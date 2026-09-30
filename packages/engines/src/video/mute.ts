@@ -9,6 +9,7 @@ import { AudioSample, getFirstEncodableAudioCodec, type AudioCodec } from 'media
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, convert, MediaInputError, openInput } from './media';
 import { checkRange, containerFormat, sourceFamily } from './trim';
+import { MEDIA_META } from '../media-meta';
 
 export interface MuteOptions {
   /** all (remove the audio track) or range (silence part of it) */
@@ -79,8 +80,7 @@ function muted(sample: AudioSample, start: number, end: number): AudioSample {
 const secs = (t: number) => `${t.toFixed(t < 10 ? 2 : 1)} s`;
 
 export const muteVideoEngine: Engine<MuteOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 200_000_000) }),
+  ...MEDIA_META.mute,
   async run(file, opts, ctx): Promise<EngineOutput> {
     const input = openInput(file);
     try {

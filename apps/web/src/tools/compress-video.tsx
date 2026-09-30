@@ -1,10 +1,14 @@
 'use client';
 
-import { compressEngine } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
 import { probeVideo, VIDEO_INTAKE } from './video-presets';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.compressEngine, MEDIA_META.compress);
 
 const OPTIONS: ShellOption[] = [
   {
@@ -130,5 +134,5 @@ const PRESET: ShellPreset = {
 
 /** V02 Compress Video (tools/video.md); the server path arrives with M4/M5. */
 export default function CompressVideo({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={compressEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

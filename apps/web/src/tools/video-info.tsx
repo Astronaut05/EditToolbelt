@@ -1,10 +1,14 @@
 'use client';
 
-import { videoInfoEngine } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
 import { VIDEO_INTAKE } from './video-presets';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.videoInfoEngine, MEDIA_META.videoInfo);
 
 const OPTIONS: ShellOption[] = [
   {
@@ -35,5 +39,5 @@ const PRESET: ShellPreset = {
 
 /** V08 Video Info & VFR Check (tools/video.md). */
 export default function VideoInfo({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={videoInfoEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

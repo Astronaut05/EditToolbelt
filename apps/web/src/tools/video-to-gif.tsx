@@ -1,6 +1,6 @@
 'use client';
 
-import { estimateGifBytes, gifFrameCount, videoToGifEngine } from '@etb/engines';
+import { estimateGifBytes, gifFrameCount, MEDIA_META } from '@etb/engines';
 import {
   formatBytes,
   ToolShell,
@@ -10,7 +10,11 @@ import {
 } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
 import { probeVideo, VIDEO_INTAKE } from './video-presets';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.videoToGifEngine, MEDIA_META.videoToGif);
 
 const OPTIONS: ShellOption[] = [
   { id: 'fps', label: 'Frame rate', kind: 'slider', min: 5, max: 30, unit: 'fps', default: '12' },
@@ -123,5 +127,5 @@ const PRESET: ShellPreset = {
 
 /** V04 Video to GIF (tools/video.md). */
 export default function VideoToGif({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={videoToGifEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { bpmKeyEngine, probeAudio } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import {
   ToolShell,
   type ProbeInfo,
@@ -10,6 +10,10 @@ import {
 } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { loadMediaEngines, mediaEngine } from './media-engine';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.bpmKeyEngine, MEDIA_META.bpmKey);
 
 const OPTIONS: ShellOption[] = [
   {
@@ -36,7 +40,7 @@ const OPTIONS: ShellOption[] = [
 ];
 
 async function probe(file: File): Promise<ProbeInfo> {
-  const info = await probeAudio(file);
+  const info = await (await loadMediaEngines()).probeAudio(file);
   return { durationSec: info.durationSec, summary: info.summary };
 }
 
@@ -63,5 +67,5 @@ const PRESET: ShellPreset = {
 
 /** A03 BPM & Key Finder (tools/audio.md). */
 export default function BpmKeyFinder({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={bpmKeyEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }
