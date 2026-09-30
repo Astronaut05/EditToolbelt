@@ -57,10 +57,19 @@ const FILTERS: readonly Filter[] = ['lanczos', 'bicubic', 'bilinear', 'nearest']
 const FITS: readonly Fit[] = ['keep', 'pad', 'fill', 'stretch'];
 const BY: readonly ResizeBy[] = ['box', 'width', 'height', 'percent', 'longest'];
 
+/** A preset's box from its value: "fhd-1920x1080" → 1920 × 1080. Split, not a regex, to stay linear. */
+function presetBox(value: string): [string, string, string] | null {
+  const parts = value.slice(value.lastIndexOf('-') + 1).split('x');
+  const [w, h] = parts;
+  return parts.length === 2 && w && h && /^\d{1,5}$/.test(w) && /^\d{1,5}$/.test(h)
+    ? [value, w, h]
+    : null;
+}
+
 /** The resize half of a job, or nothing when the tool doesn't resize. */
 export function resizeSpec(opts: ImageGeometryOptions): ResizeSpec | undefined {
   if (!opts.by) return undefined;
-  const preset = /(\d+)x(\d+)$/.exec(opts.by);
+  const preset = presetBox(opts.by);
   const by = preset
     ? 'box'
     : (BY as readonly string[]).includes(opts.by)
