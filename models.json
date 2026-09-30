@@ -1,0 +1,5 @@
+{
+  "$comment": "Where `pnpm models` downloads each third-party model from. Their SHA-256 and sizes live in packages/engines/src/image/rmbg/models.ts; licenses in docs/13-licenses.md. Like licenses.json, these URLs are third-party sources, not our hosts, so the host check skips this file.",
+  "rmbg/u2netp.onnx": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx",
+  "rmbg/birefnet-lite-fp16.onnx": "https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/main/onnx/model_fp16.onnx"
+}

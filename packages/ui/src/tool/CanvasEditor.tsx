@@ -401,7 +401,7 @@ export function CanvasEditor({
   );
 }
 
-function IconButton({
+export function IconButton({
   label,
   children,
   disabled,

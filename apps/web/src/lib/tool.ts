@@ -71,10 +71,13 @@ export function whyPoints(tool: ToolDef): string[] {
       : tool.runtime === 'hybrid'
         ? 'Private by default. Your file stays on your device unless you choose server processing.'
         : 'Private. Uploads are deleted when the job finishes and results within 1 hour.';
+  // Hybrid tools are free on the device; only the server path they offer costs credits.
   const cost =
     tool.cost.kind === 'free'
       ? 'Free, with no sign-up and no watermark.'
-      : 'Paid with credits, charged only when the job succeeds. Failed jobs refund automatically.';
+      : tool.runtime === 'hybrid'
+        ? 'Free in your browser, with no sign-up and no watermark. Only server processing costs credits.'
+        : 'Paid with credits, charged only when the job succeeds. Failed jobs refund automatically.';
   return [speed, privacy, cost];
 }
 

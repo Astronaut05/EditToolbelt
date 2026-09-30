@@ -8,8 +8,9 @@
  * *.localhost; RFC 2606/6761), single-label names such as compose service
  * names (`postgres`, `storage`), and `$schema` URLs for editors.
  *
- * Prose is not scanned (Markdown, docs/, tools/), nor lockfiles and
- * licenses.json, whose URLs point at packages and license texts.
+ * Prose is not scanned (Markdown, docs/, tools/), nor lockfiles,
+ * licenses.json and models.json, whose URLs point at packages, license texts
+ * and third-party model downloads.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -26,6 +27,7 @@ const SKIP_PATH = [
   /(^|\/)pnpm-lock\.yaml$/,
   /(^|\/)uv\.lock$/,
   /^licenses\.json$/,
+  /^models\.json$/,
   /\.(png|jpe?g|webp|avif|gif|ico|mp4|mov|webm|wav|mp3|flac|onnx|wasm|woff2?|pdf|zip)$/i,
 ];
 

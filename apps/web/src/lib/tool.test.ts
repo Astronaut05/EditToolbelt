@@ -48,6 +48,8 @@ describe('whyPoints', () => {
     const server = whyPoints(getTool('upscale-image'));
     expect(server[1]).toMatch(/deleted/);
     expect(server[2]).toMatch(/credits/);
+    const hybrid = whyPoints(getTool('remove-background'));
+    expect(hybrid[2]).toMatch(/^Free in your browser/);
   });
 
   it('never uses em or en dashes (docs/03 → Copy)', () => {

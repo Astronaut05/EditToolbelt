@@ -13,6 +13,7 @@ export const TOOL_IDS = [
   'extract-audio',
   'image-converter',
   'qr-code-generator',
+  'remove-background',
   'resize-image',
   'subtitle-converter',
   'timecode-calculator',

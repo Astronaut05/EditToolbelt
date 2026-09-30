@@ -70,7 +70,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | BEN2 base (PramaLLC) | background removal | MIT | MIT (base model only — their "full" model is a paid API) | 🔍 — server candidate, 94.6 M params |
 | InSPyReNet (`transparent-background`) | background removal | MIT | 🔍 — the MIT LICENSE covers the code; the checkpoint licence isn't stated there | 🔍 — only after the weights licence is confirmed |
 | ISNet (DIS) general-use | background removal | Apache-2.0 | Apache-2.0 | 🔍 — candidate |
-| U²-Net / u2netp | background removal (tiny fallback) | Apache-2.0 | Apache-2.0 | 🔍 |
+| U²-Net / u2netp | background removal, Light mode (P07) | Apache-2.0 | Apache-2.0 | ✅ checked 2026-09-30: the weights are published in the authors' repo (xuebinqin/U-2-Net) under its Apache-2.0 licence; the ONNX export is the one `rembg` (MIT) ships as a release asset, pinned by SHA-256 in `packages/engines/src/image/rmbg/models.ts`. 4.6 MB, WASM |
 | Real-ESRGAN | image/video upscale | BSD-3-Clause | BSD-3-Clause | 🔍 |
 | Demucs (htdemucs) | stem separation | MIT | MIT | 🔍 |
 | Whisper / faster-whisper | transcription, auto subtitles | MIT | MIT | 🔍 |

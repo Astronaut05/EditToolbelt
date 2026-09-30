@@ -11,7 +11,7 @@ import { Button } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
 import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel } from '../primitives/OptionsPanel';
-import { NumberWithUnit, Select, Slider } from '../primitives/fields';
+import { ColorInput, NumberWithUnit, Select, Slider } from '../primitives/fields';
 import { Dialog } from '../primitives/overlays';
 import { PrivacyBadge, type Noun } from '../primitives/PrivacyBadge';
 import { SegmentedControl } from '../primitives/SegmentedControl';
@@ -26,6 +26,7 @@ import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
+import { RefineBrush, type BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
 import { Timeline, type TimelineRange } from './Timeline';
 import { useEditor, type EditorState } from './useEditor';
@@ -48,9 +49,11 @@ export interface ShellOption {
   label: string;
   /**
    * choice (default): a segmented control. select: a dropdown, for longer
-   * lists. slider and number: a value with its unit.
+   * lists. slider and number: a value with its unit. color: a swatch, value
+   * "#rrggbb". image: a second image to pick (a new background), value an
+   * object URL.
    */
-  kind?: 'choice' | 'select' | 'slider' | 'number';
+  kind?: 'choice' | 'select' | 'slider' | 'number' | 'color' | 'image';
   choices?: { value: string; label: string }[];
   min?: number;
   max?: number;
@@ -73,7 +76,50 @@ export function optionSummary(option: ShellOption, value: string): string {
   if (option.kind === 'slider' || option.kind === 'number') {
     return option.unit ? `${value} ${option.unit}` : value;
   }
+  if (option.kind === 'color') return value.toUpperCase();
+  if (option.kind === 'image') return value ? 'Chosen' : 'None';
   return option.choices?.find((choice) => choice.value === value)?.label ?? value;
+}
+
+/** A second image for an option (a new background): a button, then its name. */
+function ImagePick({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [name, setName] = useState<string | null>(null);
+  return (
+    <span className="flex min-w-0 items-center gap-3">
+      {value && (
+        <span className="max-w-40 truncate text-14 text-text-muted">{name ?? 'Image chosen'}</span>
+      )}
+      <Button size="sm" onClick={() => input.current?.click()}>
+        {value ? 'Change' : 'Choose image'}
+      </Button>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        aria-label={label}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (!file) return;
+          if (value.startsWith('blob:')) URL.revokeObjectURL(value);
+          setName(file.name);
+          onChange(URL.createObjectURL(file));
+        }}
+      />
+    </span>
+  );
 }
 
 function OptionControl({
@@ -117,6 +163,12 @@ function OptionControl({
         }}
       />
     );
+  }
+  if (option.kind === 'color') {
+    return <ColorInput label={option.label} value={value} onChange={onChange} />;
+  }
+  if (option.kind === 'image') {
+    return <ImagePick label={option.label} value={value} onChange={onChange} />;
   }
   if (option.kind === 'select') {
     return (
@@ -194,6 +246,8 @@ export interface ShellPreset {
     modes?: EditorMode[];
     compare?: boolean;
     ratio?: (options: Record<string, string>) => number | null;
+    /** The option that holds Refine brush strokes (JSON): P07's keep/erase brush on the result. */
+    refine?: string;
   };
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
   result?: 'compare' | 'output';
@@ -286,6 +340,17 @@ export interface ToolShellProps {
   calculator?: { inputs: ReactNode; results: ReactNode };
 }
 
+/** Refine strokes from their option (JSON), or none if it's empty or malformed. */
+function readStrokes(value: string | undefined): BrushStroke[] {
+  if (!value) return [];
+  try {
+    const data: unknown = JSON.parse(value);
+    return Array.isArray(data) ? (data as BrushStroke[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function defaults(options: ShellOption[]): Record<string, string> {
   return Object.fromEntries(options.map((option) => [option.id, option.default]));
 }
@@ -328,6 +393,8 @@ export function ToolShell({
   const resetEditor = editor.reset;
   const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare;
   const [cropSheet, setCropSheet] = useState(false);
+  // P07: the Refine brush over the result.
+  const [refining, setRefining] = useState(false);
   // Media tools: what the probe found, and the timeline's frames.
   const [media, setMedia] = useState<ProbeInfo | null>(null);
   const [thumbs, setThumbs] = useState<string[]>([]);
@@ -347,7 +414,7 @@ export function ToolShell({
   }, []);
 
   const run = useCallback(
-    async (input: InputInfo, file: File) => {
+    async (input: InputInfo, file: File, values: Record<string, string> = options) => {
       controller.current?.abort();
       const abort = new AbortController();
       controller.current = abort;
@@ -360,18 +427,20 @@ export function ToolShell({
           file,
           {
             ...engineOptions,
-            ...options,
+            ...values,
             ...(editing && { crop: edit.crop ?? undefined, turns: edit.turns, flip: edit.flip }),
             ...(tool.ui === 'timeline' && { start: range.start, end: range.end }),
           },
           {
             signal: abort.signal,
-            progress: (fraction, stage) => {
+            progress: (fraction, stage, detail) => {
               setState({
                 kind: 'running',
                 input,
                 fraction,
                 stage,
+                amount: detail?.amount,
+                step: detail?.step,
                 elapsedSec: (performance.now() - started) / 1000,
               });
             },
@@ -395,7 +464,7 @@ export function ToolShell({
           output: {
             size: out.blob.size,
             // The engine knows the real format ("Keep format" depends on the input).
-            ext: out.ext || preset.outputExt(options),
+            ext: out.ext || preset.outputExt(values),
             url,
             blob: out.blob,
             seconds,
@@ -463,6 +532,10 @@ export function ToolShell({
       const file = files[0];
       if (!file) return;
       resetEditor();
+      setRefining(false);
+      // Refine strokes belong to the last image.
+      const refineId = preset.editor?.refine;
+      if (refineId) setOptions((current) => ({ ...current, [refineId]: '' }));
       if (preset.maxFiles && files.length > preset.maxFiles) {
         setState({
           kind: 'error',
@@ -594,11 +667,17 @@ export function ToolShell({
     setThumbs([]);
   }, [resetEditor]);
 
-  /** Sets an option; a new crop ratio refits the editor's box. */
+  /**
+   * Sets an option; a new crop ratio refits the editor's box. Tools that run
+   * as a file arrives run again with it (P07: a new background reuses the mask).
+   */
   const changeOption = (id: string, value: string) => {
     const next = { ...options, [id]: value };
     setOptions(next);
     if (ratioOf) editor.applyRatio(ratioOf(next));
+    if (preset.autoRun && state.kind === 'result' && state.file) {
+      void run(state.input, state.file, next);
+    }
   };
 
   const download = useCallback(() => {
@@ -613,7 +692,9 @@ export function ToolShell({
   // Esc cancels a run, Ctrl/Cmd+S downloads the result (docs/02 → keyboard).
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape' && state.kind === 'running') {
+      // Esc in a sheet or dialog closes it, and must not also cancel the run.
+      const inDialog = event.target instanceof Element && event.target.closest('dialog') !== null;
+      if (event.key === 'Escape' && state.kind === 'running' && !inDialog) {
         event.preventDefault();
         cancel();
       }
@@ -775,6 +856,22 @@ export function ToolShell({
     </div>
   );
 
+  const refineOption = preset.editor?.refine;
+  const refineLink = state.kind === 'result' && refineOption && !refining && (
+    <p className="mt-3.5 px-4 text-14 lg:px-0">
+      <button
+        type="button"
+        className="link-accent"
+        onClick={() => {
+          setRefining(true);
+        }}
+      >
+        Refine by hand
+      </button>
+      <span className="text-text-muted"> · keep or erase parts with a brush</span>
+    </p>
+  );
+
   const back = state.kind === 'result' && editing && state.file && (
     <p className="mt-3.5 px-4 text-14 lg:px-0">
       <button
@@ -820,6 +917,20 @@ export function ToolShell({
       ratio={ratio}
       media={media}
       thumbs={thumbs}
+      refine={
+        refining && refineOption
+          ? {
+              strokes: readStrokes(options[refineOption]),
+              apply: (strokes) => {
+                setRefining(false);
+                changeOption(refineOption, strokes.length ? JSON.stringify(strokes) : '');
+              },
+              cancel: () => {
+                setRefining(false);
+              },
+            }
+          : null
+      }
     />
   ) : state.kind === 'error' ? (
     <div className="flex h-full flex-col justify-center bg-surface px-4 py-10 lg:px-18">
@@ -891,6 +1002,7 @@ export function ToolShell({
         )}
         {(back || next) && (
           <div className="hidden lg:block">
+            {refineLink}
             {back}
             {next}
           </div>
@@ -970,6 +1082,7 @@ export function ToolShell({
               );
             })}
           </div>
+          {refineLink}
           {back}
           {next}
           {showCrop && (
@@ -1084,6 +1197,7 @@ function Workspace({
   ratio,
   media,
   thumbs,
+  refine,
 }: {
   state: ShellState;
   tool: ShellTool;
@@ -1096,6 +1210,11 @@ function Workspace({
   ratio: number | null;
   media: ProbeInfo | null;
   thumbs: string[];
+  refine: {
+    strokes: BrushStroke[];
+    apply: (strokes: BrushStroke[]) => void;
+    cancel: () => void;
+  } | null;
 }) {
   if (state.kind !== 'running' && state.kind !== 'result' && state.kind !== 'ready') return null;
   const frame = 'relative h-98 overflow-hidden lg:absolute lg:inset-0 lg:h-auto';
@@ -1158,6 +1277,21 @@ function Workspace({
   }
 
   const { input, output } = state;
+  if (refine && input.url && output.url && output.width && output.height) {
+    return (
+      <div className={frame}>
+        <RefineBrush
+          result={output.url}
+          original={input.url}
+          width={output.width}
+          height={output.height}
+          strokes={refine.strokes}
+          onApply={refine.apply}
+          onCancel={refine.cancel}
+        />
+      </div>
+    );
+  }
   if (tool.ui === 'analyzer') {
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
