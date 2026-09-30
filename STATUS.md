@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M3, accounts, database, admin, flags · **in progress: parts 1 and 2 of 4 (the database; the server build and accounts)**. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M3, accounts, database, admin, flags · **in progress: parts 1 to 3 of 4 (the database; the server build and accounts; the admin and tool status from the database)**. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -52,12 +52,12 @@
 - M2b remainder, part 2: Trim Video keeps or removes several ranges and joins them. Fast copies each part from its keyframe; Precise smart-cuts VP8 and VP9 (only the frames from each cut to the next keyframe are re-encoded, the rest copied byte for byte) and re-encodes anything else. The audio crossfades 10 ms at each join (#36).
 - M3, part 1: the database. Every table in `docs/04` in `packages/db` (Drizzle, Postgres 18, UUIDv7 ids), SQL migrations (`pnpm db:migrate`, run by the stack's `migrate` service), the append-only ledger (trigger, sign checks, `applyCredit` with row locks) and an append-only audit log. Integration tests run on a real Postgres in CI (#37).
 - M3, part 2: the server build (`ETB_TARGET=server`, what the local stack runs) with accounts. Sign in with an email link (Mailpit catches it on the stack at localhost:8025) or Google, `/account` with profile, "Download my data" and delete (30-day restore), nonce CSP on signed-in pages, `/healthz` and `/readyz` (#38).
+- M3, part 3: tool status from the database (admin changes show within 30 s) and the admin: dashboard, tools, users (credits, disable, revoke keys, export, delete), audit log and system, behind TOTP; `pnpm admin:promote` makes the first admin; `GET /api/v1/tools` (#39).
 
 ## Next
 
 1. Checkpoints 1, 2 and 3: sent. M2b is done.
-2. M3, part 3: tool status from the database within 30 s, and the admin (dashboard, tools, users, audit log, system) with TOTP for admins.
-3. M3, part 4: Telegram alerts, the daily digest and the scheduled checks (ledger invariant, heartbeats, the 30-day account scrub).
+2. M3, part 4: Telegram alerts, the daily digest and the scheduled checks (ledger invariant, heartbeats, the 30-day account scrub).
 
 ## Blocked
 
@@ -75,5 +75,5 @@ pnpm workshop                  # design screens, components, ToolShell demos: ht
 pnpm e2e                       # Playwright (pnpm exec playwright install once)
 pnpm lighthouse                # after pnpm build
 pnpm db:migrate                # apply migrations to DATABASE_URL (the stack's migrate service does it for you)
-docker compose up --watch      # dev stack: http://localhost:3000 (sign in at /sign-in; emails at http://localhost:8025)
+docker compose up --watch      # dev stack: http://localhost:3000 (sign in at /sign-in; emails at http://localhost:8025; /admin after pnpm admin:promote)
 ```

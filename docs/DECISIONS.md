@@ -586,3 +586,28 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 **Why:** `docs/12` → M3 (sign in, export and delete an account on the local stack), `docs/11` → Auth, `docs/04` → Account deletion, Data export, `docs/08` → minimal data and self-serve rights.
 **Reverse:** unset `ETB_TARGET` and the site is the static export again. `apps/web/src/server/auth.ts` holds every auth choice.
 
+## 2026-09-30 · Tool status from the database, and the admin (M3)
+
+**Decision:**
+- **The registry takes runtime overrides** (`packages/registry/src/flags.ts`): status, maintenance message, surfaces, server path, cost and limits.
+  - `isAvailable`, `isListed`, `needsWasm`, the hubs, the search index, the sitemap and `GET /api/v1/tools` all read the effective values.
+  - The static export sets none, so it's unchanged.
+  - The server build loads every `tool_flags` row at most 30 s old before rendering anything that shows status. A tool with no page in `src/tools` can't be switched to live or beta: that override is ignored, and the admin doesn't offer it.
+- **Public pages in the server build revalidate every 30 s** (ISR). An admin save also clears the cache in its own process and calls `revalidatePath`, so the change shows at once there and within 30 s anywhere else.
+  - The tool and pair routes are split into `page.static.tsx` (`dynamicParams = false`, as before) and `page.server.tsx` (`revalidate = 30`), sharing one `view.tsx`.
+  - We found why in testing: with `dynamicParams = false`, a path that once rendered as not-found stays 404 even after the tool is switched back on.
+  - The server build generates a page for every tool and pair, so a tool disabled in code can be switched on from the admin.
+- **The admin** (`/admin`, server build only) has Dashboard, Tools, Users, Audit log and System (`07`).
+  - Jobs, Payments and Costs come with M4 and M5; until then the dashboard says so, and browser tools point at the analytics collector.
+  - Everything is server-rendered, with a per-request nonce CSP, no-store, and no client JavaScript of its own.
+  - Every write re-checks the admin (a layout doesn't guard server actions), validates with Zod, needs a reason, and writes the audit row in the same transaction.
+  - Actions: tool status, maintenance message, surfaces, server path, cost and limits overrides (JSON checked against the registry's own schemas); grant or debit credits through `applyCredit`; disable or enable an account (disabling signs it out everywhere); revoke API keys; delete an account; download an account's data (audited); run the ledger check.
+- **Admins pass TOTP in each browser every 12 hours.** Better Auth's two-factor plugin holds the secret (encrypted) and the backup codes, but its challenge only runs on password sign-ins, and we have none.
+  - So `/admin` asks for a code itself, and a correct one sets a signed, 12-hour, `/admin`-only, SameSite=Strict cookie bound to the user. A signed cookie survives the session rotation that confirming TOTP causes; a flag on the session wouldn't.
+  - Five wrong codes in 15 minutes lock the form. Backup codes work too.
+  - Anyone who isn't an admin gets a 404 on every admin path.
+  - An optional `ADMIN_IP_ALLOWLIST` makes the proxy answer 404 to other IPs. It compares Cloudflare's `CF-Connecting-IP` (or `X-Forwarded-For`) and never stores it.
+- **The first admin:** sign in once, then `pnpm admin:promote <email>` (on the stack: `docker compose exec web pnpm admin:promote <email>`), which writes the audit log too. There's no way to become an admin from the web.
+**Why:** `docs/12` → M3 ("flip any tool's status from admin and see it change within 30 s"; "registry resolution from DB flags, 30 s cache"; "TOTP for admins"), `docs/07` → Admin panel, `docs/11` → Admin, `docs/02` (DB flag, then code default).
+**Reverse:** `apps/web/src/server/flags.ts` (the cache) and `src/server/admin.ts` (the gate); drop `revalidate` from the `page.server.tsx` files to render per request instead.
+

@@ -9,6 +9,9 @@
  * - An admin-disabled account can't sign in. Signing in during the 30-day
  *   grace after deleting an account restores it.
  * - Better Auth's telemetry is off.
+ * - TOTP (the two-factor plugin) is for admins: it holds their secret and
+ *   backup codes; src/server/admin.ts asks for a code before /admin opens,
+ *   since the plugin only steps in on password sign-ins, which we don't have.
  */
 import { createHash } from 'node:crypto';
 
@@ -17,6 +20,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError } from 'better-auth/api';
 import { nextCookies } from 'better-auth/next-js';
 import { magicLink } from 'better-auth/plugins/magic-link';
+import { twoFactor } from 'better-auth/plugins/two-factor';
 import { accounts, eq, sessions, twoFactors, users, verifications } from '@etb/db';
 
 import { db } from './db';
@@ -150,6 +154,7 @@ function createAuth() {
           await sendMail(signInMail(email, url));
         },
       }),
+      twoFactor({ issuer: 'EditToolbelt', allowPasswordless: true }),
       // Last: sets Better Auth's cookies from server actions.
       nextCookies(),
     ],

@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "generate": "drizzle-kit generate",
-    "migrate": "node scripts/migrate.ts"
+    "migrate": "node scripts/migrate.ts",
+    "admin:promote": "node scripts/promote-admin.ts"
   },
   "dependencies": {
     "drizzle-orm": "0.45.3",

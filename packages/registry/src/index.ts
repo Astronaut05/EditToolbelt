@@ -8,10 +8,21 @@
 import { categories, getCategory, type Category } from './categories';
 import type { CategoryId, EngineId, ToolDef } from './schema';
 import { conversions, type ConversionPair } from './conversions';
+import { statusOf } from './flags';
 import { tools } from './tools';
 
 export { categories, getCategory, type Category };
 export { conversions, conversionPath, conversionTitle, type ConversionPair } from './conversions';
+export {
+  costOf,
+  limitsOf,
+  maintenanceMessage,
+  setToolFlags,
+  statusOf,
+  surfacesOf,
+  toolFlag,
+  type ToolFlag,
+} from './flags';
 export { ISOLATED_PATHS, needsFullPageLoad } from './isolated';
 export { PAIR_COPY, type PairCopy } from './pairs';
 export { redirects, type Redirect } from './redirects';
@@ -49,13 +60,14 @@ export function categoryPath(category: Pick<Category, 'slug'>): string {
 }
 
 /** Tools that have a working page (hub rows link to them, sitemap lists them). */
-export function isAvailable(tool: Pick<ToolDef, 'status'>): boolean {
-  return tool.status === 'live' || tool.status === 'beta';
+export function isAvailable(tool: Pick<ToolDef, 'id' | 'status'>): boolean {
+  const status = statusOf(tool);
+  return status === 'live' || status === 'beta';
 }
 
 /** Hidden everywhere; the page answers 404 (docs/02 → Status behaviour). */
-export function isListed(tool: Pick<ToolDef, 'status'>): boolean {
-  return tool.status !== 'disabled';
+export function isListed(tool: Pick<ToolDef, 'id' | 'status'>): boolean {
+  return statusOf(tool) !== 'disabled';
 }
 
 export function toolsInCategory(id: CategoryId): ToolDef[] {
@@ -110,7 +122,7 @@ export const WASM_ENGINES: ReadonlySet<EngineId> = new Set([
 ]);
 
 /** A working tool page that loads WebAssembly. `soon` pages load no tool code. */
-export function needsWasm(tool: Pick<ToolDef, 'engines' | 'status'>): boolean {
+export function needsWasm(tool: Pick<ToolDef, 'id' | 'engines' | 'status'>): boolean {
   return isAvailable(tool) && tool.engines.some((engine) => WASM_ENGINES.has(engine));
 }
 

@@ -114,6 +114,12 @@ export const webServerEnvSchema = z
     MAIL_FROM: z.string().trim().min(3).optional(),
     /** local and test only: write each email as JSON into this folder instead of sending it. */
     MAIL_OUTBOX_DIR: z.string().trim().min(1).optional(),
+    /** Optional: only these client IPs (comma-separated) reach /admin; anyone else gets a 404. */
+    ADMIN_IP_ALLOWLIST: z
+      .string()
+      .trim()
+      .regex(/^[0-9a-fA-F:.]+(\s*,\s*[0-9a-fA-F:.]+)*$/, 'comma-separated IP addresses')
+      .optional(),
   })
   .superRefine((env, ctx) => {
     checkWeb(env, ctx);
