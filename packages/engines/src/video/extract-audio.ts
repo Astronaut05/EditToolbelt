@@ -135,6 +135,7 @@ export const extractAudioEngine: Engine<ExtractAudioOptions> = {
       const [start, end] = ranged
         ? checkRange(opts.start ?? 0, opts.end ?? duration, duration)
         : [0, duration];
+      const trackEnd = await source.computeDuration();
       const sourceCodec = await source.getCodec();
       const sourceRate = await source.getSampleRate();
       const sampleRate = Number(opts.sampleRate);
@@ -157,7 +158,9 @@ export const extractAudioEngine: Engine<ExtractAudioOptions> = {
             {
               input,
               format: target.format(),
-              ...(ranged && { trim: { start, end } }),
+              // Re-encoding always keeps to the source's length: some decoders (WebKit's
+              // GStreamer) hand back frames past the end of the track.
+              ...((ranged || !copy) && { trim: { start, end: Math.min(end, trackEnd) } }),
               video: { discard: true },
               audio: (track) =>
                 track === source

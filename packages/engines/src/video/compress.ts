@@ -262,8 +262,21 @@ export const compressEngine: Engine<CompressOptions> = {
           // The encoder has a floor at this size; more passes won't get under it.
           if (out.bytes.byteLength > before * 0.98) break;
         }
-        if (videoBps !== plan.videoBps)
-          notes.push('Took more than one pass to land under the target');
+        const over = videoBps !== plan.videoBps;
+        // Some encoders (Safari's among them) land far under the bitrate asked for:
+        // one pass up spends the room the target leaves, if it still fits.
+        if (!over && out.bytes.byteLength < plan.targetBytes * 0.7) {
+          const videoBytes = Math.max(1, out.bytes.byteLength - audioBytes);
+          const up = Math.min(2, (videoBudget * 0.97) / videoBytes);
+          if (up > 1.15) {
+            const larger = await pass(videoBps * up, 'Another pass to use the size');
+            if (larger.bytes.byteLength <= plan.targetBytes) {
+              out = larger;
+              notes.push('Took a second pass: the first came out well under the target');
+            }
+          }
+        }
+        if (over) notes.push('Took more than one pass to land under the target');
       }
       if (plan.targetBytes && out.bytes.byteLength > plan.targetBytes) {
         notes.push('Still a little over the target. Pick a smaller size or a lower resolution.');
