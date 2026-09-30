@@ -21,6 +21,7 @@ import {
 
 import { EngineAbortError } from '../dummy';
 import { MediaInputError, type RunOutput } from './media';
+import { spliceAudio, type SpliceAudioOptions } from './splice-audio';
 
 const BYTES: Record<string, number> = { u8: 1, s16: 2, s32: 4, f32: 4 };
 
@@ -128,6 +129,8 @@ export interface EncodeAudioOptions {
   end?: number;
   /** Runs on each block once it is on the output timeline (and resampled, remixed). */
   process?: (sample: AudioSample) => AudioSample | AudioSample[] | null;
+  /** Kept spans to join end to end, crossfaded, instead of `start` to `end`. */
+  splice?: SpliceAudioOptions;
 }
 
 /** Decodes the range of the track and encodes it into `format`, with its tags. */
@@ -163,33 +166,37 @@ export async function encodeAudio(
     }
   };
   try {
-    for await (const decoded of new AudioSampleSink(track).samples(start, end)) {
-      if (signal.aborted) {
-        decoded.close();
-        throw new EngineAbortError();
+    if (options.splice) {
+      await spliceAudio(track, options.splice, (block) => source.add(block), signal, progress);
+    } else {
+      for await (const decoded of new AudioSampleSink(track).samples(start, end)) {
+        if (signal.aborted) {
+          decoded.close();
+          throw new EngineAbortError();
+        }
+        // Only the frames inside the range, moved so the range starts at 0.
+        const rate = decoded.sampleRate;
+        const from = Math.max(0, Math.round((start - decoded.timestamp) * rate));
+        const to = Math.min(decoded.numberOfFrames, Math.round((end - decoded.timestamp) * rate));
+        if (to <= from) {
+          decoded.close();
+          continue;
+        }
+        let piece = decoded;
+        if (from > 0 || to < decoded.numberOfFrames) {
+          piece = decoded.trim(from, to);
+          decoded.close();
+        }
+        piece.setTimestamp(piece.timestamp - start);
+        await encode(line.add(piece));
+        progress(Math.min(1, line.time / length));
       }
-      // Only the frames inside the range, moved so the range starts at 0.
-      const rate = decoded.sampleRate;
-      const from = Math.max(0, Math.round((start - decoded.timestamp) * rate));
-      const to = Math.min(decoded.numberOfFrames, Math.round((end - decoded.timestamp) * rate));
-      if (to <= from) {
-        decoded.close();
-        continue;
+      if (!line.started) {
+        throw new MediaInputError('No audio could be decoded from this file.');
       }
-      let piece = decoded;
-      if (from > 0 || to < decoded.numberOfFrames) {
-        piece = decoded.trim(from, to);
-        decoded.close();
-      }
-      piece.setTimestamp(piece.timestamp - start);
-      await encode(line.add(piece));
-      progress(Math.min(1, line.time / length));
+      const tail = line.finish(length);
+      if (tail) await encode([tail]);
     }
-    if (!line.started) {
-      throw new MediaInputError('No audio could be decoded from this file.');
-    }
-    const tail = line.finish(length);
-    if (tail) await encode([tail]);
     source.close();
     await output.finalize();
   } catch (error) {

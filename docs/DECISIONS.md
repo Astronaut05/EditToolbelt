@@ -454,6 +454,8 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 
 ## 2026-09-30 · Trim Audio (A02): one range, keep or remove
 
+_Ranges and the join: superseded by "Several ranges on the timeline, joined with a 10 ms crossfade" below._
+
 **Decision:**
 - One range on the timeline, kept or removed. **Multiple ranges are left for later**: the timeline shell has one In and one Out, and a multi-range editor belongs with V01's smart cut. The registry's promises say one range.
 - **Removing** joins the two sides with a 5 ms fade on each side of the join, so it doesn't click. Fade in and out are 0.5 to 3 s, or none.
@@ -500,3 +502,13 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Why:** a `beta` tag on every tool of a site nobody can reach yet would tell nobody anything, and the flip would be a no-op later. The rule starts to mean something with M3's admin and the Go public step.
 **Reverse:** set `status: 'beta'` in the tool's registry entry (or, from M3, override it in admin).
 
+## 2026-09-30 · Several ranges on the timeline, joined with a 10 ms crossfade (A02, then V01)
+
+**Decision:**
+- **The timeline holds several ranges** when a page asks for them (`preset.ranges`). The handles, In, Out and the I and O keys edit the selected range; ranges never overlap (each stays between its neighbours); a row of buttons under the timeline selects one ("Range 2: 00:16.000 to 00:17.000"), adds one and removes the selected one. **Add range** puts a new range at the playhead when it is in a free stretch, else after the last range, 1/20 of the clip long (at least 1 s) where there's room. The engine gets every range as `ranges`, plus the selected one as `start`/`end`, so a single-range engine still works. At most 50 ranges.
+- **Keep or remove** applies to all of them: keep joins the ranges in time order; remove joins what's left. Ranges that touch or overlap merge.
+- **Joins crossfade over 10 ms**, centred on the join: the last 5 ms of one part fade out over the first 5 ms of the next fading in, using the audio just past each cut. Linear gains that add up to 1, so a steady sound stays level through the join. The result is exactly as long as the kept parts, to the sample (a dip or a gap would drift video out of sync in V01). A part shorter than 10 ms gets a shorter crossfade. This replaces A02's 5 ms fade to silence on each side of the join, which could still be heard as a dip.
+- **A02:** one part kept without fades is still copied frame by frame for MP3, AAC and Opus. Anything else is decoded once, only the stretches the parts need, joined by the splicer in `packages/core` (pure, unit-tested: exact length, no click, level through the join) and encoded once.
+- The playhead now follows In and Out when they are edited, so the frame or sample shown is the one the cut is at.
+**Why:** `tools/audio.md` → A02 ("multiple ranges") and `tools/video.md` → V01 ("keep/remove multiple ranges and join them", "crossfade 10 ms at joins"), deferred from the M2 launch set.
+**Reverse:** drop `ranges: true` from a page's preset and it is back to one range; the crossfade length is `JOIN_CROSSFADE` in `packages/engines/src/audio/trim.ts`; the splicer is `packages/core/src/media/splice.ts`.

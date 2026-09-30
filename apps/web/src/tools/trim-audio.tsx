@@ -81,6 +81,8 @@ const PRESET: ShellPreset = {
     ['fadeIn', 'fadeOut'],
   ],
   probe,
+  // Keep or remove several ranges; the kept parts join with a 10 ms crossfade.
+  ranges: true,
   runLabel: 'Trim',
   // Keep writes the file's own format; the engine reports it.
   outputExt: (options) => (options.format && options.format !== 'keep' ? options.format : ''),

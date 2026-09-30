@@ -326,6 +326,18 @@ export interface ShellPreset {
   probe?: (file: File) => Promise<ProbeInfo>;
   /** The first selection on the timeline, from the clip's length (GIF: the first 5 s). */
   initialRange?: (durationSec: number) => TimelineRange;
+  /**
+   * The timeline holds several ranges (V01, A02): the engine gets them all as
+   * `ranges`, in order; `start` and `end` stay those of the selected one.
+   */
+  ranges?: boolean;
+}
+
+/** A timeline's several ranges (`preset.ranges`): the list, the selected one, and changes. */
+interface MultiRange {
+  ranges: TimelineRange[];
+  active: number;
+  onChange: (ranges: TimelineRange[], active: number) => void;
 }
 
 /** What a preset's probe found. */
@@ -450,7 +462,22 @@ export function ToolShell({
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
-  const [range, setRange] = useState<TimelineRange>({ start: 0, end: 12 });
+  const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
+  const [activeRange, setActiveRange] = useState(0);
+  const range = useMemo(
+    () => ranges[activeRange] ?? ranges[0] ?? { start: 0, end: 12 },
+    [ranges, activeRange],
+  );
+  const setRange = useCallback(
+    (next: TimelineRange) => {
+      setRanges((current) => current.map((r, i) => (i === activeRange ? next : r)));
+    },
+    [activeRange],
+  );
+  const changeRanges = useCallback((next: TimelineRange[], active: number) => {
+    setRanges(next);
+    setActiveRange(active);
+  }, []);
   const [batch, setBatch] = useState<BatchItem[]>([]);
   const [batchDone, setBatchDone] = useState(false);
   const batchOutputs = useRef(new Map<string, { blob: Blob; name: string }>());
@@ -515,7 +542,11 @@ export function ToolShell({
               flipV: edit.flipV,
               angle: edit.angle,
             }),
-            ...(tool.ui === 'timeline' && { start: range.start, end: range.end }),
+            ...(tool.ui === 'timeline' && {
+              start: range.start,
+              end: range.end,
+              ...(preset.ranges && { ranges }),
+            }),
           },
           {
             signal: abort.signal,
@@ -578,7 +609,19 @@ export function ToolShell({
         });
       }
     },
-    [cropping, editing, editor.edit, engine, engineOptions, options, preset, range, tool.ui, track],
+    [
+      cropping,
+      editing,
+      editor.edit,
+      engine,
+      engineOptions,
+      options,
+      preset,
+      range,
+      ranges,
+      tool.ui,
+      track,
+    ],
   );
 
   /** Media tools read the file first: its length sets up the timeline. */
@@ -604,7 +647,8 @@ export function ToolShell({
       setMedia(info);
       const suggested = info.values;
       if (suggested) setOptions((current) => ({ ...current, ...suggested }));
-      setRange(preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec });
+      setRanges([preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }]);
+      setActiveRange(0);
       const probed = { ...input, durationSec: info.durationSec };
       setState({ kind: 'ready', input: probed, files });
       // Tools that run as a file arrives (A03) run once it's read.
@@ -1037,6 +1081,7 @@ export function ToolShell({
       preset={preset}
       range={range}
       setRange={setRange}
+      multiRange={preset.ranges ? { ranges, active: activeRange, onChange: changeRanges } : null}
       batch={batch}
       onDownloadItem={downloadItem}
       editor={editor}
@@ -1344,6 +1389,7 @@ function Workspace({
   preset,
   range,
   setRange,
+  multiRange,
   batch,
   onDownloadItem,
   editor,
@@ -1359,6 +1405,7 @@ function Workspace({
   preset: ShellPreset;
   range: TimelineRange;
   setRange: (range: TimelineRange) => void;
+  multiRange: MultiRange | null;
   batch: BatchItem[];
   onDownloadItem: (id: string) => void;
   editor: EditorState;
@@ -1408,6 +1455,7 @@ function Workspace({
         peaks={peaks}
         range={range}
         setRange={setRange}
+        multiRange={multiRange}
       />
     );
   }
@@ -1630,6 +1678,7 @@ function TimelineWorkspace({
   peaks,
   range,
   setRange,
+  multiRange,
 }: {
   url?: string;
   video: boolean;
@@ -1639,6 +1688,7 @@ function TimelineWorkspace({
   peaks: number[];
   range: TimelineRange;
   setRange: (range: TimelineRange) => void;
+  multiRange: MultiRange | null;
 }) {
   const player = useRef<HTMLVideoElement>(null);
   const listener = useRef<HTMLAudioElement>(null);
@@ -1663,6 +1713,11 @@ function TimelineWorkspace({
           kind={video ? 'video' : 'audio'}
           value={range}
           onChange={setRange}
+          {...(multiRange && {
+            ranges: multiRange.ranges,
+            active: multiRange.active,
+            onRangesChange: multiRange.onChange,
+          })}
           thumbnails={thumbs}
           peaks={peaks}
           onSeek={(time) => {

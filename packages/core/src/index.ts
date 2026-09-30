@@ -33,3 +33,15 @@ export {
   type TempoResult,
 } from './audio/analysis';
 export { addTap, tapBpm } from './audio/tap';
+export {
+  addRange,
+  clampRange,
+  invertRanges,
+  keptSpans,
+  layoutSpans,
+  MIN_SPAN,
+  normalizeRanges,
+  type Layout,
+  type Span,
+} from './media/ranges';
+export { Splicer, type SpliceOptions } from './media/splice';
