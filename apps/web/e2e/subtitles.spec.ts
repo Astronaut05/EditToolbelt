@@ -1,27 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import type { Page } from '@playwright/test';
-
-import { expect, test } from './fixtures';
+import { choose, expect, test } from './fixtures';
 
 // T01 Subtitle Converter and its pair pages (tools/subtitles-and-time.md, docs/09).
 
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../../../fixtures/subtitles/${name}`, import.meta.url));
-
-/** Picks a setting: a segmented control on desktop, a row that opens a sheet on phones. */
-async function choose(page: Page, isMobile: boolean, label: string, value: string) {
-  if (isMobile) {
-    await page.getByRole('button', { name: new RegExp(`^${label}`) }).click();
-    const sheet = page.getByRole('dialog', { name: 'Settings' });
-    await sheet.getByRole('radio', { name: value, exact: true }).click();
-    await page.keyboard.press('Escape');
-    await expect(sheet).toBeHidden();
-  } else {
-    await page.getByRole('radio', { name: value, exact: true }).click();
-  }
-}
 
 test('a messy SRT becomes clean WebVTT, with a report of what changed', async ({ page }) => {
   await page.goto('/subtitle-converter');

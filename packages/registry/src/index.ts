@@ -142,9 +142,12 @@ export function availableRelated(tool: ToolDef): ToolDef[] {
   return tool.related.map((id) => getTool(id)).filter(isAvailable);
 }
 
-/** Conversion pairs that have a page: their tool works (docs/12 → M2). */
+/** Conversion pairs that have a page: their tool works and nothing holds them (docs/12 → M2). */
 export function livePairs(toolId?: string): ConversionPair[] {
   return conversions.filter(
-    (pair) => (toolId === undefined || pair.toolId === toolId) && isAvailable(getTool(pair.toolId)),
+    (pair) =>
+      (toolId === undefined || pair.toolId === toolId) &&
+      !pair.hold &&
+      isAvailable(getTool(pair.toolId)),
   );
 }

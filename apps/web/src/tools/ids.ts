@@ -7,6 +7,8 @@ export const TOOL_IDS = [
   'aspect-ratio-calculator',
   'bitrate-calculator',
   'color-converter',
+  'compress-image',
+  'image-converter',
   'qr-code-generator',
   'subtitle-converter',
   'timecode-calculator',

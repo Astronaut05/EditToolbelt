@@ -14,16 +14,30 @@ export interface ConversionPair {
   /** The converter tool this pair is a preset of. */
   toolId: string;
   wave: 1 | 2 | 3;
+  /** Why this pair has no page yet although its tool works (see docs/DECISIONS.md). */
+  hold?: string;
 }
 
-function pair(from: string, to: string, toolId: string, wave: 1 | 2 | 3 = 1): ConversionPair {
-  return { slug: `${from}-to-${to}`, from, to, toolId, wave };
+function pair(
+  from: string,
+  to: string,
+  toolId: string,
+  wave: 1 | 2 | 3 = 1,
+  hold?: string,
+): ConversionPair {
+  return { slug: `${from}-to-${to}`, from, to, toolId, wave, ...(hold ? { hold } : {}) };
 }
+
+/**
+ * HEIC decodes only where the browser can (Safari) until open question 10
+ * (HEVC patents) is settled, so these pages would fail in Chrome and Firefox.
+ */
+const HEIC_HOLD = 'HEIC opens only in Safari until open question 10 is settled';
 
 export const conversions: readonly ConversionPair[] = [
   // Image: P06
-  pair('heic', 'jpg', 'image-converter'),
-  pair('heic', 'png', 'image-converter'),
+  pair('heic', 'jpg', 'image-converter', 1, HEIC_HOLD),
+  pair('heic', 'png', 'image-converter', 1, HEIC_HOLD),
   pair('webp', 'jpg', 'image-converter'),
   pair('webp', 'png', 'image-converter'),
   pair('png', 'jpg', 'image-converter'),
@@ -32,7 +46,7 @@ export const conversions: readonly ConversionPair[] = [
   pair('jpg', 'webp', 'image-converter'),
   pair('avif', 'jpg', 'image-converter'),
   pair('jpg', 'avif', 'image-converter'),
-  pair('png', 'ico', 'image-converter', 3),
+  pair('png', 'ico', 'image-converter', 3, 'ICO output arrives with Wave 3'),
   // Video: V03, V04, V05
   pair('mov', 'mp4', 'video-converter'),
   pair('mkv', 'mp4', 'video-converter'),

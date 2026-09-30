@@ -66,8 +66,8 @@ export function buildSearchIndex(
   }
   for (const pair of pairs) {
     const tool = byId.get(pair.toolId);
-    // A pair page exists only while its tool works (docs/12 → M2).
-    if (tool?.status !== 'live' && tool?.status !== 'beta') continue;
+    // A pair page exists only while its tool works and nothing holds it (docs/12 → M2).
+    if (pair.hold || (tool?.status !== 'live' && tool?.status !== 'beta')) continue;
     entries.push({
       kind: 'pair',
       title: `${pair.from.toUpperCase()} to ${pair.to.toUpperCase()}`,

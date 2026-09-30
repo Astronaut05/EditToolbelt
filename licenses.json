@@ -267,10 +267,13 @@
         "@jsquash/oxipng",
         "@jsquash/resize"
       ],
-      "use": "image codecs",
+      "use": "image codecs (P05, P06): WASM builds of MozJPEG/libjpeg-turbo (IJG + BSD-3-Clause), libwebp (BSD-3-Clause), libavif + libaom (BSD-2-Clause, AOM royalty-free patent licence), the png crate and OxiPNG (MIT); single-threaded builds only",
       "license": "Apache-2.0",
       "scope": "browser",
-      "status": "verify"
+      "status": "approved",
+      "version": "jpeg 1.6.0, webp 1.5.0, avif 2.1.1, png 3.1.1, oxipng 2.3.0",
+      "source": "https://github.com/jamsinclair/jSquash/blob/main/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "libheif-js (+ libde265)",
