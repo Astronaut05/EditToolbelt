@@ -2,7 +2,16 @@
 
 import type { Engine } from '@etb/engines';
 import { ChevronRight, Download } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { cn } from '../cn';
 import { AppLink } from '../primitives/AppLink';
@@ -19,17 +28,25 @@ import { StatePanel } from '../primitives/states';
 import { BatchList, type BatchItem } from './BatchList';
 import { BeforeAfter, MediaTag } from './BeforeAfter';
 import { CalculatorShell } from './CalculatorShell';
-import { CanvasEditor, type EditorMode } from './CanvasEditor';
+import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
-import { CropFields } from './CropFields';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
-import { RefineBrush, type BrushStroke } from './RefineBrush';
+import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
-import { Timeline, type TimelineRange } from './Timeline';
+import type { TimelineRange } from './Timeline';
 import { useEditor, type EditorState } from './useEditor';
+
+// Workspaces only some tools use load when shown, so each tool page carries
+// only its own (docs/10 → initial JS on a tool page).
+const CanvasEditor = lazy(() =>
+  import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
+);
+const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
+const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
+const Timeline = lazy(() => import('./Timeline').then((m) => ({ default: m.Timeline })));
 
 /** What the shell needs from the registry entry (serialisable, no Zod). */
 export interface ShellTool {
@@ -775,7 +792,11 @@ export function ToolShell({
           />
         </OptionRow>
       ))}
-      {showCrop && <CropFields editor={editor} ratio={ratio} />}
+      {showCrop && (
+        <Suspense fallback={null}>
+          <CropFields editor={editor} ratio={ratio} />
+        </Suspense>
+      )}
       {media?.summary && hasFile && <OptionFact label="File">{media.summary}</OptionFact>}
       {facts.map((fact) => (
         <OptionFact key={fact.label} label={fact.label}>
@@ -1094,7 +1115,9 @@ export function ToolShell({
               title="Crop box"
               variant="sheet"
             >
-              <CropFields editor={editor} ratio={ratio} />
+              <Suspense fallback={null}>
+                <CropFields editor={editor} ratio={ratio} />
+              </Suspense>
             </Dialog>
           )}
           <Dialog
@@ -1249,13 +1272,15 @@ function Workspace({
   ) {
     return (
       <div className={frame}>
-        <CanvasEditor
-          src={state.input.url}
-          editor={editor}
-          ratio={ratio}
-          initialMode={preset.editor?.mode}
-          enabledModes={preset.editor?.modes}
-        />
+        <Suspense fallback={null}>
+          <CanvasEditor
+            src={state.input.url}
+            editor={editor}
+            ratio={ratio}
+            initialMode={preset.editor?.mode}
+            enabledModes={preset.editor?.modes}
+          />
+        </Suspense>
       </div>
     );
   }
@@ -1280,15 +1305,17 @@ function Workspace({
   if (refine && input.url && output.url && output.width && output.height) {
     return (
       <div className={frame}>
-        <RefineBrush
-          result={output.url}
-          original={input.url}
-          width={output.width}
-          height={output.height}
-          strokes={refine.strokes}
-          onApply={refine.apply}
-          onCancel={refine.cancel}
-        />
+        <Suspense fallback={null}>
+          <RefineBrush
+            result={output.url}
+            original={input.url}
+            width={output.width}
+            height={output.height}
+            strokes={refine.strokes}
+            onApply={refine.apply}
+            onCancel={refine.cancel}
+          />
+        </Suspense>
       </div>
     );
   }
@@ -1459,17 +1486,19 @@ function TimelineWorkspace({
           className="aspect-video max-h-[46dvh] w-full bg-media-scrim object-contain"
         />
       )}
-      <Timeline
-        durationSec={durationSec}
-        fps={fps ? Math.round(fps) : undefined}
-        kind={video ? 'video' : 'audio'}
-        value={range}
-        onChange={setRange}
-        thumbnails={thumbs}
-        onSeek={(time) => {
-          if (player.current && player.current.readyState > 0) player.current.currentTime = time;
-        }}
-      />
+      <Suspense fallback={null}>
+        <Timeline
+          durationSec={durationSec}
+          fps={fps ? Math.round(fps) : undefined}
+          kind={video ? 'video' : 'audio'}
+          value={range}
+          onChange={setRange}
+          thumbnails={thumbs}
+          onSeek={(time) => {
+            if (player.current && player.current.readyState > 0) player.current.currentTime = time;
+          }}
+        />
+      </Suspense>
     </div>
   );
 }

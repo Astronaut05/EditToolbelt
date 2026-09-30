@@ -330,3 +330,13 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - **Copy:** hybrid tools' "Why use this" says free in the browser, with credits only for server processing.
 **Why:** `tools/photo.md` → P07; `docs/13` (u2netp's weights are published under the repo's Apache-2.0, now ✅); `docs/10` (≤ 120 MB model budget, models cached by the service worker); `CLAUDE.md` rules 1, 4 and 6.
 **Reverse:** swap or add models in `SEGMENT_MODELS` and `models.json`; turn threads on only if tool pages become cross-origin isolated; the server path joins `removeBackgroundEngine` in M5.
+
+## 2026-09-30 · Script budget for working tool pages
+
+**Decision:**
+- Lighthouse now checks 6 pages: the 5 before (home, a hub, a light tool, the isolated route, and `/upscale-image` as the coming-soon page, since `/remove-background` is no longer one) plus `/remove-background`, the heaviest working tool.
+- A page with a working tool gets a 180 KB script-transfer budget; every other page keeps 160 KB. The difference is ToolShell and the tool's own view (about 20 KB), which load with the page so the drop zone works at once. The engine stays out of it.
+- To keep it there, what only some tools use loads when shown: the Canvas Editor, the crop fields, the timeline and the Refine brush are lazy in ToolShell, and Remove Background's engine loads when the first photo arrives (`lazyEngine`, `@etb/engines/remove-background`). Its device checks (WebGPU, cached models) run when the page is idle.
+- The initial-JS budget on module scripts in the HTML (150 KB, `js-budget.ts`) is unchanged.
+**Why:** `docs/10` → Budgets ("the engine is not in the initial bundle"). The 160 KB limit was set in M1, before any page ran a tool; measured on `/remove-background`: 176 KB before this, 169 KB after, against 147 KB for a hub. Made without sign-off; flagged at checkpoint 3.
+**Reverse:** `TOOL_PAGES` and `TOOL_SCRIPT_MAX` in `scripts/lighthouse.ts`.

@@ -2,9 +2,10 @@
 
 import {
   canRunQuality,
+  lazyEngine,
   modelCached,
-  removeBackgroundEngine,
   SEGMENT_MODELS,
+  type RemoveBackgroundOptions,
   type SegmentModel,
 } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
@@ -71,22 +72,55 @@ const MODEL_OPTION: ShellOption = {
   ],
 };
 
+/** The engine loads when the first photo arrives, not with the page (docs/10). */
+const engine = lazyEngine<RemoveBackgroundOptions>(
+  () => import('@etb/engines/remove-background').then((m) => m.removeBackgroundEngine),
+  {
+    capabilities: () => ({
+      supported:
+        typeof OffscreenCanvas !== 'undefined' &&
+        typeof createImageBitmap === 'function' &&
+        typeof WebAssembly !== 'undefined',
+      reason:
+        'This browser is too old to run the AI model. Try a current Chrome, Edge, Firefox or Safari.',
+    }),
+    estimate: () => ({ seconds: 3 }),
+  },
+);
+
 const MODELS_BASE = modelUrl('');
+
+/** Runs `work` once the page is idle, so device checks don't compete with the first paint. */
+function whenIdle(work: () => void): () => void {
+  if (typeof requestIdleCallback === 'function') {
+    const id = requestIdleCallback(work, { timeout: 2000 });
+    return () => {
+      cancelIdleCallback(id);
+    };
+  }
+  const id = setTimeout(work, 200);
+  return () => {
+    clearTimeout(id);
+  };
+}
 
 /** Which models are already on this device (in the models cache). */
 function useCachedModels() {
   const [cached, setCached] = useState<Record<string, boolean>>({});
   useEffect(() => {
     let live = true;
-    void Promise.all(
-      Object.values(SEGMENT_MODELS).map(
-        async (model) => [model.id, await modelCached(model, MODELS_BASE)] as const,
-      ),
-    ).then((entries) => {
-      if (live) setCached(Object.fromEntries(entries));
+    const cancel = whenIdle(() => {
+      void Promise.all(
+        Object.values(SEGMENT_MODELS).map(
+          async (model) => [model.id, await modelCached(model, MODELS_BASE)] as const,
+        ),
+      ).then((entries) => {
+        if (live) setCached(Object.fromEntries(entries));
+      });
     });
     return () => {
       live = false;
+      cancel();
     };
   }, []);
   return cached;
@@ -100,9 +134,13 @@ function modelFor(quality: boolean | null, choice: string | undefined): SegmentM
 export default function RemoveBackground({ tool }: { tool: ShellTool }) {
   // null until checked: WebGPU with 16-bit floats decides whether quality mode runs.
   const [quality, setQuality] = useState<boolean | null>(null);
-  useEffect(() => {
-    void canRunQuality().then(setQuality);
-  }, []);
+  useEffect(
+    () =>
+      whenIdle(() => {
+        void canRunQuality().then(setQuality);
+      }),
+    [],
+  );
   const cached = useCachedModels();
 
   const preset = useMemo<ShellPreset>(
@@ -158,7 +196,7 @@ export default function RemoveBackground({ tool }: { tool: ShellTool }) {
     <ToolShell
       tool={tool}
       preset={preset}
-      engine={removeBackgroundEngine}
+      engine={engine}
       engineOptions={{ modelsBase: MODELS_BASE }}
       onEvent={trackUnknown}
     />
