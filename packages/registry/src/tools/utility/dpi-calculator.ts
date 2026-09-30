@@ -6,7 +6,8 @@ export default defineTool({
   slug: 'dpi-calculator',
   category: 'utility',
   name: 'Print Size & DPI Calculator',
-  tagline: 'Find the print size of an image at any DPI, or the pixels a print needs, in cm or inches.',
+  tagline:
+    'Find the print size of an image at any DPI, or the pixels a print needs, in cm or inches.',
   summary: 'Pixels to cm or inches at any DPI',
   status: 'soon',
   wave: 2,

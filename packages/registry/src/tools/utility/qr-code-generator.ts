@@ -47,7 +47,7 @@ export default defineTool({
         a: 'SVG for print and design apps, since it stays sharp at any size. PNG for documents, slides and the web; pick 2048 px or more for print.',
       },
       {
-        q: 'Why won\'t my colored QR code scan?',
+        q: "Why won't my colored QR code scan?",
         a: 'Scanners need strong contrast and usually dark dots on a light background. Keep the contrast above 4:1; the tool warns you when your colors fall below that or are inverted.',
       },
     ],

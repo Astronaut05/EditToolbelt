@@ -6,7 +6,8 @@ export default defineTool({
   slug: 'vfr-to-cfr',
   category: 'video',
   name: 'VFR to CFR',
-  tagline: 'Convert variable frame rate phone and screen recordings to constant, so they stay in sync.',
+  tagline:
+    'Convert variable frame rate phone and screen recordings to constant, so they stay in sync.',
   summary: 'Keep phone footage in sync in Premiere',
   status: 'soon',
   wave: 2,

@@ -49,7 +49,10 @@ const PRESET: ShellPreset = {
   formats: IMAGE_FORMATS_LINE,
   formatsShort: 'JPG, PNG, WebP, AVIF, HEIC',
   options: OPTIONS,
-  phoneGroups: [['format', 'quality'], ['background', 'metadata']],
+  phoneGroups: [
+    ['format', 'quality'],
+    ['background', 'metadata'],
+  ],
   runLabel: 'Convert',
   outputExt: (options) => EXT[options.format ?? 'jpeg'] ?? 'jpg',
   outputSuffix: '',
