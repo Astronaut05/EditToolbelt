@@ -655,3 +655,9 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M3 ("Telegram alerts and daily digest wiring"), `docs/07` → Alerts, `docs/04` → Account deletion, `docs/05` (the nightly ledger invariant), `docs/08` (retention periods).
 **Reverse:** stop the loop in `main.py` (the worker goes back to idling). Rules and jobs are one entry each in `alerts.DATABASE_RULES` and `scheduler.DAILY`.
+
+## 2026-09-30 · drizzle-kit's esbuild moved to the patched line
+
+**Decision:** a pnpm override (`pnpm-workspace.yaml`) moves the esbuild that `@esbuild-kit/core-utils` (under drizzle-kit, dev only) pins from 0.18.20 to 0.25.12. That clears Dependabot's moderate alert for GHSA-67mh-4wv8-2f99 on `main`. The flaw is in esbuild's dev server, which drizzle-kit never starts, so nothing was exposed; the override just keeps the alert list empty. 0.25.12 was already in the lockfile (drizzle-kit uses it directly), so nothing new is downloaded, and `pnpm db:generate` works the same.
+**Why:** `docs/11` (keep dependency alerts at zero); `pnpm audit` is clean after it.
+**Reverse:** delete the `overrides` entry once drizzle-kit drops `@esbuild-kit`.
