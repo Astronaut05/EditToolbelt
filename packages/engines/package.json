@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./remove-background": "./src/image/rmbg/remove-background.ts"
+    "./remove-background": "./src/image/rmbg/remove-background.ts",
+    "./media": "./src/video/media.ts",
+    "./video-converter": "./src/video/convert-video.ts"
   },
   "scripts": {
     "lint": "eslint .",

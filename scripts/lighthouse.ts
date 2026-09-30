@@ -30,7 +30,7 @@ import lighthouse from 'lighthouse';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE_PORT = 4175;
 const DEBUG_PORT = 9333;
-/** Home, a hub, a light tool, the heaviest tool (P07), a coming-soon page and the isolated route. */
+/** Home, a hub, a light tool, the heaviest tool (P07), a coming-soon page and a video tool (V03). */
 const PAGES = [
   '/',
   '/photo',
@@ -44,7 +44,7 @@ const PAGES = [
  * engine) loads with them: script transfer up to 180 KB instead of 160 KB.
  * See docs/DECISIONS.md → "Script budget for working tool pages".
  */
-const TOOL_PAGES = new Set(['/remove-background']);
+const TOOL_PAGES = new Set(['/remove-background', '/video-converter']);
 const TOOL_SCRIPT_MAX = 180_000;
 /** Odd, so each median is one of the runs' values. */
 const RUNS = 5;

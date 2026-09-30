@@ -1,6 +1,6 @@
 'use client';
 
-import { videoConverterEngine } from '@etb/engines';
+import { lazyEngine, type VideoConverterOptions } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
@@ -43,6 +43,15 @@ const OPTIONS: ShellOption[] = [
   },
 ];
 
+// The engine and Mediabunny load on the first run, not with the page (docs/10).
+const engine = lazyEngine<VideoConverterOptions>(
+  () => import('@etb/engines/video-converter').then((m) => m.videoConverterEngine),
+  {
+    capabilities: () => ({ supported: true }),
+    estimate: (input) => ({ seconds: Math.max(0.5, input.size / 100_000_000) }),
+  },
+);
+
 const PRESET: ShellPreset = {
   ...VIDEO_INTAKE,
   dropTitle: 'Drop a video to convert',
@@ -72,7 +81,7 @@ export default function VideoConverter({ tool, to }: { tool: ShellTool; to?: str
     <ToolShell
       tool={tool}
       preset={PRESET}
-      engine={videoConverterEngine}
+      engine={engine}
       initialOptions={initialOptions}
       onEvent={trackUnknown}
     />

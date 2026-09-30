@@ -31,9 +31,9 @@ export {
   MediaInputError,
   probeMedia,
   thumbnails,
-  VIDEO_LIMITS,
   type MediaInfo,
 } from './video/media';
+export { VIDEO_LIMITS } from './video/limits';
 export { trimEngine, type TrimOptions } from './video/trim';
 export { muteGain, muteVideoEngine, silence, type MuteOptions } from './video/mute';
 export {

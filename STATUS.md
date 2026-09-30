@@ -37,7 +37,7 @@
 - M2b: Rotate & Flip Image (straighten by 0.1° with auto-crop or an expanded canvas, 90° turns and flips without resampling, batches of 50). Also fixes a half turn in Crop Image that returned the original pixels (#30).
 - CI: Lighthouse's LCP gate now reads runs with applied throttling (stable 1.6-1.8 s) instead of simulated ones (1.9-2.7 s on one build); the limit is unchanged (#30).
 - M2b: the video tools (#31):
-  - Video Converter: MP4, MOV, WebM, MKV; remuxes when the tracks fit the target (instant, frames untouched), re-encodes only what doesn't. AVI and ProRes wait for the server path (M3). Pair pages `mov-to-mp4`, `mkv-to-mp4`, `webm-to-mp4`, `mp4-to-webm`.
+  - Video Converter: MP4, MOV, WebM, MKV; remuxes when the tracks fit the target (instant, frames untouched), re-encodes only what doesn't. AVI and ProRes wait for the server path (M3). The route is no longer cross-origin isolated, since WebCodecs doesn't need it. Pair pages `mov-to-mp4`, `mkv-to-mp4`, `webm-to-mp4`, `mp4-to-webm`.
   - GIF to MP4: our own GIF reader, every frame keeps its own delay, transparency filled, 1 to 10 plays.
   - Mute Video: all the audio (video packets byte-identical) or only a range, with 10 ms fades.
   - Video Info: codec, profile, bit depth, color, HDR, rotation, and a measured VFR check, with what to do about each, as text or JSON.

@@ -19,7 +19,6 @@ export default defineTool({
   limits: { client: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 } },
   cost: { kind: 'perMinute', credits: 1, minCredits: 1 },
   surfaces: ['web', 'mobile', 'api'],
-  crossOriginIsolated: true,
   seo: {
     title: 'Video Converter, MOV, MKV and WebM to MP4 | EditToolbelt',
     description:
