@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 about 98 % done** (15 of 15 launch tools live, 15 of 17 pair pages; left: the local-launch checks) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 about 98 % done** (15 of 15 launch tools and all 11 M2b tools live; 25 pair pages, 5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair; left: the local-launch checks) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -46,12 +46,13 @@
   - Trim Audio: keep or remove one range on the real waveform, to the millisecond; fades in and out; WAV and FLAC cut to the sample.
   - BPM & Key Finder: tempo with half/double alternatives, beat markers as CSV or text, key with its Camelot code, plus tap tempo and a metronome. Tested on a generated set (30 loops, 30 progressions); real songs are for the stress test.
   - MP3 and FLAC always use our own encoders, and every audio re-encode goes through one gapless pipeline (WebKit's MP3 encoder dropped the last frames).
+- M2b: Color Palette from Image (k-means in Oklab, deterministic; CSS, JSON, ASE or a PNG card) and Color Picker from Image (a loupe, 1 px exact or 3 × 3 and 5 × 5 averages, keyboard picking, up to 24 picks). All 11 M2b tools are live (#33).
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
 2. M2 local-launch checks: Playwright on Chromium, Firefox, WebKit and phone, and the Lighthouse budgets, on the production build.
-3. M2b: 2 tools left (Palette and Color Picker from an image), then checkpoint 3.
+3. Checkpoint 3 (M2 local launch ready to stress-test).
 
 ## Blocked
 

@@ -9,6 +9,8 @@ export const TOOL_IDS = [
   'bitrate-calculator',
   'bpm-key-finder',
   'color-converter',
+  'color-palette-from-image',
+  'color-picker-from-image',
   'compress-image',
   'compress-video',
   'crop-image',

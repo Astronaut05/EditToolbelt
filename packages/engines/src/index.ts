@@ -82,6 +82,9 @@ export {
   subtitleShiftEngine,
   type SubtitleShiftOptions,
 } from './subtitle-shift';
+export { AUDIO_LIMITS, audioConverterEngine, type AudioConverterOptions } from './audio/convert';
+export { probeAudio, type AudioProbe } from './audio/probe';
+export { audioPeaks, fadeGain, trimAudioEngine, type TrimAudioOptions } from './audio/trim';
 export {
   gifToVideoEngine,
   GIF_INPUT_LIMITS,
@@ -89,6 +92,15 @@ export {
   type GifToVideoOptions,
 } from './video/gif-to-video';
 export { gifFrames, readGif, type GifInfo } from './video/gif/decode';
+export { paletteEngine, PALETTE_LIMITS, type PaletteEngineOptions } from './image/palette';
+export {
+  describeColor,
+  pickedColorsEngine,
+  readPicked,
+  sampleColor,
+  type PickedColor,
+  type PickedColorsOptions,
+} from './image/pick';
 export {
   planConversion,
   videoConverterEngine,
@@ -96,8 +108,5 @@ export {
   type ConversionPlan,
   type VideoConverterOptions,
 } from './video/convert-video';
-export { AUDIO_LIMITS, audioConverterEngine, type AudioConverterOptions } from './audio/convert';
-export { probeAudio, type AudioProbe } from './audio/probe';
-export { audioPeaks, fadeGain, trimAudioEngine, type TrimAudioOptions } from './audio/trim';
 export { bpmKeyEngine, Downmix, type BpmKeyOptions } from './audio/bpm-key';
 export { addTap, tapBpm } from '@etb/core';

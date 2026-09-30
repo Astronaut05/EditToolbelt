@@ -474,3 +474,13 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - An analyser tool that reads the file first (a probe) now also runs as the file arrives, as `autoRun` asks.
 **Why:** `tools/audio.md` → A03 (in-house DSP, no AGPL libraries); `CLAUDE.md` rules 1 and 6.
 **Reverse:** `packages/core/src/audio/analysis.ts` (`detectTempo`, `detectKey`); swap in a trained model later if accuracy on real music falls short.
+
+## 2026-09-30 · Color Palette (C01) and Color Picker (C02) in the shell
+
+**Decision:**
+- **Palette:** the image is scaled to 256 px on its long side, its pixels binned (5 bits a channel) and grouped by weighted k-means in Oklab, seeded k-means++ with a fixed seed so the same image always gives the same palette. Colours closer than ΔE 2 are merged, so an image with 4 colours gives 4 even when 6 are asked for. Vibrant keeps pixels with Oklch chroma ≥ 0.1, Muted < 0.08; each falls back to every pixel if under 2 % of the image qualifies. Near-white and near-black are left out by default. The maths is in `packages/core` (`extractPalette`, shared with the panel).
+- **Palette result:** a new ToolShell result view (`Swatches`): a strip with each colour as wide as its share, then a card a colour with its % written out and HEX, RGB and HSL to copy. The download is CSS variables (default), JSON, ASE (Adobe Swatch Exchange 1.0, RGB) or a PNG palette card (a band a colour, its HEX under it). It runs as the image arrives, and again on any change.
+- **Picker:** a new ToolShell workspace (`preset.picker`): the image, a loupe (4×, 8× or 16×, the sample outlined), a live readout and the list of picks (up to 24, newest first). Keyboard: Tab to the image, arrows move one pixel, Shift ten, Enter picks. Pixels are read with no colour-space conversion, so 1 px is the file's exact value; 3 × 3 and 5 × 5 are averaged in linear light. Picks are kept in an option, so the download (CSS, JSON or ASE of the picks, oldest first) stays current.
+- The picker loads the image through an `<img>` element: the page's CSP (`connect-src 'self'`) doesn't let `fetch` read `blob:` URLs, and it shouldn't.
+**Why:** `tools/color.md` → C01 (4 flat colours → exactly those 4 within ΔE 2) and C02 (pixel-exact read), both checked in unit and Playwright tests; `CLAUDE.md` rule 2 (one shell).
+**Reverse:** `packages/core/src/color/palette.ts`, `packages/engines/src/image/{palette,pick}.ts`, `packages/ui/src/tool/{Swatches,ColorPicker}.tsx`.

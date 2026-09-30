@@ -33,6 +33,7 @@ import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
+import type { SwatchInfo } from './Swatches';
 import { accepts, handOff, takeHandoff } from './handoff';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
@@ -46,8 +47,10 @@ import { useEditor, type EditorState } from './useEditor';
 const CanvasEditor = lazy(() =>
   import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
 );
+const ColorPicker = lazy(() => import('./ColorPicker').then((m) => ({ default: m.ColorPicker })));
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
+const Swatches = lazy(() => import('./Swatches').then((m) => ({ default: m.Swatches })));
 const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.TempoTools })));
 
 /** Tailwind's `lg` breakpoint: two columns from here up. */
@@ -302,6 +305,13 @@ export interface ShellPreset {
     /** The option that holds Refine brush strokes (JSON): P07's keep/erase brush on the result. */
     refine?: string;
   };
+  /**
+   * C02: the image becomes a colour picker. Picks are kept (as a JSON list of
+   * HEX, newest first) in the `history` option, which the engine turns into
+   * the download; `sample` and `zoom` are the options for the block size and
+   * the loupe.
+   */
+  picker?: { history: string; sample: string; zoom: string };
   /** A03: a tap tempo pad and a metronome under the settings, file or not. */
   tempo?: boolean;
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
@@ -364,6 +374,8 @@ export interface OutputInfo {
   details?: { label: string; value: string }[];
   /** The start of a text output, for `preview: 'text'`. */
   text?: string;
+  /** Colours found (C01), shown as a palette. */
+  swatches?: SwatchInfo[];
 }
 
 /** Characters of a text output shown in the preview. */
@@ -547,6 +559,7 @@ export function ToolShell({
             height: out.height ?? input.height,
             notes: out.notes,
             details: out.details,
+            swatches: out.swatches,
             text,
           },
         });
@@ -1031,6 +1044,18 @@ export function ToolShell({
       media={media}
       thumbs={thumbs}
       peaks={peaks}
+      picker={
+        preset.picker
+          ? {
+              sample: Number(options[preset.picker.sample]) || 1,
+              zoom: Number(options[preset.picker.zoom]) || 8,
+              history: options[preset.picker.history],
+              onPick: (hexes) => {
+                if (preset.picker) changeOption(preset.picker.history, JSON.stringify(hexes));
+              },
+            }
+          : null
+      }
       refine={
         refining && refineOption
           ? {
@@ -1326,6 +1351,7 @@ function Workspace({
   media,
   thumbs,
   peaks,
+  picker,
   refine,
 }: {
   state: ShellState;
@@ -1340,6 +1366,12 @@ function Workspace({
   media: ProbeInfo | null;
   thumbs: string[];
   peaks: number[];
+  picker: {
+    sample: number;
+    zoom: number;
+    history: string | undefined;
+    onPick: (hexes: string[]) => void;
+  } | null;
   refine: {
     strokes: BrushStroke[];
     apply: (strokes: BrushStroke[]) => void;
@@ -1348,6 +1380,14 @@ function Workspace({
 }) {
   if (state.kind !== 'running' && state.kind !== 'result' && state.kind !== 'ready') return null;
   const frame = 'relative h-98 overflow-hidden lg:absolute lg:inset-0 lg:h-auto';
+
+  if (picker && state.input.url) {
+    return (
+      <Suspense fallback={null}>
+        <ColorPicker src={state.input.url} {...picker} />
+      </Suspense>
+    );
+  }
 
   if (tool.ui === 'batch' || batch.length > 0) {
     return (
@@ -1443,6 +1483,14 @@ function Workspace({
           </pre>
         )}
       </div>
+    );
+  }
+
+  if (output.swatches && output.swatches.length > 0) {
+    return (
+      <Suspense fallback={null}>
+        <Swatches swatches={output.swatches} image={input.url} />
+      </Suspense>
     );
   }
 
