@@ -199,3 +199,9 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** `/convert/<from>-to-<to>` is its own route. It renders the converter with the target preset (`to`), the pair's own H1, tagline and how-to, then an "About FROM and TO" section, how-to, why, FAQ, the sibling pairs and related tools. The copy lives in `packages/registry/src/pairs.ts`, one entry per pair, and a registry test fails if a pair whose tool works has no copy, or if two pairs share their "About" text. A pair page exists only once its tool works: it is in the sitemap and search, and has its own Open Graph image and canonical URL. The converter's own page links to its pairs under "Conversions". Live now: srt-to-vtt, vtt-to-srt, ass-to-srt.
 **Why:** `docs/09` → URL scheme (unique copy per pair, canonical to itself) and Quality rules (no page without a working tool, no near-duplicates); `docs/12` → M2 (pairs only for live tools).
 **Reverse:** drop the route; the registry copy is unused without it.
+
+## 2026-09-30 · Lighthouse budgets read the median of 3 runs
+
+**Decision:** `pnpm lighthouse` runs each of the 5 pages 3 times and checks the budgets against the median run, picked the way Lighthouse picks it (closest to the median FCP and TTI). The saved report is that run. The budgets themselves are unchanged.
+**Why:** one simulated mobile run swings LCP by a few hundred ms; `/photo` failed at 2530 ms on a PR that didn't touch it and passed at 1814 ms on the median. Lighthouse's variability guide recommends the median of several runs. It costs about a minute of CI time.
+**Reverse:** set `RUNS = 1` in `scripts/lighthouse.ts`.

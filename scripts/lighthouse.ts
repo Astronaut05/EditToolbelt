@@ -3,7 +3,10 @@
  * production build, served by `pnpm preview`'s server (headers, CSP,
  * compression). Lighthouse's default mobile config: emulated phone, simulated
  * slow 4G and a 4× slower CPU, so these are lab ceilings, stricter than the
- * real-user p75 budgets. Reports go to apps/web/.lighthouse/ (never uploaded).
+ * real-user p75 budgets. One run swings LCP by a few hundred ms, so each page
+ * runs RUNS times and the budgets read Lighthouse's own median run (closest to
+ * the median FCP and TTI), as its variability guide recommends. Reports (the
+ * median run) go to apps/web/.lighthouse/ (never uploaded).
  *
  *   pnpm build && pnpm lighthouse          (CHROME_PATH picks the browser)
  */
@@ -20,6 +23,8 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE_PORT = 4175;
 const DEBUG_PORT = 9333;
 const PAGES = ['/', '/photo', '/timecode-calculator', '/remove-background', '/video-converter'];
+/** Odd, so the median is one of the runs. */
+const RUNS = 3;
 
 interface Budget {
   label: string;
@@ -60,6 +65,23 @@ export const BUDGETS: Budget[] = [
     unit: 'B',
   },
 ];
+
+/**
+ * Lighthouse's median run (core/lib/median-run.js): the run closest to the
+ * median FCP and median TTI, the earliest and latest moments of the load.
+ */
+function medianRun<T extends { lhr: Result }>(runs: T[]): T {
+  const value = (run: T, audit: string) => run.lhr.audits[audit]?.numericValue ?? NaN;
+  const median = (audit: string) =>
+    runs.map((run) => value(run, audit)).sort((a, b) => a - b)[Math.floor(runs.length / 2)] ?? NaN;
+  const fcp = median('first-contentful-paint');
+  const tti = median('interactive');
+  const distance = (run: T) =>
+    (value(run, 'first-contentful-paint') - fcp) ** 2 + (value(run, 'interactive') - tti) ** 2;
+  const [best] = runs.toSorted((a, b) => distance(a) - distance(b));
+  if (!best) throw new Error('No Lighthouse runs');
+  return best;
+}
 
 function waitFor(url: string, timeoutMs = 15_000): Promise<void> {
   const until = Date.now() + timeoutMs;
@@ -111,13 +133,14 @@ async function main(): Promise<number> {
     const failures: string[] = [];
     for (const path of PAGES) {
       const url = `http://localhost:${String(SITE_PORT)}${path}`;
-      const run = await lighthouse(url, { port: DEBUG_PORT, output: 'json', logLevel: 'error' });
-      if (!run) throw new Error(`No result for ${url}`);
-      const lhr = run.lhr as unknown as Result;
-      writeFileSync(
-        join(out, `${path === '/' ? 'home' : path.slice(1)}.json`),
-        run.report as string,
-      );
+      const runs = [];
+      for (let i = 0; i < RUNS; i++) {
+        const run = await lighthouse(url, { port: DEBUG_PORT, output: 'json', logLevel: 'error' });
+        if (!run) throw new Error(`No result for ${url}`);
+        runs.push({ lhr: run.lhr as unknown as Result, report: run.report as string });
+      }
+      const { lhr, report } = medianRun(runs);
+      writeFileSync(join(out, `${path === '/' ? 'home' : path.slice(1)}.json`), report);
       const cells = BUDGETS.map((budget) => {
         const value = budget.read(lhr);
         const ok =
@@ -136,8 +159,8 @@ async function main(): Promise<number> {
     }
     console.log(
       failures.length
-        ? `\nLighthouse budgets failed: ${failures.join(', ')}`
-        : '\nLighthouse budgets met.',
+        ? `\nLighthouse budgets failed (median of ${String(RUNS)} runs): ${failures.join(', ')}`
+        : `\nLighthouse budgets met (median of ${String(RUNS)} runs).`,
     );
     return failures.length ? 1 : 0;
   } finally {
