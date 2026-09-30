@@ -1,0 +1,20 @@
+1
+00:00:01,000 --> 00:00:03,500
+Rolling in three, two, one.
+
+2
+00:00:03,600 --> 00:00:06,250
+<i>This line is in italics</i>
+and this one is not.
+
+3
+00:00:06,300 --> 00:00:09,999
+Timecode 01:02:03;04 & a <b>bold</b> word.
+
+4
+00:59:59,001 --> 01:00:02,002
+Oʻzbekcha: qoʻshiq. Кириллица: қ ғ ҳ ў.
+
+5
+01:00:02,100 --> 01:00:04,000
+<u>Last</u> cue.

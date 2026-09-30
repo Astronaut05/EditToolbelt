@@ -28,12 +28,15 @@ test.describe('site', () => {
     expect(seen.size).toBeGreaterThan(15);
   });
 
-  test('all 75 tool pages exist, noindex while soon', async ({ request }) => {
+  test('all 75 tool pages and every pair page exist, noindex while soon', async ({ request }) => {
     const index = (await (await request.get('/search-index.json')).json()) as {
+      kind: 'tool' | 'pair';
       path: string;
       soon: boolean;
     }[];
-    expect(index).toHaveLength(75);
+    expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(75);
+    // Pair pages exist only while their converter works (docs/12 → M2).
+    expect(index.filter((entry) => entry.kind === 'pair').length).toBeGreaterThan(0);
     for (const entry of index) {
       const html = await (await request.get(entry.path)).text();
       expect(html, entry.path).toContain(entry.soon ? 'noindex' : '<h1');
@@ -60,7 +63,7 @@ test.describe('site', () => {
     for (const item of cases) {
       await page.goto(`/workshop/tools/${item.type}`, { waitUntil: 'networkidle' });
       await page
-        .locator('input[type=file]')
+        .locator('input[type=file][data-hydrated]')
         .first()
         .setInputFiles({ name: item.file, mimeType: item.mime, buffer: Buffer.alloc(3000) });
       if (item.run) await page.getByRole('button', { name: item.run }).click();

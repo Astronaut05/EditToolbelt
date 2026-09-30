@@ -1,5 +1,8 @@
 import {
   availableRelated,
+  conversionPath,
+  livePairs,
+  PAIR_COPY,
   categoryPath,
   getCategory,
   hubOrder,
@@ -73,4 +76,15 @@ export function whyPoints(tool: ToolDef): string[] {
       ? 'Free, with no sign-up and no watermark.'
       : 'Paid with credits, charged only when the job succeeds. Failed jobs refund automatically.';
   return [speed, privacy, cost];
+}
+
+/** Links to a tool's conversion pair pages (docs/09 → internal linking), optionally minus one. */
+export function pairLinks(toolId: string, except?: string): RelatedLink[] {
+  return livePairs(toolId)
+    .filter((pair) => pair.slug !== except && PAIR_COPY[pair.slug])
+    .map((pair) => ({
+      href: conversionPath(pair),
+      name: PAIR_COPY[pair.slug]?.h1 ?? pair.slug,
+      summary: `${pair.from.toUpperCase()} in, ${pair.to.toUpperCase()} out`,
+    }));
 }

@@ -36,6 +36,10 @@ export interface EngineOutput {
   durationSec?: number;
   /** Which path ran, shown in the result readout: "WebGPU", "WASM", "Server". */
   path: string;
+  /** What changed or was dropped, in plain words: "12 style overrides removed". */
+  notes?: string[];
+  /** Extra facts for the result readout: { label: 'Cues', value: '142' }. */
+  details?: { label: string; value: string }[];
 }
 
 export interface Engine<Opts = Record<string, unknown>, Out extends EngineOutput = EngineOutput> {

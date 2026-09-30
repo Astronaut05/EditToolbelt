@@ -54,7 +54,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Signalsmith Stretch (`signalsmith-stretch`, WASM/AudioWorklet) | tempo/pitch (A08, V13) | MIT | 🔍 — preferred over SoundTouch: permissive licence, no source-offer duty |
 | SoundTouch (JS/WASM port) | tempo/pitch fallback | LGPL-2.1 | ⚠️ only if Signalsmith falls short; separate file, source offer |
 | qrcode (npm) | QR generation (U01): browser entry only, it builds the matrix and we render SVG/PNG | MIT | ✅ checked 2026-09-30 (1.5.4) |
-| fflate | ZIP of batch outputs | MIT | 🔍 |
+| fflate | ZIP of batch outputs, loaded only for "Download all" | MIT | ✅ checked 2026-09-30 (0.8.3) |
 | `@mediabunny/mp3-encoder` (preferred) or lamejs | MP3 encoding — WebCodecs has no MP3 encoder | package MPL-2.0; LAME inside is LGPL | ⚠️ separate lazy-loaded file, source offer; 🔍 confirm the bundled encoder's licence |
 | `@mediabunny/aac-encoder` | AAC-LC encoding where the browser's WebCodecs can't (feature-detect first) | package MPL-2.0; WASM build of FFmpeg's AAC encoder (LGPL) | ⚠️ separate lazy-loaded file, source offer; AAC patent question → open question 10 |
 | pdf-lib | images to PDF (Wave 3) | MIT | 🔍 |

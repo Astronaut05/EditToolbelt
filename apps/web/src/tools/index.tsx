@@ -6,7 +6,8 @@ import type { ComponentType } from 'react';
 
 import { hasView, type ToolId } from './ids';
 
-type View = ComponentType<{ tool: ShellTool }>;
+/** `to` presets the output format on conversion pair pages (/convert/srt-to-vtt). */
+type View = ComponentType<{ tool: ShellTool; to?: string }>;
 
 /**
  * The client component behind each working tool, by registry id. Each one is
@@ -20,11 +21,12 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
   'color-converter': dynamic(() => import('./color-converter')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
+  'subtitle-converter': dynamic(() => import('./subtitle-converter')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
 };
 
-export function ToolView({ tool }: { tool: ShellTool }) {
+export function ToolView({ tool, to }: { tool: ShellTool; to?: string }) {
   if (!hasView(tool.id)) throw new Error(`${tool.id} is working but has no view in src/tools`);
   const View = VIEWS[tool.id];
-  return <View tool={tool} />;
+  return <View tool={tool} to={to} />;
 }

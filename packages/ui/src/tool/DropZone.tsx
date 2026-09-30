@@ -2,6 +2,7 @@
 
 import { Camera, ImageIcon, Plus, Upload } from 'lucide-react';
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useRef,
@@ -72,6 +73,12 @@ export function DropZone(props: DropZoneProps) {
   const input = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
+  // Marks the input once React owns it: a file set on the server-rendered
+  // input before hydration would be lost, so tests (and scripts) wait for this.
+  const markHydrated = useCallback((element: HTMLInputElement | null) => {
+    input.current = element;
+    element?.setAttribute('data-hydrated', '');
+  }, []);
   const mod = useSyncExternalStore(noSubscribe, modifierKey, () => 'Ctrl');
 
   function take(list: FileList | File[] | null | undefined) {
@@ -124,7 +131,7 @@ export function DropZone(props: DropZoneProps) {
   const hidden = (
     <>
       <input
-        ref={input}
+        ref={markHydrated}
         type="file"
         accept={accept}
         multiple={multiple}

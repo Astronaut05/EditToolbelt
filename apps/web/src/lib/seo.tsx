@@ -65,6 +65,35 @@ export function breadcrumbJsonLd(items: { name: string; path: string }[]): Json 
   };
 }
 
+function appJsonLd(app: { name: string; path: string; description: string; free: boolean }): Json {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebApplication',
+    name: app.name,
+    url: absoluteUrl(app.path),
+    description: app.description,
+    applicationCategory: 'MultimediaApplication',
+    operatingSystem: 'Any (web browser)',
+    isAccessibleForFree: app.free,
+    ...(app.free ? { offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' } } : {}),
+  };
+}
+
+function faqJsonLd(faq: readonly { q: string; a: string }[] | undefined): Json[] {
+  if (!faq?.length) return [];
+  return [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: faq.map((item) => ({
+        '@type': 'Question',
+        name: item.q,
+        acceptedAnswer: { '@type': 'Answer', text: item.a },
+      })),
+    },
+  ];
+}
+
 /** WebApplication for working tools; `soon` placeholders get none (they're noindex). */
 export function toolJsonLd(tool: ToolDef, category: Category): Json[] {
   const crumbs = breadcrumbJsonLd([
@@ -73,33 +102,37 @@ export function toolJsonLd(tool: ToolDef, category: Category): Json[] {
     { name: tool.name, path: `/${tool.slug}` },
   ]);
   if (!isAvailable(tool)) return [crumbs];
-  const app: Json = {
-    '@context': 'https://schema.org',
-    '@type': 'WebApplication',
+  const app = appJsonLd({
     name: tool.seo.h1,
-    url: absoluteUrl(`/${tool.slug}`),
+    path: `/${tool.slug}`,
     description: tool.seo.description,
-    applicationCategory: 'MultimediaApplication',
-    operatingSystem: 'Any (web browser)',
-    isAccessibleForFree: tool.cost.kind === 'free',
-    ...(tool.cost.kind === 'free'
-      ? { offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' } }
-      : {}),
-  };
-  const faq: Json[] = tool.seo.faq?.length
-    ? [
-        {
-          '@context': 'https://schema.org',
-          '@type': 'FAQPage',
-          mainEntity: tool.seo.faq.map((item) => ({
-            '@type': 'Question',
-            name: item.q,
-            acceptedAnswer: { '@type': 'Answer', text: item.a },
-          })),
-        },
-      ]
-    : [];
-  return [app, crumbs, ...faq];
+    free: tool.cost.kind === 'free',
+  });
+  return [app, crumbs, ...faqJsonLd(tool.seo.faq)];
+}
+
+/** A conversion pair page: its own WebApplication, breadcrumb through the converter, FAQ. */
+export function pairJsonLd(
+  pair: { path: string; title: string },
+  copy: { h1: string; description: string; faq: readonly { q: string; a: string }[] },
+  tool: ToolDef,
+  category: Category,
+): Json[] {
+  return [
+    appJsonLd({
+      name: copy.h1,
+      path: pair.path,
+      description: copy.description,
+      free: tool.cost.kind === 'free',
+    }),
+    breadcrumbJsonLd([
+      { name: 'Home', path: '/' },
+      { name: category.name, path: `/${category.slug}` },
+      { name: tool.name, path: `/${tool.slug}` },
+      { name: pair.title, path: pair.path },
+    ]),
+    ...faqJsonLd(copy.faq),
+  ];
 }
 
 export function websiteJsonLd(): Json {

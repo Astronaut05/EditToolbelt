@@ -5,3 +5,5 @@
 *.avif binary
 *.mp4 binary
 *.wav binary
+# Kept byte for byte: the test needs its BOM and CRLF line endings.
+fixtures/subtitles/messy.srt binary

@@ -11,5 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "dependencies": {
+    "@etb/core": "workspace:*"
+  }
 }

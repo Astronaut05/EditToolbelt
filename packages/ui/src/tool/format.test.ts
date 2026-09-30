@@ -24,6 +24,8 @@ describe('format helpers', () => {
   it('names outputs after the input', () => {
     expect(outputName('holiday.jpg', 'nobg', 'png')).toBe('holiday_nobg.png');
     expect(outputName('archive.tar.gz', 'x', 'zip')).toBe('archive.tar_x.zip');
+    // Converters keep the name and change the extension.
+    expect(outputName('episode 1.srt', '', 'vtt')).toBe('episode 1.vtt');
     expect(outputName('.hidden', 'x', 'png')).toBe('.hidden_x.png');
   });
 

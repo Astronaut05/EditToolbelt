@@ -24,7 +24,7 @@ import { SiteFrame } from '../../components/SiteFrame';
 import { ToolDetails } from '../../components/ToolDetails';
 import { hubRows } from '../../lib/hub';
 import { breadcrumbJsonLd, JsonLd, pageMetadata, toolJsonLd } from '../../lib/seo';
-import { relatedLinks, shellTool, whyPoints } from '../../lib/tool';
+import { pairLinks, relatedLinks, shellTool, whyPoints } from '../../lib/tool';
 import { ToolView } from '../../tools';
 import { hasView } from '../../tools/ids';
 
@@ -104,6 +104,7 @@ function LiveTool({ tool }: { tool: ToolDef }) {
         howTo={tool.seo.howTo ?? []}
         why={whyPoints(tool)}
         faq={tool.seo.faq ?? []}
+        conversions={pairLinks(tool.id)}
         related={relatedLinks(tool)}
         category={{
           href: categoryPath(category),

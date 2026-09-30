@@ -82,6 +82,8 @@ export interface ShellPreset {
   editor?: { mode?: EditorMode; modes?: EditorMode[]; compare?: boolean };
   /** Analyzer results (dummy data in M1). */
   analyze?: (input: InputInfo) => GridFact[];
+  /** Show the start of a text output (subtitles) instead of a file card. */
+  preview?: 'text';
 }
 
 export interface InputInfo {
@@ -103,7 +105,16 @@ export interface OutputInfo {
   path: string;
   width?: number;
   height?: number;
+  /** What the engine changed or dropped, in plain words. */
+  notes?: string[];
+  /** Extra readout facts from the engine (cue count, source format). */
+  details?: { label: string; value: string }[];
+  /** The start of a text output, for `preview: 'text'`. */
+  text?: string;
 }
+
+/** Characters of a text output shown in the preview. */
+const TEXT_PREVIEW_CHARS = 6000;
 
 export type ShellState =
   | { kind: 'empty' }
@@ -165,6 +176,8 @@ export function ToolShell({
   );
   const [range, setRange] = useState<TimelineRange>({ start: 0, end: 12 });
   const [batch, setBatch] = useState<BatchItem[]>([]);
+  const [batchDone, setBatchDone] = useState(false);
+  const batchOutputs = useRef(new Map<string, { blob: Blob; name: string }>());
   const [sheet, setSheet] = useState<number | null>(null);
   const controller = useRef<AbortController | null>(null);
   const urls = useRef<string[]>([]);
@@ -210,6 +223,10 @@ export function ToolShell({
         );
         const url = URL.createObjectURL(out.blob);
         urls.current.push(url);
+        const text =
+          preset.preview === 'text'
+            ? (await out.blob.text()).slice(0, TEXT_PREVIEW_CHARS)
+            : undefined;
         const seconds = (performance.now() - started) / 1000;
         track('tool_run_succeeded', {
           engine_path: out.path,
@@ -227,6 +244,9 @@ export function ToolShell({
             path: out.path,
             width: out.width ?? input.width,
             height: out.height ?? input.height,
+            notes: out.notes,
+            details: out.details,
+            text,
           },
         });
       } catch (error) {
@@ -257,7 +277,10 @@ export function ToolShell({
         mime: file.type.split('/')[0] || 'unknown',
         size: sizeBucket(file.size),
       });
-      if (tool.ui === 'batch') {
+      // Batch tools, and form tools that take several files at once (T01).
+      if (tool.ui === 'batch' || (preset.multiple && files.length > 1)) {
+        batchOutputs.current.clear();
+        setBatchDone(false);
         setBatch(
           files.map((f, i) => ({
             id: `${String(i)}-${f.name}`,
@@ -272,7 +295,7 @@ export function ToolShell({
       if (preset.autoRun) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [preset.autoRun, run, tool.ui, track],
+    [preset.autoRun, preset.multiple, run, tool.ui, track],
   );
 
   async function trySample() {
@@ -285,7 +308,9 @@ export function ToolShell({
   async function runBatch(files: File[]) {
     const abort = new AbortController();
     controller.current = abort;
+    track('tool_run_started', { path: 'client', files: String(files.length) });
     for (const [index, file] of files.entries()) {
+      const id = batch[index]?.id ?? String(index);
       const update = (patch: Partial<BatchItem>) => {
         setBatch((items) => items.map((item, i) => (i === index ? { ...item, ...patch } : item)));
       };
@@ -301,18 +326,63 @@ export function ToolShell({
             },
           },
         );
-        update({ status: 'done', resultSize: out.blob.size });
-      } catch {
+        batchOutputs.current.set(id, {
+          blob: out.blob,
+          name: outputName(file.name, preset.outputSuffix, out.ext),
+        });
+        update({ status: 'done', resultSize: out.blob.size, note: out.notes?.join('. ') });
+      } catch (error) {
         if (abort.signal.aborted) return;
-        update({ status: 'failed', error: "Couldn't read this file." });
+        update({
+          status: 'failed',
+          error: error instanceof Error ? error.message : "Couldn't read this file.",
+        });
       }
     }
+    setBatchDone(true);
   }
+
+  const saveBlob = useCallback((blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }, []);
+
+  const downloadItem = useCallback(
+    (id: string) => {
+      const item = batchOutputs.current.get(id);
+      if (!item) return;
+      saveBlob(item.blob, item.name);
+      track('tool_download');
+    },
+    [saveBlob, track],
+  );
+
+  /** Every finished file in one ZIP; fflate loads only when this is used. */
+  const downloadAll = useCallback(async () => {
+    const { zipSync } = await import('fflate');
+    const entries: Record<string, Uint8Array> = {};
+    for (const { blob, name } of batchOutputs.current.values()) {
+      let unique = name;
+      for (let n = 2; unique in entries; n += 1)
+        unique = name.replace(/(\.[^.]+)?$/, `-${String(n)}$1`);
+      entries[unique] = new Uint8Array(await blob.arrayBuffer());
+    }
+    saveBlob(new Blob([zipSync(entries)], { type: 'application/zip' }), `${tool.id}.zip`);
+    track('tool_download', { files: String(batchOutputs.current.size) });
+  }, [saveBlob, tool.id, track]);
 
   const cancel = useCallback(() => {
     controller.current?.abort();
     setState({ kind: 'empty' });
     setBatch([]);
+    setBatchDone(false);
+    batchOutputs.current.clear();
   }, []);
 
   const download = useCallback(() => {
@@ -403,17 +473,41 @@ export function ToolShell({
     </OptionsPanel>
   );
 
-  const running = state.kind === 'running';
+  const inBatch = batch.length > 0;
+  const batchRunning = inBatch && !batchDone && batch.some((item) => item.status !== 'queued');
+  const running = state.kind === 'running' || batchRunning;
   const result = state.kind === 'result';
   const actions = hasFile && (
     <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-border bg-bg px-4 pt-3 pb-6.5 lg:static lg:mt-6.5 lg:gap-3 lg:border-0 lg:bg-transparent lg:p-0">
-      {state.kind === 'ready' ? (
+      {inBatch ? (
+        batchDone ? (
+          <Button
+            variant="primary"
+            className="flex-1"
+            disabled={batch.every((item) => item.status !== 'done')}
+            onClick={() => void downloadAll()}
+            icon={<Download aria-hidden="true" size={18} strokeWidth={2} />}
+          >
+            Download all · ZIP
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            className="flex-1"
+            disabled={batchRunning}
+            onClick={() => {
+              if (state.kind === 'ready' && state.files) void runBatch(state.files);
+            }}
+          >
+            {preset.runLabel ?? 'Start'} · {batch.length} files
+          </Button>
+        )
+      ) : state.kind === 'ready' ? (
         <Button
           variant="primary"
           className="flex-1"
           onClick={() => {
-            if (tool.ui === 'batch' && state.files) void runBatch(state.files);
-            else if (state.files?.[0]) void run(state.input, state.files[0]);
+            if (state.files?.[0]) void run(state.input, state.files[0]);
           }}
         >
           {preset.runLabel ?? 'Start'}
@@ -475,7 +569,7 @@ export function ToolShell({
       range={range}
       setRange={setRange}
       batch={batch}
-      onDownloadItem={() => undefined}
+      onDownloadItem={downloadItem}
     />
   ) : state.kind === 'error' ? (
     <div className="flex h-full flex-col justify-center bg-surface px-4 py-10 lg:px-18">
@@ -534,6 +628,9 @@ export function ToolShell({
             {preset.runningNote}
           </p>
         )}
+        {result && state.output.notes && state.output.notes.length > 0 && (
+          <Notes notes={state.output.notes} className="mt-6 hidden lg:block" />
+        )}
         {next && <div className="hidden lg:block">{next}</div>}
         {state.kind === 'empty' && tool.howTo && (
           <NumberedList items={tool.howTo} className="mt-7.5 hidden lg:block" />
@@ -554,6 +651,9 @@ export function ToolShell({
             <h2 className="px-4 pt-4 text-24 leading-title font-display tracking-title">
               {preset.resultTitle}
             </h2>
+          )}
+          {result && state.output.notes && state.output.notes.length > 0 && (
+            <Notes notes={state.output.notes} className="mx-4 mt-4" />
           )}
           <div className="mx-4 mt-4 rounded-card border border-border">
             {phoneGroups.map((group, index) => {
@@ -618,6 +718,31 @@ export function ToolShell({
   );
 }
 
+/** What a run changed or dropped (e.g. "12 style overrides removed"), in plain words. */
+function Notes({ notes, className }: { notes: string[]; className?: string }) {
+  return (
+    <div className={className}>
+      <p className="font-mono text-11.5 font-medium uppercase tracking-label text-text-muted">
+        What changed
+      </p>
+      <ul className="mt-2.5 border-t border-border">
+        {notes.map((note) => (
+          <li
+            key={note}
+            className="flex items-baseline gap-2.5 border-b border-border py-2.5 text-14"
+          >
+            <span
+              aria-hidden="true"
+              className="size-1.5 flex-none translate-y-[-2px] rounded-full bg-text-muted"
+            />
+            {note}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function InputPreview({ input, noun, dim }: { input: InputInfo; noun: Noun; dim?: boolean }) {
   return (
     <div className="absolute inset-0">
@@ -663,7 +788,7 @@ function Workspace({
   if (state.kind !== 'running' && state.kind !== 'result' && state.kind !== 'ready') return null;
   const frame = 'relative h-98 overflow-hidden lg:absolute lg:inset-0 lg:h-auto';
 
-  if (tool.ui === 'batch') {
+  if (tool.ui === 'batch' || batch.length > 0) {
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
         <BatchList items={batch} onDownload={onDownloadItem} />
@@ -732,10 +857,46 @@ function Workspace({
       : undefined;
   const facts: Fact[] = [
     ...(dims ? [{ label: 'Dimensions', value: dims }] : []),
+    ...(output.details ?? []),
     { label: 'Size', value: `${formatBytes(input.size)} → ${formatBytes(output.size)}` },
     { label: 'Time', value: `${output.seconds.toFixed(1)} s` },
     { label: 'Engine', value: output.path },
   ];
+
+  if (preset.preview === 'text' && output.text !== undefined) {
+    const name = outputName(input.name, preset.outputSuffix, output.ext);
+    return (
+      <>
+        <div className={cn(frame, 'flex flex-col bg-surface')}>
+          <div className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3.5 lg:px-10">
+            <p className="font-mono text-11.5 font-medium uppercase tracking-label text-text-muted">
+              Preview
+            </p>
+            <p className="truncate font-mono text-12.5 text-text">{name}</p>
+          </div>
+          <pre
+            tabIndex={0}
+            aria-label={`Start of ${name}`}
+            className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-24 font-mono text-13 leading-body whitespace-pre-wrap lg:px-10"
+          >
+            {output.text}
+          </pre>
+          <Readout facts={facts} className="hidden lg:flex" />
+        </div>
+        <div className="lg:hidden">
+          <ReadoutRow
+            facts={[
+              ...(output.details ?? []).map((detail) => ({
+                label: detail.label,
+                value: detail.value,
+              })),
+              { label: 'Size', value: formatBytes(output.size), unit: output.ext.toUpperCase() },
+            ]}
+          />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
