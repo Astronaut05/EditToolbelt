@@ -25,6 +25,22 @@ jobs:
     name: JS · format, lint, typecheck, test, licenses, hosts, build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    services:
+      # packages/db's integration tests: migrations, the append-only ledger,
+      # the constraints (docs/04). Same image as the local stack.
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: etb
+          POSTGRES_PASSWORD: etb-ci-only
+          POSTGRES_DB: etb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U etb -d etb_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -37,6 +53,15 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
+      - name: Migrations are in step with the schema
+        run: |
+          pnpm db:generate
+          git diff --exit-code -- packages/db/migrations || {
+            echo "::error::packages/db/src/schema changed without a migration. Run pnpm db:generate and commit it."
+            exit 1
+          }
       - run: pnpm licenses:check
       - run: pnpm hosts:check
       - name: AI models and ONNX Runtime for Remove Background, checksums checked
@@ -124,6 +149,11 @@ jobs:
         run: docker compose build
       - name: Start Postgres and storage
         run: docker compose up --detach --wait postgres storage
+      - name: Migrations apply to the local stack's database
+        run: |
+          docker compose run --rm -T migrate
+          docker compose exec -T postgres psql -U etb -d etb -tAc \
+            "select count(*) from information_schema.tables where table_schema = 'public'" | grep -qx 18
       - name: Worker hello-world job (JSON logs, job succeeds)
         run: |
           set -o pipefail

@@ -526,3 +526,30 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - **Remove** keeps what's around the ranges; a sliver under 0.04 s left beside a removed range (the container's rounding past the last frame) isn't a part.
 **Why:** `tools/video.md` → V01 ("keep/remove multiple ranges and join them", "smart cut comes in M2b", "multi-range join has no audio clicks (crossfade 10 ms at joins)").
 **Reverse:** `smartCutFits` in `packages/engines/src/video/trim.ts` decides smart cut (return false for a full re-encode); `joinParts` in `join.ts` does the join; drop `ranges: true` from `apps/web/src/tools/trim-video.tsx` for one range.
+
+## 2026-09-30 · The database (M3): schema, migrations and the ledger's guarantees
+
+**Decision:**
+- **Every table in `04`**, in `packages/db` (Drizzle 0.45, node-postgres), with UUIDv7 ids from Postgres 18's `uuidv7()` and `timestamptz` times. Migrations are SQL files in `packages/db/migrations`: drizzle-kit writes them from the schema, and hand-written ones add what it can't express (the `citext` extension, triggers). `pnpm db:migrate` applies them. On the local stack a `migrate` service runs them before the worker starts.
+- **`users` follows Better Auth's field set**, so its Drizzle adapter reads and writes it directly:
+  - `email_verified` is a boolean, not `email_verified_at`.
+  - `display_name` is Better Auth's `name`.
+  - It has Better Auth's `image` column, which we never fill: no avatar URLs are kept.
+  - `two_factor_enabled` is the TOTP plugin's field.
+  - One addition: `disabled_at`, for the admin "disable account" action (`07`), which blocks sign-in.
+- **Sessions have Better Auth's `ip_address` and `user_agent` columns, but a check constraint keeps both null.** `08` says the app stores no IPs, so the database refuses them. The auth config (next PR) turns IP tracking off and strips the user agent.
+- **The ledger enforces more than "no UPDATE or DELETE":**
+  - The trigger also refuses TRUNCATE.
+  - Check constraints keep each kind's sign: `capture` 0; `reserve`, `admin_debit` and `refund_purchase` negative; the rest positive.
+  - Admin kinds need an admin and a non-empty reason.
+  - `reserve`, `capture` and `release` need a job id.
+  - Neither `balance_after` nor `users.credit_balance` can go below 0.
+  - `applyCredit` locks the user row (`SELECT … FOR UPDATE`) and is the only writer. 16 concurrent reserves on a 10-credit balance give exactly 10 successes in the tests.
+  - `ledgerMismatches()` is the nightly invariant check (wired to alerts in M3's last PR).
+- **`admin_audit_log` is append-only too**, with the same trigger: an audit log an admin could edit proves nothing.
+- `webhook_events` is unique on (provider, event id) rather than event id alone: the same once Paddle is the only provider, and correct if a second one comes.
+- **Two operational tables beyond `04`:** `service_heartbeats` (the last sign of life of each web, worker and GPU backend instance, for the dashboard and the "heartbeat missing" alert) and `system_checks` (the latest result of each scheduled check, for `/admin/system`).
+- **Integration tests run against a real Postgres 18** and only when `TEST_DATABASE_URL` is set, never `DATABASE_URL`, because ledger rows can't be deleted. CI gives the required JS job a Postgres 18 service, so they gate every PR. They cover UUIDv7 ids, the ledger and its triggers, the sign and reason checks, concurrent reserves, the no-IP sessions, case-insensitive unique emails with tombstones allowed, and the append-only audit log. CI also fails if the schema changed without a migration.
+**Why:** `docs/04-data-model.md`, `docs/08` (minimal data), `CLAUDE.md` rule 5 (append-only ledger); M3 in `docs/12`.
+**Reverse:** a new migration changes any of it. The triggers and constraints can be dropped, but the ledger rule says they shouldn't.
+
