@@ -7,3 +7,6 @@
  */
 export { REDACTED, isSensitiveKey, redact, redactString } from './redact';
 export { joinUrl } from './urls';
+export * as timecode from './calc/timecode';
+export * as aspect from './calc/aspect';
+export * as bitrate from './calc/bitrate';

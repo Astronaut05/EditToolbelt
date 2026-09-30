@@ -10,6 +10,8 @@ import { parseTokens } from '@etb/ui/contrast';
 export const dynamic = 'force-static';
 
 const ICONS: Record<string, { size: number; maskable: boolean }> = {
+  // Wrapped into /favicon.ico by scripts/postbuild.ts.
+  'favicon-32.png': { size: 32, maskable: false },
   'icon-192.png': { size: 192, maskable: false },
   'icon-512.png': { size: 512, maskable: false },
   'maskable-512.png': { size: 512, maskable: true },

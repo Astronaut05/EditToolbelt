@@ -24,7 +24,7 @@ test.describe('site', () => {
       }
     }
     expect(broken).toEqual([]);
-    // Home, 6 hubs, legal and info pages; soon tools are reached through search, not links.
+    // Home, 6 hubs, working tools, legal and info pages; soon tools are reached through search, not links.
     expect(seen.size).toBeGreaterThan(15);
   });
 

@@ -15,6 +15,7 @@ const PAGES = [
   'index.html',
   'photo.html',
   'remove-background.html',
+  'timecode-calculator.html',
   'video-converter.html',
   'privacy.html',
 ];

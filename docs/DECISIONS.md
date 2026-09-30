@@ -151,3 +151,21 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** Checked at the end of M1: `eslint-plugin-react` 7.37.5, `eslint-plugin-jsx-a11y` 6.10.2 and `eslint-plugin-import` 2.32.0 still declare ESLint ≤ 9. The tracked item carries forward to M2; axe in Playwright stays the accessibility gate (now in CI on every page type).
 **Why:** `12` → M1 tracked item ("carry forward if still blocked").
 **Reverse:** add the plugins to `eslint.config.mjs` once they support ESLint 10.
+
+## 2026-09-30 · Live tool page template
+
+**Decision:** A `live` or `beta` tool page is its view (from `apps/web/src/tools`) right under the header, filling the first screen, then four hairline sections whose headings sit in the 560 px settings column: "How to use the {name}" (`seo.howTo`), "Why use this", "Questions" (`seo.faq`), "Related tools". "Why use this" is three plain lines built from the registry (speed from `ui`/`runtime`, privacy from `runtime`, cost from `cost`), so it is true per tool and never written twice. Related tools are the registry's picks that work today, topped up from the same category, then the category hub. JSON-LD: `WebApplication`, `BreadcrumbList`, `FAQPage`.
+**Why:** `09` → Page template; design README → Rules (hairlines over boxes, 3 text levels); `03` → AI tells (no three icon boxes).
+**Reverse:** `apps/web/src/components/ToolDetails.tsx` and `apps/web/src/lib/tool.ts`.
+
+## 2026-09-30 · Calculators: state in the URL, no files
+
+**Decision:** Calculator inputs live in the query string (`?width=1080&height=1920`), written with `history.replaceState` 300 ms after typing stops (Safari throws after 100 history calls in 30 s, and a Back entry per keystroke is useless). Only values that differ from the defaults are written; unknown keys are ignored and unknown choices fall back to the default. Every result has a copy button, and "Copy link" copies the page URL with the inputs. Calculators (`ui: 'calculator'`) don't need `accepts`, `outputs` or `limits` to go live, since they take no files; the schema and `02` say so.
+**Why:** `tools/subtitles-and-time.md` → shared rules (shareable state in the URL, no storage, copy buttons).
+**Reverse:** `apps/web/src/tools/url-state.ts`; the schema rule in `packages/registry/src/schema.ts`.
+
+## 2026-09-30 · Tool views load per page
+
+**Decision:** Each tool view is a client component loaded with `next/dynamic` from one small client map (`apps/web/src/tools/index.tsx`), typed against the id list in `tools/ids.ts` that server code checks. The view is still prerendered, but its code is a separate chunk that only its own page loads: a static map put every tool's code on every hub and tool page (+8.6 KB with three calculators). The shell stays at 143–146 KB on every page type; a calculator's own chunk adds about 6 KB after it, which counts as the tool, not the shell. The JS budget and Lighthouse now include `/timecode-calculator` (Lighthouse drops `/privacy`, keeping five pages). The build also writes `/favicon.ico` (browsers ask for it even with an SVG icon, and the 404 was a console error on every first visit).
+**Why:** `10` → Budgets (initial JS before the engine loads); `CLAUDE.md` rule 1 (speed).
+**Reverse:** import the views statically in `src/app/[slug]/page.tsx` (every page pays for every tool).

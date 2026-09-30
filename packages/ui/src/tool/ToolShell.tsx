@@ -17,6 +17,7 @@ import { SegmentedControl } from '../primitives/SegmentedControl';
 import { StatePanel } from '../primitives/states';
 import { BatchList, type BatchItem } from './BatchList';
 import { BeforeAfter, MediaTag } from './BeforeAfter';
+import { CalculatorShell } from './CalculatorShell';
 import { CanvasEditor, type EditorMode } from './CanvasEditor';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
@@ -130,6 +131,8 @@ export interface ToolShellProps {
   initialOptions?: Record<string, string>;
   /** Analytics events from docs/09 (bucketed, no file names or contents). */
   onEvent?: (name: string, props: Record<string, string>) => void;
+  /** Calculator tools: their own inputs and live results, in the shared layout. */
+  calculator?: { inputs: ReactNode; results: ReactNode };
 }
 
 function defaults(options: ShellOption[]): Record<string, string> {
@@ -154,6 +157,7 @@ export function ToolShell({
   initialState,
   initialOptions,
   onEvent,
+  calculator,
 }: ToolShellProps) {
   const [state, setState] = useState<ShellState>(initialState ?? { kind: 'empty' });
   const [options, setOptions] = useState<Record<string, string>>(
@@ -350,7 +354,10 @@ export function ToolShell({
     [preset.options, preset.phoneGroups],
   );
 
-  if (tool.ui === 'calculator') return <CalculatorShell tool={tool} />;
+  if (tool.ui === 'calculator') {
+    if (!calculator) throw new Error(`${tool.id}: calculator tools pass their inputs and results`);
+    return <CalculatorShell tool={tool} inputs={calculator.inputs} results={calculator.results} />;
+  }
 
   const header = (
     <div className={cn(hasFile && 'max-lg:sr-only')}>
@@ -776,80 +783,5 @@ function Workspace({
         />
       </div>
     </>
-  );
-}
-
-/** Calculators: inputs left, live results right in mono (design README → Not drawn yet). */
-function CalculatorShell({ tool }: { tool: ShellTool }) {
-  const [width, setWidth] = useState('1920');
-  const [height, setHeight] = useState('1080');
-  const w = Number(width);
-  const h = Number(height);
-  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
-  const valid = Number.isInteger(w) && Number.isInteger(h) && w > 0 && h > 0;
-  const g = valid ? gcd(w, h) : 1;
-  const results: GridFact[] = valid
-    ? [
-        { label: 'Ratio', value: `${String(w / g)}:${String(h / g)}` },
-        { label: 'Decimal', value: (w / h).toFixed(3) },
-        { label: 'Pixels', value: (w * h).toLocaleString('en-US'), unit: 'px' },
-        { label: 'Megapixels', value: ((w * h) / 1e6).toFixed(2), unit: 'MP' },
-      ]
-    : [];
-  return (
-    <div className="lg:grid lg:min-h-[calc(100dvh-var(--header-h))] lg:grid-cols-[var(--tool-left-col)_1fr]">
-      <section aria-label="Inputs" className="px-4 lg:border-r lg:border-border lg:px-10 lg:pt-8.5">
-        <Breadcrumb
-          items={[{ label: tool.category.name, href: tool.category.href }, { label: tool.name }]}
-          className="pt-5.5 lg:pt-0"
-        />
-        <h1 className="mt-3 text-34 leading-display font-display tracking-display lg:mt-4.5 lg:text-46">
-          {tool.h1}
-        </h1>
-        <p className="mt-3 text-15.5 text-text-muted lg:mt-3.5 lg:text-16.5">{tool.tagline}</p>
-        <OptionsPanel className="mt-6.5">
-          <OptionRow label="Width" htmlFor="calc-w">
-            <UnitInput id="calc-w" value={width} onChange={setWidth} />
-          </OptionRow>
-          <OptionRow label="Height" htmlFor="calc-h">
-            <UnitInput id="calc-h" value={height} onChange={setHeight} />
-          </OptionRow>
-        </OptionsPanel>
-      </section>
-      <section aria-label="Results" aria-live="polite" className="px-4 py-6 lg:px-10 lg:pt-8.5">
-        {valid ? (
-          <FactGrid facts={results} />
-        ) : (
-          <p className="text-14 text-text-muted">Enter a width and height in whole pixels.</p>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function UnitInput({
-  id,
-  value,
-  onChange,
-}: {
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-}): ReactNode {
-  return (
-    <span className="relative inline-flex w-36 items-center">
-      <input
-        id={id}
-        inputMode="numeric"
-        value={value}
-        onChange={(event) => {
-          onChange(event.target.value);
-        }}
-        className="h-11 w-full rounded-control border border-border bg-bg pr-10 pl-3 text-right font-mono text-14 hover:border-text"
-      />
-      <span className="pointer-events-none absolute right-3 font-mono text-12 uppercase text-text-muted">
-        px
-      </span>
-    </span>
   );
 }

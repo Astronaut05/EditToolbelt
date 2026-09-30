@@ -19,7 +19,7 @@ import lighthouse from 'lighthouse';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE_PORT = 4175;
 const DEBUG_PORT = 9333;
-const PAGES = ['/', '/photo', '/remove-background', '/video-converter', '/privacy'];
+const PAGES = ['/', '/photo', '/timecode-calculator', '/remove-background', '/video-converter'];
 
 interface Budget {
   label: string;

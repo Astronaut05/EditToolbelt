@@ -56,7 +56,7 @@ export type ToolDef = {
 Rules:
 - `id` and `slug` are kebab-case, unique, and never renamed after `live` (a rename needs a 301 redirect entry in `packages/registry/redirects.ts`).
 - `status` in code is the default. `tool_flags` in the DB overrides it at runtime (see `07-admin-and-logging.md`). Resolution order: DB flag → code default.
-- `soon` tools must still have `name`, `slug`, `category`, `tagline`, `summary`, `willDo` and `seo.title` so the greyed-out card and placeholder page render. `live` and `beta` tools also need `accepts`, `outputs`, `limits`, `seo.howTo` and `seo.faq` (the schema enforces it).
+- `soon` tools must still have `name`, `slug`, `category`, `tagline`, `summary`, `willDo` and `seo.title` so the greyed-out card and placeholder page render. `live` and `beta` tools also need `accepts`, `outputs`, `limits`, `seo.howTo` and `seo.faq` (the schema enforces it). Calculators (`ui: 'calculator'`) take no files, so for them only `seo.howTo` and `seo.faq` are required.
 - The schema (`packages/registry/src/schema.ts`) is checked in tests, not at runtime, so Zod never ships to the browser. Copy fields reject em and en dashes (`03` → Copy rules).
 - A CI check fails if any registry entry is missing from `tools/README.md` or vice versa (match on `code`).
 
