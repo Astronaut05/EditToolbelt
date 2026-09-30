@@ -105,7 +105,6 @@ export function CanvasEditor({
   const [frame, setFrame] = useState<Size>({ width: 0, height: 0 });
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<Drag | null>(null);
   const hintId = useId();
   const modes = MODES.filter((m) => !enabledModes || enabledModes.includes(m.id));
 
@@ -137,13 +136,16 @@ export function CanvasEditor({
     else setMode(next);
   }
 
+  /**
+   * A drag follows the pointer on the window until it lifts, so it keeps
+   * working when the pointer leaves the box or the box re-renders under it.
+   */
   function startDrag(event: PointerEvent<HTMLElement>, handle: Handle | 'move') {
     if (!turned || !stageRef.current || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
     const rect = stageRef.current.getBoundingClientRect();
-    drag.current = {
+    const current: Drag = {
       pointer: event.pointerId,
       handle,
       startX: event.clientX,
@@ -151,27 +153,37 @@ export function CanvasEditor({
       scale: turned.width / rect.width,
       edit,
     };
-  }
-
-  function dragTo(event: PointerEvent<HTMLElement>, done: boolean) {
-    const current = drag.current;
-    if (!current || current.pointer !== event.pointerId || !turned || !current.edit.crop) return;
-    const dx = (event.clientX - current.startX) * current.scale;
-    const dy = (event.clientY - current.startY) * current.scale;
-    const crop =
-      current.handle === 'move'
-        ? moveBox(current.edit.crop, dx, dy, turned)
-        : dragHandle(
-            current.edit.crop,
-            current.handle,
-            dx,
-            dy,
-            turned,
-            ratio,
-            Math.ceil(MIN_BOX_PX * current.scale),
-          );
-    onEdit({ ...current.edit, crop }, !done);
-    if (done) drag.current = null;
+    const bounds = turned;
+    const follow = (e: globalThis.PointerEvent, done: boolean) => {
+      if (e.pointerId !== current.pointer || !current.edit.crop) return;
+      const dx = (e.clientX - current.startX) * current.scale;
+      const dy = (e.clientY - current.startY) * current.scale;
+      const crop =
+        current.handle === 'move'
+          ? moveBox(current.edit.crop, dx, dy, bounds)
+          : dragHandle(
+              current.edit.crop,
+              current.handle,
+              dx,
+              dy,
+              bounds,
+              ratio,
+              Math.ceil(MIN_BOX_PX * current.scale),
+            );
+      onEdit({ ...current.edit, crop }, !done);
+    };
+    const move = (e: globalThis.PointerEvent) => {
+      follow(e, false);
+    };
+    const end = (e: globalThis.PointerEvent) => {
+      follow(e, true);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
   }
 
   function onBoxKey(event: KeyboardEvent<HTMLDivElement>) {
@@ -189,23 +201,11 @@ export function CanvasEditor({
     onEdit({ ...edit, crop: moveBox(edit.crop, move[0], move[1], turned) });
   }
 
-  // One set of handlers for the box and its handles; a handle names itself in data-handle.
-  const onPointerDown = (event: PointerEvent<HTMLElement>) => {
-    startDrag(event, (event.currentTarget.dataset.handle as Handle | undefined) ?? 'move');
-  };
-  const onPointerMove = (event: PointerEvent<HTMLElement>) => {
-    event.stopPropagation();
-    dragTo(event, false);
-  };
-  const onPointerEnd = (event: PointerEvent<HTMLElement>) => {
-    event.stopPropagation();
-    dragTo(event, true);
-  };
+  // The box and its handles start a drag; a handle names itself in data-handle.
   const pointer = {
-    onPointerDown,
-    onPointerMove,
-    onPointerUp: onPointerEnd,
-    onPointerCancel: onPointerEnd,
+    onPointerDown: (event: PointerEvent<HTMLElement>) => {
+      startDrag(event, (event.currentTarget.dataset.handle as Handle | undefined) ?? 'move');
+    },
   };
 
   const box = edit.crop;
