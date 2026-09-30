@@ -41,5 +41,4 @@ screens-compare/
 # Playwright output
 apps/web/test-results/
 apps/web/playwright-report/
-apps/web/.lighthouseci/
-.lighthouseci/
+apps/web/.lighthouse/

@@ -61,10 +61,10 @@ jobs:
       # merge past them (docs/10 → Budgets; docs/12 → M1).
       - name: Initial JS budget
         run: pnpm --filter @etb/web js-budget
-      - name: Lighthouse budgets (5 pages, mobile emulation)
-        run: pnpm lighthouse
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - name: Lighthouse budgets (5 pages, mobile emulation)
+        run: pnpm lighthouse
       - name: End-to-end (Chromium, Firefox, WebKit, phone) · CSP, isolation, axe, keyboard, links
         run: pnpm e2e
         env:
