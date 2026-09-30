@@ -363,3 +363,9 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - Output is UTF-8; a note says so when the file was in another encoding.
 **Why:** `tools/subtitles-and-time.md` → T02 (its test: two-point sync restores offset and drift within ±10 ms, checked in unit and Playwright tests).
 **Reverse:** `packages/core/src/subtitles/retime.ts` (in-place retime) and `packages/engines/src/subtitle-shift.ts`.
+
+## 2026-09-30 · Lighthouse budgets read each metric's median of 5 runs
+
+**Decision:** `pnpm lighthouse` runs each page 5 times (was 3), and each budget reads the median of its own values across the runs, not the values of one "median run". The saved report is still Lighthouse's median run. The budgets themselves are unchanged.
+**Why:** the median run is the one closest to the median FCP and TTI, and its LCP can be any run's. Simulated LCP scales with main-thread timing, which varies from run to run: seven runs of `/remove-background` on the same build gave 1966 to 2421 ms, with the same element and the same requests. CI failed `/remove-background` at 2559 ms on a PR that doesn't touch it, and passed it on the run before. Each metric's own median is what Lighthouse's variability guide recommends. It costs about 40 s of CI time.
+**Reverse:** in `scripts/lighthouse.ts`, set `RUNS = 3` and read `budget.read(medianRun(runs).lhr)`.
