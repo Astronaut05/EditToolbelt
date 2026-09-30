@@ -32,6 +32,7 @@ import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
+import { accepts, handOff, takeHandoff } from './handoff';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import type { BrushStroke } from './RefineBrush';
@@ -57,7 +58,8 @@ export interface ShellTool {
   runtime: 'client' | 'hybrid' | 'server-cpu' | 'server-gpu';
   ui: 'canvas-editor' | 'timeline' | 'form' | 'analyzer' | 'calculator' | 'batch';
   category: { name: string; href: string };
-  related: { name: string; href: string }[];
+  /** Related tools; those with `accepts` can take this tool's result (the handoff). */
+  related: { name: string; href: string; id?: string; accepts?: string[] }[];
   howTo?: string[];
 }
 
@@ -594,6 +596,19 @@ export function ToolShell({
     [inspect, preset, resetEditor, run, tool.ui, track],
   );
 
+  // A result handed over from another tool arrives as if it were dropped here.
+  const handedOver = useRef(false);
+  useEffect(() => {
+    if (handedOver.current) return;
+    handedOver.current = true;
+    const file = takeHandoff(tool.id);
+    // Arrives like a drop: an event from outside the render, not derived state.
+    if (file)
+      queueMicrotask(() => {
+        intake([file]);
+      });
+  }, [intake, tool.id]);
+
   async function trySample() {
     if (!preset.sampleUrl) return;
     const response = await fetch(preset.sampleUrl);
@@ -917,6 +932,12 @@ export function ToolShell({
           className="link-accent"
           onClick={() => {
             onEvent?.('tool_handoff', { from_tool: tool.id, to_tool: link.href.slice(1) });
+            // The result goes along when the next tool takes its type (docs/02 → Result panel).
+            const blob = state.output.blob;
+            if (blob && link.id && accepts(link.accepts, blob.type)) {
+              const name = outputName(state.input.name, preset.outputSuffix, state.output.ext);
+              handOff(new File([blob], name, { type: blob.type }), link.id);
+            }
           }}
         >
           {link.name}

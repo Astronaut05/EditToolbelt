@@ -150,3 +150,16 @@ test('the page says what runs where, and the model is served from MODELS_BASE_UR
   const runtime = await request.get('/models/ort/1.30.0/ort.wasm.min.mjs');
   expect(runtime.status()).toBe(200);
 });
+
+test('the result goes on to the next tool without a re-upload', async ({ page }) => {
+  await drop(page);
+  await expect(downloadButton(page)).toBeEnabled({ timeout: 60_000 });
+  await page.getByRole('link', { name: 'Resize Image' }).first().click();
+  await expect(page).toHaveURL(/\/resize-image$/);
+  await expect(page.getByRole('region', { name: 'Workspace' }).getByText('Original')).toBeVisible();
+  // It runs like a dropped file, transparency and all.
+  await page.getByRole('button', { name: 'Resize', exact: true }).click();
+  const out = await inspect(page, await save(page), [CORNER]);
+  expect(out.png).toBe(true);
+  expect(out.pixels[0]?.[3]).toBeLessThan(25);
+});

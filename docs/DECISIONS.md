@@ -340,3 +340,13 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - The initial-JS budget on module scripts in the HTML (150 KB, `js-budget.ts`) is unchanged.
 **Why:** `docs/10` → Budgets ("the engine is not in the initial bundle"). The 160 KB limit was set in M1, before any page ran a tool; measured on `/remove-background`: 176 KB before this, 169 KB after, against 147 KB for a hub. Made without sign-off; flagged at checkpoint 3.
 **Reverse:** `TOOL_PAGES` and `TOOL_SCRIPT_MAX` in `scripts/lighthouse.ts`.
+
+## 2026-09-30 · "Use in another tool": the Next links carry the result
+
+**Decision:**
+- The result panel's "Next:" links (the design's wording, from the tool's related tools) take the result along when the next tool accepts its type. The file waits in memory (a module in `packages/ui`), and the next tool's shell takes it on mount as if it had been dropped. There's no upload, no storage and no URL parameter.
+- It works across client-side navigations only. A full page load (a new tab, or an isolated tool such as Video Converter) starts empty. A handed-over file waits at most 30 s.
+- A tool accepts a result when its registry `accepts` list has the result's MIME type (`image/*` wildcards count). Otherwise the link just navigates.
+- The existing `tool_handoff` analytics event is unchanged: tool ids only, no file details.
+**Why:** `docs/02` → Result panel ("hands the output to a related tool without re-upload, via an in-memory handoff"); `docs/12` → M2; `CLAUDE.md` rule 4 (nothing kept).
+**Reverse:** `packages/ui/src/tool/handoff.ts` and the link's `onClick` in `ToolShell`; drop `id`/`accepts` from `ShellTool.related`.
