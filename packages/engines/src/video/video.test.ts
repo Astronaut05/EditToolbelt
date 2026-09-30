@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { Mp4OutputFormat } from 'mediabunny';
+import { AudioSample, Mp4OutputFormat } from 'mediabunny';
 import { describe, expect, it } from 'vitest';
 
 import { planCompress, sizeForShortSide } from './compress';
-import { extractAudioEngine } from './extract-audio';
+import { continuousAudio, extractAudioEngine } from './extract-audio';
 import { adtsHeader, readAacConfig } from './adts';
 import { convert, openInput, probeMedia } from './media';
 import { checkRange, keyframeBefore, trimEngine } from './trim';
@@ -183,5 +183,27 @@ describe('compress plan', () => {
       height: 1080,
       fps: undefined,
     });
+  });
+});
+
+describe('continuous audio', () => {
+  const block = (timestamp: number, frames: number) =>
+    new AudioSample({
+      data: new Float32Array(frames).map((_, i) => i / frames),
+      format: 'f32-planar',
+      numberOfChannels: 1,
+      sampleRate: 1000,
+      timestamp,
+    });
+
+  it('trims blocks that overlap the one before, and drops those inside it', () => {
+    const keep = continuousAudio();
+    expect(keep(block(0, 1000))?.numberOfFrames).toBe(1000);
+    // Starts 200 ms before the first one ended: the first 200 frames go.
+    const second = keep(block(0.8, 1000));
+    expect(second?.numberOfFrames).toBe(800);
+    expect(second?.timestamp).toBeCloseTo(1, 6);
+    expect(keep(block(1.2, 300))).toBeNull();
+    expect(keep(block(1.8, 100))?.numberOfFrames).toBe(100);
   });
 });

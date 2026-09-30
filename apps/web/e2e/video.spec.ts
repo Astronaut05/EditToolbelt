@@ -138,7 +138,11 @@ test('MP3 at 320 kbps keeps the length within 10 ms', async ({ page, isMobile })
   // LAME loads as its own worker and WASM file, inside the page's CSP.
   expect(await cspViolations(page)).toEqual([]);
   // MP3 frames are 24 ms at 48 kHz; encoder padding stays under one frame each end.
-  expect(Math.abs(info.durationSec - 30)).toBeLessThan(0.06);
+  const audio = info.audio[0];
+  expect(
+    Math.abs(info.durationSec - 30),
+    `${String(info.durationSec)} s, ${String(audio?.sampleRate)} Hz, ${String(audio?.channels)} channels`,
+  ).toBeLessThan(0.06);
 });
 
 test('the MP4 to MP3 pair page has its own copy', async ({ page }) => {

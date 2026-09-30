@@ -8,6 +8,7 @@
  */
 import {
   AdtsOutputFormat,
+  AudioSample,
   canEncodeAudio,
   EncodedPacketSink,
   FlacOutputFormat,
@@ -25,6 +26,49 @@ import type { Engine, EngineOutput, RunContext } from '../types';
 import { readAacConfig, toAdts } from './adts';
 import { codecLabel, convert, MediaInputError, openInput } from './media';
 import { checkRange } from './trim';
+
+/**
+ * Keeps decoded audio on one timeline: a block that starts before the last one
+ * ended loses the overlap. Some decoders (WebKit's GStreamer) return blocks that
+ * overlap, which would otherwise be encoded twice and make the file longer.
+ */
+export function continuousAudio(): (sample: AudioSample) => AudioSample | null {
+  let next = -Infinity;
+  return (sample) => {
+    const rate = sample.sampleRate;
+    const end = sample.timestamp + sample.numberOfFrames / rate;
+    const skip = Math.round((next - sample.timestamp) * rate);
+    if (skip <= 0) {
+      next = end;
+      return sample;
+    }
+    next = Math.max(next, end);
+    if (skip >= sample.numberOfFrames) {
+      sample.close();
+      return null;
+    }
+    const frames = sample.numberOfFrames - skip;
+    const channels = sample.numberOfChannels;
+    const data = new Float32Array(frames * channels);
+    for (let c = 0; c < channels; c += 1) {
+      sample.copyTo(data.subarray(c * frames, (c + 1) * frames), {
+        planeIndex: c,
+        format: 'f32-planar',
+        frameOffset: skip,
+        frameCount: frames,
+      });
+    }
+    const out = new AudioSample({
+      data,
+      format: 'f32-planar',
+      numberOfChannels: channels,
+      sampleRate: rate,
+      timestamp: sample.timestamp + skip / rate,
+    });
+    sample.close();
+    return out;
+  };
+}
 
 export type AudioFormat = 'mp3' | 'wav' | 'm4a' | 'aac' | 'flac' | 'ogg';
 
@@ -167,6 +211,7 @@ export const extractAudioEngine: Engine<ExtractAudioOptions> = {
                   ? {
                       codec: target.codec,
                       ...(resample && { sampleRate }),
+                      ...(!copy && { process: continuousAudio() }),
                       ...(target.lossy &&
                         !copy && { quality: new Quality({ bitrate: kbps * 1000 }) }),
                     }
