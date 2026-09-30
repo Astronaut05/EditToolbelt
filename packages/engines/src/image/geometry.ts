@@ -1,8 +1,9 @@
 /**
- * `image-geometry`: the pixel work behind P02 Crop and P03 Resize, as pure
- * functions on RGBA pixels so they run in the image worker and in unit tests.
- * Order: quarter turns, flip, crop, resize, pad. Crops, turns and flips move
- * pixels without resampling (lossless geometry); only resize filters.
+ * `image-geometry`: the pixel work behind P02 Crop, P03 Resize and P04
+ * Rotate, as pure functions on RGBA pixels so they run in the image worker
+ * and in unit tests. Order: quarter turns, flips, free angle, crop, resize,
+ * pad. Crops, turns and flips move pixels without resampling (lossless
+ * geometry); only a free angle and a resize filter.
  */
 
 export interface Pixels {
@@ -47,6 +48,14 @@ export interface GeometryJob {
   turns?: number;
   /** Mirror left to right, after the turns. */
   flip?: boolean;
+  /** Mirror top to bottom, after the turns. */
+  flipVertical?: boolean;
+  /** P04: a free angle in degrees, clockwise (−45 to 45), after the turns and flips. */
+  angle?: number;
+  /** Free angle: grow the canvas to fit (with `fill`), or crop to the largest rectangle inside. */
+  angleFit?: 'expand' | 'crop';
+  /** RGBA behind an expanded canvas; alpha 0 is transparent. */
+  fill?: [number, number, number, number];
   /** Crop in turned pixels. */
   crop?: Rect;
   /** Centred crop to this width/height ratio, when there's no rectangle (a batch). */
@@ -71,7 +80,9 @@ export function rotateQuarter(image: Pixels, turns: number): Pixels {
   const t = ((Math.round(turns) % 4) + 4) % 4;
   if (t === 0) return image;
   const { width: w, height: h, data: src } = image;
-  const out = turnedSize(image, t);
+  // Only the size: turnedSize hands back the image itself for a half turn.
+  const { width: ow, height: oh } = turnedSize(image, t);
+  const out = { width: ow, height: oh };
   const dst = new Uint8ClampedArray(src.length);
   const src32 = new Uint32Array(src.buffer, src.byteOffset, w * h);
   const dst32 = new Uint32Array(dst.buffer);
@@ -426,6 +437,140 @@ export function planResize(source: Size, spec: ResizeSpec): ResizePlan {
   return plan;
 }
 
+/** Mirror top to bottom. */
+export function flipVertical(image: Pixels): Pixels {
+  const { width, height, data } = image;
+  const out = new Uint8ClampedArray(data.length);
+  const row = width * 4;
+  for (let y = 0; y < height; y += 1) {
+    out.set(data.subarray(y * row, (y + 1) * row), (height - 1 - y) * row);
+  }
+  return { data: out, width, height };
+}
+
+/** The canvas a free rotation needs to show every pixel. */
+export function expandedSize(size: Size, degrees: number): Size {
+  const t = (degrees * Math.PI) / 180;
+  const c = Math.abs(Math.cos(t));
+  const s = Math.abs(Math.sin(t));
+  // Round away float noise first, so 0° and 90° don't gain a pixel.
+  // A tenth of a pixel of overhang is just the anti-aliased edge: don't add a column for it.
+  const up = (v: number) => Math.ceil(v - 0.1);
+  return {
+    width: up(size.width * c + size.height * s),
+    height: up(size.width * s + size.height * c),
+  };
+}
+
+/**
+ * The largest rectangle of the photo's own shape that fits inside it once
+ * rotated: what "Auto-crop" keeps, so no corner shows the background.
+ */
+export function straightenedCrop(size: Size, degrees: number): Size {
+  const t = (degrees * Math.PI) / 180;
+  const c = Math.abs(Math.cos(t));
+  const s = Math.abs(Math.sin(t));
+  const { width: w, height: h } = size;
+  const k = Math.min(w / (w * c + h * s), h / (w * s + h * c));
+  // A pixel in from each side when tilted, so no anti-aliased corner shows.
+  const inset = s > 1e-9 ? 2 : 0;
+  return {
+    width: Math.max(1, Math.floor(w * k + 1e-6) - inset),
+    height: Math.max(1, Math.floor(h * k + 1e-6) - inset),
+  };
+}
+
+/** Catmull-Rom weights for a fraction t in [0, 1). */
+function cubicWeights(t: number, out: Float64Array) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  out[0] = -0.5 * t3 + t2 - 0.5 * t;
+  out[1] = 1.5 * t3 - 2.5 * t2 + 1;
+  out[2] = -1.5 * t3 + 2 * t2 + 0.5 * t;
+  out[3] = 0.5 * t3 - 0.5 * t2;
+}
+
+/**
+ * Rotates by any angle (clockwise, degrees) onto a canvas of `size`, centred,
+ * sampling the source bicubically on premultiplied alpha. Outside the photo
+ * is `fill`, so an expanded canvas gets clean anti-aliased edges.
+ */
+export function rotateFree(
+  image: Pixels,
+  degrees: number,
+  size: Size,
+  fill: [number, number, number, number] = [0, 0, 0, 0],
+): Pixels {
+  const { width: sw, height: sh, data } = image;
+  const { width: dw, height: dh } = size;
+  const out = new Uint8ClampedArray(dw * dh * 4);
+  const t = (degrees * Math.PI) / 180;
+  const cos = Math.cos(t);
+  const sin = Math.sin(t);
+  const scx = sw / 2;
+  const scy = sh / 2;
+  const dcx = dw / 2;
+  const dcy = dh / 2;
+  const fa = fill[3] / 255;
+  const fillP = [fill[0] * fa, fill[1] * fa, fill[2] * fa, fill[3]];
+  const wx = new Float64Array(4);
+  const wy = new Float64Array(4);
+  const acc = [0, 0, 0, 0];
+  for (let y = 0; y < dh; y += 1) {
+    const oy = y + 0.5 - dcy;
+    for (let x = 0; x < dw; x += 1) {
+      const ox = x + 0.5 - dcx;
+      // The source point this output pixel shows (inverse rotation).
+      const sx = cos * ox + sin * oy + scx - 0.5;
+      const sy = -sin * ox + cos * oy + scy - 0.5;
+      const o = (y * dw + x) * 4;
+      if (sx < -2 || sy < -2 || sx > sw + 1 || sy > sh + 1) {
+        out[o] = fill[0];
+        out[o + 1] = fill[1];
+        out[o + 2] = fill[2];
+        out[o + 3] = fill[3];
+        continue;
+      }
+      const x0 = Math.floor(sx);
+      const y0 = Math.floor(sy);
+      cubicWeights(sx - x0, wx);
+      cubicWeights(sy - y0, wy);
+      acc[0] = acc[1] = acc[2] = acc[3] = 0;
+      for (let j = 0; j < 4; j += 1) {
+        const yy = y0 - 1 + j;
+        const wj = wy[j] ?? 0;
+        for (let i = 0; i < 4; i += 1) {
+          const xx = x0 - 1 + i;
+          const w = wj * (wx[i] ?? 0);
+          if (xx < 0 || yy < 0 || xx >= sw || yy >= sh) {
+            acc[0] += (fillP[0] ?? 0) * w;
+            acc[1] += (fillP[1] ?? 0) * w;
+            acc[2] += (fillP[2] ?? 0) * w;
+            acc[3] += (fillP[3] ?? 0) * w;
+            continue;
+          }
+          const p = (yy * sw + xx) * 4;
+          const a = data[p + 3] ?? 0;
+          const af = a / 255;
+          acc[0] += (data[p] ?? 0) * af * w;
+          acc[1] += (data[p + 1] ?? 0) * af * w;
+          acc[2] += (data[p + 2] ?? 0) * af * w;
+          acc[3] += a * w;
+        }
+      }
+      const alpha = Math.min(255, Math.max(0, acc[3]));
+      out[o + 3] = alpha;
+      if (alpha > 0) {
+        const k = 255 / alpha;
+        out[o] = acc[0] * k;
+        out[o + 1] = acc[1] * k;
+        out[o + 2] = acc[2] * k;
+      }
+    }
+  }
+  return { data: out, width: dw, height: dh };
+}
+
 /** Runs a geometry job and says what it did, in plain words. */
 export function applyGeometry(image: Pixels, job: GeometryJob): { image: Pixels; notes: string[] } {
   const notes: string[] = [];
@@ -438,6 +583,33 @@ export function applyGeometry(image: Pixels, job: GeometryJob): { image: Pixels;
   if (job.flip) {
     out = flipHorizontal(out);
     notes.push('Flipped left to right');
+  }
+  if (job.flipVertical) {
+    out = flipVertical(out);
+    notes.push('Flipped top to bottom');
+  }
+  const angle = Math.round((job.angle ?? 0) * 10) / 10;
+  if (angle !== 0) {
+    if (Math.abs(angle) > 45) throw new GeometryError('Pick an angle from −45° to 45°.');
+    const before = { width: out.width, height: out.height };
+    if (job.angleFit === 'crop') {
+      // Rotate onto the same canvas, then keep the centre that has no corners showing.
+      const rotated = rotateFree(out, angle, before);
+      const keep = straightenedCrop(before, angle);
+      out = cropPixels(rotated, {
+        x: Math.floor((before.width - keep.width) / 2),
+        y: Math.floor((before.height - keep.height) / 2),
+        ...keep,
+      });
+      notes.push(`Straightened ${String(angle)}° and cropped to ${dims(out)}`);
+    } else {
+      const size = expandedSize(before, angle);
+      if (size.width * size.height > OUTPUT_LIMITS.maxPixels) {
+        throw new GeometryError('Rotated, this image would be over 100 MP. Resize it first.');
+      }
+      out = rotateFree(out, angle, size, job.fill ?? [0, 0, 0, 0]);
+      notes.push(`Rotated ${String(angle)}° on a canvas of ${dims(out)}`);
+    }
   }
   const crop = job.crop
     ? clampRect(job.crop, out)

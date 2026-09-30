@@ -11,12 +11,16 @@ export type Handle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 export interface Edit {
   /** Clockwise quarter turns. */
   turns: number;
+  /** Mirrors, after the turns: left to right, and top to bottom. */
   flip: boolean;
+  flipV: boolean;
+  /** Straighten: a free angle in degrees, clockwise, −45 to 45, after the turns and flips. */
+  angle: number;
   /** Crop box in turned pixels; null until the image size is known. */
   crop: Rect | null;
 }
 
-export const NO_EDIT: Edit = { turns: 0, flip: false, crop: null };
+export const NO_EDIT: Edit = { turns: 0, flip: false, flipV: false, angle: 0, crop: null };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 

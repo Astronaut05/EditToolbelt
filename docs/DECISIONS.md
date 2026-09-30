@@ -369,3 +369,21 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** `pnpm lighthouse` runs each page 5 times (was 3), and each budget reads the median of its own values across the runs, not the values of one "median run". The saved report is still Lighthouse's median run. The budgets themselves are unchanged.
 **Why:** the median run is the one closest to the median FCP and TTI, and its LCP can be any run's. Simulated LCP scales with main-thread timing, which varies from run to run: seven runs of `/remove-background` on the same build gave 1966 to 2421 ms, with the same element and the same requests. CI failed `/remove-background` at 2559 ms on a PR that doesn't touch it, and passed it on the run before. Each metric's own median is what Lighthouse's variability guide recommends. It costs about 40 s of CI time.
 **Reverse:** in `scripts/lighthouse.ts`, set `RUNS = 3` and read `budget.read(medianRun(runs).lhr)`.
+
+## 2026-09-30 · Rotate & Flip (P04) on the geometry engine
+
+**Decision:**
+- **One image** opens in the Canvas Editor on Straighten: an angle slider from −45° to 45° in 0.1° steps with a grid to line things up against, plus Rotate left, Rotate 90° (right), Flip and Flip vertical, all with undo. The preview turns live and the engine applies the same edit to the full image.
+- **A free angle** is resampled bicubically on premultiplied alpha (Catmull-Rom). Corners are **Auto-crop** by default: the largest rectangle of the photo's own shape inside the rotated photo, a pixel in from each side so no anti-aliased edge shows. **Expand canvas** grows the canvas to fit instead, filled transparent, white or black. The bounding box rounds up, ignoring the last tenth of a pixel, which is only the anti-aliased edge.
+- **A batch** (up to 50) has no editor. It gets one turn (90° right, 180°, 90° left) and one flip for every image, from the settings. ToolShell options can now show for one file or for several (`files: 'one' | 'many'`).
+- **Quality:** 90° turns and flips move pixels without resampling. A JPG is saved again at quality 95 by default (the spec's number; 90 elsewhere). PNG stays lossless.
+- **Bug fixed on the way:** a half turn (`rotateQuarter(image, 2)`) returned the original pixels, because the size helper hands back the image itself for even turns and its data won the object spread. Crop Image's "Rotate 90°" pressed twice was affected. Fixed in the same PR, with a unit test.
+**Why:** `tools/photo.md` → P04 (its tests: 90° swaps the dimensions, 10° on an expanded canvas gives the expected bounding box, flips are pixel-exact; all three are unit and Playwright tests).
+**Reverse:** `rotateFree`, `expandedSize`, `straightenedCrop` and `flipVertical` in `packages/engines/src/image/geometry.ts`; the Straighten mode in `CanvasEditor`.
+
+## 2026-09-30 · Lighthouse LCP is measured with applied throttling
+
+**Decision:** the LCP gate in `pnpm lighthouse` reads the median of 3 runs with applied throttling (the network and CPU really slowed, as DevTools does) instead of Lighthouse's simulated throttling. The other gates (performance, accessibility, best practices, CLS, TBT, script transfer) still read the median of the 5 simulated runs. The limit stays 2.5 s, stricter than a real phone on 4G would need to meet `docs/10`'s 1.8 s p75.
+**Why:** simulated LCP counts, as part of the paint, everything that happened before the page painted in the real (unthrottled) run. On a local server every script arrives before the first paint, so the value swings with task timing: `/remove-background` gave 1966 to 2651 ms on one build, and CI failed it at 2553 ms (median of 5) on a PR that only adds Rotate & Flip. With applied throttling the H1 paints before the scripts arrive, as it would on a slow phone, and the same pages read 1588 to 1771 ms, run after run. TBT stays simulated because its 150 ms limit was set against simulated values. It costs about 6 minutes of CI time (18 throttled page loads).
+**Reverse:** drop `applied: true` from the LCP budget in `scripts/lighthouse.ts` (and `APPLIED_RUNS` with its loop).
+

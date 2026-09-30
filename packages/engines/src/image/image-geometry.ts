@@ -1,7 +1,7 @@
 /**
- * `image-geometry` engine: P02 Crop Image and P03 Resize Image. Same checks
- * and worker as `image-codec`; the worker turns, crops and resamples between
- * decoding and encoding (./geometry).
+ * `image-geometry` engine: P02 Crop Image, P03 Resize Image and P04 Rotate &
+ * Flip. Same checks and worker as `image-codec`; the worker turns, flips,
+ * straightens, crops and resamples between decoding and encoding (./geometry).
  */
 import type { Engine, EngineOutput } from '../types';
 import type { Filter, Fit, GeometryJob, Rect, ResizeBy, ResizeSpec } from './geometry';
@@ -20,9 +20,19 @@ export interface ImageGeometryOptions extends Pick<
 > {
   /** P02: the crop box in turned source pixels (one image). */
   crop?: Rect;
-  /** P02: clockwise quarter turns. */
+  /** P02, P04: clockwise quarter turns, from the editor. */
   turns?: number;
   flip?: boolean;
+  /** P04, from the editor: mirror top to bottom, and a free angle in degrees. */
+  flipV?: boolean;
+  angle?: number;
+  /** P04, a batch: "90", "180" or "270" clockwise, and "horizontal" or "vertical". */
+  rotateAll?: string;
+  flipAll?: string;
+  /** P04: "crop" (auto-crop) or "expand" for a free angle. */
+  angleFit?: string;
+  /** P04: what shows around an expanded canvas: transparent, white, black. */
+  canvas?: string;
   /** P02: free, "4:5", or custom (with ratioW and ratioH). A batch crops to it, centred. */
   ratio?: string;
   ratioW?: string;
@@ -92,9 +102,15 @@ export function resizeSpec(opts: ImageGeometryOptions): ResizeSpec | undefined {
 
 export function geometryJob(opts: ImageGeometryOptions): GeometryJob {
   const ratio = ratioValue(opts.ratio, opts.ratioW, opts.ratioH);
+  // A batch has no editor: its turn and flip come from the options.
+  const all = Number(opts.rotateAll);
   return {
-    turns: opts.turns,
-    flip: opts.flip,
+    turns: opts.turns ?? (Number.isFinite(all) && all % 90 === 0 ? all / 90 : undefined),
+    flip: opts.flip ?? opts.flipAll === 'horizontal',
+    flipVertical: opts.flipV ?? opts.flipAll === 'vertical',
+    angle: opts.angle,
+    angleFit: opts.angleFit === 'expand' ? 'expand' : 'crop',
+    fill: PADS[opts.canvas ?? 'transparent'] ?? PADS.transparent,
     crop: opts.crop,
     cropRatio: opts.crop ? undefined : (ratio ?? undefined),
     resize: resizeSpec(opts),

@@ -5,12 +5,16 @@ import {
   centredRatio,
   clampRect,
   cropPixels,
+  expandedSize,
   flipHorizontal,
+  flipVertical,
   GeometryError,
   padPixels,
   planResize,
   resample,
+  rotateFree,
   rotateQuarter,
+  straightenedCrop,
   type Filter,
   type Pixels,
 } from './geometry';
@@ -43,7 +47,12 @@ describe('lossless geometry', () => {
     expect(at(once, 0, 0)).toEqual([0, 1, 100, 255]);
     expect(at(once, 1, 0)).toEqual([0, 0, 100, 255]);
     expect(at(once, 0, 2)).toEqual([2, 1, 100, 255]);
-    expect(rotateQuarter(rotateQuarter(src, 2), 2).data).toEqual(src.data);
+    // A half turn moves every pixel: the bottom-right one becomes the top-left.
+    const half = rotateQuarter(src, 2);
+    expect([half.width, half.height]).toEqual([3, 2]);
+    expect(at(half, 0, 0)).toEqual([2, 1, 100, 255]);
+    expect(at(half, 2, 1)).toEqual([0, 0, 100, 255]);
+    expect(rotateQuarter(half, 2).data).toEqual(src.data);
     expect(rotateQuarter(src, 4)).toBe(src);
     expect(rotateQuarter(rotateQuarter(src, 3), 1).data).toEqual(src.data);
   });
@@ -282,5 +291,80 @@ describe('notes', () => {
   it('says when the box covers the whole image', () => {
     const { notes } = applyGeometry(tagged(4, 3), { crop: { x: 0, y: 0, width: 4, height: 3 } });
     expect(notes).toEqual(['The box covers the whole image, so nothing was cropped']);
+  });
+});
+
+describe('P04 rotate and flip', () => {
+  it('90° swaps the dimensions', () => {
+    const out = applyGeometry(tagged(40, 30), { turns: 1 }).image;
+    expect([out.width, out.height]).toEqual([30, 40]);
+  });
+
+  it('flips vertically, pixel for pixel', () => {
+    const src = tagged(4, 3);
+    const out = flipVertical(src);
+    expect(at(out, 1, 0)).toEqual(at(src, 1, 2));
+    expect(at(out, 3, 2)).toEqual(at(src, 3, 0));
+    expect(flipVertical(out).data).toEqual(src.data);
+    // Both flips are a half turn.
+    expect(flipVertical(flipHorizontal(src)).data).toEqual(rotateQuarter(src, 2).data);
+  });
+
+  it('a free 10° with an expanded canvas has the expected bounding box', () => {
+    // 4000 × 3000 at 10°: 4000 cos 10° + 3000 sin 10° = 4460.24, 4000 sin 10° + 3000 cos 10° = 3649.01.
+    expect(expandedSize({ width: 4000, height: 3000 }, 10)).toEqual({ width: 4461, height: 3649 });
+    expect(expandedSize({ width: 4000, height: 3000 }, -10)).toEqual({ width: 4461, height: 3649 });
+    expect(expandedSize({ width: 400, height: 300 }, 0)).toEqual({ width: 400, height: 300 });
+    const out = applyGeometry(
+      image(400, 300, () => [200, 50, 50, 255]),
+      {
+        angle: 10,
+        angleFit: 'expand',
+      },
+    );
+    expect([out.image.width, out.image.height]).toEqual([446, 365]);
+    expect(out.notes).toEqual(['Rotated 10° on a canvas of 446 × 365 px']);
+    // Corners are the (transparent) canvas, the centre is the photo.
+    expect(at(out.image, 0, 0)[3]).toBe(0);
+    expect(at(out.image, 223, 182)).toEqual([200, 50, 50, 255]);
+  });
+
+  it('auto-crop keeps the photo’s shape and shows no background', () => {
+    const size = straightenedCrop({ width: 400, height: 300 }, 5);
+    expect(size.width / size.height).toBeCloseTo(400 / 300, 1);
+    const out = applyGeometry(
+      image(400, 300, () => [10, 200, 30, 255]),
+      {
+        angle: -5,
+        angleFit: 'crop',
+      },
+    ).image;
+    expect([out.width, out.height]).toEqual([size.width, size.height]);
+    for (const [x, y] of [
+      [0, 0],
+      [out.width - 1, 0],
+      [0, out.height - 1],
+      [out.width - 1, out.height - 1],
+    ] as const) {
+      expect(at(out, x, y)[3]).toBeGreaterThan(250);
+    }
+  });
+
+  it('fills an expanded canvas with a colour, anti-aliased at the edge', () => {
+    const out = rotateFree(
+      image(20, 20, () => [0, 0, 0, 255]),
+      30,
+      { width: 40, height: 40 },
+      [255, 255, 255, 255],
+    );
+    expect(at(out, 0, 0)).toEqual([255, 255, 255, 255]);
+    expect(at(out, 20, 20)).toEqual([0, 0, 0, 255]);
+    // Somewhere on the edge a pixel is between the two.
+    const row = Array.from({ length: 40 }, (_, x) => at(out, x, 20)[0] ?? 0);
+    expect(row.some((v) => v > 20 && v < 235)).toBe(true);
+  });
+
+  it('refuses angles past 45°', () => {
+    expect(() => applyGeometry(tagged(4, 4), { angle: 60 })).toThrow(GeometryError);
   });
 });

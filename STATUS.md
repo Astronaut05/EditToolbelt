@@ -34,12 +34,14 @@
   - Models and ONNX Runtime come from `MODELS_BASE_URL`, fetched and checksum-checked by `pnpm models` (run by `build` and `dev`), downloaded once in the browser with progress and cached.
 - M2: "Use in another tool": the Next links under a result carry the file to the next tool in memory, with no re-upload (#28).
 - M2b: Subtitle Sync (shift by ms, from a cue on; frame rate 23.976 ↔ 25 and more; two-point sync that fixes offset and drift). Only the times are rewritten, so styles, positions and comments stay as they were (#29).
+- M2b: Rotate & Flip Image (straighten by 0.1° with auto-crop or an expanded canvas, 90° turns and flips without resampling, batches of 50). Also fixes a half turn in Crop Image that returned the original pixels (#30).
+- CI: Lighthouse's LCP gate now reads runs with applied throttling (stable 1.6-1.8 s) instead of simulated ones (1.9-2.7 s on one build); the limit is unchanged (#30).
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
 2. M2 local-launch checks: Playwright on Chromium, Firefox, WebKit and phone, and the Lighthouse budgets, on the production build.
-3. M2b: 10 tools left (Rotate & Flip; Video Converter, GIF to MP4, Mute Video, Video Info; Audio Converter, Trim Audio, BPM & Key; Palette and Color Picker from an image), then checkpoint 3.
+3. M2b: 9 tools left (Video Converter, GIF to MP4, Mute Video, Video Info; Audio Converter, Trim Audio, BPM & Key; Palette and Color Picker from an image), then checkpoint 3.
 
 ## Blocked
 

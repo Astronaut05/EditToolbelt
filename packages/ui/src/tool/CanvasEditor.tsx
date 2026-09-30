@@ -4,11 +4,14 @@ import { turnedSize, type Size } from '@etb/engines';
 import {
   Crop,
   FlipHorizontal2,
+  FlipVertical2,
   Highlighter,
   Minus,
   Plus,
   Redo2,
+  RotateCcw,
   RotateCw,
+  Ruler,
   Scaling,
   Type,
   Undo2,
@@ -25,25 +28,42 @@ import {
 } from 'react';
 
 import { cn } from '../cn';
+import { Slider } from '../primitives/fields';
 import { boxLabel, dragHandle, moveBox, turnEdit, type Edit, type Handle } from './crop';
 import type { EditorState } from './useEditor';
 
-export type EditorMode = 'crop' | 'resize' | 'rotate' | 'flip' | 'draw' | 'text' | 'blur';
+export type EditorMode =
+  | 'crop'
+  | 'straighten'
+  | 'resize'
+  | 'rotate-left'
+  | 'rotate'
+  | 'flip'
+  | 'flip-v'
+  | 'draw'
+  | 'text'
+  | 'blur';
 
 const icon = (Icon: typeof Crop) => <Icon size={16} strokeWidth={1.75} aria-hidden="true" />;
 
 const MODES: { id: EditorMode; label: string; icon: ReactNode }[] = [
   { id: 'crop', label: 'Crop', icon: icon(Crop) },
+  { id: 'straighten', label: 'Straighten', icon: icon(Ruler) },
   { id: 'resize', label: 'Resize', icon: icon(Scaling) },
+  { id: 'rotate-left', label: 'Rotate left', icon: icon(RotateCcw) },
   { id: 'rotate', label: 'Rotate 90°', icon: icon(RotateCw) },
   { id: 'flip', label: 'Flip', icon: icon(FlipHorizontal2) },
+  { id: 'flip-v', label: 'Flip vertical', icon: icon(FlipVertical2) },
   { id: 'draw', label: 'Draw', icon: icon(Highlighter) },
   { id: 'text', label: 'Text', icon: icon(Type) },
   { id: 'blur', label: 'Blur', icon: icon(Waves) },
 ];
 
-/** Rotate and flip act at once; the rest are modes. */
-const ACTIONS: readonly EditorMode[] = ['rotate', 'flip'];
+/** Rotations and flips act at once; the rest are modes. */
+const ACTIONS: readonly EditorMode[] = ['rotate-left', 'rotate', 'flip', 'flip-v'];
+
+/** Straighten's range and step, degrees (tools/photo.md → P04). */
+const MAX_ANGLE = 45;
 
 const HANDLES: { id: Handle; className: string; cursor: string }[] = [
   { id: 'nw', className: '-top-4 -left-4', cursor: 'cursor-nwse-resize' },
@@ -106,6 +126,7 @@ export function CanvasEditor({
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const hintId = useId();
+  const angleId = useId();
   const modes = MODES.filter((m) => !enabledModes || enabledModes.includes(m.id));
 
   useEffect(() => {
@@ -132,9 +153,21 @@ export function CanvasEditor({
 
   function act(next: EditorMode) {
     if (next === 'rotate' && natural) onEdit(turnEdit(edit, natural, ratio));
-    else if (next === 'flip') onEdit({ ...edit, flip: !edit.flip });
+    else if (next === 'rotate-left' && natural) {
+      // Three quarter turns right, so the crop box follows the same way.
+      const once = turnEdit(edit, natural, ratio);
+      const twice = turnEdit(once, natural, ratio);
+      onEdit(turnEdit(twice, natural, ratio));
+    } else if (next === 'flip') onEdit({ ...edit, flip: !edit.flip });
+    else if (next === 'flip-v') onEdit({ ...edit, flipV: !edit.flipV });
     else setMode(next);
   }
+
+  /** Straighten's slider moves the view live; letting go makes it one undo step. */
+  const setAngle = (value: number, done: boolean) => {
+    const angle = Math.round(Math.min(MAX_ANGLE, Math.max(-MAX_ANGLE, value)) * 10) / 10;
+    onEdit({ ...edit, angle }, !done);
+  };
 
   /**
    * A drag follows the pointer on the window until it lifts, so it keeps
@@ -285,6 +318,45 @@ export function CanvasEditor({
           </IconButton>
         </span>
       </div>
+      {mode === 'straighten' && (
+        <div className="flex h-12 flex-none items-center gap-3 border-b border-border bg-bg px-4">
+          <label htmlFor={angleId} className="text-14 text-text-muted">
+            Angle
+          </label>
+          <Slider
+            id={angleId}
+            min={-MAX_ANGLE}
+            max={MAX_ANGLE}
+            step={0.1}
+            value={edit.angle}
+            disabled={!natural}
+            aria-valuetext={`${String(edit.angle)}°`}
+            onChange={(event) => {
+              setAngle(Number(event.target.value), false);
+            }}
+            onPointerUp={(event) => {
+              setAngle(Number(event.currentTarget.value), true);
+            }}
+            onKeyUp={(event) => {
+              setAngle(Number(event.currentTarget.value), true);
+            }}
+            className="min-w-0 flex-1 sm:max-w-80"
+          />
+          <output htmlFor={angleId} className="w-14 text-right font-mono text-12.5 text-text">
+            {edit.angle.toFixed(1)}°
+          </output>
+          <button
+            type="button"
+            disabled={edit.angle === 0}
+            onClick={() => {
+              setAngle(0, true);
+            }}
+            className="text-14 text-text-muted hover:text-text disabled:opacity-38"
+          >
+            Reset
+          </button>
+        </div>
+      )}
       <div ref={frameRef} className="relative min-h-0 flex-1 overflow-hidden">
         {/* Loads the image to learn its size; the stage shows it once known. */}
         {!natural && (
@@ -324,9 +396,17 @@ export function CanvasEditor({
                 top: (stage.height - imageSize.height) / 2,
                 width: imageSize.width,
                 height: imageSize.height,
-                transform: `${edit.flip ? 'scaleX(-1) ' : ''}rotate(${String(edit.turns * 90)}deg)`,
+                // Turns first, then the flips, then the free angle, as the engine applies them.
+                transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
               }}
             />
+            {mode === 'straighten' && (
+              // A grid to line the horizon or a wall up against.
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--media-text)_45%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--media-text)_45%,transparent)_1px,transparent_1px)] bg-size-[12.5%_12.5%]"
+              />
+            )}
             {mode === 'crop' && box && (
               <div
                 role="group"
