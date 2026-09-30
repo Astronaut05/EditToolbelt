@@ -19,7 +19,9 @@
     },
     "lint": {},
     "typecheck": {},
-    "test": {},
+    "test": {
+      "env": ["TEST_DATABASE_URL"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

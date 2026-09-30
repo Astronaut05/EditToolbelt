@@ -81,10 +81,26 @@
       "section": "Platform and app",
       "ecosystem": "npm",
       "packages": ["drizzle-orm"],
-      "use": "DB",
+      "use": "database schema, queries and migrations (packages/db)",
       "license": "Apache-2.0",
       "scope": "server",
-      "status": "approved"
+      "status": "approved",
+      "version": "0.45.3",
+      "source": "https://github.com/drizzle-team/drizzle-orm/blob/main/LICENSE",
+      "checked": "2026-09-30"
+    },
+    {
+      "label": "node-postgres",
+      "section": "Platform and app",
+      "ecosystem": "npm",
+      "packages": ["pg"],
+      "use": "Postgres driver for the web server and scripts (packages/db)",
+      "license": "MIT",
+      "scope": "server",
+      "status": "approved",
+      "version": "8.23.0",
+      "source": "https://github.com/brianc/node-postgres/blob/master/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "Better Auth",
@@ -786,10 +802,23 @@
       "checked": "2026-09-29"
     },
     {
+      "label": "drizzle-kit",
+      "section": "Development, build and CI",
+      "ecosystem": "npm",
+      "packages": ["drizzle-kit"],
+      "use": "generates SQL migrations from the Drizzle schema (never shipped)",
+      "license": "MIT",
+      "scope": "dev",
+      "status": "approved",
+      "version": "0.31.11",
+      "source": "https://github.com/drizzle-team/drizzle-orm/tree/main/drizzle-kit",
+      "checked": "2026-09-30"
+    },
+    {
       "label": "DefinitelyTyped types",
       "section": "Development, build and CI",
       "ecosystem": "npm",
-      "packages": ["@types/node", "@types/react", "@types/react-dom", "@types/qrcode"],
+      "packages": ["@types/node", "@types/react", "@types/react-dom", "@types/qrcode", "@types/pg"],
       "use": "type definitions",
       "license": "MIT",
       "scope": "dev",

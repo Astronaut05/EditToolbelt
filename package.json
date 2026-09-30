@@ -24,7 +24,9 @@
     "design:compare": "node apps/web/scripts/compare-screens.ts",
     "lighthouse": "node scripts/lighthouse.ts",
     "e2e": "pnpm --filter @etb/web e2e",
-    "models": "pnpm --filter @etb/web models"
+    "models": "pnpm --filter @etb/web models",
+    "db:migrate": "pnpm --filter @etb/db migrate",
+    "db:generate": "pnpm --filter @etb/db generate"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

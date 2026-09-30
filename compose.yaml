@@ -1,4 +1,5 @@
 # Local stack: `docker compose up --watch` (docs/12-milestones.md → M0).
+#   migrate  applies database migrations, then exits; web and worker wait for it
 #   web      http://localhost:3000  Next.js dev server, hot reload via compose watch
 #   worker   Python worker, runs the hello-world job then idles
 #   postgres localhost:5432         user/db `etb`
@@ -60,6 +61,19 @@ services:
       timeout: 3s
       retries: 30
 
+  migrate:
+    # Same image as web: it has the repo and pnpm. Runs `pnpm db:migrate` once.
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    command: [pnpm, --filter, '@etb/db', migrate]
+    environment:
+      DATABASE_URL: postgresql://etb:etb-local-only@postgres:5432/etb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
   worker:
     build: ./apps/worker
     init: true
@@ -67,6 +81,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       storage:
         condition: service_healthy
     # Same hardening the production worker gets (docs/11-security.md).

@@ -26,7 +26,8 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Next.js, React | web app | MIT | ✅ |
 | Tailwind CSS (`tailwindcss`, `@tailwindcss/postcss`) | styling | MIT | ✅ 4.3.3, checked 2026-09-30 |
 | Zod | validation | MIT | ✅ |
-| Drizzle ORM | DB | Apache-2.0 | ✅ |
+| Drizzle ORM | database schema, queries and migrations (`packages/db`) | Apache-2.0 | ✅ 0.45.3, checked 2026-09-30 |
+| node-postgres (`pg`) | Postgres driver for the web server and scripts | MIT | ✅ 8.23.0, checked 2026-09-30 |
 | Better Auth | auth | MIT | 🔍 |
 | pino | logging | MIT | ✅ |
 | structlog | Python logging | MIT / Apache-2.0 | ✅ |
@@ -106,7 +107,8 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | ESLint plugins: Next.js, React Hooks, Prettier config (`@next/eslint-plugin-next`, `eslint-plugin-react-hooks`, `eslint-config-prettier`) | lint rules | MIT | ✅ checked 2026-09-29. `eslint-config-next` is **not** used: its react/import/jsx-a11y plugins don't support ESLint 10 yet |
 | Prettier | formatting | MIT | ✅ 3.9.9, checked 2026-09-29 |
 | Vitest | unit tests | MIT | ✅ 5.0.2, checked 2026-09-29 |
-| DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`, `@types/qrcode`) | type definitions | MIT | ✅ checked 2026-09-29 |
+| drizzle-kit | generates SQL migrations from the Drizzle schema | MIT | ✅ 0.31.11, checked 2026-09-30 |
+| DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`, `@types/qrcode`, `@types/pg`) | type definitions | MIT | ✅ checked 2026-09-29 |
 | Ruff | Python lint and format | MIT | ✅ 0.16.9, checked 2026-09-29 |
 | mypy | Python type checking | MIT | ✅ 2.3.1, checked 2026-09-29 |
 | pytest | Python tests | MIT | ✅ 9.1.1, checked 2026-09-29 |
