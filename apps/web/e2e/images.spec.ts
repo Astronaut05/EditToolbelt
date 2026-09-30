@@ -10,11 +10,11 @@ import { choose, expect, test } from './fixtures';
 /** Draws a test image in the page and returns its bytes. */
 async function drawImage(
   page: Page,
-  kind: 'transparent-png' | 'noisy-jpeg' | 'small-jpeg',
+  kind: 'transparent-png' | 'noisy-png' | 'small-jpeg',
 ): Promise<Buffer> {
   const base64 = await page.evaluate(async (which) => {
     const size =
-      which === 'noisy-jpeg' ? [1600, 1200] : which === 'small-jpeg' ? [320, 240] : [640, 480];
+      which === 'noisy-png' ? [1600, 1200] : which === 'small-jpeg' ? [320, 240] : [640, 480];
     const [width = 1, height = 1] = size;
     const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext('2d');
@@ -29,14 +29,15 @@ async function drawImage(
       for (let i = 0; i < image.data.length; i += 4) {
         seed = (seed * 1103515245 + 12345) % 2147483648;
         image.data[i] = (i / 4) % 256;
-        image.data[i + 1] = seed % 256;
+        image.data[i + 1] = 96 + (seed % 64);
         image.data[i + 2] = 128;
         image.data[i + 3] = 255;
       }
       ctx.putImageData(image, 0, 0);
     }
+    // PNG is lossless, so every browser hands the encoder the same pixels.
     const blob = await canvas.convertToBlob({
-      type: which === 'transparent-png' ? 'image/png' : 'image/jpeg',
+      type: which === 'small-jpeg' ? 'image/jpeg' : 'image/png',
       quality: 0.95,
     });
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -164,13 +165,14 @@ test('camera details stay, the GPS location goes', async ({ page }) => {
 test('compress to a target size lands under it', async ({ page, isMobile }) => {
   test.skip(isMobile, 'the number field is tested on desktop; the sheet is covered elsewhere');
   await page.goto('/compress-image');
-  const jpeg = await drawImage(page, 'noisy-jpeg');
-  expect(jpeg.length).toBeGreaterThan(400_000);
+  const png = await drawImage(page, 'noisy-png');
+  expect(png.length).toBeGreaterThan(400_000);
   await page
     .locator('input[type=file][data-hydrated]')
     .first()
-    .setInputFiles({ name: 'noisy.jpg', mimeType: 'image/jpeg', buffer: jpeg });
+    .setInputFiles({ name: 'noisy.png', mimeType: 'image/png', buffer: png });
   await page.getByRole('radio', { name: 'Target size', exact: true }).click();
+  await page.getByRole('radio', { name: 'JPG', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Target size' }).fill('250');
   const file = await run(page, 'Compress');
   expect(file.suggestedFilename()).toBe('noisy_compressed.jpg');
