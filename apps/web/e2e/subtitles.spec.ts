@@ -25,7 +25,7 @@ async function choose(page: Page, isMobile: boolean, label: string, value: strin
 
 test('a messy SRT becomes clean WebVTT, with a report of what changed', async ({ page }) => {
   await page.goto('/subtitle-converter');
-  await page.locator('input[type=file]').first().setInputFiles(fixture('messy.srt'));
+  await page.locator('input[type=file][data-hydrated]').first().setInputFiles(fixture('messy.srt'));
   await page.getByRole('button', { name: 'Convert', exact: true }).click();
 
   const preview = page.getByLabel('Start of messy.vtt');
@@ -51,7 +51,7 @@ test('a messy SRT becomes clean WebVTT, with a report of what changed', async ({
 test('several files convert as a batch and download as one ZIP', async ({ page, isMobile }) => {
   await page.goto('/subtitle-converter');
   await page
-    .locator('input[type=file]')
+    .locator('input[type=file][data-hydrated]')
     .first()
     .setInputFiles([fixture('roundtrip.srt'), fixture('features.ass'), fixture('basic.sbv')]);
   await choose(page, isMobile, 'Convert to', 'SRT');
@@ -83,7 +83,10 @@ test('the ASS to SRT pair page is preset to SRT and has its own copy', async ({
     /\/convert\/ass-to-srt$/,
   );
 
-  await page.locator('input[type=file]').first().setInputFiles(fixture('features.ass'));
+  await page
+    .locator('input[type=file][data-hydrated]')
+    .first()
+    .setInputFiles(fixture('features.ass'));
   if (isMobile) await expect(page.getByRole('button', { name: /^Convert to.*SRT/ })).toBeVisible();
   else await expect(page.getByRole('radio', { name: 'SRT', exact: true })).toBeChecked();
   await page.getByRole('button', { name: 'Convert', exact: true }).click();

@@ -63,7 +63,7 @@ test.describe('site', () => {
     for (const item of cases) {
       await page.goto(`/workshop/tools/${item.type}`, { waitUntil: 'networkidle' });
       await page
-        .locator('input[type=file]')
+        .locator('input[type=file][data-hydrated]')
         .first()
         .setInputFiles({ name: item.file, mimeType: item.mime, buffer: Buffer.alloc(3000) });
       if (item.run) await page.getByRole('button', { name: item.run }).click();

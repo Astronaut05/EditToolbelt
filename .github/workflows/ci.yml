@@ -138,9 +138,13 @@ jobs:
           done
           echo "web did not serve the home page in time"; exit 1
       - name: Web logs are JSON
+        # Read the logs first: `grep -m1` straight off `docker compose logs`
+        # stops reading early, the writer gets SIGPIPE, and pipefail fails the
+        # step whenever more lines follow the match.
         run: |
           set -o pipefail
-          docker compose logs --no-log-prefix web | grep -m1 '"event":"web.started"' | jq -e '.service == "web"'
+          logs="$(docker compose logs --no-log-prefix web)"
+          grep -m1 '"event":"web.started"' <<<"$logs" | jq -e '.service == "web"'
       - name: Show logs
         if: failure()
         run: docker compose logs
