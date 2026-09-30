@@ -14,6 +14,7 @@ export function CopyButton({
   label,
   className,
   children,
+  compact = false,
 }: {
   /** The text to copy, or a function that builds it on click. */
   text: string | (() => string);
@@ -22,6 +23,8 @@ export function CopyButton({
   className?: string;
   /** Visible text next to the icon; icon-only when omitted. */
   children?: string;
+  /** Tighter padding and smaller text, for several in a row (palette cards). */
+  compact?: boolean;
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
@@ -55,8 +58,9 @@ export function CopyButton({
         }}
         aria-label={children ? undefined : label}
         className={cn(
-          'inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-control text-text-muted hover:text-text',
-          children && 'px-3 text-14',
+          'inline-flex min-h-11 min-w-11 items-center justify-center rounded-control text-text-muted hover:text-text',
+          compact ? 'gap-1.5' : 'gap-2',
+          children && (compact ? 'px-1.5 text-13' : 'px-3 text-14'),
           className,
         )}
       >
