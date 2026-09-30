@@ -10,6 +10,7 @@ import { EngineAbortError } from '../dummy';
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, MediaInputError, openInput } from '../video/media';
 import { AUDIO_LIMITS } from './convert';
+import { MEDIA_META } from '../media-meta';
 
 export interface BpmKeyOptions {
   /** auto, slow (60-90), mid (90-140) or fast (140-200) */
@@ -62,11 +63,7 @@ export class Downmix {
 const RANGES: TempoRange[] = ['auto', 'slow', 'mid', 'fast'];
 
 export const bpmKeyEngine: Engine<BpmKeyOptions> = {
-  capabilities: () => ({
-    supported: typeof AudioDecoder === 'function',
-    reason: 'This browser can’t read audio yet. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(1, input.size / 20_000_000) }),
+  ...MEDIA_META.bpmKey,
   async run(file, opts, ctx): Promise<EngineOutput> {
     if (file.size > AUDIO_LIMITS.maxBytes) {
       throw new MediaInputError('This file is over 1 GB, the browser limit for audio.');

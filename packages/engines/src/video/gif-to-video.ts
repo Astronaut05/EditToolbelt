@@ -21,6 +21,7 @@ import { EngineAbortError } from '../dummy';
 import type { Engine, EngineOutput } from '../types';
 import { GifReadError, gifFrames, readGif } from './gif/decode';
 import { MediaInputError, openInput } from './media';
+import { GIF_INPUT_LIMITS, MEDIA_META } from '../media-meta';
 
 export interface GifToVideoOptions {
   /** mp4 or webm */
@@ -31,11 +32,7 @@ export interface GifToVideoOptions {
   background?: string;
 }
 
-export const GIF_INPUT_LIMITS = {
-  maxBytes: 200 * 1024 ** 2,
-  maxPixels: 4096 * 4096,
-  maxSeconds: 10 * 60,
-};
+export { GIF_INPUT_LIMITS };
 
 /** "#1a2b3c" → [26, 43, 60]; anything else is white. */
 export function parseColour(hex: string | undefined): [number, number, number] {
@@ -95,11 +92,7 @@ export async function videoFrameTimes(file: Blob): Promise<number[]> {
 const secs = (ms: number) => `${(ms / 1000).toFixed(2)} s`;
 
 export const gifToVideoEngine: Engine<GifToVideoOptions> = {
-  capabilities: () => ({
-    supported: typeof VideoEncoder === 'function',
-    reason: 'This browser can’t make video yet. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(1, input.size / 5_000_000) }),
+  ...MEDIA_META.gifToVideo,
   async run(file, opts, ctx): Promise<EngineOutput> {
     if (file.size > GIF_INPUT_LIMITS.maxBytes) {
       throw new MediaInputError('This GIF is over 200 MB, the browser limit for this tool.');

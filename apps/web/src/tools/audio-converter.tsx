@@ -1,9 +1,13 @@
 'use client';
 
-import { audioConverterEngine } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.audioConverterEngine, MEDIA_META.audioConverter);
 
 const LOSSY = { id: 'format', values: ['mp3', 'm4a', 'ogg'] };
 
@@ -103,7 +107,7 @@ export default function AudioConverter({ tool, to }: { tool: ShellTool; to?: str
     <ToolShell
       tool={tool}
       preset={PRESET}
-      engine={audioConverterEngine}
+      engine={engine}
       initialOptions={initialOptions}
       onEvent={trackUnknown}
     />

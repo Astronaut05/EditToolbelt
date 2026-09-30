@@ -1,10 +1,14 @@
 'use client';
 
-import { trimEngine } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
 import { probeVideo, VIDEO_INTAKE } from './video-presets';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.trimEngine, MEDIA_META.trim);
 
 const OPTIONS: ShellOption[] = [
   {
@@ -46,5 +50,5 @@ const PRESET: ShellPreset = {
 
 /** V01 Trim Video (tools/video.md). */
 export default function TrimVideo({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={trimEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

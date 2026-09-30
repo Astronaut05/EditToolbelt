@@ -14,6 +14,7 @@ import { encodeAudio } from '../video/encode-audio';
 import { AUDIO_TARGETS, ensureEncoder, type AudioFormat } from '../video/extract-audio';
 import { checkRange } from '../video/trim';
 import { AUDIO_LIMITS } from './convert';
+import { MEDIA_META } from '../media-meta';
 
 export interface TrimAudioOptions {
   /** keep (the selection) or remove (it, joining what's either side) */
@@ -159,8 +160,7 @@ export async function audioPeaks(file: Blob, buckets: number): Promise<number[]>
 const secs = (t: number) => `${t.toFixed(3)} s`;
 
 export const trimAudioEngine: Engine<TrimAudioOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 60_000_000) }),
+  ...MEDIA_META.trimAudio,
   async run(file, opts, ctx): Promise<EngineOutput> {
     if (file.size > AUDIO_LIMITS.maxBytes) {
       throw new MediaInputError('This file is over 1 GB, the browser limit for audio.');

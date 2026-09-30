@@ -1,9 +1,10 @@
 'use client';
 
-import { lazyEngine, type VideoConverterOptions } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
 import { probeVideo, VIDEO_INTAKE } from './video-presets';
 
 const OPTIONS: ShellOption[] = [
@@ -44,13 +45,7 @@ const OPTIONS: ShellOption[] = [
 ];
 
 // The engine and Mediabunny load on the first run, not with the page (docs/10).
-const engine = lazyEngine<VideoConverterOptions>(
-  () => import('@etb/engines/video-converter').then((m) => m.videoConverterEngine),
-  {
-    capabilities: () => ({ supported: true }),
-    estimate: (input) => ({ seconds: Math.max(0.5, input.size / 100_000_000) }),
-  },
-);
+const engine = mediaEngine((m) => m.videoConverterEngine, MEDIA_META.videoConverter);
 
 const PRESET: ShellPreset = {
   ...VIDEO_INTAKE,

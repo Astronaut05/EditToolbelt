@@ -50,8 +50,6 @@ export {
 } from './video/extract-audio';
 export { compressEngine, minBpp, planCompress, type CompressOptions } from './video/compress';
 export {
-  estimateGifBytes,
-  gifFrameCount,
   gifSize,
   GIF_LIMITS,
   videoToGifEngine,
@@ -65,6 +63,13 @@ export {
 } from './image/rmbg/remove-background';
 export { canRunQuality, modelCached, pickModel } from './image/rmbg/support';
 export { lazyEngine } from './lazy';
+export {
+  AUDIO_LIMITS,
+  estimateGifBytes,
+  GIF_INPUT_LIMITS,
+  gifFrameCount,
+  MEDIA_META,
+} from './media-meta';
 export {
   ORT_BUILDS,
   ORT_FILES,
@@ -82,15 +87,10 @@ export {
   subtitleShiftEngine,
   type SubtitleShiftOptions,
 } from './subtitle-shift';
-export { AUDIO_LIMITS, audioConverterEngine, type AudioConverterOptions } from './audio/convert';
+export { audioConverterEngine, type AudioConverterOptions } from './audio/convert';
 export { probeAudio, type AudioProbe } from './audio/probe';
 export { audioPeaks, fadeGain, trimAudioEngine, type TrimAudioOptions } from './audio/trim';
-export {
-  gifToVideoEngine,
-  GIF_INPUT_LIMITS,
-  videoFrameTimes,
-  type GifToVideoOptions,
-} from './video/gif-to-video';
+export { gifToVideoEngine, videoFrameTimes, type GifToVideoOptions } from './video/gif-to-video';
 export { gifFrames, readGif, type GifInfo } from './video/gif/decode';
 export { paletteEngine, PALETTE_LIMITS, type PaletteEngineOptions } from './image/palette';
 export {

@@ -6,6 +6,7 @@
  */
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, MediaInputError, openInput, VIDEO_LIMITS } from './media';
+import { MEDIA_META } from '../media-meta';
 
 export interface VideoInfoOptions {
   /** txt or json */
@@ -359,8 +360,7 @@ export function reportText(report: VideoReport): string {
 }
 
 export const videoInfoEngine: Engine<VideoInfoOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: () => ({ seconds: 0.5 }),
+  ...MEDIA_META.videoInfo,
   async run(file, opts, ctx): Promise<EngineOutput> {
     ctx.progress(0.2, 'Reading the file');
     const report = await videoReport(file, file instanceof File ? file.name : null);

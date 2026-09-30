@@ -1,6 +1,6 @@
 'use client';
 
-import { GIF_INPUT_LIMITS, gifToVideoEngine, readGif } from '@etb/engines';
+import { GIF_INPUT_LIMITS, MEDIA_META, readGif } from '@etb/engines';
 import {
   ToolShell,
   type ProbeInfo,
@@ -10,6 +10,10 @@ import {
 } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.gifToVideoEngine, MEDIA_META.gifToVideo);
 
 const OPTIONS: ShellOption[] = [
   {
@@ -74,5 +78,5 @@ const PRESET: ShellPreset = {
 
 /** V05 GIF to MP4 (tools/video.md). */
 export default function GifToMp4({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={gifToVideoEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

@@ -1,10 +1,14 @@
 'use client';
 
-import { muteVideoEngine } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { mediaEngine } from './media-engine';
 import { probeVideo, VIDEO_INTAKE } from './video-presets';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.muteVideoEngine, MEDIA_META.mute);
 
 const OPTIONS: ShellOption[] = [
   {
@@ -34,5 +38,5 @@ const PRESET: ShellPreset = {
 
 /** V07 Mute Video (tools/video.md). The timeline picks the range for "The selection". */
 export default function MuteVideo({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={muteVideoEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 about 98 % done** (15 of 15 launch tools and all 11 M2b tools live; 25 pair pages, 5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair; left: the local-launch checks) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 done: the local launch is ready to stress-test** (15 of 15 launch tools and all 11 M2b tools live; 25 pair pages, 5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair). M2b's V01 smart cut and multi-range trim are left · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -47,12 +47,14 @@
   - BPM & Key Finder: tempo with half/double alternatives, beat markers as CSV or text, key with its Camelot code, plus tap tempo and a metronome. Tested on a generated set (30 loops, 30 progressions); real songs are for the stress test.
   - MP3 and FLAC always use our own encoders, and every audio re-encode goes through one gapless pipeline (WebKit's MP3 encoder dropped the last frames).
 - M2b: Color Palette from Image (k-means in Oklab, deterministic; CSS, JSON, ASE or a PNG card) and Color Picker from Image (a loupe, 1 px exact or 3 × 3 and 5 × 5 averages, keyboard picking, up to 24 picks). All 11 M2b tools are live (#33).
+- Every video and audio tool loads its engine (and Mediabunny) on first use, not with the page: 167-172 KB of script instead of 325-335 KB (#34).
 
 ## Next
 
-1. Checkpoint 2 (M1 done): sent.
-2. M2 local-launch checks: Playwright on Chromium, Firefox, WebKit and phone, and the Lighthouse budgets, on the production build.
-3. Checkpoint 3 (M2 local launch ready to stress-test).
+1. Checkpoints 1 and 2: sent.
+2. Checkpoint 3 (M2 local launch ready to stress-test): the local-launch checks passed on the production build. Playwright on Chromium, Firefox, WebKit and a phone viewport runs on every PR in CI; the whole suite passes locally on Chromium and phone; the Lighthouse budgets are met on 6 pages. Phones by hand are for the stress test.
+3. M2b remainder: V01 smart cut and multi-range trim (V01, A02), as `docs/DECISIONS.md` defers them.
+4. Then M3 (accounts, database, admin, flags), which can run alongside; Go public is Astro's call.
 
 ## Blocked
 
@@ -64,7 +66,7 @@
 
 ```sh
 git pull && pnpm install
-pnpm preview                   # production build: http://localhost:4173 (try /remove-background, /trim-video, /video-to-gif)
+pnpm preview                   # production build: http://localhost:4173 (try /remove-background, /video-converter, /bpm-key-finder)
 pnpm models                    # AI models for Remove Background into apps/web/public/models (build runs it too)
 pnpm workshop                  # design screens, components, ToolShell demos: http://localhost:4173/workshop
 pnpm e2e                       # Playwright (pnpm exec playwright install once)

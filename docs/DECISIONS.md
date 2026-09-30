@@ -484,3 +484,19 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - The picker loads the image through an `<img>` element: the page's CSP (`connect-src 'self'`) doesn't let `fetch` read `blob:` URLs, and it shouldn't.
 **Why:** `tools/color.md` → C01 (4 flat colours → exactly those 4 within ΔE 2) and C02 (pixel-exact read), both checked in unit and Playwright tests; `CLAUDE.md` rule 2 (one shell).
 **Reverse:** `packages/core/src/color/palette.ts`, `packages/engines/src/image/{palette,pick}.ts`, `packages/ui/src/tool/{Swatches,ColorPicker}.tsx`.
+
+## 2026-09-30 · Media engines load on first use
+
+**Decision:**
+- Every video and audio tool now loads its engine, and Mediabunny with it, on the first run, as Remove Background and Video Converter already did. The file probes and the waveform load it with the first file. Pages get the engine through `mediaEngine()` (`apps/web/src/tools/media-engine.ts`), which imports the new `@etb/engines/media-engines` entry.
+- What a page needs before that (whether the browser can run the engine, a rough time, the limits, the GIF size estimate) moved to `packages/engines/src/media-meta.ts`, which has no Mediabunny behind it. The engines spread the same `MEDIA_META` entries in, so the page and the engine answer the same.
+- Measured on the production build: the 11 media tool pages load 167 to 172 KB of script, down from 325 to 335 KB.
+**Why:** `docs/10` → Budgets ("the engine is not in the initial bundle"). Only `/video-converter` is in the Lighthouse set, so nothing failed, but every other media page loaded 160 KB of Mediabunny it might never use.
+**Reverse:** import the engines from `@etb/engines` again in `apps/web/src/tools/*.tsx`.
+
+## 2026-09-30 · Tools go straight to `live` until there is an admin and real traffic
+
+**Decision:** the 26 working tools are `live` in the registry, not `beta` first. `docs/02` (step 6 of the tool checklist) asks for `beta` and a flip to `live` "after a day without errors in admin", but there is no admin (M3) and no traffic before Go public, so there are no errors to watch. Every tool instead passes its unit and Playwright tests on the production build in four browsers before its PR merges.
+**Why:** a `beta` tag on every tool of a site nobody can reach yet would tell nobody anything, and the flip would be a no-op later. The rule starts to mean something with M3's admin and the Go public step.
+**Reverse:** set `status: 'beta'` in the tool's registry entry (or, from M3, override it in admin).
+

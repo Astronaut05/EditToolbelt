@@ -25,6 +25,7 @@ import {
   pickOutput,
   type Container,
 } from './media';
+import { MEDIA_META } from '../media-meta';
 
 export interface TrimOptions {
   /** Seconds. */
@@ -83,11 +84,7 @@ export function checkRange(start: number, end: number, duration: number): [numbe
 const secs = (t: number) => `${t.toFixed(t < 10 ? 2 : 1)} s`;
 
 export const trimEngine: Engine<TrimOptions> = {
-  capabilities: () => ({
-    supported: typeof VideoDecoder === 'function' && typeof VideoEncoder === 'function',
-    reason: 'This browser can’t edit video yet. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(1, input.size / 40_000_000) }),
+  ...MEDIA_META.trim,
   async run(file, opts, ctx): Promise<EngineOutput> {
     const input = openInput(file);
     try {

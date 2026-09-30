@@ -26,6 +26,7 @@ import { readAacConfig, toAdts } from './adts';
 import { encodeAudio } from './encode-audio';
 import { codecLabel, convert, MediaInputError, openInput } from './media';
 import { checkRange } from './trim';
+import { MEDIA_META } from '../media-meta';
 
 export type AudioFormat = 'mp3' | 'wav' | 'm4a' | 'aac' | 'flac' | 'ogg';
 
@@ -121,11 +122,7 @@ export async function ensureEncoder(codec: AudioCodec): Promise<void> {
 }
 
 export const extractAudioEngine: Engine<ExtractAudioOptions> = {
-  capabilities: () => ({
-    supported: typeof AudioDecoder === 'function',
-    reason: 'This browser can’t read audio yet. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(1, input.size / 60_000_000) }),
+  ...MEDIA_META.extractAudio,
   async run(file, opts, ctx): Promise<EngineOutput> {
     const format: AudioFormat =
       opts.format && opts.format in AUDIO_TARGETS ? (opts.format as AudioFormat) : 'mp3';

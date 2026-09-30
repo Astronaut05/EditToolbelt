@@ -1,6 +1,6 @@
 'use client';
 
-import { audioPeaks, probeAudio, trimAudioEngine } from '@etb/engines';
+import { MEDIA_META } from '@etb/engines';
 import {
   ToolShell,
   type ProbeInfo,
@@ -10,6 +10,10 @@ import {
 } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
+import { loadMediaEngines, mediaEngine } from './media-engine';
+
+// The engine loads with its first run, not with the page (docs/10).
+const engine = mediaEngine((m) => m.trimAudioEngine, MEDIA_META.trimAudio);
 
 const FADES = [
   { value: '0', label: 'None' },
@@ -46,7 +50,7 @@ const OPTIONS: ShellOption[] = [
 
 /** Reads the audio as it arrives: its length for the timeline, and the waveform. */
 async function probe(file: File): Promise<ProbeInfo> {
-  const info = await probeAudio(file);
+  const info = await (await loadMediaEngines()).probeAudio(file);
   const warnings = info.canDecode
     ? []
     : [
@@ -58,7 +62,7 @@ async function probe(file: File): Promise<ProbeInfo> {
     fps: 1000,
     summary: info.summary,
     warnings,
-    waveform: (buckets) => audioPeaks(file, buckets),
+    waveform: async (buckets) => (await loadMediaEngines()).audioPeaks(file, buckets),
   };
 }
 
@@ -86,5 +90,5 @@ const PRESET: ShellPreset = {
 
 /** A02 Trim Audio (tools/audio.md). */
 export default function TrimAudio({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={trimAudioEngine} onEvent={trackUnknown} />;
+  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
 }

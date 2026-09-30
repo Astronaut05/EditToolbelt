@@ -11,6 +11,7 @@ import type { Engine, EngineOutput } from '../types';
 import type { GifJob, GifMessage } from './gif/gif.worker';
 import { codecLabel, MediaInputError, openInput } from './media';
 import { checkRange } from './trim';
+import { estimateGifBytes, gifFrameCount, MEDIA_META } from '../media-meta';
 
 export interface VideoToGifOptions {
   start?: number;
@@ -50,15 +51,7 @@ export function gifSize(source: { width: number; height: number }, wanted: strin
   };
 }
 
-/** How many frames a range makes at a rate and speed. */
-export function gifFrameCount(seconds: number, fps: number, speed: number): number {
-  return Math.max(1, Math.floor((seconds / speed) * fps + 1e-6));
-}
-
-/** A rough size before starting: bytes per pixel per frame seen on dithered video GIFs. */
-export function estimateGifBytes(frames: number, width: number, height: number): number {
-  return Math.round(frames * width * height * 0.45);
-}
+export { estimateGifBytes, gifFrameCount };
 
 function runWorker(job: GifJob, signal: AbortSignal, progress: (fraction: number) => void) {
   return new Promise<ArrayBuffer>((resolve, reject) => {
@@ -89,12 +82,7 @@ function runWorker(job: GifJob, signal: AbortSignal, progress: (fraction: number
 }
 
 export const videoToGifEngine: Engine<VideoToGifOptions> = {
-  capabilities: () => ({
-    supported: typeof VideoDecoder === 'function' && typeof OffscreenCanvas !== 'undefined',
-    reason:
-      'This browser can’t read video frames yet. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(2, input.size / 20_000_000) }),
+  ...MEDIA_META.videoToGif,
   async run(file, opts, ctx): Promise<EngineOutput> {
     const input = openInput(file);
     try {
