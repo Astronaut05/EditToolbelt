@@ -21,10 +21,14 @@
     "hosts:check": "node scripts/check-hosts.ts",
     "samples": "node scripts/samples/render.ts",
     "workshop": "pnpm --filter @etb/web workshop",
-    "design:compare": "node apps/web/scripts/compare-screens.ts"
+    "design:compare": "node apps/web/scripts/compare-screens.ts",
+    "lighthouse": "lhci autorun --config=lighthouserc.cjs",
+    "e2e": "pnpm --filter @etb/web e2e"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^10.0.1",
+    "@lhci/cli": "^0.15.1",
     "@next/eslint-plugin-next": "^16.3.6",
     "@playwright/test": "~1.63.0",
     "@types/node": "^24.19.0",

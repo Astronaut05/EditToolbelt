@@ -13,7 +13,9 @@
  * Applies the build's `_headers` file the way Cloudflare Pages does (path
  * patterns with `*` splats and `:placeholders`, every matching rule applies,
  * repeated headers are joined with ", ", `! Name` detaches a header), so the
- * CSP and COOP/COEP proofs run locally.
+ * CSP and COOP/COEP proofs run locally. Text responses are compressed (Brotli
+ * or gzip, as the browser accepts), as Pages does, so Lighthouse measures
+ * realistic transfer sizes.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import {
@@ -24,6 +26,7 @@ import {
 import { createServer as createHttpsServer } from 'node:https';
 import { networkInterfaces } from 'node:os';
 import { extname, join, resolve, sep } from 'node:path';
+import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -136,6 +139,35 @@ export function headersFor(urlPath: string, rules: HeaderRule[]): Record<string,
   return Object.fromEntries(out.values());
 }
 
+const COMPRESSIBLE = /^(text\/|application\/(json|javascript|xml|manifest\+json)|image\/svg\+xml)/;
+
+/** Picks br, then gzip, from an Accept-Encoding header; null for none. */
+export function pickEncoding(acceptEncoding: string | undefined): 'br' | 'gzip' | null {
+  const accepted = (acceptEncoding ?? '')
+    .split(',')
+    .map((part) => part.trim().split(';'))
+    .filter(([, q]) => !q || !/q=0(\.0*)?$/.test(q.trim()))
+    .map(([name]) => name?.toLowerCase());
+  if (accepted.includes('br')) return 'br';
+  if (accepted.includes('gzip')) return 'gzip';
+  return null;
+}
+
+const compressed = new Map<string, Buffer>();
+
+function encode(file: string, body: Buffer, encoding: 'br' | 'gzip'): Buffer {
+  const key = `${file}:${encoding}`;
+  let out = compressed.get(key);
+  if (!out) {
+    out =
+      encoding === 'br'
+        ? brotliCompressSync(body, { params: { [constants.BROTLI_PARAM_QUALITY]: 5 } })
+        : gzipSync(body, { level: 6 });
+    compressed.set(key, out);
+  }
+  return out;
+}
+
 function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
@@ -151,10 +183,15 @@ function send(
   file: string,
   extra: Record<string, string>,
 ): void {
-  const body = readFileSync(file);
+  const raw = readFileSync(file);
+  const type = contentType(file);
+  const encoding = COMPRESSIBLE.test(type) ? pickEncoding(req.headers['accept-encoding']) : null;
+  const body = encoding ? encode(file, raw, encoding) : raw;
   res.writeHead(status, {
-    'Content-Type': contentType(file),
+    'Content-Type': type,
     'Content-Length': body.length,
+    ...(encoding ? { 'Content-Encoding': encoding } : {}),
+    Vary: 'Accept-Encoding',
     'Cache-Control': file.endsWith('.html') ? 'no-cache' : 'public, max-age=0, must-revalidate',
     ...extra,
   });

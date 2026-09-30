@@ -39,7 +39,7 @@ The whole site structure with every tool present as "coming soon".
 - Measure the empty shell's initial JS against the 120 KB budget before any tool code lands; if the framework alone takes most of it, re-set the budget with sign-off now rather than discover it in M2.
 - Cookieless analytics wired with the event list from `09`.
 - Lighthouse CI budgets in place, run against the local production build.
-- **Tracked: lint plugins back on ESLint 10.** Re-add Next's full preset and the React, jsx-a11y and import plugins as soon as each supports ESLint 10 (they crash on it today; ESLint 9 reached end of life on 2026-08-06, so no going back). Until then axe in Playwright is the accessibility gate. Check at the start and end of M1; carry forward if still blocked.
+- **Tracked: lint plugins back on ESLint 10.** Re-add Next's full preset and the React, jsx-a11y and import plugins as soon as each supports ESLint 10 (they crash on it today; ESLint 9 reached end of life on 2026-08-06, so no going back). Until then axe in Playwright is the accessibility gate. Check at the start and end of M1; carry forward if still blocked. **Carried into M2** (2026-09-30: react 7.37.5, jsx-a11y 6.10.2, import 2.32.0 still stop at ESLint 9).
 
 **Done when:** every tool appears on its hub as a greyed card; every placeholder page renders; Lighthouse budgets pass; axe shows no serious issues; the look is signed off in light and dark, desktop and phone, with none of the AI tells listed in `03`.
 

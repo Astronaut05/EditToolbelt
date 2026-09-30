@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { contentType, headersFor, parseHeaders, resolveFile } from './serve';
+import { contentType, headersFor, parseHeaders, pickEncoding, resolveFile } from './serve';
 
 const root = resolve('/srv/out');
 const files = new Set(
@@ -95,5 +95,15 @@ describe('_headers', () => {
     expect(blog['X-Blog']).toBe('1');
     expect(blog['X-Content-Type-Options']).toBeUndefined();
     expect(headersFor('/blog/a/b', rules)['X-Blog']).toBeUndefined();
+  });
+});
+
+describe('compression', () => {
+  it('prefers Brotli, then gzip, and honours q=0', () => {
+    expect(pickEncoding('gzip, deflate, br, zstd')).toBe('br');
+    expect(pickEncoding('gzip')).toBe('gzip');
+    expect(pickEncoding('br;q=0, gzip;q=1.0')).toBe('gzip');
+    expect(pickEncoding(undefined)).toBeNull();
+    expect(pickEncoding('identity')).toBeNull();
   });
 });
