@@ -28,6 +28,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
   'remove-background': dynamic(() => import('./remove-background')),
   'resize-image': dynamic(() => import('./resize-image')),
+  'rotate-image': dynamic(() => import('./rotate-image')),
   'subtitle-converter': dynamic(() => import('./subtitle-converter')),
   'subtitle-shift': dynamic(() => import('./subtitle-shift')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),

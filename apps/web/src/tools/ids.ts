@@ -15,6 +15,7 @@ export const TOOL_IDS = [
   'qr-code-generator',
   'remove-background',
   'resize-image',
+  'rotate-image',
   'subtitle-converter',
   'subtitle-shift',
   'timecode-calculator',

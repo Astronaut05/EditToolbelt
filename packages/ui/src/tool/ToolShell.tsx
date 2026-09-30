@@ -85,6 +85,8 @@ export interface ShellOption {
   when?: { id: string; values: string[] };
   /** Choices come from the file (the preset's probe), and the option shows only when there are two or more. */
   probed?: boolean;
+  /** Shown only for one file (the editor's settings) or several (a batch's). */
+  files?: 'one' | 'many';
 }
 
 /** Whether an option applies with the current values. */
@@ -433,6 +435,7 @@ export function ToolShell({
   const editor = useEditor(ratio);
   const resetEditor = editor.reset;
   const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare;
+  const cropping = editing && (preset.editor?.modes?.includes('crop') ?? true);
   const [cropSheet, setCropSheet] = useState(false);
   // P07: the Refine brush over the result.
   const [refining, setRefining] = useState(false);
@@ -469,7 +472,14 @@ export function ToolShell({
           {
             ...engineOptions,
             ...values,
-            ...(editing && { crop: edit.crop ?? undefined, turns: edit.turns, flip: edit.flip }),
+            ...(editing && {
+              // Tools without a crop mode (P04) don't crop to the box the editor keeps.
+              crop: cropping ? (edit.crop ?? undefined) : undefined,
+              turns: edit.turns,
+              flip: edit.flip,
+              flipV: edit.flipV,
+              angle: edit.angle,
+            }),
             ...(tool.ui === 'timeline' && { start: range.start, end: range.end }),
           },
           {
@@ -532,7 +542,7 @@ export function ToolShell({
         });
       }
     },
-    [editing, editor.edit, engine, engineOptions, options, preset, range, tool.ui, track],
+    [cropping, editing, editor.edit, engine, engineOptions, options, preset, range, tool.ui, track],
   );
 
   /** Media tools read the file first: its length sets up the timeline. */
@@ -806,6 +816,7 @@ export function ToolShell({
     </div>
   );
 
+  const fileCount = batch.length || (state.kind === 'ready' ? (state.files?.length ?? 1) : 1);
   // Probed options take their choices from the file and hide when there is nothing to pick.
   const visibleOptions = preset.options
     .map((option) =>
@@ -813,9 +824,11 @@ export function ToolShell({
     )
     .filter(
       (option) =>
-        optionVisible(option, options) && (!option.probed || (option.choices?.length ?? 0) > 1),
+        optionVisible(option, options) &&
+        (!option.probed || (option.choices?.length ?? 0) > 1) &&
+        (!option.files || option.files === (fileCount > 1 ? 'many' : 'one')),
     );
-  const showCrop = editing && state.kind === 'ready' && batch.length === 0;
+  const showCrop = cropping && state.kind === 'ready' && batch.length === 0;
   const blocked =
     state.kind === 'ready' ? preset.blocked?.(options, state.files?.length ?? 1) : undefined;
   const settings = (

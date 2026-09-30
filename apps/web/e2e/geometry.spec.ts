@@ -280,3 +280,72 @@ test('a batch of 10 mixed sizes gets a longest side of 2048', async ({ page, isM
     expect(Math.abs(out.width / out.height - w / h)).toBeLessThan(0.01);
   }
 });
+
+// P04 Rotate & Flip Image (tools/photo.md → Tests).
+
+test('rotating 90° swaps the dimensions, pixel for pixel', async ({ page }) => {
+  await page.goto('/rotate-image');
+  await add(page, 'photo.png', await makeImage(page, 400, 300, 'image/png'), 'image/png');
+  await page.getByRole('button', { name: 'Rotate 90°' }).click();
+  const file = await run(page, 'Save image');
+  expect(file.suggestedFilename()).toBe('photo_rotated.png');
+  // Clockwise: the new top-left pixel was the source's bottom-left (x 0, y 299).
+  const out = await inspect(page, file, [[0, 0]]);
+  expect([out.width, out.height]).toEqual([300, 400]);
+  expect(close(out.pixels[0]?.[0], 0, 2)).toBe(true);
+  expect(close(out.pixels[0]?.[1], Math.round((299 / 300) * 255), 2)).toBe(true);
+});
+
+test('a flip is pixel-exact', async ({ page }) => {
+  await page.goto('/rotate-image');
+  await add(page, 'photo.png', await makeImage(page, 400, 300, 'image/png'), 'image/png');
+  await page.getByRole('button', { name: 'Flip vertical' }).click();
+  const out = await inspect(page, await run(page, 'Save image'), [[10, 0]]);
+  expect([out.width, out.height]).toEqual([400, 300]);
+  // The top row is now the source's bottom row: green at 299 / 300.
+  expect(out.pixels[0]?.slice(0, 2)).toEqual([
+    Math.round((10 / 400) * 255),
+    Math.round((299 / 300) * 255),
+  ]);
+});
+
+test('straightening 10° on an expanded canvas gives the expected bounding box', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/rotate-image');
+  await add(page, 'photo.png', await makeImage(page, 400, 300, 'image/png'), 'image/png');
+  await page.getByRole('slider', { name: 'Angle' }).fill('10');
+  await expect(page.getByText('10.0°')).toBeVisible();
+  await choose(page, isMobile, 'Corners', 'Expand canvas');
+  const out = await inspect(page, await run(page, 'Save image'), [
+    [0, 0],
+    [223, 182],
+  ]);
+  // 400 cos 10° + 300 sin 10° = 446.0; 400 sin 10° + 300 cos 10° = 364.9.
+  expect([out.width, out.height]).toEqual([446, 365]);
+  expect(out.pixels[0]?.[3]).toBe(0);
+  expect(out.pixels[1]?.[3]).toBe(255);
+});
+
+test('a batch turns every image 90°', async ({ page, isMobile }) => {
+  await page.goto('/rotate-image');
+  await fileInput(page).setInputFiles([
+    {
+      name: 'a.jpg',
+      mimeType: 'image/jpeg',
+      buffer: await makeImage(page, 800, 600, 'image/jpeg'),
+    },
+    {
+      name: 'b.jpg',
+      mimeType: 'image/jpeg',
+      buffer: await makeImage(page, 600, 900, 'image/jpeg'),
+    },
+  ]);
+  await choose(page, isMobile, 'Rotate', '90° right');
+  await page.getByRole('button', { name: 'Save image · 2 files' }).click();
+  const saved = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download b.jpg' }).click();
+  const out = await inspect(page, await saved);
+  expect([out.width, out.height]).toEqual([900, 600]);
+});
