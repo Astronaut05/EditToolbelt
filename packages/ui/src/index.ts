@@ -50,7 +50,9 @@ export { loadSearchIndex, SEARCH_INDEX_URL, useGo, useSearch } from './layout/us
 export { BatchList, type BatchItem } from './tool/BatchList';
 export { BeforeAfter, MediaTag } from './tool/BeforeAfter';
 export { CalculatorShell } from './tool/CalculatorShell';
-export { CanvasEditor, type EditorMode } from './tool/CanvasEditor';
+export { CanvasEditor, type CanvasEditorProps, type EditorMode } from './tool/CanvasEditor';
+export { NO_EDIT, type Edit } from './tool/crop';
+export { CropFields } from './tool/CropFields';
 export { DropZone, type DropZoneProps } from './tool/DropZone';
 export { FactGrid, type GridFact } from './tool/FactGrid';
 export { FactList, type ListFact } from './tool/FactList';
@@ -65,6 +67,7 @@ export {
 export { ProgressBar, type ProgressMeta } from './tool/ProgressBar';
 export { Readout, ReadoutRow, type Fact } from './tool/Readout';
 export { Timeline, type TimelineRange } from './tool/Timeline';
+export { useEditor, type EditorState } from './tool/useEditor';
 export {
   ToolShell,
   type InputInfo,

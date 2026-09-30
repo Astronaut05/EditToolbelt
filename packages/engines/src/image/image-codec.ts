@@ -52,6 +52,32 @@ const KEEP: Record<ImageFormat, OutputFormat> = {
 
 const BACKGROUNDS: Record<string, string> = { white: '#ffffff', black: '#000000' };
 
+/** The format the user picked, or what "Keep" means for this source. */
+export function pickOutput(choice: string | undefined, source: ImageFormat): OutputFormat {
+  return choice && (OUTPUTS as readonly string[]).includes(choice)
+    ? (choice as OutputFormat)
+    : KEEP[source];
+}
+
+/** The shared settings every image job carries, from the tool's options. */
+export function baseJob(
+  bytes: ArrayBuffer,
+  format: ImageFormat,
+  opts: Pick<ImageCodecOptions, 'format' | 'quality' | 'background' | 'metadata'>,
+): ImageJob {
+  const output = pickOutput(opts.format, format);
+  const quality = Number(opts.quality);
+  return {
+    bytes,
+    format,
+    output,
+    quality: Number.isFinite(quality) && quality >= 1 && quality <= 100 ? quality : 80,
+    background: BACKGROUNDS[opts.background ?? 'white'] ?? '#ffffff',
+    metadata: opts.metadata === 'none' ? 'none' : 'keep',
+    optimise: output === 'png',
+  };
+}
+
 export class ImageInputError extends Error {}
 
 /** Checks a file before decoding: the format by its bytes, then the limits. */
@@ -84,7 +110,8 @@ function getWorker(): Worker {
   return worker;
 }
 
-function runJob(
+/** Runs a job in the shared image worker; aborting replaces the worker. */
+export function runImageJob(
   job: ImageJob,
   signal: AbortSignal,
   progress: (fraction: number, stage?: string) => void,
@@ -140,25 +167,13 @@ export const imageCodecEngine: Engine<ImageCodecOptions> = {
   async run(input, opts, ctx): Promise<EngineOutput> {
     const bytes = await input.arrayBuffer();
     const format = checkImage(new Uint8Array(bytes), input.size);
-    const output =
-      opts.format && (OUTPUTS as readonly string[]).includes(opts.format)
-        ? (opts.format as OutputFormat)
-        : KEEP[format];
     const targetKb = opts.mode === 'target' ? Number(opts.targetKb) : NaN;
     const maxSide = Number(opts.maxSide);
-    const quality = Number(opts.quality);
-    const inputSize = input.size;
-    const done = await runJob(
+    const done = await runImageJob(
       {
-        bytes,
-        format,
-        output,
-        quality: Number.isFinite(quality) && quality >= 1 && quality <= 100 ? quality : 80,
-        background: BACKGROUNDS[opts.background ?? 'white'] ?? '#ffffff',
-        metadata: opts.metadata === 'none' ? 'none' : 'keep',
+        ...baseJob(bytes, format, opts),
         maxSide: Number.isFinite(maxSide) && maxSide > 0 ? maxSide : undefined,
         targetBytes: Number.isFinite(targetKb) && targetKb > 0 ? targetKb * 1000 : undefined,
-        optimise: output === 'png',
         neverGrow: opts.neverGrow,
       },
       ctx.signal,
@@ -166,23 +181,32 @@ export const imageCodecEngine: Engine<ImageCodecOptions> = {
         ctx.progress(fraction, stage);
       },
     );
-    return {
-      blob: new Blob([done.bytes], { type: OUTPUT_MIME[done.output] }),
-      ext: OUTPUT_EXT[done.output],
-      width: done.width,
-      height: done.height,
-      path: 'Browser · WASM',
-      notes: done.notes,
-      details: [
-        {
-          label: 'Formats',
-          value: `${FORMAT_LABELS[format]} → ${OUTPUT_EXT[done.output].toUpperCase()}`,
-        },
-        ...(done.quality === undefined
-          ? []
-          : [{ label: 'Quality', value: `Quality ${String(done.quality)}` }]),
-        { label: 'Change', value: sizeChange(inputSize, done.bytes.byteLength) },
-      ],
-    };
+    return imageOutput(done, format, input.size);
   },
 };
+
+/** The engine result for a finished job: file, size, notes and readout facts. */
+export function imageOutput(
+  done: Extract<WorkerMessage, { type: 'done' }>,
+  format: ImageFormat,
+  inputSize: number,
+): EngineOutput {
+  return {
+    blob: new Blob([done.bytes], { type: OUTPUT_MIME[done.output] }),
+    ext: OUTPUT_EXT[done.output],
+    width: done.width,
+    height: done.height,
+    path: 'Browser · WASM',
+    notes: done.notes,
+    details: [
+      {
+        label: 'Formats',
+        value: `${FORMAT_LABELS[format]} → ${OUTPUT_EXT[done.output].toUpperCase()}`,
+      },
+      ...(done.quality === undefined
+        ? []
+        : [{ label: 'Quality', value: `Quality ${String(done.quality)}` }]),
+      { label: 'Change', value: sizeChange(inputSize, done.bytes.byteLength) },
+    ],
+  };
+}

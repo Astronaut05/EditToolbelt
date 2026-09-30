@@ -31,6 +31,7 @@ export const PAGES = [
   { name: 'qr generator', path: '/qr-code-generator' },
   { name: 'file tool', path: '/subtitle-converter' },
   { name: 'image tool', path: '/image-converter' },
+  { name: 'editor tool', path: '/crop-image' },
   { name: 'pair page', path: '/convert/srt-to-vtt' },
   { name: 'isolated tool', path: '/video-converter' },
   { name: 'legal', path: '/privacy' },
@@ -48,5 +49,18 @@ export async function choose(page: Page, isMobile: boolean, label: string, value
     await expect(sheet).toBeHidden();
   } else {
     await page.getByRole('radio', { name: value, exact: true }).click();
+  }
+}
+
+/** Picks from a dropdown setting: in place on desktop, in the settings sheet on phones. */
+export async function pick(page: Page, isMobile: boolean, label: string, value: string) {
+  if (isMobile) {
+    await page.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+    const sheet = page.getByRole('dialog', { name: 'Settings' });
+    await sheet.getByRole('combobox', { name: label }).selectOption(value);
+    await page.keyboard.press('Escape');
+    await expect(sheet).toBeHidden();
+  } else {
+    await page.getByRole('combobox', { name: label }).selectOption(value);
   }
 }

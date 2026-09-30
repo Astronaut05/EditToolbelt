@@ -16,3 +16,12 @@ export {
 } from './image/image-codec';
 export { FORMAT_LABELS as IMAGE_FORMAT_LABELS, sniffImage, type ImageFormat } from './image/sniff';
 export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';
+export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './image/image-geometry';
+export {
+  centredRatio,
+  clampRect,
+  turnedSize,
+  type Filter,
+  type Rect,
+  type Size,
+} from './image/geometry';

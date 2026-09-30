@@ -34,6 +34,17 @@ for (const scheme of ['light', 'dark'] as const) {
       if (isMobile) return;
     });
 
+    test('crop editor with an image: no serious issues', async ({ page }) => {
+      await page.goto('/crop-image', { waitUntil: 'networkidle' });
+      const sample = await page.request.get('/samples/mug.jpg');
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles({ name: 'mug.jpg', mimeType: 'image/jpeg', buffer: await sample.body() });
+      await expect(page.getByRole('group', { name: /^Crop box/ })).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('tool shell demo: no serious issues', async ({ page }) => {
       await page.goto('/workshop/screens/tool-result', { waitUntil: 'networkidle' });
       expect(await seriousViolations(page)).toEqual([]);

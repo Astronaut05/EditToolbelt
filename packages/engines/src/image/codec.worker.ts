@@ -5,6 +5,7 @@
  * stays responsive while a 12 MP photo encodes.
  */
 import { encodeBmp } from './bmp';
+import { applyGeometry, GeometryError } from './geometry';
 import {
   cleanExif,
   jpegWithExif,
@@ -150,6 +151,12 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   if (scale < 1) notes.push(`Scaled down to ${String(width)} × ${String(height)} px`);
   let image = rgba(bitmap, width, height);
   bitmap.close();
+  if (job.geometry) {
+    post({ type: 'progress', fraction: 0.2, stage: job.geometry.resize ? 'Resizing' : 'Cropping' });
+    const done = applyGeometry(image, job.geometry);
+    image = new ImageData(done.image.data, done.image.width, done.image.height);
+    notes.push(...done.notes);
+  }
 
   if ((job.output === 'jpeg' || job.output === 'bmp') && hasAlpha(image)) {
     if (job.output === 'jpeg') {
@@ -213,7 +220,11 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
         if (job.output === 'jpeg') withExif = jpegWithExif(out, cleaned.tiff);
         if (job.output === 'png') withExif = pngWithExif(out, cleaned.tiff);
         if (job.output === 'webp')
-          withExif = webpWithExif(out, cleaned.tiff, { width, height, alpha: hasAlpha(image) });
+          withExif = webpWithExif(out, cleaned.tiff, {
+            width: image.width,
+            height: image.height,
+            alpha: hasAlpha(image),
+          });
         if (withExif) {
           bytes = withExif.slice().buffer;
           notes.push(hadGps ? 'GPS location removed, camera details kept' : 'Camera details kept');
@@ -227,7 +238,7 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   }
 
   // Compress never hands back a bigger file of the same format (tools/photo.md → P05).
-  const unchanged = scale === 1 && SAME_FORMAT[job.format] === job.output;
+  const unchanged = scale === 1 && !job.geometry && SAME_FORMAT[job.format] === job.output;
   if (
     job.neverGrow &&
     unchanged &&
@@ -241,8 +252,8 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   return {
     type: 'done',
     bytes,
-    width,
-    height,
+    width: image.width,
+    height: image.height,
     output: job.output,
     notes,
     quality: LOSSY.includes(job.output) ? quality : undefined,
@@ -258,7 +269,7 @@ scope.onmessage = (event) => {
       post({
         type: 'error',
         message:
-          error instanceof ReadError
+          error instanceof ReadError || error instanceof GeometryError
             ? error.message
             : `The image couldn’t be processed: ${error instanceof Error ? error.message : 'unknown error'}`,
       });

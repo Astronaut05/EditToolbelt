@@ -21,8 +21,10 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
   'color-converter': dynamic(() => import('./color-converter')),
   'compress-image': dynamic(() => import('./compress-image')),
+  'crop-image': dynamic(() => import('./crop-image')),
   'image-converter': dynamic(() => import('./image-converter')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
+  'resize-image': dynamic(() => import('./resize-image')),
   'subtitle-converter': dynamic(() => import('./subtitle-converter')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
 };
