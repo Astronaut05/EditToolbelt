@@ -1,6 +1,7 @@
 # Local stack: `docker compose up --watch` (docs/12-milestones.md → M0).
 #   migrate  applies database migrations, then exits; web and worker wait for it
-#   web      http://localhost:3000  Next.js dev server, hot reload via compose watch
+#   web      http://localhost:3000  Next.js dev server (the server build: accounts), hot reload via compose watch
+#   mailpit  http://localhost:8025  catches sign-in emails; nothing leaves your PC
 #   worker   Python worker, runs the hello-world job then idles
 #   postgres localhost:5432         user/db `etb`
 #   storage  http://localhost:7070  S3-compatible object storage (Versity S3 Gateway)
@@ -99,16 +100,38 @@ services:
         - action: rebuild
           path: ./apps/worker/uv.lock
 
+  mailpit:
+    # Local SMTP server with a web inbox for the sign-in emails. MIT.
+    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    environment:
+      MP_MAX_MESSAGES: 500
+    ports:
+      - 127.0.0.1:${ETB_MAIL_PORT:-8025}:8025
+
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile.dev
     environment:
+      # The server build: the site plus accounts (and, next, the admin).
+      ETB_TARGET: server
       APP_ENV: local
       APP_VERSION: dev
       LOG_LEVEL: info
       SITE_URL: http://localhost:${ETB_WEB_PORT:-3000}
       MODELS_BASE_URL: /models
+      DATABASE_URL: postgresql://etb:etb-local-only@postgres:5432/etb
+      BETTER_AUTH_SECRET: local-only-auth-secret-never-used-anywhere-else
+      SMTP_URL: smtp://mailpit:1025
+      # Google sign-in on the local stack: put your own OAuth client in a .env
+      # file (never commit it); the button appears when both are set.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
     ports:
       - 127.0.0.1:${ETB_WEB_PORT:-3000}:3000
     develop:

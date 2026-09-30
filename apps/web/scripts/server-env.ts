@@ -1,0 +1,33 @@
+/**
+ * The env the server build's end-to-end tests run with: a throwaway database
+ * (TEST_DATABASE_URL), a test-only auth secret, and sign-in emails written to
+ * a folder the tests read. Shared by scripts/e2e-server.ts (build) and
+ * playwright.server.config.ts (run), which must agree: SITE_URL is inlined
+ * at build time.
+ */
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const SERVER_PORT = 4175;
+
+export const OUTBOX = join(fileURLToPath(new URL('..', import.meta.url)), 'test-results', 'outbox');
+
+export function serverTestEnv(): Record<string, string> {
+  const database = process.env.TEST_DATABASE_URL;
+  if (!database) {
+    throw new Error(
+      'TEST_DATABASE_URL: required for the server build tests (a throwaway Postgres 18 database).',
+    );
+  }
+  return {
+    ETB_TARGET: 'server',
+    APP_ENV: 'test',
+    APP_VERSION: process.env.APP_VERSION ?? 'e2e',
+    NEXT_TELEMETRY_DISABLED: '1',
+    SITE_URL: `http://localhost:${String(SERVER_PORT)}`,
+    MODELS_BASE_URL: '/models',
+    DATABASE_URL: database,
+    BETTER_AUTH_SECRET: 'e2e-only-secret-never-used-anywhere-else-0123',
+    MAIL_OUTBOX_DIR: OUTBOX,
+  };
+}

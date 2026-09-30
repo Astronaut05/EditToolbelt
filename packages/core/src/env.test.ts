@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatEnvErrors, parseEnv, serverEnvSchema, webEnvSchema } from './env';
+import {
+  formatEnvErrors,
+  parseEnv,
+  serverEnvSchema,
+  webEnvSchema,
+  webServerEnvSchema,
+} from './env';
 
 const validServer = {
   DATABASE_URL: 'postgresql://etb:secret-pass@localhost:5432/etb',
@@ -139,5 +145,47 @@ describe('serverEnvSchema', () => {
       expect(text).toContain('S3_BUCKET');
       expect(text).not.toContain('secret');
     }
+  });
+});
+
+describe('webServerEnvSchema', () => {
+  const base = {
+    DATABASE_URL: 'postgresql://etb:x@localhost:5432/etb',
+    BETTER_AUTH_SECRET: 'a'.repeat(32),
+    SMTP_URL: 'smtp://localhost:1025',
+  };
+
+  it('takes the database, the auth secret and a way to send email', () => {
+    const result = parseEnv(webServerEnvSchema, base);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.env.SITE_URL).toBe('http://localhost:3000');
+  });
+
+  it('wants a long auth secret and both Google variables or neither', () => {
+    expect(parseEnv(webServerEnvSchema, { ...base, BETTER_AUTH_SECRET: 'short' })).toEqual({
+      ok: false,
+      errors: ['BETTER_AUTH_SECRET: must be at least 32 characters'],
+    });
+    expect(parseEnv(webServerEnvSchema, { ...base, GOOGLE_CLIENT_ID: 'id' })).toEqual({
+      ok: false,
+      errors: [
+        'GOOGLE_CLIENT_SECRET: set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or neither',
+      ],
+    });
+  });
+
+  it('writes emails to a folder only on local and test runs', () => {
+    const outbox = { ...base, SMTP_URL: undefined, MAIL_OUTBOX_DIR: '/tmp/outbox' };
+    expect(parseEnv(webServerEnvSchema, { ...outbox, APP_ENV: 'test' }).ok).toBe(true);
+    const staging = parseEnv(webServerEnvSchema, {
+      ...outbox,
+      APP_ENV: 'staging',
+      SITE_URL: 'https://staging.example.com',
+    });
+    expect(staging.ok).toBe(false);
+    if (!staging.ok) {
+      expect(staging.errors).toContain('MAIL_OUTBOX_DIR: is for local and test only; set SMTP_URL');
+    }
+    expect(parseEnv(webServerEnvSchema, { ...base, SMTP_URL: undefined }).ok).toBe(false);
   });
 });

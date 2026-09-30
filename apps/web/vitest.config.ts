@@ -1,6 +1,6 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 
-// Playwright specs in e2e/ run with `pnpm e2e`, not Vitest.
+// Playwright specs run with `pnpm e2e` (e2e/) and `pnpm e2e:server` (e2e-server/), not Vitest.
 export default defineConfig({
-  test: { exclude: [...configDefaults.exclude, 'e2e/**'] },
+  test: { exclude: [...configDefaults.exclude, 'e2e/**', 'e2e-server/**'] },
 });

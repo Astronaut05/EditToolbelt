@@ -47,43 +47,100 @@ const baseUrl = z
     'must be a root-relative path like /models or an http(s) URL',
   );
 
+const webShape = {
+  ...sharedShape,
+  /** Origin for canonical, sitemap, OG, JSON-LD and robots.txt URLs. */
+  SITE_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
+  /** Where model and WASM files load from: a local path until Go public, then the R2 `models.` host. */
+  MODELS_BASE_URL: baseUrl.default('/models'),
+  /**
+   * Cookieless analytics (docs/09 → Measuring): the base URL of a self-hosted,
+   * Umami-compatible collector and the site's id there. Both unset = off.
+   */
+  ANALYTICS_URL: z.url({ protocol: /^https?$/ }).optional(),
+  ANALYTICS_WEBSITE_ID: z.uuid().optional(),
+};
+
+type WebShared = Shared & {
+  SITE_URL: string;
+  ANALYTICS_URL?: string | undefined;
+  ANALYTICS_WEBSITE_ID?: string | undefined;
+};
+
+function checkWeb(env: WebShared, ctx: z.RefinementCtx): void {
+  checkShared(env, ctx);
+  if (Boolean(env.ANALYTICS_URL) !== Boolean(env.ANALYTICS_WEBSITE_ID)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [env.ANALYTICS_URL ? 'ANALYTICS_WEBSITE_ID' : 'ANALYTICS_URL'],
+      message: 'set both ANALYTICS_URL and ANALYTICS_WEBSITE_ID, or neither',
+    });
+  }
+  if (DEPLOYED.includes(env.APP_ENV) && LOCAL_HOSTNAMES.has(new URL(env.SITE_URL).hostname)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['SITE_URL'],
+      message: `must be the public URL when APP_ENV=${env.APP_ENV}`,
+    });
+  }
+}
+
 /**
  * Env for apps/web. No domain or host is hard-coded anywhere (CI enforces it):
  * every absolute URL comes from SITE_URL, every model/WASM file from
  * MODELS_BASE_URL. next.config.ts inlines both into server and client code.
  */
-export const webEnvSchema = z
+export const webEnvSchema = z.object(webShape).superRefine(checkWeb);
+export type WebEnv = z.output<typeof webEnvSchema>;
+
+/**
+ * Env for the web server build (`ETB_TARGET=server`: the local stack from M3,
+ * production from M5): the static site's variables plus the database,
+ * accounts and sign-in email (docs/11 → Auth). Secrets come from the host's
+ * secret store; compose.yaml sets local-only placeholders.
+ */
+export const webServerEnvSchema = z
   .object({
-    ...sharedShape,
-    /** Origin for canonical, sitemap, OG, JSON-LD and robots.txt URLs. */
-    SITE_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
-    /** Where model and WASM files load from: a local path until Go public, then the R2 `models.` host. */
-    MODELS_BASE_URL: baseUrl.default('/models'),
-    /**
-     * Cookieless analytics (docs/09 → Measuring): the base URL of a self-hosted,
-     * Umami-compatible collector and the site's id there. Both unset = off.
-     */
-    ANALYTICS_URL: z.url({ protocol: /^https?$/ }).optional(),
-    ANALYTICS_WEBSITE_ID: z.uuid().optional(),
+    ...webShape,
+    DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+    /** Signs sessions and encrypts TOTP secrets: 32+ random characters, one per environment. */
+    BETTER_AUTH_SECRET: z.string().min(32, 'must be at least 32 characters'),
+    /** Google sign-in: both set, or neither (then the button is hidden). */
+    GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),
+    /** Sign-in email over SMTP: smtp://host:port or smtps://user:pass@host:465. */
+    SMTP_URL: z.url({ protocol: /^smtps?$/ }).optional(),
+    /** From address; defaults to no-reply@ the SITE_URL host. */
+    MAIL_FROM: z.string().trim().min(3).optional(),
+    /** local and test only: write each email as JSON into this folder instead of sending it. */
+    MAIL_OUTBOX_DIR: z.string().trim().min(1).optional(),
   })
   .superRefine((env, ctx) => {
-    checkShared(env, ctx);
-    if (Boolean(env.ANALYTICS_URL) !== Boolean(env.ANALYTICS_WEBSITE_ID)) {
+    checkWeb(env, ctx);
+    if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
       ctx.addIssue({
         code: 'custom',
-        path: [env.ANALYTICS_URL ? 'ANALYTICS_WEBSITE_ID' : 'ANALYTICS_URL'],
-        message: 'set both ANALYTICS_URL and ANALYTICS_WEBSITE_ID, or neither',
+        path: [env.GOOGLE_CLIENT_ID ? 'GOOGLE_CLIENT_SECRET' : 'GOOGLE_CLIENT_ID'],
+        message: 'set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or neither',
       });
     }
-    if (DEPLOYED.includes(env.APP_ENV) && LOCAL_HOSTNAMES.has(new URL(env.SITE_URL).hostname)) {
+    if (env.MAIL_OUTBOX_DIR && env.APP_ENV !== 'local' && env.APP_ENV !== 'test') {
       ctx.addIssue({
         code: 'custom',
-        path: ['SITE_URL'],
-        message: `must be the public URL when APP_ENV=${env.APP_ENV}`,
+        path: ['MAIL_OUTBOX_DIR'],
+        message: 'is for local and test only; set SMTP_URL',
+      });
+    }
+    if (!env.SMTP_URL && !env.MAIL_OUTBOX_DIR) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SMTP_URL'],
+        message:
+          'required: sign-in links go out by email (or MAIL_OUTBOX_DIR, local and test only)',
       });
     }
   });
-export type WebEnv = z.output<typeof webEnvSchema>;
+export type WebServerEnv = z.output<typeof webServerEnvSchema>;
 
 /**
  * Env for server processes that touch the database and object storage.

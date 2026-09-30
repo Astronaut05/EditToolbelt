@@ -4,15 +4,20 @@ import type { ReactNode } from 'react';
 
 const YEAR = new Date().getFullYear();
 
-/** Header, main and footer around every page. `current` marks the category in the nav. */
+/**
+ * Header, main and footer around every page. `current` marks the category in
+ * the nav; `signedIn` (pages rendered for a known user) shows "Account".
+ */
 export function SiteFrame({
   current,
   children,
   footer = true,
+  signedIn = false,
 }: {
   current?: CategoryId;
   children: ReactNode;
   footer?: boolean;
+  signedIn?: boolean;
 }) {
   return (
     <>
@@ -22,7 +27,7 @@ export function SiteFrame({
       >
         Skip to content
       </a>
-      <Header current={current} />
+      <Header current={current} signedIn={signedIn} />
       <main id="main" tabIndex={-1} className="outline-none">
         {children}
       </main>
