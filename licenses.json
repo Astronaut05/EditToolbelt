@@ -339,10 +339,13 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": ["qrcode"],
-      "use": "QR generation",
+      "use": "QR generation (U01): the browser entry only, which builds the module matrix; we render SVG and PNG ourselves. Its CLI dependencies (yargs, pngjs) are never shipped",
       "license": "MIT",
       "scope": "browser",
-      "status": "verify"
+      "status": "approved",
+      "version": "1.5.4",
+      "source": "https://github.com/soldair/node-qrcode/blob/master/license",
+      "checked": "2026-09-30"
     },
     {
       "label": "fflate",
@@ -408,14 +411,17 @@
       "status": "verify"
     },
     {
-      "label": "jsQR / ZXing",
+      "label": "jsQR",
       "section": "Browser processing",
       "ecosystem": "npm",
-      "packages": ["jsqr", "@zxing/library"],
+      "packages": ["jsqr"],
       "use": "QR decode in tests only, never shipped",
       "license": "Apache-2.0",
       "scope": "dev",
-      "status": "verify"
+      "status": "approved",
+      "version": "1.4.0",
+      "source": "https://github.com/cozmo/jsQR/blob/master/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "BiRefNet (general / lite / HR / dynamic / portrait)",
@@ -755,7 +761,7 @@
       "label": "DefinitelyTyped types",
       "section": "Development, build and CI",
       "ecosystem": "npm",
-      "packages": ["@types/node", "@types/react", "@types/react-dom"],
+      "packages": ["@types/node", "@types/react", "@types/react-dom", "@types/qrcode"],
       "use": "type definitions",
       "license": "MIT",
       "scope": "dev",

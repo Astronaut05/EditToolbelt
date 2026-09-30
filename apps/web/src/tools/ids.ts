@@ -3,7 +3,13 @@
  * code can read it (exports of the 'use client' map are client references).
  * The map in ./index.tsx is typed against this list, so the two can't drift.
  */
-export const TOOL_IDS = ['aspect-ratio-calculator', 'bitrate-calculator', 'timecode-calculator'] as const;
+export const TOOL_IDS = [
+  'aspect-ratio-calculator',
+  'bitrate-calculator',
+  'color-converter',
+  'qr-code-generator',
+  'timecode-calculator',
+] as const;
 
 export type ToolId = (typeof TOOL_IDS)[number];
 

@@ -53,13 +53,13 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | web-audio-beat-detector (or in-house) | BPM | MIT | 🔍 (in-house preferred) |
 | Signalsmith Stretch (`signalsmith-stretch`, WASM/AudioWorklet) | tempo/pitch (A08, V13) | MIT | 🔍 — preferred over SoundTouch: permissive licence, no source-offer duty |
 | SoundTouch (JS/WASM port) | tempo/pitch fallback | LGPL-2.1 | ⚠️ only if Signalsmith falls short; separate file, source offer |
-| qrcode (npm) | QR generation | MIT | 🔍 |
+| qrcode (npm) | QR generation (U01): browser entry only, it builds the matrix and we render SVG/PNG | MIT | ✅ checked 2026-09-30 (1.5.4) |
 | fflate | ZIP of batch outputs | MIT | 🔍 |
 | `@mediabunny/mp3-encoder` (preferred) or lamejs | MP3 encoding — WebCodecs has no MP3 encoder | package MPL-2.0; LAME inside is LGPL | ⚠️ separate lazy-loaded file, source offer; 🔍 confirm the bundled encoder's licence |
 | `@mediabunny/aac-encoder` | AAC-LC encoding where the browser's WebCodecs can't (feature-detect first) | package MPL-2.0; WASM build of FFmpeg's AAC encoder (LGPL) | ⚠️ separate lazy-loaded file, source offer; AAC patent question → open question 10 |
 | pdf-lib | images to PDF (Wave 3) | MIT | 🔍 |
 | vtracer (WASM) | image to SVG (Wave 3) | MIT | 🔍 |
-| jsQR / ZXing | QR decode — **tests only**, not shipped | Apache-2.0 | 🔍 |
+| jsQR | QR decode — **tests only**, not shipped | Apache-2.0 | ✅ checked 2026-09-30 (1.4.0) |
 
 ## Models
 
@@ -105,7 +105,7 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | ESLint plugins: Next.js, React Hooks, Prettier config (`@next/eslint-plugin-next`, `eslint-plugin-react-hooks`, `eslint-config-prettier`) | lint rules | MIT | ✅ checked 2026-09-29. `eslint-config-next` is **not** used: its react/import/jsx-a11y plugins don't support ESLint 10 yet |
 | Prettier | formatting | MIT | ✅ 3.9.9, checked 2026-09-29 |
 | Vitest | unit tests | MIT | ✅ 5.0.2, checked 2026-09-29 |
-| DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`) | type definitions | MIT | ✅ checked 2026-09-29 |
+| DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`, `@types/qrcode`) | type definitions | MIT | ✅ checked 2026-09-29 |
 | Ruff | Python lint and format | MIT | ✅ 0.16.9, checked 2026-09-29 |
 | mypy | Python type checking | MIT | ✅ 2.3.1, checked 2026-09-29 |
 | pytest | Python tests | MIT | ✅ 9.1.1, checked 2026-09-29 |

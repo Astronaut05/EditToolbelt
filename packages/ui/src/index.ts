@@ -53,6 +53,7 @@ export { CalculatorShell } from './tool/CalculatorShell';
 export { CanvasEditor, type EditorMode } from './tool/CanvasEditor';
 export { DropZone, type DropZoneProps } from './tool/DropZone';
 export { FactGrid, type GridFact } from './tool/FactGrid';
+export { FactList, type ListFact } from './tool/FactList';
 export {
   durationBucket,
   formatBytes,

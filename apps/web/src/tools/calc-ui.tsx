@@ -71,6 +71,8 @@ export function TextField({
   placeholder,
   width = 'w-44',
   invalid,
+  type = 'text',
+  align = 'right',
 }: {
   id: string;
   label: string;
@@ -79,11 +81,14 @@ export function TextField({
   placeholder?: string;
   width?: string;
   invalid?: boolean;
+  type?: 'text' | 'email' | 'tel' | 'url' | 'password';
+  align?: 'left' | 'right';
 }) {
   return (
     <OptionRow label={label} htmlFor={id}>
       <input
         id={id}
+        type={type}
         value={value}
         placeholder={placeholder}
         spellCheck={false}
@@ -92,9 +97,50 @@ export function TextField({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className={cn(input, width, 'text-right', invalid && 'border-danger')}
+        className={cn(
+          input,
+          width,
+          align === 'right' ? 'text-right' : 'text-left',
+          'min-w-0 placeholder:text-text-muted',
+          invalid && 'border-danger',
+        )}
       />
     </OptionRow>
+  );
+}
+
+/** Multi-line text: the label above, the field full width. */
+export function TextAreaField({
+  id,
+  label,
+  value,
+  onChange,
+  rows = 3,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+  placeholder?: string;
+}) {
+  return (
+    <div className="border-b border-border py-3">
+      <label htmlFor={id} className="text-14 text-text-muted">
+        {label}
+      </label>
+      <textarea
+        id={id}
+        rows={rows}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+        className="mt-2 block w-full resize-y rounded-control border border-border bg-bg px-3 py-2.5 text-15 leading-body text-text placeholder:text-text-muted hover:border-text focus-visible:border-text"
+      />
+    </div>
   );
 }
 
