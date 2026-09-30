@@ -179,10 +179,17 @@ function isFile(path: string): boolean {
 function send(
   res: ServerResponse,
   req: IncomingMessage,
+  root: string,
   status: number,
-  file: string,
+  requested: string,
   extra: Record<string, string>,
 ): void {
+  // resolveFile already keeps paths inside root; check again where the file is read.
+  const file = resolve(requested);
+  if (!file.startsWith(root + sep)) {
+    res.writeHead(404).end();
+    return;
+  }
   const raw = readFileSync(file);
   const type = contentType(file);
   const encoding = COMPRESSIBLE.test(type) ? pickEncoding(req.headers['accept-encoding']) : null;
@@ -234,11 +241,11 @@ function main(): void {
     const file = resolveFile(root, url, isFile);
     // Like Pages, the _headers file itself is never served.
     if (file && !file.endsWith(`${sep}_headers`)) {
-      send(res, req, 200, file, extra);
+      send(res, req, root, 200, file, extra);
       return;
     }
     const notFound = join(root, '404.html');
-    if (isFile(notFound)) send(res, req, 404, notFound, extra);
+    if (isFile(notFound)) send(res, req, root, 404, notFound, extra);
     else res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
   };
 

@@ -20,10 +20,10 @@ const PAGES = [
 ];
 
 export function moduleScripts(html: string): string[] {
-  return [...html.matchAll(/<script\b[^>]*>/g)]
+  return [...html.matchAll(/<script\b[^>]*>/gi)]
     .map((match) => match[0])
-    .filter((tag) => !/\bnoModule\b|\bnomodule\b/.test(tag))
-    .map((tag) => /\bsrc="([^"?#]+)/.exec(tag)?.[1])
+    .filter((tag) => !/\bnomodule\b/i.test(tag))
+    .map((tag) => /\bsrc="([^"?#]+)/i.exec(tag)?.[1])
     .filter((src): src is string => Boolean(src));
 }
 
