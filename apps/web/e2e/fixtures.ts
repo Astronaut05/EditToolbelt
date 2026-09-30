@@ -33,7 +33,7 @@ export const PAGES = [
   { name: 'image tool', path: '/image-converter' },
   { name: 'editor tool', path: '/crop-image' },
   { name: 'pair page', path: '/convert/srt-to-vtt' },
-  { name: 'isolated tool', path: '/video-converter' },
+  { name: 'video tool', path: '/video-converter' },
   { name: 'legal', path: '/privacy' },
   { name: 'licenses', path: '/licenses' },
   { name: 'not found', path: '/no-such-page' },

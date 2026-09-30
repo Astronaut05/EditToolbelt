@@ -1,11 +1,4 @@
-import {
-  codecLabel,
-  describeMedia,
-  probeMedia,
-  thumbnails,
-  VIDEO_LIMITS,
-  type MediaInfo,
-} from '@etb/engines';
+import { VIDEO_LIMITS, type MediaInfo } from '@etb/engines';
 import type { ProbeInfo, ShellPreset } from '@etb/ui';
 
 /**
@@ -30,7 +23,10 @@ export const VIDEO_INTAKE: Pick<
 };
 
 /** What to know before starting, in plain words. */
-export function mediaWarnings(info: MediaInfo): string[] {
+export function mediaWarnings(
+  info: MediaInfo,
+  codecLabel: (codec: string | null | undefined) => string,
+): string[] {
   const warnings: string[] = [];
   const video = info.video;
   if (video && !video.canDecode) {
@@ -56,6 +52,8 @@ export function mediaWarnings(info: MediaInfo): string[] {
 
 /** Reads a video as it arrives: length, frame rate, codecs, and frames for the timeline. */
 export async function probeVideo(file: File, audioTracks = false): Promise<ProbeInfo> {
+  // Mediabunny loads with the first file, not with the page.
+  const { codecLabel, describeMedia, probeMedia, thumbnails } = await import('@etb/engines/media');
   const info = await probeMedia(file);
   if (!info.video && !audioTracks) {
     throw new Error('This file has no video in it. Drop an MP4, MOV, WebM or MKV video.');
@@ -66,7 +64,7 @@ export async function probeVideo(file: File, audioTracks = false): Promise<Probe
     width: info.video?.width,
     height: info.video?.height,
     summary: describeMedia(info),
-    warnings: mediaWarnings(info),
+    warnings: mediaWarnings(info, codecLabel),
     thumbnails: (count) => thumbnails(file, count),
     choices: {
       track: info.audio.map((track) => ({

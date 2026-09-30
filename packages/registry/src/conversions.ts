@@ -34,6 +34,9 @@ function pair(
  */
 const HEIC_HOLD = 'HEIC opens only in Safari until open question 10 is settled';
 
+/** The tool page /gif-to-mp4 already is this conversion; a second page would only compete with it. */
+const GIF_HOLD = 'The GIF to MP4 tool page is this pair already';
+
 export const conversions: readonly ConversionPair[] = [
   // Image: P06
   pair('heic', 'jpg', 'image-converter', 1, HEIC_HOLD),
@@ -51,11 +54,11 @@ export const conversions: readonly ConversionPair[] = [
   pair('mov', 'mp4', 'video-converter'),
   pair('mkv', 'mp4', 'video-converter'),
   pair('webm', 'mp4', 'video-converter'),
-  pair('avi', 'mp4', 'video-converter'),
+  pair('avi', 'mp4', 'video-converter', 1, 'AVI needs the server converter, which comes with M3'),
   pair('mp4', 'webm', 'video-converter'),
   pair('mp4', 'gif', 'video-to-gif'),
   pair('mov', 'gif', 'video-to-gif'),
-  pair('gif', 'mp4', 'gif-to-mp4'),
+  pair('gif', 'mp4', 'gif-to-mp4', 1, GIF_HOLD),
   // Audio: V06, A01
   pair('mp4', 'mp3', 'extract-audio'),
   pair('mov', 'mp3', 'extract-audio'),

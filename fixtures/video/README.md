@@ -18,3 +18,12 @@ ffmpeg -f lavfi -i "testsrc2=size=256x144:rate=30:duration=30" \
   -c:v libvpx-vp9 -crf 60 -b:v 0 -g 60 -row-mt 1 -deadline good -cpu-used 4 \
   -c:a libopus -b:a 32k -map_metadata -1 -fflags +bitexact clip-vp9-opus.webm
 ```
+
+For Video Info, two 4 s clips remuxed from `clip-h264-aac.mp4` (video only, no re-encode) by `node packages/engines/scripts/video-fixtures.ts`:
+
+- `clip-vfr.mp4`: the frames on an irregular clock (each gap 70 % to 130 % of a frame), like a phone recording: variable frame rate.
+- `clip-hlg.mp4`: the same frames tagged BT.2020 with the HLG transfer, like an HDR phone video.
+
+For GIF to MP4, `anim-delays.gif` (64 × 48 px, six frames with delays of 30, 70, 0, 250, 40 and 110 ms, the first frame's blue transparent), written byte by byte by `node packages/engines/scripts/gif-fixtures.ts`.
+
+For Video Converter, `clip-h264-aac.mov` (H.264 + AAC in QuickTime) and `clip-vp9-opus.mkv` (VP9 + Opus in Matroska): the first 4 s of the clips above, remuxed without re-encoding by `node packages/engines/scripts/converter-fixtures.ts`.

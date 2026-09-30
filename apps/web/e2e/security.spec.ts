@@ -34,18 +34,12 @@ test.describe('CSP and headers', () => {
 });
 
 test.describe('cross-origin isolation', () => {
-  test('the isolated tool is isolated after arriving from the home search', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.getByRole('searchbox', { name: 'What do you need to do?' }).fill('video converter');
-    await expect(page.getByRole('list', { name: 'Top matches' })).toContainText('Video Converter');
-    await page.keyboard.press('Enter');
-    await page.waitForURL('**/video-converter');
-    await page.waitForLoadState('networkidle');
-    expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-  });
-
-  test('other pages are not isolated', async ({ page }) => {
-    await page.goto('/photo');
-    expect(await page.evaluate(() => crossOriginIsolated)).toBe(false);
+  // No route needs it today (V03 runs on WebCodecs); the headers and the
+  // full-page-load links come back with the registry's crossOriginIsolated flag.
+  test('no page is isolated, the video converter included', async ({ page }) => {
+    for (const path of ['/', '/photo', '/video-converter']) {
+      await page.goto(path);
+      expect(await page.evaluate(() => crossOriginIsolated)).toBe(false);
+    }
   });
 });

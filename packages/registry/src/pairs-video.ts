@@ -130,4 +130,120 @@ export const VIDEO_PAIR_COPY: Readonly<Record<string, PairCopy>> = {
       },
     ],
   },
+  'mov-to-mp4': {
+    title: 'MOV to MP4 Converter, Instant and Lossless | EditToolbelt',
+    description:
+      'Turn iPhone and QuickTime MOV files into MP4 in seconds. H.264 and HEVC are remuxed, not re-encoded, so the quality is exactly the same. In your browser.',
+    h1: 'MOV to MP4 Converter',
+    tagline: 'Change an iPhone or QuickTime MOV into an MP4 that plays and uploads everywhere.',
+    about: [
+      'MOV is Apple’s QuickTime format: iPhones, Macs and Final Cut write it. MP4 grew out of it, and the two usually hold the very same H.264 or HEVC video and AAC audio. Some upload forms, Windows apps and older TVs still only take MP4.',
+      'When the tracks already fit MP4, they are remuxed: moved into the new container as they are, with nothing re-encoded. It takes a moment even for a long clip, and every frame stays byte for byte the same. Only codecs MP4 can’t carry are re-encoded.',
+      'ProRes from a camera or an editor needs our server converter, which isn’t ready yet; this page says so if you drop one.',
+    ],
+    howTo: [
+      'Drop a MOV. On an iPhone, pick it from Photos or Files.',
+      'MP4 is already selected, with Keep quality: it remuxes whenever it can.',
+      'Select Convert, then download the MP4.',
+    ],
+    faq: [
+      {
+        q: 'Does converting MOV to MP4 lower the quality?',
+        a: 'Not when it remuxes, which is the usual case for iPhone video: the frames are copied, not re-encoded. The result says which happened.',
+      },
+      {
+        q: 'Will HDR and Dolby Vision from an iPhone survive?',
+        a: 'The HEVC video is copied as it is, with its HDR tags. Players that understand HDR in MP4 show it as HDR.',
+      },
+      {
+        q: 'Is my video uploaded?',
+        a: 'No. It is converted in your browser, up to 2 GB.',
+      },
+    ],
+  },
+  'mkv-to-mp4': {
+    title: 'MKV to MP4 Converter, Remux Without Re-encoding | EditToolbelt',
+    description:
+      'Convert MKV to MP4 for phones, TVs and editors. H.264 or HEVC is remuxed losslessly; VP9 is re-encoded to H.264. Free, in your browser.',
+    h1: 'MKV to MP4 Converter',
+    tagline: 'Make an MKV play on phones, TVs, iMovie and Premiere by moving it into MP4.',
+    about: [
+      'MKV (Matroska) is an open container that holds almost any codec, which is why screen recorders like OBS and many downloads use it. Phones, smart TVs and editing apps often refuse it, even when the video inside is ordinary H.264.',
+      'If the video is H.264 or HEVC and the audio AAC, MP3 or AC-3, the tracks are remuxed into MP4 with nothing re-encoded. VP9, or Opus and Vorbis audio, don’t play in MP4 on Apple devices and in editors, so those are re-encoded to H.264 and AAC.',
+      'Recording in OBS? Its remux feature does the same for MKV files you made there.',
+    ],
+    howTo: [
+      'Drop an MKV.',
+      'MP4 is already selected, with Keep quality.',
+      'Select Convert. The result says whether it remuxed or re-encoded.',
+    ],
+    faq: [
+      {
+        q: 'Why was my MKV re-encoded instead of remuxed?',
+        a: 'Its video is VP9 or AV1 or its audio is Opus or Vorbis, which MP4 files can hold but Apple devices and editing apps don’t play. Re-encoding makes an MP4 that plays everywhere.',
+      },
+      {
+        q: 'Are subtitles and extra audio tracks kept?',
+        a: 'The main video and audio are converted. Extra tracks are left out, and the result lists them.',
+      },
+      {
+        q: 'Is my file uploaded?',
+        a: 'No, the conversion runs in your browser.',
+      },
+    ],
+  },
+  'webm-to-mp4': {
+    title: 'WebM to MP4 Converter, VP9 to H.264 | EditToolbelt',
+    description:
+      'Convert WebM video, from screen recorders and the web, to MP4 with H.264 so it plays on iPhones and imports into editors. In your browser.',
+    h1: 'WebM to MP4 Converter',
+    tagline: 'Turn WebM recordings and downloads into MP4 that iPhones and editors accept.',
+    about: [
+      'WebM is the web’s open video format: VP8, VP9 or AV1 video with Opus or Vorbis audio. Browser screen recorders and many sites save it. Apple devices, Premiere and Final Cut often won’t take it.',
+      'VP9 and Opus don’t belong in an MP4 that has to play everywhere, so the video is re-encoded to H.264 and the audio to AAC, at high quality. That takes a while for a long video; the progress bar shows how long.',
+      'If this browser can’t encode H.264 (Firefox on some systems), the result says so and offers WebM.',
+    ],
+    howTo: ['Drop a WebM.', 'MP4 is already selected.', 'Select Convert and download the MP4.'],
+    faq: [
+      {
+        q: 'How long does it take?',
+        a: 'Re-encoding runs at about real time or faster on a laptop, using the hardware encoder where there is one.',
+      },
+      {
+        q: 'Is quality lost?',
+        a: 'Re-encoding at high quality keeps it visually the same for most video; it is a new encode, not a copy.',
+      },
+      {
+        q: 'Is my video uploaded?',
+        a: 'No. Everything runs in your browser.',
+      },
+    ],
+  },
+  'mp4-to-webm': {
+    title: 'MP4 to WebM Converter, VP9 for the Web | EditToolbelt',
+    description:
+      'Convert MP4 to WebM with VP9 video and Opus audio, the open format for websites and HTML5 video. Free and private, in your browser.',
+    h1: 'MP4 to WebM Converter',
+    tagline: 'Make a WebM with VP9 and Opus for a website, a game or an HTML5 player.',
+    about: [
+      'WebM is open and royalty-free, and every current browser plays it. Sites use it for background and product videos; VP9 is usually smaller than H.264 at the same quality.',
+      'The video is re-encoded to VP9 and the audio to Opus, at high quality. An MP4 that already holds VP9 or AV1 with Opus is remuxed instead, with nothing re-encoded.',
+      'For the widest reach, publish both: WebM for browsers, MP4 as the fallback.',
+    ],
+    howTo: ['Drop an MP4.', 'WebM is already selected.', 'Select Convert and download the WebM.'],
+    faq: [
+      {
+        q: 'Is WebM smaller than MP4?',
+        a: 'VP9 is often a little smaller than H.264 at the same quality. For a smaller file of either, use Compress Video.',
+      },
+      {
+        q: 'Does Safari play WebM?',
+        a: 'Current Safari on macOS and iOS plays VP9 WebM. Older versions don’t, so keep an MP4 as a fallback.',
+      },
+      {
+        q: 'Is my video uploaded?',
+        a: 'No. It is converted in your browser.',
+      },
+    ],
+  },
 };

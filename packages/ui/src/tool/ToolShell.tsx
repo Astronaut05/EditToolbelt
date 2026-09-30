@@ -829,6 +829,8 @@ export function ToolShell({
         (!option.files || option.files === (fileCount > 1 ? 'many' : 'one')),
     );
   const showCrop = cropping && state.kind === 'ready' && batch.length === 0;
+  // An analyzer changes nothing: its notes are the verdict.
+  const notesTitle = tool.ui === 'analyzer' ? 'Verdict' : undefined;
   const blocked =
     state.kind === 'ready' ? preset.blocked?.(options, state.files?.length ?? 1) : undefined;
   const settings = (
@@ -1077,7 +1079,7 @@ export function ToolShell({
           </p>
         )}
         {result && state.output.notes && state.output.notes.length > 0 && (
-          <Notes notes={state.output.notes} className="mt-6 hidden lg:block" />
+          <Notes notes={state.output.notes} title={notesTitle} className="mt-6 hidden lg:block" />
         )}
         {(back || next) && (
           <div className="hidden lg:block">
@@ -1107,7 +1109,7 @@ export function ToolShell({
             </h2>
           )}
           {result && state.output.notes && state.output.notes.length > 0 && (
-            <Notes notes={state.output.notes} className="mx-4 mt-4" />
+            <Notes notes={state.output.notes} title={notesTitle} className="mx-4 mt-4" />
           )}
           <div className="mx-4 mt-4 rounded-card border border-border">
             {showCrop && editor.edit.crop && (
@@ -1378,9 +1380,20 @@ function Workspace({
     );
   }
   if (tool.ui === 'analyzer') {
+    // Headline facts from the engine (or the preset, for the demos), then the full report.
+    const grid = preset.analyze?.(input) ?? output.details ?? [];
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
-        <FactGrid facts={preset.analyze?.(input) ?? []} />
+        <FactGrid facts={grid} />
+        {output.text !== undefined && (
+          <pre
+            tabIndex={0}
+            aria-label="Full report"
+            className="mt-8 overflow-x-auto border-t border-border pt-6 font-mono text-13 leading-body whitespace-pre-wrap"
+          >
+            {output.text}
+          </pre>
+        )}
       </div>
     );
   }

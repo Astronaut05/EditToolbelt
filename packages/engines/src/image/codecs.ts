@@ -3,8 +3,8 @@
  * Their packaged `encode`/`optimise` pick a multi-threaded build when the
  * browser allows it, and those builds spawn workers that import themselves,
  * which the bundler can't resolve (the build hangs). Threads need
- * SharedArrayBuffer, which only the isolated video route has, so the
- * single-threaded builds are all we'd ever run here anyway.
+ * SharedArrayBuffer, which needs a cross-origin isolated route, and no image
+ * route is one, so the single-threaded builds are all we'd ever run anyway.
  */
 import avifFactory from '@jsquash/avif/codec/enc/avif_enc.js';
 import { defaultOptions as avifDefaults } from '@jsquash/avif/meta.js';

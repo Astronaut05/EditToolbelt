@@ -20,14 +20,9 @@ import {
 
 import { EngineAbortError } from '../dummy';
 
-/** tools/video.md → Limits (browser). */
-export const VIDEO_LIMITS = {
-  maxBytes: 2 * 1024 ** 3,
-  maxSeconds: 60 * 60,
-  /** Shown as advice on phones, not enforced. */
-  phoneBytes: 500 * 1024 ** 2,
-  phoneSeconds: 10 * 60,
-};
+import { VIDEO_LIMITS } from './limits';
+
+export { VIDEO_LIMITS };
 
 export class MediaInputError extends Error {}
 

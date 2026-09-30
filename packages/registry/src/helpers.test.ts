@@ -73,10 +73,15 @@ describe('cross-origin isolation list', () => {
   });
 
   it('matches paths with a query, hash or trailing slash', () => {
-    expect(needsFullPageLoad('/video-converter')).toBe(true);
-    expect(needsFullPageLoad('/video-converter/?x=1#y')).toBe(true);
-    expect(needsFullPageLoad('/video')).toBe(false);
-    expect(needsFullPageLoad('/')).toBe(false);
+    const isolated = new Set(['/video-converter']);
+    expect(needsFullPageLoad('/video-converter', isolated)).toBe(true);
+    expect(needsFullPageLoad('/video-converter/?x=1#y', isolated)).toBe(true);
+    expect(needsFullPageLoad('/video', isolated)).toBe(false);
+    expect(needsFullPageLoad('/', isolated)).toBe(false);
+  });
+
+  it('holds no route today, so every link is a soft navigation', () => {
+    expect(needsFullPageLoad('/video-converter')).toBe(false);
   });
 });
 
@@ -125,7 +130,7 @@ describe('search', () => {
     const index = buildSearchIndex(tools, conversions);
     const pairs = index.filter((entry) => entry.kind === 'pair').map((entry) => entry.path);
     expect(pairs).toEqual(livePairs().map((pair) => `/convert/${pair.slug}`));
-    expect(pairs).not.toContain('/convert/mov-to-mp4');
+    expect(pairs).not.toContain('/convert/avi-to-mp4');
     expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(75);
   });
 
