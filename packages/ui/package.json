@@ -15,6 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@etb/core": "workspace:*",
     "@etb/engines": "workspace:*",
     "@etb/registry": "workspace:*",
     "fflate": "0.8.3",

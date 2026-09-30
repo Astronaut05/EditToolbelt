@@ -16,6 +16,8 @@ import {
   type OutputFormat,
 } from 'mediabunny';
 
+import { normalizeRanges, type Span } from '@etb/core';
+
 import type { Engine, EngineOutput } from '../types';
 import {
   codecLabel,
@@ -71,6 +73,35 @@ export async function keyframeBefore(input: Input, time: number): Promise<number
   if (!track) return time;
   const packet = await new EncodedPacketSink(track).getKeyPacket(time, { verifyKeyPackets: true });
   return packet ? Math.max(0, packet.timestamp) : 0;
+}
+
+/** At most this many ranges in one trim: the timeline's chips, and a bound for the API. */
+export const MAX_RANGES = 50;
+
+/**
+ * The selection as ranges, in order and apart: `ranges` when the timeline
+ * sent several, else `start`–`end`. The page's Timeline keeps them valid, the
+ * API may not.
+ */
+export function checkRanges(
+  opts: {
+    ranges?: readonly Span[] | undefined;
+    start?: number | undefined;
+    end?: number | undefined;
+  },
+  duration: number,
+): Span[] {
+  if (opts.ranges && opts.ranges.length > MAX_RANGES) {
+    throw new MediaInputError(`That’s more than ${String(MAX_RANGES)} ranges. Join some of them.`);
+  }
+  const picked = opts.ranges?.length
+    ? opts.ranges
+    : [{ start: opts.start ?? 0, end: opts.end ?? duration }];
+  const ranges = normalizeRanges(picked, duration);
+  if (ranges.reduce((sum, r) => sum + r.end - r.start, 0) < 0.05) {
+    throw new MediaInputError('The selection is empty. Set In before Out.');
+  }
+  return ranges;
 }
 
 /** Checks a range against the clip; the page's Timeline keeps it valid, the API may not. */

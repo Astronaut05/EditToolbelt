@@ -177,6 +177,33 @@ test('removes a range, joins the sides and fades out', async ({ page, isMobile }
   ).toBeVisible();
 });
 
+test('removes two ranges and joins what’s left', async ({ page, isMobile }) => {
+  await trimTone(page);
+  await choose(page, isMobile, 'Selection', 'Remove it');
+  // A second range goes after the first (15–16 s); make it 16.000–17.000 s.
+  await page.getByRole('button', { name: 'Add range' }).click();
+  await expect(page.getByRole('button', { name: /^Range 2:/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByRole('textbox', { name: 'Out point' }).fill('17');
+  await page.getByRole('textbox', { name: 'Out point' }).press('Enter');
+  await page.getByRole('textbox', { name: 'In point' }).fill('16');
+  await page.getByRole('textbox', { name: 'In point' }).press('Enter');
+  await expect(page.getByRole('button', { name: 'Range 2: 00:16.000 to 00:17.000' })).toBeVisible();
+  await expect(page.getByText('2 ranges · 11.00 s')).toBeVisible();
+  const out = await trimmed(page);
+  expect(wavFrames(out.bytes)).toBe(9 * 48_000);
+  await expect(
+    page.getByText('Removed 2 parts; 9.000 s left').filter({ visible: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByText('A 10 ms crossfade at each of the 2 joins, so they don’t click')
+      .filter({ visible: true }),
+  ).toBeVisible();
+});
+
 // A03 BPM & Key Finder (tools/audio.md → Tests; the full labelled set is in @etb/core's tests).
 
 /** 16 s at 22.05 kHz: drums at 120 BPM over I–IV–V–I in C major, as a 16-bit WAV. */

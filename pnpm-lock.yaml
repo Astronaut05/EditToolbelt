@@ -175,6 +175,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@etb/core':
+        specifier: workspace:*
+        version: link:../core
       '@etb/engines':
         specifier: workspace:*
         version: link:../engines

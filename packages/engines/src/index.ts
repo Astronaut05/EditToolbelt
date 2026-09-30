@@ -89,7 +89,7 @@ export {
 } from './subtitle-shift';
 export { audioConverterEngine, type AudioConverterOptions } from './audio/convert';
 export { probeAudio, type AudioProbe } from './audio/probe';
-export { audioPeaks, fadeGain, trimAudioEngine, type TrimAudioOptions } from './audio/trim';
+export { audioPeaks, trimAudioEngine, type TrimAudioOptions } from './audio/trim';
 export { gifToVideoEngine, videoFrameTimes, type GifToVideoOptions } from './video/gif-to-video';
 export { gifFrames, readGif, type GifInfo } from './video/gif/decode';
 export { paletteEngine, PALETTE_LIMITS, type PaletteEngineOptions } from './image/palette';

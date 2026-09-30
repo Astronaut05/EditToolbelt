@@ -1,18 +1,19 @@
 /**
- * A02 Trim Audio (tools/audio.md): keep a range, or remove it and join the two
- * sides, with optional fades in and out. WAV and FLAC are cut to the sample
- * (PCM stays lossless). MP3, AAC and Opus are copied frame by frame when a
- * kept range has no fades, so nothing is re-encoded; otherwise they are
- * re-encoded in their own codec. The waveform for the timeline is drawn from
- * a quick peak scan.
+ * A02 Trim Audio (tools/audio.md): keep one or more ranges, or remove them,
+ * and join what's left with a 10 ms crossfade at each join, with optional
+ * fades in and out. WAV and FLAC are cut to the sample (PCM stays lossless).
+ * MP3, AAC and Opus are copied frame by frame when one part is kept without
+ * fades, so nothing is re-encoded; otherwise they are re-encoded in their own
+ * codec. The waveform for the timeline is drawn from a quick peak scan.
  */
-import { AudioSample, AudioSampleSink, Quality, type AudioCodec } from 'mediabunny';
+import { keptSpans, layoutSpans, type Span } from '@etb/core';
+import { AudioSampleSink, Quality, type AudioCodec } from 'mediabunny';
 
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, convert, MediaInputError, openInput } from '../video/media';
 import { encodeAudio } from '../video/encode-audio';
 import { AUDIO_TARGETS, ensureEncoder, type AudioFormat } from '../video/extract-audio';
-import { checkRange } from '../video/trim';
+import { checkRanges } from '../video/trim';
 import { AUDIO_LIMITS } from './convert';
 import { MEDIA_META } from '../media-meta';
 
@@ -21,6 +22,8 @@ export interface TrimAudioOptions {
   mode?: string;
   start?: number;
   end?: number;
+  /** Several selections (the timeline's ranges), seconds; `start`–`end` when absent. */
+  ranges?: Span[];
   /** Fade lengths in ms. */
   fadeIn?: string;
   fadeOut?: string;
@@ -39,97 +42,8 @@ const KEEP: Partial<Record<AudioCodec, AudioFormat>> = {
   'pcm-f32': 'wav',
 };
 
-/** The fade on each side of a join, seconds: short enough to hear as a cut, long enough not to click. */
-export const JOIN_FADE = 0.005;
-
-/**
- * Gain at time `t` (seconds from the start of the kept range, `length` long):
- * a linear ramp up over `fadeIn` and down over `fadeOut`.
- */
-export function fadeGain(t: number, length: number, fadeIn: number, fadeOut: number): number {
-  let gain = 1;
-  if (fadeIn > 0 && t < fadeIn) gain = Math.max(0, t / fadeIn);
-  const left = length - t;
-  if (fadeOut > 0 && left < fadeOut) gain = Math.min(gain, Math.max(0, left / fadeOut));
-  return gain;
-}
-
-/**
- * Drops the frames of `sample` that fall in [start, end) and moves the ones
- * after it back by the gap, so the two sides meet. Null when nothing is left.
- */
-export function cutOut(sample: AudioSample, start: number, end: number): AudioSample | null {
-  const rate = sample.sampleRate;
-  const frames = sample.numberOfFrames;
-  const gap = end - start;
-  const stop = Math.min(frames, Math.max(0, Math.round((start - sample.timestamp) * rate)));
-  const resume = Math.min(frames, Math.max(0, Math.round((end - sample.timestamp) * rate)));
-  if (stop >= frames) return sample;
-  if (resume <= 0) {
-    const moved = sample.clone();
-    moved.setTimestamp(sample.timestamp - gap);
-    sample.close();
-    return moved;
-  }
-  const kept = stop + frames - resume;
-  if (kept <= 0) {
-    sample.close();
-    return null;
-  }
-  const channels = sample.numberOfChannels;
-  const data = new Float32Array(kept * channels);
-  for (let c = 0; c < channels; c += 1) {
-    const plane = data.subarray(c * kept, (c + 1) * kept);
-    if (stop > 0) {
-      sample.copyTo(plane.subarray(0, stop), {
-        planeIndex: c,
-        format: 'f32-planar',
-        frameOffset: 0,
-        frameCount: stop,
-      });
-    }
-    if (resume < frames) {
-      sample.copyTo(plane.subarray(stop), {
-        planeIndex: c,
-        format: 'f32-planar',
-        frameOffset: resume,
-        frameCount: frames - resume,
-      });
-    }
-  }
-  const out = new AudioSample({
-    data,
-    format: 'f32-planar',
-    numberOfChannels: channels,
-    sampleRate: rate,
-    timestamp: stop > 0 ? sample.timestamp : sample.timestamp + resume / rate - gap,
-  });
-  sample.close();
-  return out;
-}
-
-/** Multiplies every frame by `gain(t)`, `t` being the frame's timestamp. */
-function shaped(sample: AudioSample, gain: (t: number) => number): AudioSample {
-  const frames = sample.numberOfFrames;
-  const channels = sample.numberOfChannels;
-  const data = new Float32Array(frames * channels);
-  for (let c = 0; c < channels; c += 1) {
-    const plane = data.subarray(c * frames, (c + 1) * frames);
-    sample.copyTo(plane, { planeIndex: c, format: 'f32-planar' });
-    for (let i = 0; i < frames; i += 1) {
-      plane[i] = (plane[i] ?? 0) * gain(sample.timestamp + i / sample.sampleRate);
-    }
-  }
-  const out = new AudioSample({
-    data,
-    format: 'f32-planar',
-    numberOfChannels: channels,
-    sampleRate: sample.sampleRate,
-    timestamp: sample.timestamp,
-  });
-  sample.close();
-  return out;
-}
+/** The crossfade centred on each join, seconds: heard as a cut, but it doesn't click. */
+export const JOIN_CROSSFADE = 0.01;
 
 /** Peaks (0-1) for `buckets` equal slices of the audio: the waveform. */
 export async function audioPeaks(file: Blob, buckets: number): Promise<number[]> {
@@ -170,17 +84,19 @@ export const trimAudioEngine: Engine<TrimAudioOptions> = {
       const source = await input.getPrimaryAudioTrack();
       if (!source) throw new MediaInputError('This file has no audio in it.');
       const duration = await input.computeDuration();
-      const [start, end] = checkRange(opts.start ?? 0, opts.end ?? duration, duration);
+      const selection = checkRanges(opts, duration);
       const remove = opts.mode === 'remove';
-      if (remove && start <= 0.001 && end >= duration - 0.001) {
+      const spans = keptSpans(selection, duration, remove ? 'remove' : 'keep');
+      if (spans.length === 0) {
         throw new MediaInputError('That removes the whole file. Select only the part to remove.');
       }
-      const length = remove ? duration - (end - start) : end - start;
+      const { length } = layoutSpans(spans);
       const fadeIn = Math.max(0, Number(opts.fadeIn) || 0) / 1000;
       const fadeOut = Math.max(0, Number(opts.fadeOut) || 0) / 1000;
       if (fadeIn + fadeOut > length) {
         throw new MediaInputError('The fades are longer than the part you kept. Shorten them.');
       }
+      const joins = spans.length - 1;
       const sourceCodec = await source.getCodec();
       const keepFormat = sourceCodec ? KEEP[sourceCodec] : undefined;
       const format: AudioFormat =
@@ -193,8 +109,9 @@ export const trimAudioEngine: Engine<TrimAudioOptions> = {
         format === 'wav' && sourceCodec?.startsWith('pcm') ? sourceCodec : target.codec;
       const lossy = target.lossy;
       const fades = fadeIn > 0 || fadeOut > 0;
-      // A kept range of a lossy file in its own format, without fades, is copied frame by frame.
-      const copy = sourceCodec === codec && lossy && !fades && !remove;
+      // One kept part of a lossy file in its own format, without fades, is copied frame by frame.
+      const only = joins === 0 ? spans[0] : undefined;
+      const copy = sourceCodec === codec && lossy && !fades && only !== undefined;
       if (!copy) {
         if (!(await source.canDecode())) {
           throw new MediaInputError(
@@ -206,11 +123,6 @@ export const trimAudioEngine: Engine<TrimAudioOptions> = {
       const bitrate = copy
         ? null
         : ((await source.getAverageBitrate().catch(() => null)) ?? 192_000);
-      // Encoded audio starts at 0: at `start` when keeping, at the file's start when
-      // removing, so the join sits at `start`.
-      const gain = (t: number) =>
-        fadeGain(t, length, fadeIn, fadeOut) *
-        (remove && start > 0 ? Math.min(1, Math.abs(t - start) / JOIN_FADE) : 1);
       const progress = (f: number) => {
         ctx.progress(f, copy ? 'Copying' : 'Trimming');
       };
@@ -219,7 +131,7 @@ export const trimAudioEngine: Engine<TrimAudioOptions> = {
             {
               input,
               format: target.format(),
-              trim: { start, end },
+              trim: { start: only.start, end: only.end },
               video: { discard: true },
               copy: { mode: 'forced', boundaryPolicy: 'expand' },
               audio: (track) => (track === source ? {} : { discard: true }),
@@ -235,30 +147,32 @@ export const trimAudioEngine: Engine<TrimAudioOptions> = {
                 format: target.format(),
                 codec,
                 ...(lossy && bitrate && { quality: new Quality({ bitrate }) }),
-                ...(!remove && { start, end }),
-                ...((fades || remove) && {
-                  process: (sample: AudioSample) => {
-                    const kept = remove ? cutOut(sample, start, end) : sample;
-                    return kept && shaped(kept, gain);
-                  },
-                }),
+                splice: { spans, crossfade: JOIN_CROSSFADE, fadeIn, fadeOut },
               },
               ctx.signal,
               progress,
             )),
             dropped: [],
           };
+      const first = selection[0];
+      const parts = (n: number) => (n === 1 ? 'part' : `${String(n)} parts`);
       const notes = [
         remove
-          ? `Removed ${secs(start)} – ${secs(end)}; ${secs(length)} left`
-          : `Kept ${secs(start)} – ${secs(end)} (${secs(length)})`,
+          ? selection.length === 1 && first
+            ? `Removed ${secs(first.start)} – ${secs(first.end)}; ${secs(length)} left`
+            : `Removed ${parts(selection.length)}; ${secs(length)} left`
+          : spans.length === 1 && only
+            ? `Kept ${secs(only.start)} – ${secs(only.end)} (${secs(length)})`
+            : `Kept ${parts(spans.length)}, joined: ${secs(length)}`,
         copy
           ? `Copied without re-encoding, cut at the nearest ${codecLabel(sourceCodec)} frame`
           : lossy
-            ? `Re-encoded as ${codecLabel(codec)}${fades ? ' for the fades' : remove ? ' to join the two parts' : ''}`
+            ? `Re-encoded as ${codecLabel(codec)}${fades ? ' for the fades' : joins > 0 ? ' to join the parts' : ''}`
             : `${codecLabel(codec.startsWith('pcm') ? 'PCM' : codec)}: cut to the sample, lossless`,
-        ...(remove && start > 0 && end < duration
-          ? [`A ${String(JOIN_FADE * 1000)} ms fade either side of the join, so it doesn’t click`]
+        ...(joins > 0
+          ? [
+              `A ${String(JOIN_CROSSFADE * 1000)} ms crossfade at ${joins === 1 ? 'the join' : `each of the ${String(joins)} joins`}, so ${joins === 1 ? 'it doesn’t' : 'they don’t'} click`,
+            ]
           : []),
         ...(fades
           ? [

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { toneWav } from './tone';
 import { probeAudio } from './probe';
-import { audioPeaks, fadeGain, trimAudioEngine } from './trim';
+import { audioPeaks, trimAudioEngine } from './trim';
 
 const ctx = () => ({ signal: new AbortController().signal, progress: () => undefined });
 
@@ -53,22 +53,66 @@ describe('Trim Audio', () => {
     expect(peak(1.98, 2)).toBeLessThan(0.02);
   });
 
-  it('removes a range and joins the two sides', async () => {
+  it('removes a range and crossfades the join, so it doesn’t click', async () => {
+    // A 100 Hz tone cut at a peak and joined at a trough: a hard cut jumps by 0.73.
     const out = await trimAudioEngine.run(
-      toneWav(20, 48_000, 440),
-      { mode: 'remove', start: 5, end: 15 },
+      toneWav(20, 48_000, 100),
+      { mode: 'remove', start: 5.0025, end: 15.0075 },
       ctx(),
     );
     const { rate, data } = await samples(out.blob);
-    expect(Math.abs(data.length / rate - 10)).toBeLessThanOrEqual(0.001);
-    // Silent right at the join, full level 10 ms either side of it.
-    const at = (t: number) => Math.abs(data[Math.round(t * rate)] ?? 1);
-    expect(at(5)).toBeLessThan(0.01);
-    const peak = (from: number, to: number) =>
-      Math.max(...Array.from(data.subarray(from * rate, to * rate), Math.abs));
-    expect(peak(4.98, 4.99)).toBeGreaterThan(0.3);
-    expect(peak(5.01, 5.02)).toBeGreaterThan(0.3);
-    expect(out.notes?.[0]).toBe('Removed 5.000 s – 15.000 s; 10.000 s left');
+    expect(data.length).toBe(Math.round(9.995 * rate));
+    const join = Math.round(5.0025 * rate);
+    let step = 0;
+    for (let i = join - 480; i < join + 480; i += 1) {
+      step = Math.max(step, Math.abs((data[i] ?? 0) - (data[i - 1] ?? 0)));
+    }
+    // The tone's own biggest step is 0.0048; the crossfade stays near it.
+    expect(step).toBeLessThan(0.01);
+    expect(out.notes).toEqual([
+      'Removed 5.003 s – 15.008 s; 9.995 s left',
+      'PCM: cut to the sample, lossless',
+      'A 10 ms crossfade at the join, so it doesn’t click',
+    ]);
+  });
+
+  it('keeps several ranges and joins them, to the sample', async () => {
+    const out = await trimAudioEngine.run(
+      toneWav(20, 48_000, 440),
+      {
+        ranges: [
+          { start: 12, end: 14.5 },
+          { start: 1, end: 3.25 },
+          { start: 6, end: 6.75 },
+        ],
+      },
+      ctx(),
+    );
+    const { rate, data } = await samples(out.blob);
+    expect(data.length).toBe(5.5 * rate);
+    expect(out.durationSec).toBe(5.5);
+    expect(out.notes?.[0]).toBe('Kept 3 parts, joined: 5.500 s');
+    expect(out.notes?.[2]).toBe('A 10 ms crossfade at each of the 2 joins, so they don’t click');
+  });
+
+  it('removes several ranges', async () => {
+    const out = await trimAudioEngine.run(
+      toneWav(10, 8_000, 200),
+      {
+        mode: 'remove',
+        ranges: [
+          { start: 0, end: 1 },
+          { start: 4, end: 5 },
+          { start: 9.5, end: 10 },
+        ],
+      },
+      ctx(),
+    );
+    const { rate, data } = await samples(out.blob);
+    expect(data.length).toBe(7.5 * rate);
+    expect(out.notes?.[0]).toBe('Removed 3 parts; 7.500 s left');
+    // Only the middle join: the cuts at either end join nothing.
+    expect(out.notes?.[2]).toBe('A 10 ms crossfade at the join, so it doesn’t click');
   });
 
   it('cuts the start off without a join', async () => {
@@ -79,7 +123,7 @@ describe('Trim Audio', () => {
     );
     const { rate, data } = await samples(out.blob);
     expect(Math.abs(data.length / rate - 3)).toBeLessThanOrEqual(0.001);
-    expect(out.notes).not.toContain('A 5 ms fade either side of the join, so it doesn’t click');
+    expect(out.notes?.some((note) => note.includes('crossfade'))).toBe(false);
   });
 
   it('refuses to remove everything', async () => {
@@ -96,14 +140,6 @@ describe('Trim Audio', () => {
         ctx(),
       ),
     ).rejects.toThrow(/fades are longer/);
-  });
-
-  it('ramps the gain', () => {
-    expect(fadeGain(0, 10, 1, 1)).toBe(0);
-    expect(fadeGain(0.5, 10, 1, 1)).toBe(0.5);
-    expect(fadeGain(5, 10, 1, 1)).toBe(1);
-    expect(fadeGain(9.75, 10, 1, 1)).toBeCloseTo(0.25, 6);
-    expect(fadeGain(5, 10, 0, 0)).toBe(1);
   });
 
   it('draws a waveform from the peaks', async () => {

@@ -1,6 +1,7 @@
 'use client';
 
-import { Minus, Plus } from 'lucide-react';
+import { addRange, clampRange, invertRanges } from '@etb/core/ranges';
+import { Minus, Plus, X } from 'lucide-react';
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
 import { cn } from '../cn';
@@ -21,12 +22,22 @@ function bars(count: number, seed: number): number[] {
   });
 }
 
+/** A timecode without the hours when there are none: "01:02.500". */
+function short(seconds: number): string {
+  const tc = formatTimecode(seconds);
+  return tc.startsWith('00:') ? tc.slice(3) : tc;
+}
+
 /**
  * The shared media timeline shell (docs/03 → Timeline): waveform (audio) or
  * thumbnail strip (video), playhead, in/out handles, zoom and frame-stepping
  * keys. Keys: ←/→ one frame (Shift: one second), I and O set in/out at the
  * playhead, Home/End jump. In and Out can also be typed ("1:02.5"). The page
  * passes the video's frames as thumbnails and follows the playhead (onSeek).
+ *
+ * With `ranges` (V01, A02) it holds several ranges: the handles, In/Out and
+ * the I/O keys edit the selected one, ranges never overlap, and a row of
+ * buttons selects, adds and removes them.
  */
 export function Timeline({
   durationSec,
@@ -37,6 +48,9 @@ export function Timeline({
   thumbnails,
   peaks,
   onSeek,
+  ranges,
+  active = 0,
+  onRangesChange,
   className,
 }: {
   durationSec: number;
@@ -44,6 +58,10 @@ export function Timeline({
   kind?: 'audio' | 'video';
   value: TimelineRange;
   onChange: (range: TimelineRange) => void;
+  /** Several ranges; `value` is then the selected one, `ranges[active]`. */
+  ranges?: TimelineRange[];
+  active?: number;
+  onRangesChange?: (ranges: TimelineRange[], active: number) => void;
   /** Frames across the clip, left to right (object URLs). */
   thumbnails?: string[];
   /** The audio's loudness across the clip, 0 to 1 (the real waveform). */
@@ -85,17 +103,60 @@ export function Timeline({
     onSeek?.(t);
   }
 
+  const multi = ranges !== undefined && onRangesChange !== undefined;
+
+  /** The selected range, kept clear of its neighbours when there are several. */
+  function update(next: TimelineRange) {
+    if (!multi) {
+      onChange(next);
+      return;
+    }
+    const kept = clampRange(ranges, active, next, durationSec, frame);
+    onRangesChange(
+      ranges.map((r, i) => (i === active ? kept : r)),
+      active,
+    );
+  }
+
   function setIn(t: number) {
     const start = clamp(Math.min(t, value.end - frame));
-    onChange({ start, end: value.end });
-    onSeek?.(start);
+    update({ start, end: value.end });
+    // The playhead follows the edit, so the frame shown is the one cut at.
+    seek(start);
   }
 
   function setOut(t: number) {
     const end = clamp(Math.max(t, value.start + frame));
-    onChange({ start: value.start, end });
-    onSeek?.(end);
+    update({ start: value.start, end });
+    seek(end);
   }
+
+  function select(index: number) {
+    if (!multi) return;
+    onRangesChange(ranges, index);
+    const r = ranges[index];
+    if (r) seek(r.start);
+  }
+
+  function add() {
+    if (!multi) return;
+    const made = addRange(ranges, playhead, durationSec, Math.max(1, durationSec / 20), frame * 2);
+    if (!made) return;
+    onRangesChange(made.ranges, made.active);
+    const r = made.ranges[made.active];
+    if (r) seek(r.start);
+  }
+
+  function remove() {
+    if (!multi || ranges.length < 2) return;
+    const next = ranges.filter((_, i) => i !== active);
+    onRangesChange(next, Math.max(0, active - 1));
+  }
+
+  const all = multi ? ranges : [value];
+  const gaps = invertRanges(all, durationSec);
+  const total = all.reduce((sum, r) => sum + (r.end - r.start), 0);
+  const roomLeft = gaps.some((g) => g.end - g.start >= frame * 2);
 
   function move(clientX: number) {
     const t = timeAt(clientX);
@@ -124,6 +185,11 @@ export function Timeline({
           <TimeField label="In" value={value.start} onCommit={setIn} />
           <TimeField label="Out" value={value.end} onCommit={setOut} />
           <b className="font-medium text-text">{(value.end - value.start).toFixed(2)} s</b>
+          {multi && ranges.length > 1 && (
+            <span>
+              {ranges.length} ranges · {total.toFixed(2)} s
+            </span>
+          )}
         </span>
         <span className="flex items-center">
           <button
@@ -161,6 +227,11 @@ export function Timeline({
           aria-label={`Timeline. Playhead ${formatTimecode(playhead)}. Arrow keys move by frame, I and O set in and out.`}
           onKeyDown={onKeyDown}
           onPointerDown={(event) => {
+            if (multi) {
+              const t = timeAt(event.clientX);
+              const hit = ranges.findIndex((r) => t >= r.start && t <= r.end);
+              if (hit >= 0 && hit !== active) onRangesChange(ranges, hit);
+            }
             onPointerDown(event, 'playhead');
           }}
           onPointerMove={(event) => {
@@ -214,17 +285,26 @@ export function Timeline({
               ))}
             </div>
           )}
-          {/* Outside the selection is dimmed. */}
-          <div
-            aria-hidden="true"
-            className="absolute inset-y-0 left-0 bg-bg/70"
-            style={{ width: pct(value.start) }}
-          />
-          <div
-            aria-hidden="true"
-            className="absolute inset-y-0 right-0 bg-bg/70"
-            style={{ left: pct(value.end) }}
-          />
+          {/* Outside the selection is dimmed; other ranges get an outline. */}
+          {gaps.map((g) => (
+            <div
+              key={g.start}
+              aria-hidden="true"
+              className="absolute inset-y-0 bg-bg/70"
+              style={{ left: pct(g.start), width: pct(g.end - g.start) }}
+            />
+          ))}
+          {multi &&
+            ranges.map((r, i) =>
+              i === active ? null : (
+                <div
+                  key={r.start}
+                  aria-hidden="true"
+                  className="absolute inset-y-0 border-y-2 border-text-muted"
+                  style={{ left: pct(r.start), width: pct(r.end - r.start) }}
+                />
+              ),
+            )}
           {(['start', 'end'] as const).map((edge) => (
             <div
               key={edge}
@@ -246,6 +326,47 @@ export function Timeline({
           />
         </div>
       </div>
+      {multi && (
+        <div role="group" aria-label="Ranges" className="flex flex-wrap items-center gap-2">
+          {ranges.map((r, i) => (
+            <button
+              key={r.start}
+              type="button"
+              aria-pressed={i === active}
+              aria-label={`Range ${String(i + 1)}: ${short(r.start)} to ${short(r.end)}`}
+              onClick={() => {
+                select(i);
+              }}
+              className={cn(
+                'min-h-11 rounded-control border px-3 font-mono text-12 tabular-nums',
+                i === active
+                  ? 'border-text text-text'
+                  : 'border-border text-text-muted hover:border-text-muted hover:text-text',
+              )}
+            >
+              {i + 1} · {short(r.start)}–{short(r.end)}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={add}
+            disabled={!roomLeft}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 text-14 text-text hover:underline disabled:opacity-38"
+          >
+            <Plus size={16} aria-hidden="true" />
+            Add range
+          </button>
+          <button
+            type="button"
+            onClick={remove}
+            disabled={ranges.length < 2}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 text-14 text-text hover:underline disabled:opacity-38"
+          >
+            <X size={16} aria-hidden="true" />
+            Remove range
+          </button>
+        </div>
+      )}
       <p className="font-mono text-12 uppercase tracking-meta text-text-muted">
         Playhead <b className="font-medium text-text">{formatTimecode(playhead)}</b> ·{' '}
         {kind === 'audio' ? `${String(Math.round(1000 / fps))} ms steps` : `${String(fps)} fps`}
