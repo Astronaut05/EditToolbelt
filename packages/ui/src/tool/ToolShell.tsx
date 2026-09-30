@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 
@@ -47,6 +48,17 @@ const CanvasEditor = lazy(() =>
 );
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
+const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.TempoTools })));
+
+/** Tailwind's `lg` breakpoint: two columns from here up. */
+const WIDE = '(min-width: 64rem)';
+function subscribeWide(onChange: () => void) {
+  const query = matchMedia(WIDE);
+  query.addEventListener('change', onChange);
+  return () => {
+    query.removeEventListener('change', onChange);
+  };
+}
 const Timeline = lazy(() => import('./Timeline').then((m) => ({ default: m.Timeline })));
 
 /** What the shell needs from the registry entry (serialisable, no Zod). */
@@ -290,6 +302,8 @@ export interface ShellPreset {
     /** The option that holds Refine brush strokes (JSON): P07's keep/erase brush on the result. */
     refine?: string;
   };
+  /** A03: a tap tempo pad and a metronome under the settings, file or not. */
+  tempo?: boolean;
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
   result?: 'compare' | 'output';
   /** Why the run can't start with these settings, if it can't. */
@@ -317,6 +331,8 @@ export interface ProbeInfo {
   warnings?: string[];
   /** Frames across the clip for the timeline strip (object URLs). */
   thumbnails?: (count: number) => Promise<string[]>;
+  /** The audio's peaks (0-1) in `buckets` equal slices, for the waveform. */
+  waveform?: (buckets: number) => Promise<number[]>;
   /** Choices for `probed` options, by option id (audio tracks). */
   choices?: Record<string, { value: string; label: string }[]>;
   /** Starting values the file suggests, by option id (the last cue for two-point sync). */
@@ -442,6 +458,13 @@ export function ToolShell({
   // Media tools: what the probe found, and the timeline's frames.
   const [media, setMedia] = useState<ProbeInfo | null>(null);
   const [thumbs, setThumbs] = useState<string[]>([]);
+  const [peaks, setPeaks] = useState<number[]>([]);
+  // Two columns or one (the server renders two; phones switch after loading).
+  const wide = useSyncExternalStore(
+    subscribeWide,
+    () => matchMedia(WIDE).matches,
+    () => true,
+  );
 
   const track = useCallback(
     (name: string, props: Record<string, string> = {}) => {
@@ -551,6 +574,7 @@ export function ToolShell({
       if (!preset.probe) return;
       setMedia(null);
       setThumbs([]);
+      setPeaks([]);
       setState({ kind: 'running', input, stage: 'Reading the file', elapsedSec: 0 });
       let info: ProbeInfo;
       try {
@@ -568,7 +592,10 @@ export function ToolShell({
       const suggested = info.values;
       if (suggested) setOptions((current) => ({ ...current, ...suggested }));
       setRange(preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec });
-      setState({ kind: 'ready', input: { ...input, durationSec: info.durationSec }, files });
+      const probed = { ...input, durationSec: info.durationSec };
+      setState({ kind: 'ready', input: probed, files });
+      // Tools that run as a file arrives (A03) run once it's read.
+      if (preset.autoRun) void run(probed, file);
       void info
         .thumbnails?.(12)
         .then((frames) => {
@@ -576,8 +603,12 @@ export function ToolShell({
           setThumbs(frames);
         })
         .catch(() => undefined);
+      void info
+        .waveform?.(160)
+        .then(setPeaks)
+        .catch(() => undefined);
     },
-    [preset],
+    [preset, run],
   );
 
   const intake = useCallback(
@@ -731,6 +762,7 @@ export function ToolShell({
     resetEditor();
     setMedia(null);
     setThumbs([]);
+    setPeaks([]);
   }, [resetEditor]);
 
   /**
@@ -998,6 +1030,7 @@ export function ToolShell({
       ratio={ratio}
       media={media}
       thumbs={thumbs}
+      peaks={peaks}
       refine={
         refining && refineOption
           ? {
@@ -1053,6 +1086,16 @@ export function ToolShell({
     />
   );
 
+  // A03's tap tempo and metronome sit under the settings; on a phone with a
+  // file in, the settings column is empty and comes first, so they move under
+  // the result instead. Only after a file arrives, so the server's HTML (no
+  // file) is the same on every screen.
+  const tempoTools = (
+    <Suspense fallback={null}>
+      <TempoTools className="mt-10 px-4 pb-6 lg:px-0" />
+    </Suspense>
+  );
+
   return (
     <div className="lg:grid lg:min-h-[calc(100dvh-var(--header-h))] lg:grid-cols-[var(--tool-left-col)_1fr]">
       <section
@@ -1091,6 +1134,7 @@ export function ToolShell({
         {state.kind === 'empty' && tool.howTo && (
           <NumberedList items={tool.howTo} className="mt-7.5 hidden lg:block" />
         )}
+        {preset.tempo && (!hasFile || wide) && tempoTools}
       </section>
 
       <section
@@ -1204,6 +1248,7 @@ export function ToolShell({
               );
             })}
           </Dialog>
+          {preset.tempo && !wide && tempoTools}
         </div>
       )}
     </div>
@@ -1280,6 +1325,7 @@ function Workspace({
   ratio,
   media,
   thumbs,
+  peaks,
   refine,
 }: {
   state: ShellState;
@@ -1293,6 +1339,7 @@ function Workspace({
   ratio: number | null;
   media: ProbeInfo | null;
   thumbs: string[];
+  peaks: number[];
   refine: {
     strokes: BrushStroke[];
     apply: (strokes: BrushStroke[]) => void;
@@ -1318,6 +1365,7 @@ function Workspace({
         durationSec={media?.durationSec ?? 60}
         fps={media?.fps}
         thumbs={thumbs}
+        peaks={peaks}
         range={range}
         setRange={setRange}
       />
@@ -1531,6 +1579,7 @@ function TimelineWorkspace({
   durationSec,
   fps,
   thumbs,
+  peaks,
   range,
   setRange,
 }: {
@@ -1539,10 +1588,12 @@ function TimelineWorkspace({
   durationSec: number;
   fps?: number;
   thumbs: string[];
+  peaks: number[];
   range: TimelineRange;
   setRange: (range: TimelineRange) => void;
 }) {
   const player = useRef<HTMLVideoElement>(null);
+  const listener = useRef<HTMLAudioElement>(null);
   return (
     <div className="flex flex-col gap-5 px-4 py-6 lg:px-10 lg:pt-8.5">
       {video && url && (
@@ -1565,11 +1616,23 @@ function TimelineWorkspace({
           value={range}
           onChange={setRange}
           thumbnails={thumbs}
+          peaks={peaks}
           onSeek={(time) => {
-            if (player.current && player.current.readyState > 0) player.current.currentTime = time;
+            const media = player.current ?? listener.current;
+            if (media && media.readyState > 0) media.currentTime = time;
           }}
         />
       </Suspense>
+      {!video && url && (
+        <audio
+          ref={listener}
+          src={url}
+          controls
+          preload="metadata"
+          aria-label="Your audio"
+          className="w-full"
+        />
+      )}
     </div>
   );
 }

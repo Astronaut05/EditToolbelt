@@ -77,8 +77,8 @@ Totals: 75 tools · Wave 1: 26 · Wave 2: 32 · Wave 3: 17.
 
 | Code | Tool | Slug | Wave | Runtime | Engine | Server cost | Surfaces |
 |---|---|---|---|---|---|---|---|
-| A01 | Audio Converter (incl. sample rate) | `audio-converter` | 1 | client | audio-dsp | — | W M |
-| A02 | Trim Audio | `trim-audio` | 1 | client | audio-dsp | — | W M |
+| A01 | Audio Converter (incl. sample rate) | `audio-converter` | 1 | client | video-webcodecs | — | W M |
+| A02 | Trim Audio | `trim-audio` | 1 | client | video-webcodecs | — | W M |
 | A03 | BPM & Key Finder (+ tap tempo, metronome) | `bpm-key-finder` | 1 | client | audio-dsp | — | W M |
 | A04 | Merge Audio | `merge-audio` | 2 | client | audio-dsp | — | W |
 | A05 | Normalize Loudness (LUFS) | `normalize-audio` | 2 | client | audio-dsp | — | W P |

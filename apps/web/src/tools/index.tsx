@@ -18,7 +18,9 @@ type View = ComponentType<{ tool: ShellTool; to?: string }>;
  */
 const VIEWS: Readonly<Record<ToolId, View>> = {
   'aspect-ratio-calculator': dynamic(() => import('./aspect-ratio-calculator')),
+  'audio-converter': dynamic(() => import('./audio-converter')),
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
+  'bpm-key-finder': dynamic(() => import('./bpm-key-finder')),
   'color-converter': dynamic(() => import('./color-converter')),
   'compress-image': dynamic(() => import('./compress-image')),
   'compress-video': dynamic(() => import('./compress-video')),
@@ -34,6 +36,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'subtitle-converter': dynamic(() => import('./subtitle-converter')),
   'subtitle-shift': dynamic(() => import('./subtitle-shift')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
+  'trim-audio': dynamic(() => import('./trim-audio')),
   'trim-video': dynamic(() => import('./trim-video')),
   'video-converter': dynamic(() => import('./video-converter')),
   'video-info': dynamic(() => import('./video-info')),

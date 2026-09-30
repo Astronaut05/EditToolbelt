@@ -24,10 +24,12 @@ export interface PairCopy {
   faq: { q: string; a: string }[];
 }
 
+import { AUDIO_PAIR_COPY } from './pairs-audio';
 import { IMAGE_PAIR_COPY } from './pairs-image';
 import { VIDEO_PAIR_COPY } from './pairs-video';
 
 export const PAIR_COPY: Readonly<Partial<Record<string, PairCopy>>> = {
+  ...AUDIO_PAIR_COPY,
   ...IMAGE_PAIR_COPY,
   ...VIDEO_PAIR_COPY,
   'srt-to-vtt': {

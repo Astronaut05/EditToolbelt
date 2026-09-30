@@ -11,7 +11,7 @@ export interface TimelineRange {
   end: number;
 }
 
-/** Deterministic bar heights for a waveform stand-in (no audio decoded in M1). */
+/** Deterministic bar heights for a waveform stand-in, until the audio is read. */
 function bars(count: number, seed: number): number[] {
   let x = seed;
   return Array.from({ length: count }, (_, i) => {
@@ -30,11 +30,12 @@ function bars(count: number, seed: number): number[] {
  */
 export function Timeline({
   durationSec,
-  fps = 30,
+  fps: fpsProp,
   kind = 'audio',
   value,
   onChange,
   thumbnails,
+  peaks,
   onSeek,
   className,
 }: {
@@ -45,6 +46,8 @@ export function Timeline({
   onChange: (range: TimelineRange) => void;
   /** Frames across the clip, left to right (object URLs). */
   thumbnails?: string[];
+  /** The audio's loudness across the clip, 0 to 1 (the real waveform). */
+  peaks?: number[];
   /** The time the user is looking at: the playhead, or the handle being dragged. */
   onSeek?: (time: number) => void;
   className?: string;
@@ -53,7 +56,10 @@ export function Timeline({
   const [zoom, setZoom] = useState(1);
   const track = useRef<HTMLDivElement>(null);
   const dragging = useRef<'start' | 'end' | 'playhead' | null>(null);
-  const waveform = useMemo(() => bars(160, 42), []);
+  const standIn = useMemo(() => bars(160, 42), []);
+  const waveform = peaks && peaks.length > 0 ? peaks : standIn;
+  // Audio steps by the millisecond, video by the frame.
+  const fps = fpsProp ?? (kind === 'audio' ? 1000 : 30);
   const frame = 1 / fps;
   const pct = (t: number) => `${String((t / durationSec) * 100)}%`;
   const clamp = (t: number) => Math.min(durationSec, Math.max(0, Math.round(t / frame) * frame));
@@ -172,7 +178,7 @@ export function Timeline({
                 <span
                   key={i}
                   className="flex-1 bg-text-muted/60"
-                  style={{ height: `${String(h * 90)}%` }}
+                  style={{ height: `${String(Math.max(0.02, h) * 90)}%` }}
                 />
               ))}
             </div>
@@ -241,7 +247,8 @@ export function Timeline({
         </div>
       </div>
       <p className="font-mono text-12 uppercase tracking-meta text-text-muted">
-        Playhead <b className="font-medium text-text">{formatTimecode(playhead)}</b> · {fps} fps
+        Playhead <b className="font-medium text-text">{formatTimecode(playhead)}</b> ·{' '}
+        {kind === 'audio' ? `${String(Math.round(1000 / fps))} ms steps` : `${String(fps)} fps`}
       </p>
     </div>
   );
