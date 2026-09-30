@@ -4,7 +4,15 @@
  * and audit). Tests change `trim-video` and `crop-image`, so they run one at a
  * time and put the tools back.
  */
-import { adminAuditLog, and, creditTransactions, eq, toolFlags, users } from '@etb/db';
+import {
+  adminAuditLog,
+  and,
+  creditTransactions,
+  eq,
+  systemChecks,
+  toolFlags,
+  users,
+} from '@etb/db';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -150,6 +158,11 @@ test('granting credits writes the ledger and the audit log', async ({ page }) =>
 
 test('the signed-in pages pass axe, light and dark', async ({ page }) => {
   await becomeAdmin(page);
+  // A table wider than the screen, so axe also checks one that scrolls sideways.
+  await db
+    .insert(systemChecks)
+    .values({ name: 'e2e_wide_table', ok: true, detail: { note: 'x'.repeat(400) } })
+    .onConflictDoNothing();
   const [user] = await db.insert(users).values({ email: newEmail() }).returning();
   const paths = [
     '/account',

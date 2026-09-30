@@ -129,7 +129,7 @@ export default async function AdminDashboard() {
         {heartbeats.length === 0 ? (
           <p className="text-14 text-text-muted">No service has checked in yet.</p>
         ) : (
-          <Table head={['Service', 'Instance', 'Version', 'Last seen', 'State']}>
+          <Table label="Services" head={['Service', 'Instance', 'Version', 'Last seen', 'State']}>
             {heartbeats.map((beat) => (
               <tr key={`${beat.service}/${beat.instance}`}>
                 <td>{beat.service}</td>

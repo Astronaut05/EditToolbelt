@@ -33,7 +33,7 @@ export default async function AdminUsers({ searchParams }: Props) {
       {rows.length === 0 ? (
         <p className="text-14 text-text-muted">No accounts{q ? ' match' : ' yet'}.</p>
       ) : (
-        <Table head={['Email', 'Joined', 'Role', 'Credits', 'State']}>
+        <Table label="Accounts" head={['Email', 'Joined', 'Role', 'Credits', 'State']}>
           {rows.map((user) => (
             <tr key={user.id}>
               <td>

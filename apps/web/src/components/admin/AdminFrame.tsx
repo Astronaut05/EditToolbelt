@@ -61,10 +61,22 @@ export function Section({ title, children }: { title: string; children: ReactNod
   );
 }
 
-/** A plain table that scrolls sideways on phones instead of squeezing. */
-export function Table({ head, children }: { head: string[]; children: ReactNode }) {
+/**
+ * A plain table that scrolls sideways on phones instead of squeezing. The
+ * scroll box is a named region that takes focus, so a keyboard can scroll it
+ * too (WCAG 2.1.1; axe's scrollable-region-focusable).
+ */
+export function Table({
+  label,
+  head,
+  children,
+}: {
+  label: string;
+  head: string[];
+  children: ReactNode;
+}) {
   return (
-    <div className="overflow-x-auto">
+    <div role="region" aria-label={label} tabIndex={0} className="overflow-x-auto">
       <table className="w-full min-w-max border-collapse text-14 tabular-nums">
         <thead>
           <tr className="border-b border-border text-left">

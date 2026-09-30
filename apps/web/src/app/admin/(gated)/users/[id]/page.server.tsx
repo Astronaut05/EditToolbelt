@@ -135,7 +135,7 @@ export default async function AdminUser({ params, searchParams }: Props) {
           </Button>
         </form>
         {ledger.length > 0 && (
-          <Table head={['When', 'Kind', 'Amount', 'Balance', 'Reason']}>
+          <Table label="Credit ledger" head={['When', 'Kind', 'Amount', 'Balance', 'Reason']}>
             {ledger.map((row) => (
               <tr key={row.id}>
                 <td>{when(row.createdAt)}</td>
@@ -153,7 +153,7 @@ export default async function AdminUser({ params, searchParams }: Props) {
         {bought.length === 0 ? (
           <p className="text-14 text-text-muted">None. Payments arrive in M5.</p>
         ) : (
-          <Table head={['When', 'Pack', 'Credits', 'Paid', 'Status']}>
+          <Table label="Purchases" head={['When', 'Pack', 'Credits', 'Paid', 'Status']}>
             {bought.map((row) => (
               <tr key={row.id}>
                 <td>{when(row.createdAt)}</td>
@@ -173,7 +173,7 @@ export default async function AdminUser({ params, searchParams }: Props) {
         {recent.length === 0 ? (
           <p className="text-14 text-text-muted">None. Server tools arrive in M4.</p>
         ) : (
-          <Table head={['When', 'Tool', 'Status', 'Credits', 'Error']}>
+          <Table label="Recent server jobs" head={['When', 'Tool', 'Status', 'Credits', 'Error']}>
             {recent.map((job) => (
               <tr key={job.id}>
                 <td>{when(job.createdAt)}</td>
@@ -192,7 +192,7 @@ export default async function AdminUser({ params, searchParams }: Props) {
           <p className="text-14 text-text-muted">None.</p>
         ) : (
           <>
-            <Table head={['Name', 'Prefix', 'Created', 'Last used', 'Revoked']}>
+            <Table label="API keys" head={['Name', 'Prefix', 'Created', 'Last used', 'Revoked']}>
               {keys.map((key) => (
                 <tr key={key.id}>
                   <td>{key.name}</td>

@@ -35,7 +35,7 @@ export default async function AdminAudit({ searchParams }: Props) {
       {rows.length === 0 ? (
         <p className="text-14 text-text-muted">Nothing yet.</p>
       ) : (
-        <Table head={['When', 'Admin', 'Action', 'Target', 'Reason']}>
+        <Table label="Audit log" head={['When', 'Admin', 'Action', 'Target', 'Reason']}>
           {rows.map((row) => (
             <tr key={row.id}>
               <td>{when(row.at)}</td>

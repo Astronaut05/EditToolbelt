@@ -36,6 +36,7 @@ export default async function AdminTools() {
         message or limits.
       </p>
       <Table
+        label="Tools"
         head={['Code', 'Tool', 'Category', 'Default', 'Now', 'Runtime', 'Jobs today', 'Failed']}
       >
         {tools.map((tool) => {

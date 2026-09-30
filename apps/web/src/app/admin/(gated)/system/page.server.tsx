@@ -81,7 +81,7 @@ export default async function AdminSystem({ searchParams }: Props) {
         {checks.length === 0 ? (
           <p className="text-14 text-text-muted">No check has run yet.</p>
         ) : (
-          <Table head={['Check', 'Result', 'Ran', 'Detail']}>
+          <Table label="Scheduled checks" head={['Check', 'Result', 'Ran', 'Detail']}>
             {checks.map((check) => (
               <tr key={check.name}>
                 <td className="font-mono text-12">{check.name}</td>
