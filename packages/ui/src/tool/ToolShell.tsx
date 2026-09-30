@@ -1,6 +1,6 @@
 'use client';
 
-import { readPicked, type Engine } from '@etb/engines';
+import type { Engine } from '@etb/engines';
 import { ChevronRight, Download } from 'lucide-react';
 import {
   lazy,
@@ -1049,7 +1049,7 @@ export function ToolShell({
           ? {
               sample: Number(options[preset.picker.sample]) || 1,
               zoom: Number(options[preset.picker.zoom]) || 8,
-              picked: readPicked(options[preset.picker.history]),
+              history: options[preset.picker.history],
               onPick: (hexes) => {
                 if (preset.picker) changeOption(preset.picker.history, JSON.stringify(hexes));
               },
@@ -1369,7 +1369,7 @@ function Workspace({
   picker: {
     sample: number;
     zoom: number;
-    picked: string[];
+    history: string | undefined;
     onPick: (hexes: string[]) => void;
   } | null;
   refine: {

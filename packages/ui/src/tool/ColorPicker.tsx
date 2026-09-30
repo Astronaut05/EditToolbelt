@@ -1,8 +1,9 @@
 'use client';
 
-import { describeColor, sampleColor, type PickedColor } from '@etb/engines';
+import { describeColor, readPicked, sampleColor, type PickedColor } from '@etb/engines';
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -49,7 +50,7 @@ export function ColorPicker({
   src,
   sample,
   zoom,
-  picked,
+  history,
   onPick,
 }: {
   src: string;
@@ -57,10 +58,14 @@ export function ColorPicker({
   sample: number;
   /** Loupe magnification. */
   zoom: number;
-  /** Picked HEX colours, newest first. */
-  picked: string[];
+  /**
+   * The picks as the tool keeps them (a JSON list of HEX, newest first), read
+   * here so the parser loads with the picker, not with every tool page.
+   */
+  history: string | undefined;
   onPick: (hexes: string[]) => void;
 }) {
+  const picked = useMemo(() => readPicked(history), [history]);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [point, setPoint] = useState<Point | null>(null);
   const [failed, setFailed] = useState(false);
