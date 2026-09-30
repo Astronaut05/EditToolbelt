@@ -4,9 +4,10 @@
  * compression). Lighthouse's default mobile config: emulated phone, simulated
  * slow 4G and a 4× slower CPU, so these are lab ceilings, stricter than the
  * real-user p75 budgets. One run swings LCP by a few hundred ms, so each page
- * runs RUNS times and the budgets read Lighthouse's own median run (closest to
- * the median FCP and TTI), as its variability guide recommends. Reports (the
- * median run) go to apps/web/.lighthouse/ (never uploaded).
+ * runs RUNS times and each budget reads the median of its own values across
+ * the runs, as Lighthouse's variability guide recommends. Reports (Lighthouse's
+ * median run, closest to the median FCP and TTI) go to apps/web/.lighthouse/
+ * (never uploaded).
  *
  *   pnpm build && pnpm lighthouse          (CHROME_PATH picks the browser)
  */
@@ -38,8 +39,8 @@ const PAGES = [
  */
 const TOOL_PAGES = new Set(['/remove-background']);
 const TOOL_SCRIPT_MAX = 180_000;
-/** Odd, so the median is one of the runs. */
-const RUNS = 3;
+/** Odd, so each median is one of the runs' values. */
+const RUNS = 5;
 
 interface Budget {
   label: string;
@@ -80,6 +81,12 @@ export const BUDGETS: Budget[] = [
     unit: 'B',
   },
 ];
+
+/** The median of one budget's values across the runs. */
+export function medianValue(values: number[]): number {
+  const sorted = values.toSorted((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? NaN;
+}
 
 /**
  * Lighthouse's median run (core/lib/median-run.js): the run closest to the
@@ -148,16 +155,19 @@ async function main(): Promise<number> {
     const failures: string[] = [];
     for (const path of PAGES) {
       const url = `http://localhost:${String(SITE_PORT)}${path}`;
-      const runs = [];
+      const runs: { lhr: Result; report: string }[] = [];
       for (let i = 0; i < RUNS; i++) {
         const run = await lighthouse(url, { port: DEBUG_PORT, output: 'json', logLevel: 'error' });
         if (!run) throw new Error(`No result for ${url}`);
         runs.push({ lhr: run.lhr as unknown as Result, report: run.report as string });
       }
-      const { lhr, report } = medianRun(runs);
+      // The saved report is Lighthouse's median run; each budget reads its own
+      // median, since the run with the median FCP and TTI can hold any run's
+      // LCP (simulated LCP scales with main-thread timing, which varies by run).
+      const { report } = medianRun(runs);
       writeFileSync(join(out, `${path === '/' ? 'home' : path.slice(1)}.json`), report);
       const cells = BUDGETS.map((budget) => {
-        const value = budget.read(lhr);
+        const value = medianValue(runs.map((run) => budget.read(run.lhr)));
         const max =
           budget.label === 'script transfer' && TOOL_PAGES.has(path) ? TOOL_SCRIPT_MAX : budget.max;
         const ok =

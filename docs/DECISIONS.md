@@ -350,3 +350,22 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - The existing `tool_handoff` analytics event is unchanged: tool ids only, no file details.
 **Why:** `docs/02` → Result panel ("hands the output to a related tool without re-upload, via an in-memory handoff"); `docs/12` → M2; `CLAUDE.md` rule 4 (nothing kept).
 **Reverse:** `packages/ui/src/tool/handoff.ts` and the link's `onClick` in `ToolShell`; drop `id`/`accepts` from `ShellTool.related`.
+
+## 2026-09-30 · Subtitle Sync (T02): times rewritten in place
+
+**Decision:**
+- Sync rewrites only the timestamps, in the file's own format. Everything else stays byte-for-byte: ASS styles and override tags, WebVTT settings, cue ids, notes and comments. That's safer than parsing and writing the file again, which drops what our cue model doesn't hold. WebVTT karaoke timestamps move with their cue, and hour-less VTT times stay hour-less.
+- **Shift:** by seconds with ms precision (negative is earlier), optionally from a cue number on (cues numbered in file order, like SRT's own numbers).
+- **Frame rate:** times × from ÷ to, with 23.976, 24, 25, 29.97, 30, 50, 59.94 and 60.
+- **Two points:** pick two cues from a list (number, current time, the first words) and type when each should start. A line through the two fixes offset and drift. The pickers start on the first and last cue, filled in from the file (ToolShell probes can now suggest option values).
+- A cue pushed before 0:00 starts at 0:00 and keeps its end time, so the rest stays in sync. The result says how many.
+- Times are typed as `00:01:02.500`, `1:02.5` or seconds (`62.5`). ToolShell gains a `text` option kind for them.
+- Output is UTF-8; a note says so when the file was in another encoding.
+**Why:** `tools/subtitles-and-time.md` → T02 (its test: two-point sync restores offset and drift within ±10 ms, checked in unit and Playwright tests).
+**Reverse:** `packages/core/src/subtitles/retime.ts` (in-place retime) and `packages/engines/src/subtitle-shift.ts`.
+
+## 2026-09-30 · Lighthouse budgets read each metric's median of 5 runs
+
+**Decision:** `pnpm lighthouse` runs each page 5 times (was 3), and each budget reads the median of its own values across the runs, not the values of one "median run". The saved report is still Lighthouse's median run. The budgets themselves are unchanged.
+**Why:** the median run is the one closest to the median FCP and TTI, and its LCP can be any run's. Simulated LCP scales with main-thread timing, which varies from run to run: seven runs of `/remove-background` on the same build gave 1966 to 2421 ms, with the same element and the same requests. CI failed `/remove-background` at 2559 ms on a PR that doesn't touch it, and passed it on the run before. Each metric's own median is what Lighthouse's variability guide recommends. It costs about 40 s of CI time.
+**Reverse:** in `scripts/lighthouse.ts`, set `RUNS = 3` and read `budget.read(medianRun(runs).lhr)`.

@@ -20,7 +20,7 @@ import { Button } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
 import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel } from '../primitives/OptionsPanel';
-import { ColorInput, NumberWithUnit, Select, Slider } from '../primitives/fields';
+import { ColorInput, Input, NumberWithUnit, Select, Slider } from '../primitives/fields';
 import { Dialog } from '../primitives/overlays';
 import { PrivacyBadge, type Noun } from '../primitives/PrivacyBadge';
 import { SegmentedControl } from '../primitives/SegmentedControl';
@@ -70,9 +70,11 @@ export interface ShellOption {
    * choice (default): a segmented control. select: a dropdown, for longer
    * lists. slider and number: a value with its unit. color: a swatch, value
    * "#rrggbb". image: a second image to pick (a new background), value an
-   * object URL.
+   * object URL. text: typed in, such as a time ("00:01:02.500").
    */
-  kind?: 'choice' | 'select' | 'slider' | 'number' | 'color' | 'image';
+  kind?: 'choice' | 'select' | 'slider' | 'number' | 'color' | 'image' | 'text';
+  /** text: an example shown while it's empty. */
+  placeholder?: string;
   choices?: { value: string; label: string }[];
   min?: number;
   max?: number;
@@ -181,6 +183,24 @@ function OptionControl({
           onChange(event.target.value);
         }}
       />
+    );
+  }
+  if (option.kind === 'text') {
+    // A set width on a wrapper: the field itself fills what it's in.
+    return (
+      <span className="block w-40">
+        <Input
+          aria-label={option.label}
+          placeholder={option.placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          className="font-mono"
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+          }}
+        />
+      </span>
     );
   }
   if (option.kind === 'color') {
@@ -297,6 +317,8 @@ export interface ProbeInfo {
   thumbnails?: (count: number) => Promise<string[]>;
   /** Choices for `probed` options, by option id (audio tracks). */
   choices?: Record<string, { value: string; label: string }[]>;
+  /** Starting values the file suggests, by option id (the last cue for two-point sync). */
+  values?: Record<string, string>;
 }
 
 export interface InputInfo {
@@ -533,6 +555,8 @@ export function ToolShell({
         return;
       }
       setMedia(info);
+      const suggested = info.values;
+      if (suggested) setOptions((current) => ({ ...current, ...suggested }));
       setRange(preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec });
       setState({ kind: 'ready', input: { ...input, durationSec: info.durationSec }, files });
       void info
@@ -934,8 +958,8 @@ export function ToolShell({
             onEvent?.('tool_handoff', { from_tool: tool.id, to_tool: link.href.slice(1) });
             // The result goes along when the next tool takes its type (docs/02 → Result panel).
             const blob = state.output.blob;
-            if (blob && link.id && accepts(link.accepts, blob.type)) {
-              const name = outputName(state.input.name, preset.outputSuffix, state.output.ext);
+            const name = outputName(state.input.name, preset.outputSuffix, state.output.ext);
+            if (blob && link.id && accepts(link.accepts, { type: blob.type, name })) {
               handOff(new File([blob], name, { type: blob.type }), link.id);
             }
           }}

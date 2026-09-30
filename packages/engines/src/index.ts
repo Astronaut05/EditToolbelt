@@ -66,3 +66,12 @@ export {
   type SegmentModel,
 } from './image/rmbg/models';
 export type { Stroke } from './image/rmbg/mask';
+export {
+  planShift,
+  readSubtitles,
+  readTime,
+  signedSeconds,
+  SubtitleShiftError,
+  subtitleShiftEngine,
+  type SubtitleShiftOptions,
+} from './subtitle-shift';
