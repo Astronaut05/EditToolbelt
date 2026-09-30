@@ -4,6 +4,13 @@
 *.webp binary
 *.avif binary
 *.mp4 binary
+*.mov binary
+*.webm binary
+*.gif binary
+*.mp3 binary
+*.m4a binary
+*.flac binary
+*.ogg binary
 *.wav binary
 # Kept byte for byte: the test needs its BOM and CRLF line endings.
 fixtures/subtitles/messy.srt binary

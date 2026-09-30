@@ -19,12 +19,15 @@ interface Entry {
   scope?: string;
   status: string;
   source?: string;
+  /** LGPL parts we ship as their own file: where their source is offered. */
+  sourceOffer?: string;
 }
 
 // Generated from the license register (licenses.json, docs/13-licenses.md):
 // what ships to the browser or runs on our machines. Build tools are left out.
+// Conditional entries show once they ship, which is when they carry a source offer.
 const shipped = (register.entries as Entry[]).filter(
-  (entry) => entry.status === 'approved' && entry.scope !== 'dev',
+  (entry) => (entry.status === 'approved' || Boolean(entry.sourceOffer)) && entry.scope !== 'dev',
 );
 const sections = [...new Set(shipped.map((entry) => entry.section))];
 
@@ -34,7 +37,8 @@ export default function LicensesPage() {
       <LegalPage title="Open-source licenses" label="Credits">
         <p>
           EditToolbelt is built on open-source software. This list is generated from our license
-          register and grows as tools go live. No GPL code ships to your browser.
+          register and grows as tools go live. No GPL code ships to your browser; LGPL parts are
+          separate files, with a link to their source.
         </p>
         {sections.map((section) => (
           <section key={section}>
@@ -58,7 +62,16 @@ export default function LicensesPage() {
                       <td>
                         <code>{entry.license}</code>
                       </td>
-                      <td>{entry.use}</td>
+                      <td>
+                        {entry.use}
+                        {entry.sourceOffer && (
+                          <>
+                            {' '}
+                            It includes LGPL code, loaded as a separate file you can replace;{' '}
+                            <a href={entry.sourceOffer}>get its source code</a>.
+                          </>
+                        )}
+                      </td>
                     </tr>
                   ))}
               </tbody>

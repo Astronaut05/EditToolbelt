@@ -72,6 +72,7 @@ export {
   ToolShell,
   type InputInfo,
   type OutputInfo,
+  type ProbeInfo,
   type ShellOption,
   type ShellPreset,
   type ShellState,

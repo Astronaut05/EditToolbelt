@@ -4,7 +4,7 @@ import { Minus, Plus } from 'lucide-react';
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
 import { cn } from '../cn';
-import { formatTimecode } from './format';
+import { formatTimecode, parseTimecode } from './format';
 
 export interface TimelineRange {
   start: number;
@@ -25,7 +25,8 @@ function bars(count: number, seed: number): number[] {
  * The shared media timeline shell (docs/03 → Timeline): waveform (audio) or
  * thumbnail strip (video), playhead, in/out handles, zoom and frame-stepping
  * keys. Keys: ←/→ one frame (Shift: one second), I and O set in/out at the
- * playhead, Home/End jump. Decoding real media arrives with the engines in M2.
+ * playhead, Home/End jump. In and Out can also be typed ("1:02.5"). The page
+ * passes the video's frames as thumbnails and follows the playhead (onSeek).
  */
 export function Timeline({
   durationSec,
@@ -33,6 +34,8 @@ export function Timeline({
   kind = 'audio',
   value,
   onChange,
+  thumbnails,
+  onSeek,
   className,
 }: {
   durationSec: number;
@@ -40,6 +43,10 @@ export function Timeline({
   kind?: 'audio' | 'video';
   value: TimelineRange;
   onChange: (range: TimelineRange) => void;
+  /** Frames across the clip, left to right (object URLs). */
+  thumbnails?: string[];
+  /** The time the user is looking at: the playhead, or the handle being dragged. */
+  onSeek?: (time: number) => void;
   className?: string;
 }) {
   const [playhead, setPlayhead] = useState(value.start);
@@ -67,37 +74,50 @@ export function Timeline({
     move(event.clientX);
   }
 
+  function seek(t: number) {
+    setPlayhead(t);
+    onSeek?.(t);
+  }
+
+  function setIn(t: number) {
+    const start = clamp(Math.min(t, value.end - frame));
+    onChange({ start, end: value.end });
+    onSeek?.(start);
+  }
+
+  function setOut(t: number) {
+    const end = clamp(Math.max(t, value.start + frame));
+    onChange({ start: value.start, end });
+    onSeek?.(end);
+  }
+
   function move(clientX: number) {
     const t = timeAt(clientX);
-    if (dragging.current === 'start')
-      onChange({ start: Math.min(t, value.end - frame), end: value.end });
-    else if (dragging.current === 'end')
-      onChange({ start: value.start, end: Math.max(t, value.start + frame) });
-    else if (dragging.current === 'playhead') setPlayhead(t);
+    if (dragging.current === 'start') setIn(t);
+    else if (dragging.current === 'end') setOut(t);
+    else if (dragging.current === 'playhead') seek(t);
   }
 
   function onKeyDown(event: KeyboardEvent) {
     const step = event.shiftKey ? 1 : frame;
     const key = event.key.toLowerCase();
-    if (key === 'arrowleft') setPlayhead(clamp(playhead - step));
-    else if (key === 'arrowright') setPlayhead(clamp(playhead + step));
-    else if (key === 'home') setPlayhead(0);
-    else if (key === 'end') setPlayhead(durationSec);
-    else if (key === 'i')
-      onChange({ start: Math.min(playhead, value.end - frame), end: value.end });
-    else if (key === 'o')
-      onChange({ start: value.start, end: Math.max(playhead, value.start + frame) });
+    if (key === 'arrowleft') seek(clamp(playhead - step));
+    else if (key === 'arrowright') seek(clamp(playhead + step));
+    else if (key === 'home') seek(0);
+    else if (key === 'end') seek(durationSec);
+    else if (key === 'i') setIn(playhead);
+    else if (key === 'o') setOut(playhead);
     else return;
     event.preventDefault();
   }
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
-      <div className="flex items-center justify-between font-mono text-12 uppercase tracking-meta text-text-muted">
-        <span>
-          In <b className="font-medium text-text">{formatTimecode(value.start)}</b> · Out{' '}
-          <b className="font-medium text-text">{formatTimecode(value.end)}</b> ·{' '}
-          <b className="font-medium text-text">{(value.end - value.start).toFixed(1)} s</b>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-12 uppercase tracking-meta text-text-muted">
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <TimeField label="In" value={value.start} onCommit={setIn} />
+          <TimeField label="Out" value={value.end} onCommit={setOut} />
+          <b className="font-medium text-text">{(value.end - value.start).toFixed(2)} s</b>
         </span>
         <span className="flex items-center">
           <button
@@ -156,6 +176,26 @@ export function Timeline({
                 />
               ))}
             </div>
+          ) : thumbnails && thumbnails.length > 0 ? (
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 flex overflow-hidden bg-media-scrim"
+            >
+              {thumbnails.map((src, i) =>
+                src ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- frames decoded in the page
+                  <img
+                    key={i}
+                    src={src}
+                    alt=""
+                    draggable={false}
+                    className="h-full min-w-0 flex-1 border-r border-media-scrim object-cover"
+                  />
+                ) : (
+                  <span key={i} className="h-full flex-1 border-r border-media-scrim" />
+                ),
+              )}
+            </div>
           ) : (
             <div aria-hidden="true" className="absolute inset-0 flex">
               {Array.from({ length: 10 }, (_, i) => (
@@ -204,5 +244,43 @@ export function Timeline({
         Playhead <b className="font-medium text-text">{formatTimecode(playhead)}</b> · {fps} fps
       </p>
     </div>
+  );
+}
+
+/** A typed time: kept as text while typing, applied on Enter or leaving the field. */
+function TimeField({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  onCommit: (seconds: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    const seconds = draft === null ? null : parseTimecode(draft);
+    if (seconds !== null) onCommit(seconds);
+    setDraft(null);
+  };
+  return (
+    <label className="flex items-center gap-1.5">
+      {label}
+      <input
+        aria-label={`${label} point`}
+        inputMode="decimal"
+        spellCheck={false}
+        value={draft ?? formatTimecode(value)}
+        onChange={(event) => {
+          setDraft(event.target.value);
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit();
+          if (event.key === 'Escape') setDraft(null);
+        }}
+        className="h-9 w-32 rounded-control border border-border bg-bg px-2 text-right font-mono text-12.5 text-text normal-case hover:border-text focus-visible:border-text"
+      />
+    </label>
   );
 }

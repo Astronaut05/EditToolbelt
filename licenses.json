@@ -239,10 +239,13 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": ["mediabunny"],
-      "use": "WebCodecs mux/demux, fast video ops",
+      "use": "video and audio tools (V01, V02, V04, V06): demux and mux MP4, MOV, WebM, MKV, MP3, WAV, OGG, FLAC, ADTS; drives the browser’s WebCodecs; no codecs of its own",
       "license": "MPL-2.0",
       "scope": "browser",
-      "status": "verify"
+      "status": "approved",
+      "version": "1.60.0",
+      "source": "https://github.com/Vanilagy/mediabunny/blob/main/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "@ffmpeg/ffmpeg + our own core build",
@@ -368,11 +371,28 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": ["@mediabunny/mp3-encoder"],
-      "use": "MP3 encoding (WebCodecs has no MP3 encoder)",
+      "use": "MP3 encoding for Extract Audio (WebCodecs has no MP3 encoder): a WASM build of the LAME encoder",
       "license": "MPL-2.0",
       "scope": "browser",
-      "status": "verify",
-      "condition": "LAME inside is LGPL: separate lazy-loaded file, source offer; confirm the bundled encoder's licence"
+      "status": "conditional",
+      "condition": "LAME inside is LGPL-2.0-or-later: imported only when MP3 is picked, so it ships as its own lazy-loaded file that can be swapped; source offer on /licenses",
+      "version": "1.60.0",
+      "source": "https://github.com/Vanilagy/mediabunny/tree/main/packages/mp3-encoder",
+      "sourceOffer": "https://lame.sourceforge.io/download.php",
+      "checked": "2026-09-30"
+    },
+    {
+      "label": "@mediabunny/flac-encoder",
+      "section": "Browser processing",
+      "ecosystem": "npm",
+      "packages": ["@mediabunny/flac-encoder"],
+      "use": "FLAC encoding for Extract Audio (no browser encodes FLAC): a WASM build of libFLAC (BSD-3-Clause)",
+      "license": "MPL-2.0",
+      "scope": "browser",
+      "status": "approved",
+      "version": "1.60.0",
+      "source": "https://github.com/Vanilagy/mediabunny/tree/main/packages/flac-encoder",
+      "checked": "2026-09-30"
     },
     {
       "label": "lamejs",

@@ -55,6 +55,8 @@ const Register = z.strictObject({
       condition: z.string().optional(),
       version: z.string().optional(),
       source: z.url().optional(),
+      /** Where the source of an LGPL part we ship is offered (shown on /licenses). */
+      sourceOffer: z.url().optional(),
       checked: z.iso.date().optional(),
     }),
   ),
