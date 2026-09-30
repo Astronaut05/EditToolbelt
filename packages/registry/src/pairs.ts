@@ -25,9 +25,11 @@ export interface PairCopy {
 }
 
 import { IMAGE_PAIR_COPY } from './pairs-image';
+import { VIDEO_PAIR_COPY } from './pairs-video';
 
 export const PAIR_COPY: Readonly<Partial<Record<string, PairCopy>>> = {
   ...IMAGE_PAIR_COPY,
+  ...VIDEO_PAIR_COPY,
   'srt-to-vtt': {
     title: 'SRT to VTT Converter, Free and in Your Browser | EditToolbelt',
     description:

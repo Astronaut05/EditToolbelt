@@ -90,7 +90,23 @@ self.addEventListener('fetch', (event) => {
   } else if (url.pathname.startsWith('/models/')) {
     event.respondWith(cacheFirst(request, MODELS));
   } else if (url.pathname.startsWith('/_next/static/')) {
-    event.respondWith(cacheFirst(request, SHELL));
+    // Turbopack starts every worker from one bootstrap script and names its
+    // chunks in the URL fragment (#params=...). The Cache API ignores
+    // fragments, so the stored response would carry the first worker's URL
+    // and hand that worker's chunks to the next one. A copy without the
+    // stored URL keeps this request's fragment.
+    event.respondWith(
+      url.hash
+        ? cacheFirst(request, SHELL).then(
+            (response) =>
+              new Response(response.body, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers,
+              }),
+          )
+        : cacheFirst(request, SHELL),
+    );
   }
 });
 `;

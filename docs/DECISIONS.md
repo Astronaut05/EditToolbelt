@@ -252,3 +252,56 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 - **Select primitive:** it gained a visible chevron and a fixed width.
 **Why:** `docs/03` → CanvasEditor (presets open one mode, undo 50 steps); `docs/12` → M2 (crop mode now, other modes with P01/P09/P10); WCAG 2.2 AA (keyboard alternative to dragging, target size).
 **Reverse:** the pieces are independent: `packages/ui/src/tool/{CanvasEditor,CropFields,crop,useEditor}.ts(x)`.
+
+## 2026-09-30 · Video engine: WebCodecs through Mediabunny, codecs from the browser
+
+**Decision:**
+- **Engine:** the video tools run on Mediabunny 1.60 (MPL-2.0), which reads and writes MP4, MOV, WebM, MKV, MP3, WAV, OGG, FLAC and ADTS, and drives the browser's own WebCodecs decoders and encoders. Nothing is uploaded.
+- **Codecs we ship:** none for H.264, H.265 or AAC (open question 10's default: codecs come with the browser).
+  - Where a browser can't encode H.264, or AAC audio that needs re-encoding, the output is WebM (VP9 + Opus), and a note names the browsers that can.
+  - Opus never goes into an MP4.
+  - AAC audio is copied, not encoded, whenever the container allows, so most MP4 work needs no AAC encoder.
+- **Encoders of our own:** MP3 (LAME) and FLAC (libFLAC) come as WASM through `@mediabunny/mp3-encoder` and `@mediabunny/flac-encoder`, imported only when those formats are picked.
+  - LAME is LGPL, so it stays its own lazy chunk, with a source offer on `/licenses`. The register's new `sourceOffer` field lists conditional entries that ship there.
+- **Probing:** a file is read as it arrives: length, frame rate (variable frame rate detected), codecs, rotation, HDR, and whether this browser can decode it. The settings show "256 × 144 px · 30 fps · H.264 + AAC", and warnings (VFR, HDR, can't decode, long video on a phone) show before starting.
+- **Timeline:** real thumbnails, a preview player that follows the playhead and handles, and In/Out fields you can type into ("1:02.5").
+- **Results:** play inline.
+- **Fixtures:** two 30 s synthetic clips (FFmpeg test pattern, a beep each second, keyframes every 2 s) in `fixtures/video/`, one H.264 + AAC MP4 and one VP9 + Opus WebM. The test browsers lack H.264 and AAC, and copy paths are unit-tested in Node, where Mediabunny needs no codecs.
+**Why:** `tools/video.md` → shared rules; `docs/14` → open question 10; `docs/13` → LGPL only as a separate, swappable file.
+**Reverse:** swap the codec choice in `packages/engines/src/video/media.ts` → `pickOutput`; add `@mediabunny/aac-encoder` there if question 10 allows it.
+
+## 2026-09-30 · Trim Video and Extract Audio in M2
+
+**Decision:**
+- **Trim Fast:** copies the streams from the keyframe at or before In (Mediabunny packet lookup), so the clip can start up to one keyframe interval early (±1 GOP, as the spec's tests allow). The result names the real start ("starts at the keyframe at 10.0 s, 0.50 s before your In point").
+  - We chose this over MP4 edit lists that hide the pre-roll: players and editors treat edit lists unevenly, and WebM has none.
+- **Trim Precise:** re-encodes the video, frame-exact, and copies the audio when it fits.
+- **Deferred to M2b, with smart cut:** keeping or removing several ranges and joining them (the V01 spec's multi-range join with 10 ms crossfades). It needs a multi-range timeline and a re-encoding joiner. The page copy no longer promises it, and its FAQ says it's coming.
+- **Extract Audio:** copies when the codec matches: AAC into M4A, AAC into a raw .aac (our own ADTS writer, since Mediabunny would re-encode), Opus into OGG, MP3 into MP3. Otherwise it decodes and encodes.
+  - The track picker appears only for files with several audio tracks (ToolShell `probed` options, whose choices come from the file).
+  - The optional range stays out of the UI for now; the engine takes start and end, and Trim covers it.
+- **Pair pages:** `mp4-to-mp3` and `mov-to-mp3` go live with their own copy.
+**Why:** `tools/video.md` → V01, V06 and Fast vs precise; `CLAUDE.md` rule 10 (pick the default, log it, keep going).
+**Reverse:** multi-range and smart cut land together in M2b (`docs/12`); the ADTS writer goes if Mediabunny copies AAC into ADTS itself.
+
+## 2026-09-30 · Compress Video and Video to GIF in M2
+
+**Decision:**
+- **Compress, size target:**
+  - "MB" means 1,000,000 bytes, so "under 25 MB" holds whichever way a site counts.
+  - The video bitrate comes from the spec's formula. Copied AAC counts at its measured bitrate; re-encoded audio at 128 kbps AAC or 96 kbps Opus.
+  - Below 0.05 bits per pixel per frame (0.035 for H.265 and AV1), Auto resolution steps down (1080p → 720p → …) and says so.
+  - Encoding asks for constant bitrate. WebCodecs has no two-pass, so up to two more passes correct the video's share when a pass overshoots, and they stop once the encoder won't go lower at that size, with a note to pick a lower resolution.
+  - The estimate before starting is the target itself ("Just under 25 MB").
+- **Compress, quality mode:** uses Mediabunny's High/Medium/Low levels. If the result isn't smaller, the original comes back with a note.
+- **Compress, codecs:** H.265 and AV1 fall back to H.264 where the browser can't encode them, with a note. The server path (M4/M5) stays off, as the milestone says for hybrid tools.
+- **GIF, making it:** our own quantiser: median cut on a 5-bit histogram of every frame, refined with k-means, 255 colors, plus serpentine Floyd–Steinberg dithering (on by default).
+  - Frames are differenced: unchanged pixels become transparent, each frame is cropped to what changed, and a frame with no change lengthens the one on screen.
+  - LZW and GIF89a are written in a worker; delays are spread in centiseconds so 12 fps averages right.
+  - Per-frame palettes are an option.
+- **GIF, WebP option:** animated WebP from libwebp frames (jSquash) muxed into ANMF chunks.
+- **GIF, limits and estimates:** at most 600 frames and about 400 MB of frame memory, with a clear message above that. The estimate before starting is frames × width × height × 0.45 bytes (× 0.35 for WebP), flagged above 15 MB.
+- **GIF, loops:** loop count is Forever / Once / 3 times; browsers read GIF repeat counts slightly differently.
+- **Pair pages:** `mp4-to-gif` and `mov-to-gif` go live with their own copy.
+**Why:** `tools/video.md` → V02, V04; the spec's own formula, bits-per-pixel rule and in-house quantiser (no ffmpeg.wasm in the launch set).
+**Reverse:** `packages/engines/src/video/compress.ts` (`planCompress`, `minBpp`) and `video/gif/*`; the server path joins `compressEngine` in M4/M5.

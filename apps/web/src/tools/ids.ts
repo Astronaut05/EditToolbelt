@@ -8,12 +8,16 @@ export const TOOL_IDS = [
   'bitrate-calculator',
   'color-converter',
   'compress-image',
+  'compress-video',
   'crop-image',
+  'extract-audio',
   'image-converter',
   'qr-code-generator',
   'resize-image',
   'subtitle-converter',
   'timecode-calculator',
+  'trim-video',
+  'video-to-gif',
 ] as const;
 
 export type ToolId = (typeof TOOL_IDS)[number];

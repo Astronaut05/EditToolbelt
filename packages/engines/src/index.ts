@@ -25,3 +25,28 @@ export {
   type Rect,
   type Size,
 } from './image/geometry';
+export {
+  codecLabel,
+  describeMedia,
+  MediaInputError,
+  probeMedia,
+  thumbnails,
+  VIDEO_LIMITS,
+  type MediaInfo,
+} from './video/media';
+export { trimEngine, type TrimOptions } from './video/trim';
+export {
+  AUDIO_TARGETS,
+  extractAudioEngine,
+  type AudioFormat,
+  type ExtractAudioOptions,
+} from './video/extract-audio';
+export { compressEngine, minBpp, planCompress, type CompressOptions } from './video/compress';
+export {
+  estimateGifBytes,
+  gifFrameCount,
+  gifSize,
+  GIF_LIMITS,
+  videoToGifEngine,
+  type VideoToGifOptions,
+} from './video/video-to-gif';

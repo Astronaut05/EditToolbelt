@@ -125,7 +125,7 @@ describe('search', () => {
     const index = buildSearchIndex(tools, conversions);
     const pairs = index.filter((entry) => entry.kind === 'pair').map((entry) => entry.path);
     expect(pairs).toEqual(livePairs().map((pair) => `/convert/${pair.slug}`));
-    expect(pairs).not.toContain('/convert/mp4-to-gif');
+    expect(pairs).not.toContain('/convert/mov-to-mp4');
     expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(75);
   });
 

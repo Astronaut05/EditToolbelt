@@ -20,6 +20,18 @@ export function formatTimecode(seconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${s.toFixed(3).padStart(6, '0')}`;
 }
 
+/**
+ * A typed time back to seconds: "00:01:02.500", "1:02.5" or "62.5". Null
+ * when it isn't one.
+ */
+export function parseTimecode(text: string): number | null {
+  const parts = text.trim().split(':');
+  if (parts.length > 3 || parts.some((part) => !/^\d+(\.\d+)?$/.test(part))) return null;
+  if (parts.slice(0, -1).some((part) => part.includes('.'))) return null;
+  const seconds = parts.reduce((total, part) => total * 60 + Number(part), 0);
+  return Number.isFinite(seconds) ? seconds : null;
+}
+
 /** `holiday.jpg` + `nobg` + `png` → `holiday_nobg.png` (docs/02 → output naming). */
 export function outputName(inputName: string, suffix: string, ext: string): string {
   const dot = inputName.lastIndexOf('.');

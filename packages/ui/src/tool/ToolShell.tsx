@@ -59,6 +59,8 @@ export interface ShellOption {
   default: string;
   /** Shown only while another option has one of these values (quality only for lossy formats). */
   when?: { id: string; values: string[] };
+  /** Choices come from the file (the preset's probe), and the option shows only when there are two or more. */
+  probed?: boolean;
 }
 
 /** Whether an option applies with the current values. */
@@ -161,8 +163,13 @@ export interface ShellPreset {
   options: ShellOption[];
   /** Phone result: options grouped into tappable rows, e.g. [["background"], ["edges", "format"]]. */
   phoneGroups?: string[][];
-  /** Read-only facts in the settings list (the AI model). */
-  facts?: (state: ShellState) => { label: string; value: string }[];
+  /** Read-only facts in the settings list: the AI model, an estimate from the options and the file. */
+  facts?: (
+    state: ShellState,
+    options: Record<string, string>,
+    media: ProbeInfo | null,
+    range: TimelineRange,
+  ) => { label: string; value: string }[];
   /** Most files taken at once (tools/photo.md → Batch: 50). */
   maxFiles?: number;
   /** Runs as soon as a file arrives (P07), or waits for the primary action. */
@@ -196,6 +203,27 @@ export interface ShellPreset {
   analyze?: (input: InputInfo) => GridFact[];
   /** Show the start of a text output (subtitles) instead of a file card. */
   preview?: 'text';
+  /** Reads a file as it arrives (video: length, frame rate) for the timeline and the settings. */
+  probe?: (file: File) => Promise<ProbeInfo>;
+  /** The first selection on the timeline, from the clip's length (GIF: the first 5 s). */
+  initialRange?: (durationSec: number) => TimelineRange;
+}
+
+/** What a preset's probe found. */
+export interface ProbeInfo {
+  durationSec: number;
+  fps?: number;
+  /** Picture size as displayed, when there is a picture. */
+  width?: number;
+  height?: number;
+  /** One line about the file: "1920 × 1080 px · 30 fps · H.264 + AAC". */
+  summary?: string;
+  /** Worth knowing before starting: variable frame rate, HDR. */
+  warnings?: string[];
+  /** Frames across the clip for the timeline strip (object URLs). */
+  thumbnails?: (count: number) => Promise<string[]>;
+  /** Choices for `probed` options, by option id (audio tracks). */
+  choices?: Record<string, { value: string; label: string }[]>;
 }
 
 export interface InputInfo {
@@ -300,6 +328,9 @@ export function ToolShell({
   const resetEditor = editor.reset;
   const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare;
   const [cropSheet, setCropSheet] = useState(false);
+  // Media tools: what the probe found, and the timeline's frames.
+  const [media, setMedia] = useState<ProbeInfo | null>(null);
+  const [thumbs, setThumbs] = useState<string[]>([]);
 
   const track = useCallback(
     (name: string, props: Record<string, string> = {}) => {
@@ -331,6 +362,7 @@ export function ToolShell({
             ...engineOptions,
             ...options,
             ...(editing && { crop: edit.crop ?? undefined, turns: edit.turns, flip: edit.flip }),
+            ...(tool.ui === 'timeline' && { start: range.start, end: range.end }),
           },
           {
             signal: abort.signal,
@@ -385,11 +417,45 @@ export function ToolShell({
           kind: 'error',
           label: "Couldn't process this file",
           title: 'Something went wrong while processing',
-          body: `${error instanceof Error ? error.message : 'Unknown error'}. Try again, or try another file.`,
+          // Engines write whole sentences; don't double the full stop.
+          body: `${(error instanceof Error ? error.message : 'Unknown error').replace(/\.$/, '')}. Try again, or try another file.`,
         });
       }
     },
-    [editing, editor.edit, engine, engineOptions, options, preset, track],
+    [editing, editor.edit, engine, engineOptions, options, preset, range, tool.ui, track],
+  );
+
+  /** Media tools read the file first: its length sets up the timeline. */
+  const inspect = useCallback(
+    async (input: InputInfo, file: File, files: File[]) => {
+      if (!preset.probe) return;
+      setMedia(null);
+      setThumbs([]);
+      setState({ kind: 'running', input, stage: 'Reading the file', elapsedSec: 0 });
+      let info: ProbeInfo;
+      try {
+        info = await preset.probe(file);
+      } catch (error) {
+        setState({
+          kind: 'error',
+          label: "Couldn't read this file",
+          title: 'This file won’t work here',
+          body: error instanceof Error ? error.message : 'It couldn’t be read.',
+        });
+        return;
+      }
+      setMedia(info);
+      setRange(preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec });
+      setState({ kind: 'ready', input: { ...input, durationSec: info.durationSec }, files });
+      void info
+        .thumbnails?.(12)
+        .then((frames) => {
+          urls.current.push(...frames.filter(Boolean));
+          setThumbs(frames);
+        })
+        .catch(() => undefined);
+    },
+    [preset],
   );
 
   const intake = useCallback(
@@ -428,10 +494,14 @@ export function ToolShell({
         setState({ kind: 'ready', input, files });
         return;
       }
+      if (preset.probe) {
+        void inspect(input, file, files);
+        return;
+      }
       if (preset.autoRun) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [preset.autoRun, preset.maxFiles, preset.multiple, resetEditor, run, tool.ui, track],
+    [inspect, preset, resetEditor, run, tool.ui, track],
   );
 
   async function trySample() {
@@ -520,6 +590,8 @@ export function ToolShell({
     setBatchDone(false);
     batchOutputs.current.clear();
     resetEditor();
+    setMedia(null);
+    setThumbs([]);
   }, [resetEditor]);
 
   /** Sets an option; a new crop ratio refits the editor's box. */
@@ -564,7 +636,7 @@ export function ToolShell({
   const ext = (
     state.kind === 'result' ? state.output.ext : preset.outputExt(options)
   ).toUpperCase();
-  const facts = preset.facts?.(state) ?? [];
+  const facts = preset.facts?.(state, options, media, range) ?? [];
   const phoneGroups = useMemo(
     () => preset.phoneGroups ?? preset.options.map((option) => [option.id]),
     [preset.options, preset.phoneGroups],
@@ -597,7 +669,15 @@ export function ToolShell({
     </div>
   );
 
-  const visibleOptions = preset.options.filter((option) => optionVisible(option, options));
+  // Probed options take their choices from the file and hide when there is nothing to pick.
+  const visibleOptions = preset.options
+    .map((option) =>
+      option.probed ? { ...option, choices: media?.choices?.[option.id] ?? [] } : option,
+    )
+    .filter(
+      (option) =>
+        optionVisible(option, options) && (!option.probed || (option.choices?.length ?? 0) > 1),
+    );
   const showCrop = editing && state.kind === 'ready' && batch.length === 0;
   const blocked =
     state.kind === 'ready' ? preset.blocked?.(options, state.files?.length ?? 1) : undefined;
@@ -615,6 +695,7 @@ export function ToolShell({
         </OptionRow>
       ))}
       {showCrop && <CropFields editor={editor} ratio={ratio} />}
+      {media?.summary && hasFile && <OptionFact label="File">{media.summary}</OptionFact>}
       {facts.map((fact) => (
         <OptionFact key={fact.label} label={fact.label}>
           {fact.value}
@@ -737,6 +818,8 @@ export function ToolShell({
       onDownloadItem={downloadItem}
       editor={editor}
       ratio={ratio}
+      media={media}
+      thumbs={thumbs}
     />
   ) : state.kind === 'error' ? (
     <div className="flex h-full flex-col justify-center bg-surface px-4 py-10 lg:px-18">
@@ -795,6 +878,9 @@ export function ToolShell({
             {blocked}
           </p>
         )}
+        {state.kind === 'ready' && media?.warnings && media.warnings.length > 0 && (
+          <Notes title="Before you start" notes={media.warnings} className="mt-6 px-4 lg:px-0" />
+        )}
         {running && preset.runningNote && (
           <p className="mt-3.5 hidden text-14 leading-body text-text-muted lg:block">
             {preset.runningNote}
@@ -847,6 +933,15 @@ export function ToolShell({
                   <ChevronRight aria-hidden="true" size={16} strokeWidth={2} />
                 </span>
               </button>
+            )}
+            {/* What the probe read from the file (media tools). */}
+            {media?.summary && (
+              <div className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-3.5 py-2 text-14.5 last:border-b-0">
+                <span className="text-text-muted">File</span>
+                <span className="text-right font-mono text-12.5 uppercase text-text-muted">
+                  {media.summary}
+                </span>
+              </div>
             )}
             {phoneGroups.map((group, index) => {
               const groupOptions = group
@@ -920,11 +1015,19 @@ export function ToolShell({
 }
 
 /** What a run changed or dropped (e.g. "12 style overrides removed"), in plain words. */
-function Notes({ notes, className }: { notes: string[]; className?: string }) {
+function Notes({
+  notes,
+  title = 'What changed',
+  className,
+}: {
+  notes: string[];
+  title?: string;
+  className?: string;
+}) {
   return (
     <div className={className}>
       <p className="font-mono text-11.5 font-medium uppercase tracking-label text-text-muted">
-        What changed
+        {title}
       </p>
       <ul className="mt-2.5 border-t border-border">
         {notes.map((note) => (
@@ -979,6 +1082,8 @@ function Workspace({
   onDownloadItem,
   editor,
   ratio,
+  media,
+  thumbs,
 }: {
   state: ShellState;
   tool: ShellTool;
@@ -989,6 +1094,8 @@ function Workspace({
   onDownloadItem: (id: string) => void;
   editor: EditorState;
   ratio: number | null;
+  media: ProbeInfo | null;
+  thumbs: string[];
 }) {
   if (state.kind !== 'running' && state.kind !== 'result' && state.kind !== 'ready') return null;
   const frame = 'relative h-98 overflow-hidden lg:absolute lg:inset-0 lg:h-auto';
@@ -1003,14 +1110,15 @@ function Workspace({
 
   if (tool.ui === 'timeline' && state.kind === 'ready') {
     return (
-      <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
-        <Timeline
-          durationSec={60}
-          kind={preset.noun === 'video' ? 'video' : 'audio'}
-          value={range}
-          onChange={setRange}
-        />
-      </div>
+      <TimelineWorkspace
+        url={state.input.url}
+        video={preset.noun === 'video'}
+        durationSec={media?.durationSec ?? 60}
+        fps={media?.fps}
+        thumbs={thumbs}
+        range={range}
+        setRange={setRange}
+      />
     );
   }
 
@@ -1108,7 +1216,24 @@ function Workspace({
   return (
     <>
       <div className={frame}>
-        {isImage(preset) && output.url && preset.result === 'output' ? (
+        {output.url && output.blob && /^(video|audio)\//.test(output.blob.type) ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-media-scrim p-6 pb-24">
+            {output.blob.type.startsWith('video/') ? (
+              <video
+                src={output.url}
+                controls
+                playsInline
+                aria-label="Result"
+                className="max-h-full max-w-full"
+              />
+            ) : (
+              <audio src={output.url} controls aria-label="Result" className="w-full max-w-120" />
+            )}
+            <MediaTag className="left-3.5">Result</MediaTag>
+          </div>
+        ) : (isImage(preset) || output.blob?.type.startsWith('image/')) &&
+          output.url &&
+          preset.result === 'output' ? (
           <div className="absolute inset-0 flex items-center justify-center bg-surface p-8 pb-24">
             {/* eslint-disable-next-line @next/next/no-img-element -- local object URL */}
             <img
@@ -1161,5 +1286,56 @@ function Workspace({
         />
       </div>
     </>
+  );
+}
+
+/**
+ * Trim-type tools: the clip on top (following the playhead and handles), the
+ * timeline below. Browsers that can't play the codec still show the frames.
+ */
+function TimelineWorkspace({
+  url,
+  video,
+  durationSec,
+  fps,
+  thumbs,
+  range,
+  setRange,
+}: {
+  url?: string;
+  video: boolean;
+  durationSec: number;
+  fps?: number;
+  thumbs: string[];
+  range: TimelineRange;
+  setRange: (range: TimelineRange) => void;
+}) {
+  const player = useRef<HTMLVideoElement>(null);
+  return (
+    <div className="flex flex-col gap-5 px-4 py-6 lg:px-10 lg:pt-8.5">
+      {video && url && (
+        <video
+          ref={player}
+          src={url}
+          controls
+          muted
+          playsInline
+          preload="metadata"
+          aria-label="Your video"
+          className="aspect-video max-h-[46dvh] w-full bg-media-scrim object-contain"
+        />
+      )}
+      <Timeline
+        durationSec={durationSec}
+        fps={fps ? Math.round(fps) : undefined}
+        kind={video ? 'video' : 'audio'}
+        value={range}
+        onChange={setRange}
+        thumbnails={thumbs}
+        onSeek={(time) => {
+          if (player.current && player.current.readyState > 0) player.current.currentTime = time;
+        }}
+      />
+    </div>
   );
 }

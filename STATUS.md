@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 about 60 % done** (10 of 15 launch tools live, 11 of 17 pair pages) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 about 90 % done** (14 of 15 launch tools live, 15 of 17 pair pages; Remove Background left) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -21,11 +21,18 @@
 - M2: Subtitle Converter (SRT, VTT, ASS/SSA, SBV in; SRT, VTT, ASS, SBV, TXT out; encodings detected; a report of what each format drops; batches as a ZIP) and the first pair pages: `/convert/srt-to-vtt`, `/convert/vtt-to-srt`, `/convert/ass-to-srt` (#22).
 - M2: Image Converter and Compress Image on the image engine (WASM codecs in a worker, EXIF kept without GPS, target size, batches of 50), with 8 image pair pages such as `/convert/png-to-jpg` (#23).
 - M2: Crop Image (a real crop box: ratios, exact px, drag or type, Rotate 90°, undo; batches crop to a ratio, centered) and Resize Image (exact W × H with keep ratio, pad, fill or stretch; width, height, %, longest side, presets; Lanczos), on the new `image-geometry` engine (#24).
+- The format check now covers tool views and registry entries: `.prettierignore` skips only the root `docs/` and `tools/` (#25).
+- M2: the video tools on WebCodecs through Mediabunny (#26):
+  - Trim Video: Fast copies from the keyframe before In; Precise re-encodes, frame-exact; a real timeline with frames, a preview and typed times.
+  - Compress Video: 8-100 MB targets for Discord, WhatsApp and email, auto resolution, H.264/H.265/AV1/VP9.
+  - Video to GIF: our own two-pass quantiser, frame differencing, GIF or animated WebP, size estimate.
+  - Extract Audio: MP3, WAV, M4A, AAC, FLAC, OGG; AAC and Opus copied without re-encoding.
+  - Pair pages: `mp4-to-gif`, `mov-to-gif`, `mp4-to-mp3`, `mov-to-mp3`.
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
-2. M2 launch set, in this order: the video tools (V01 Trim and V06 Extract Audio, then V02 Compress and V04 Video to GIF), then Remove Background (P07).
+2. M2 launch set: Remove Background (P07), the last launch tool.
 3. M2b (11 tools), then checkpoint 3.
 
 ## Blocked
@@ -37,7 +44,7 @@
 
 ```sh
 git pull && pnpm install
-pnpm preview                   # production build: http://localhost:4173 (try /crop-image, /resize-image, /image-converter)
+pnpm preview                   # production build: http://localhost:4173 (try /trim-video, /video-to-gif, /compress-video)
 pnpm workshop                  # design screens, components, ToolShell demos: http://localhost:4173/workshop
 pnpm e2e                       # Playwright (pnpm exec playwright install once)
 pnpm lighthouse                # after pnpm build

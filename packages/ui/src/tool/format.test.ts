@@ -6,6 +6,7 @@ import {
   formatTimecode,
   matchesAccept,
   outputName,
+  parseTimecode,
   sizeBucket,
 } from './format';
 
@@ -35,6 +36,22 @@ describe('format helpers', () => {
     expect(matchesAccept({ name: 'a.png', type: 'image/png' }, 'image/*')).toBe(true);
     expect(matchesAccept({ name: 'a.mp4', type: 'video/mp4' }, 'image/*,.heic')).toBe(false);
     expect(matchesAccept({ name: 'a.bin', type: '' }, '')).toBe(true);
+  });
+});
+
+describe('parseTimecode', () => {
+  it('reads what formatTimecode writes, and shorter forms', () => {
+    expect(parseTimecode('00:00:10.000')).toBe(10);
+    expect(parseTimecode('1:02.5')).toBe(62.5);
+    expect(parseTimecode('62.25')).toBe(62.25);
+    expect(parseTimecode(' 1:00:00 ')).toBe(3600);
+  });
+
+  it('refuses what is not a time', () => {
+    expect(parseTimecode('')).toBeNull();
+    expect(parseTimecode('1.5:00')).toBeNull();
+    expect(parseTimecode('ten')).toBeNull();
+    expect(parseTimecode('1:2:3:4')).toBeNull();
   });
 });
 

@@ -21,12 +21,16 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
   'color-converter': dynamic(() => import('./color-converter')),
   'compress-image': dynamic(() => import('./compress-image')),
+  'compress-video': dynamic(() => import('./compress-video')),
   'crop-image': dynamic(() => import('./crop-image')),
+  'extract-audio': dynamic(() => import('./extract-audio')),
   'image-converter': dynamic(() => import('./image-converter')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
   'resize-image': dynamic(() => import('./resize-image')),
   'subtitle-converter': dynamic(() => import('./subtitle-converter')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
+  'trim-video': dynamic(() => import('./trim-video')),
+  'video-to-gif': dynamic(() => import('./video-to-gif')),
 };
 
 export function ToolView({ tool, to }: { tool: ShellTool; to?: string }) {
