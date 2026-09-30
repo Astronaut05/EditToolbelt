@@ -13,3 +13,4 @@ export * as aspect from './calc/aspect';
 export * as bitrate from './calc/bitrate';
 export * as color from './color/color';
 export { CSS_NAMED_COLORS } from './color/names';
+export * as subtitles from './subtitles';

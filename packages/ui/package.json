@@ -17,6 +17,7 @@
   "dependencies": {
     "@etb/engines": "workspace:*",
     "@etb/registry": "workspace:*",
+    "fflate": "0.8.3",
     "lucide-react": "^1.48.0"
   },
   "sideEffects": [

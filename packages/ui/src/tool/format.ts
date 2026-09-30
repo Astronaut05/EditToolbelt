@@ -24,7 +24,7 @@ export function formatTimecode(seconds: number): string {
 export function outputName(inputName: string, suffix: string, ext: string): string {
   const dot = inputName.lastIndexOf('.');
   const stem = dot > 0 ? inputName.slice(0, dot) : inputName;
-  return `${stem || 'file'}_${suffix}.${ext}`;
+  return suffix ? `${stem || 'file'}_${suffix}.${ext}` : `${stem || 'file'}.${ext}`;
 }
 
 /** Does a file match an `accept` string ("image/*,.heic")? */

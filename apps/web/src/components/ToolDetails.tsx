@@ -12,21 +12,36 @@ import type { RelatedLink } from '../lib/tool';
  */
 export function ToolDetails({
   name,
+  about,
   howTo,
   why,
   faq,
+  conversions = [],
   related,
   category,
 }: {
   name: string;
+  /** Conversion pair pages: what the formats are and what changes. */
+  about?: { title: string; paragraphs: string[] };
   howTo: string[];
   why: string[];
   faq: { q: string; a: string }[];
+  /** Conversion pair pages of this tool, or its sibling pairs. */
+  conversions?: RelatedLink[];
   related: RelatedLink[];
   category: { href: string; title: string; count: number };
 }) {
   return (
     <div className="border-t border-border">
+      {about && (
+        <Section id="about" title={about.title}>
+          <div className="space-y-4 text-15.5 leading-prose">
+            {about.paragraphs.map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
+          </div>
+        </Section>
+      )}
       <Section id="how-to" title={`How to use the ${name}`}>
         <NumberedList variant="prose" items={howTo} />
       </Section>
@@ -49,32 +64,45 @@ export function ToolDetails({
           ))}
         </div>
       </Section>
+      {conversions.length > 0 && (
+        <Section id="conversions" title="Conversions">
+          <LinkRows links={conversions} />
+        </Section>
+      )}
       <Section id="related" title="Related tools">
-        <ul className="border-t border-border">
-          {[
+        <LinkRows
+          links={[
             ...related,
             {
               href: category.href,
               name: category.title,
               summary: `All ${String(category.count)} tools in this category`,
             },
-          ].map((link) => (
-            <li key={link.href} className="border-b border-border">
-              <AppLink
-                href={link.href}
-                className="group flex min-h-15.5 items-center justify-between gap-4 py-3"
-              >
-                <span className="flex flex-wrap items-baseline gap-x-3.5 gap-y-0.5">
-                  <span className="text-17 font-strong group-hover:underline">{link.name}</span>
-                  <span className="text-13.5 text-text-muted">{link.summary}</span>
-                </span>
-                <ArrowRight aria-hidden="true" size={18} strokeWidth={1.75} className="flex-none" />
-              </AppLink>
-            </li>
-          ))}
-        </ul>
+          ]}
+        />
       </Section>
     </div>
+  );
+}
+
+function LinkRows({ links }: { links: RelatedLink[] }) {
+  return (
+    <ul className="border-t border-border">
+      {links.map((link) => (
+        <li key={link.href} className="border-b border-border">
+          <AppLink
+            href={link.href}
+            className="group flex min-h-15.5 items-center justify-between gap-4 py-3"
+          >
+            <span className="flex flex-wrap items-baseline gap-x-3.5 gap-y-0.5">
+              <span className="text-17 font-strong group-hover:underline">{link.name}</span>
+              <span className="text-13.5 text-text-muted">{link.summary}</span>
+            </span>
+            <ArrowRight aria-hidden="true" size={18} strokeWidth={1.75} className="flex-none" />
+          </AppLink>
+        </li>
+      ))}
+    </ul>
   );
 }
 

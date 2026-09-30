@@ -7,11 +7,13 @@
  */
 import { categories, getCategory, type Category } from './categories';
 import type { CategoryId, EngineId, ToolDef } from './schema';
+import { conversions, type ConversionPair } from './conversions';
 import { tools } from './tools';
 
 export { categories, getCategory, type Category };
 export { conversions, conversionPath, conversionTitle, type ConversionPair } from './conversions';
 export { ISOLATED_PATHS, needsFullPageLoad } from './isolated';
+export { PAIR_COPY, type PairCopy } from './pairs';
 export { redirects, type Redirect } from './redirects';
 export { tools };
 export type {
@@ -138,4 +140,11 @@ export const MOST_USED: readonly string[] = [
 /** "Until then, try": related tools that work today, else nothing. */
 export function availableRelated(tool: ToolDef): ToolDef[] {
   return tool.related.map((id) => getTool(id)).filter(isAvailable);
+}
+
+/** Conversion pairs that have a page: their tool works (docs/12 → M2). */
+export function livePairs(toolId?: string): ConversionPair[] {
+  return conversions.filter(
+    (pair) => (toolId === undefined || pair.toolId === toolId) && isAvailable(getTool(pair.toolId)),
+  );
 }

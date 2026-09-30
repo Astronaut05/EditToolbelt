@@ -352,10 +352,13 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": ["fflate"],
-      "use": "ZIP of batch outputs",
+      "use": "ZIP of batch outputs, loaded only when \"Download all\" is used",
       "license": "MIT",
       "scope": "browser",
-      "status": "verify"
+      "status": "approved",
+      "version": "0.8.3",
+      "source": "https://github.com/101arrowz/fflate/blob/master/LICENSE",
+      "checked": "2026-09-30"
     },
     {
       "label": "@mediabunny/mp3-encoder",

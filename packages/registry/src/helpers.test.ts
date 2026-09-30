@@ -4,6 +4,7 @@ import {
   categories,
   conversions,
   getTool,
+  livePairs,
   hubOrder,
   isAi,
   ISOLATED_PATHS,
@@ -117,9 +118,11 @@ describe('search', () => {
     ]);
   });
 
-  it('leaves out pairs whose tool is not working yet', () => {
+  it('lists only pairs whose tool works', () => {
     const index = buildSearchIndex(tools, conversions);
-    expect(index.some((entry) => entry.kind === 'pair')).toBe(false);
+    const pairs = index.filter((entry) => entry.kind === 'pair').map((entry) => entry.path);
+    expect(pairs).toEqual(livePairs().map((pair) => `/convert/${pair.slug}`));
+    expect(pairs).not.toContain('/convert/mp4-to-gif');
     expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(75);
   });
 

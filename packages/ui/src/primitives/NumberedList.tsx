@@ -12,7 +12,7 @@ export function NumberedList({
   className,
 }: {
   items: ReactNode[];
-  /** steps: 38 px rows (how-to). prose: wrapping rows with more air (coming soon). */
+  /** steps: 38 px rows that wrap long steps (how-to). prose: rows with more air (coming soon). */
   variant?: 'steps' | 'prose';
   className?: string;
 }) {
@@ -23,7 +23,9 @@ export function NumberedList({
           key={index}
           className={cn(
             'flex gap-4 border-b border-border',
-            variant === 'steps' ? 'h-9.5 items-baseline text-15' : 'py-3.5 text-15.5 leading-body',
+            variant === 'steps'
+              ? 'min-h-9.5 items-baseline pb-2 text-15'
+              : 'py-3.5 text-15.5 leading-body',
           )}
         >
           <span

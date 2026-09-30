@@ -8,6 +8,7 @@ export const TOOL_IDS = [
   'bitrate-calculator',
   'color-converter',
   'qr-code-generator',
+  'subtitle-converter',
   'timecode-calculator',
 ] as const;
 

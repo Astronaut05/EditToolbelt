@@ -13,6 +13,8 @@ export interface BatchItem {
   progress?: number;
   resultSize?: number;
   error?: string;
+  /** What changed in this file, e.g. "3 style overrides removed". */
+  note?: string;
 }
 
 const STATUS: Record<BatchItem['status'], string> = {
@@ -81,6 +83,7 @@ export function BatchList({
                     ` ${String(Math.round(item.progress * 100))}%`}
                 </span>
                 {item.error && <span className="block text-13 text-text-muted">{item.error}</span>}
+                {item.note && <span className="block text-13 text-text-muted">{item.note}</span>}
               </td>
               <td className="pr-4 text-right font-mono text-12.5">
                 {item.resultSize !== undefined ? formatBytes(item.resultSize) : ''}
