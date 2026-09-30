@@ -189,6 +189,47 @@ function at(x: Float64Array, i: number): number {
   return (x[lo] ?? 0) * (1 - f) + (x[lo + 1] ?? 0) * f;
 }
 
+/**
+ * Where a peak near index `i` really is: a parabola through the highest
+ * sample and its neighbours. Linear interpolation always peaks on a sample,
+ * which at an 11.6 ms hop puts 120 BPM at 120.19.
+ */
+function peakAt(x: Float64Array, i: number): number {
+  let c = Math.round(i);
+  // Walk to the local maximum first (the multiple may sit a sample off).
+  while ((x[c + 1] ?? -Infinity) > (x[c] ?? -Infinity)) c += 1;
+  while ((x[c - 1] ?? -Infinity) > (x[c] ?? -Infinity)) c -= 1;
+  const [a, b, d] = [x[c - 1], x[c], x[c + 1]];
+  if (a === undefined || b === undefined || d === undefined) return c;
+  const curve = a - 2 * b + d;
+  return curve < 0 ? c + (0.5 * (a - d)) / curve : c;
+}
+
+/**
+ * The beat period in frames, refined from the autocorrelation peaks at 1 to 4
+ * beats (a bar's lag pins the period four times as finely), weighted as the
+ * tempo score weighs them.
+ */
+function refinePeriod(acf: Float64Array, period: number): number {
+  let sum = 0;
+  let weight = 0;
+  for (const [k, w] of [
+    [1, 1],
+    [2, 0.5],
+    [3, 0.33],
+    [4, 0.25],
+  ] as const) {
+    if (period * k >= acf.length - 2) continue;
+    const found = peakAt(acf, period * k) / k;
+    // Only a peak that belongs to this tempo counts.
+    if (Math.abs(found - period) <= period * 0.02) {
+      sum += w * k * found;
+      weight += w * k;
+    }
+  }
+  return weight > 0 ? sum / weight : period;
+}
+
 export interface TempoResult {
   bpm: number;
   /** Half and double tempo, when they are in 40-240 BPM. */
@@ -256,6 +297,10 @@ export function detectTempo(
   const sorted = [...scores].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
   const confidence = bestScore > 0 ? Math.max(0, Math.min(1, (bestScore - median) / bestScore)) : 0;
+  // The search steps through a linear interpolant, which peaks on whole
+  // frames; a parabola through each peak finds the tempo between them.
+  const refined = (60 * env.rate) / refinePeriod(acf, (60 * env.rate) / best);
+  if (Math.abs(refined - best) <= best * 0.01) best = refined;
   const bpm = Math.round(best * 10) / 10;
   const alternatives = [bpm / 2, bpm * 2]
     .filter((b) => b >= 40 && b <= 240)
@@ -284,6 +329,18 @@ export function beatTimes(env: OnsetEnvelope, bpm: number): number[] {
       bestPhase = phase;
     }
   }
+  // Many phases tie within that tolerance; the one on the onsets themselves wins.
+  const coarse = bestPhase;
+  let exactSum = -1;
+  for (let phase = coarse - 2; phase <= coarse + 2; phase += 0.25) {
+    let sum = 0;
+    for (let t = phase; t < env.values.length; t += period) sum += at(env.values, Math.max(0, t));
+    if (sum > exactSum) {
+      exactSum = sum;
+      bestPhase = phase;
+    }
+  }
+  if (bestPhase < 0) bestPhase += period;
   const beats: number[] = [];
   // The envelope frame is centred half a window in.
   const offset = ONSET_SIZE / 2 / (env.rate * ONSET_HOP);
