@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 
@@ -48,6 +49,16 @@ const CanvasEditor = lazy(() =>
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
 const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.TempoTools })));
+
+/** Tailwind's `lg` breakpoint: two columns from here up. */
+const WIDE = '(min-width: 64rem)';
+function subscribeWide(onChange: () => void) {
+  const query = matchMedia(WIDE);
+  query.addEventListener('change', onChange);
+  return () => {
+    query.removeEventListener('change', onChange);
+  };
+}
 const Timeline = lazy(() => import('./Timeline').then((m) => ({ default: m.Timeline })));
 
 /** What the shell needs from the registry entry (serialisable, no Zod). */
@@ -448,6 +459,12 @@ export function ToolShell({
   const [media, setMedia] = useState<ProbeInfo | null>(null);
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [peaks, setPeaks] = useState<number[]>([]);
+  // Two columns or one (the server renders two; phones switch after loading).
+  const wide = useSyncExternalStore(
+    subscribeWide,
+    () => matchMedia(WIDE).matches,
+    () => true,
+  );
 
   const track = useCallback(
     (name: string, props: Record<string, string> = {}) => {
@@ -1069,6 +1086,16 @@ export function ToolShell({
     />
   );
 
+  // A03's tap tempo and metronome sit under the settings; on a phone with a
+  // file in, the settings column is empty and comes first, so they move under
+  // the result instead. Only after a file arrives, so the server's HTML (no
+  // file) is the same on every screen.
+  const tempoTools = (
+    <Suspense fallback={null}>
+      <TempoTools className="mt-10 px-4 pb-6 lg:px-0" />
+    </Suspense>
+  );
+
   return (
     <div className="lg:grid lg:min-h-[calc(100dvh-var(--header-h))] lg:grid-cols-[var(--tool-left-col)_1fr]">
       <section
@@ -1107,11 +1134,7 @@ export function ToolShell({
         {state.kind === 'empty' && tool.howTo && (
           <NumberedList items={tool.howTo} className="mt-7.5 hidden lg:block" />
         )}
-        {preset.tempo && (
-          <Suspense fallback={null}>
-            <TempoTools className="mt-10 px-4 pb-6 lg:px-0" />
-          </Suspense>
-        )}
+        {preset.tempo && (!hasFile || wide) && tempoTools}
       </section>
 
       <section
@@ -1225,6 +1248,7 @@ export function ToolShell({
               );
             })}
           </Dialog>
+          {preset.tempo && !wide && tempoTools}
         </div>
       )}
     </div>
