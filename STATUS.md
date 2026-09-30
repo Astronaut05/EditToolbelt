@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M1b, the rest of M1 · **M1 about 97 % done** · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 about 2 % done** (0 of 15 launch tools live) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -14,12 +14,14 @@
 - PWA: manifest, icons, a service worker that precaches the app shell and works offline (#14).
 - Cookieless analytics: page views, the `09` events and Web Vitals to a self-hosted collector, off unless `ANALYTICS_URL` and `ANALYTICS_WEBSITE_ID` are set (#15).
 - Component gallery in the workshop (every `packages/ui` component, light and dark) and a working ToolShell demo for each `ui` type against the dummy engine (#16).
-- Tests and budgets in CI: Playwright on Chromium, Firefox, WebKit and a phone (CSP, isolation, axe on every page type, keyboard, links), Lighthouse on 5 pages, initial JS ≤ 150 KB (see `docs/DECISIONS.md`).
+- Tests and budgets in CI: Playwright on Chromium, Firefox, WebKit and a phone (CSP, isolation, axe on every page type, keyboard, links), Lighthouse on 5 pages, initial JS ≤ 150 KB (see `docs/DECISIONS.md`) (#17).
+- CodeQL findings in the build scripts fixed (#18). **M1 done.**
 
 ## Next
 
-1. Checkpoint 2 (M1 done).
-2. M2 launch set (15 tools), then M2b. Then checkpoint 3.
+1. Checkpoint 2 (M1 done): screenshots and commands sent.
+2. M2 launch set, in this order: the live tool page and the three calculators (T04, T05, T06), then C03 and U01, T01 with its pair pages, the photo tools (P02, P03, P05, P06, P07), the video tools (V01, V02, V04, V06).
+3. M2b (11 tools), then checkpoint 3.
 
 ## Blocked
 
