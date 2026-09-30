@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M4, server job pipeline · **in progress: parts 1 and 2 of 5 in review (uploads straight to storage; the worker's job queue)**. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M4, server job pipeline · **in progress: parts 1 to 3 of 5 in review (uploads straight to storage; the worker's job queue; the jobs API)**. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -57,12 +57,12 @@
 - Dependabot's one alert (esbuild under drizzle-kit, dev only) cleared with a pnpm override (#41).
 - M4, part 1: uploads straight to storage. `POST /api/v1/uploads` checks the tool, limits and type, and hands out presigned part URLs that each accept only their exact size; the browser PUTs the parts to storage itself; `complete` joins them and checks the size. `/readyz` checks storage (#42).
 - M4, part 2: the worker's job queue. Job slots claim jobs (`SKIP LOCKED`, per-tool caps), heartbeat every 5 s, and the reaper requeues a job whose worker died (twice, then it fails and refunds). Every upload is probed with ffprobe before use. ffmpeg runs sandboxed (clean env, `prlimit`, process group, timeout, no protocols but files). A job's input is deleted the moment it ends; the sweeper deletes outputs after 60 min and aborts abandoned uploads (#43).
+- M4, part 3: the jobs API. `POST /api/v1/jobs/quote` prices a job from the probe and says what pays: one of 3 free jobs a day, or credits. `POST /api/v1/jobs` starts it at that price (Idempotency-Key, credits reserved), at most 2 at once per account (4 once paid). `GET /api/v1/jobs/:id/events` streams progress, `GET /api/v1/jobs/:id` gives a 10-minute download link, and cancel gives credits back (#44).
 
 ## Next
 
 1. Checkpoints 1, 2 and 3: sent. M2b and M3 are done.
-2. M4, part 3: the jobs API (quote, create, live progress, cancel) with the free daily quota and per-user limits.
-3. M4, then: Compress Video's server path, VFR to CFR and Burn Subtitles with the hybrid routing UI; the admin's Jobs page.
+2. M4, then: Compress Video's server path, VFR to CFR and Burn Subtitles with the hybrid routing UI; the admin's Jobs page.
 
 ## Blocked
 

@@ -20,6 +20,7 @@ export {
   lt,
   lte,
   ne,
+  notInArray,
   or,
   sql,
   sum,

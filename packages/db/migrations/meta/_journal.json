@@ -43,6 +43,13 @@
       "when": 1790810624689,
       "tag": "0005_job_timeout_and_concurrency",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790811501812,
+      "tag": "0006_job_funding",
+      "breakpoints": true
     }
   ]
 }
