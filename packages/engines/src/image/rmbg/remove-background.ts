@@ -34,7 +34,12 @@ export interface RemoveBackgroundOptions {
 /** Cache Storage name shared with the service worker (apps/web/scripts/sw.ts). */
 const MODELS_CACHE = 'etb-models';
 
-const join = (base: string, file: string) => `${base.replace(/\/+$/, '')}/${file}`;
+/** `base` without trailing slashes, then `/file`. A loop, not a regex: the base comes from config. */
+function join(base: string, file: string): string {
+  let end = base.length;
+  while (end > 0 && base[end - 1] === '/') end -= 1;
+  return `${base.slice(0, end)}/${file}`;
+}
 
 let f16: Promise<boolean> | null = null;
 
