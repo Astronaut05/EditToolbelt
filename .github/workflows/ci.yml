@@ -24,7 +24,10 @@ jobs:
   js:
     name: JS · format, lint, typecheck, test, licenses, hosts, build
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # A normal run takes about 25 minutes (Lighthouse and the static e2e are
+    # most of it). A slow apt mirror for Playwright's system packages has
+    # added 6 to 28 minutes; 45 leaves room for that.
+    timeout-minutes: 45
     services:
       # packages/db's integration tests: migrations, the append-only ledger,
       # the constraints (docs/04). Same image as the local stack.
