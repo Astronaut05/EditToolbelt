@@ -25,7 +25,12 @@ export function shellTool(tool: ToolDef): ShellTool {
     runtime: tool.runtime,
     ui: tool.ui,
     category: { name: category.name, href: categoryPath(category) },
-    related: relatedLinks(tool).map(({ name, href }) => ({ name, href })),
+    related: relatedLinks(tool).map(({ name, href, id, accepts }) => ({
+      name,
+      href,
+      id,
+      accepts,
+    })),
     howTo: tool.seo.howTo,
   };
 }
@@ -34,6 +39,10 @@ export interface RelatedLink {
   href: string;
   name: string;
   summary: string;
+  /** Tool links carry the tool's id and file types, for the in-memory handoff of a result. */
+  id?: string;
+  /** File types the tool takes, for the in-memory handoff of a result. */
+  accepts?: string[];
 }
 
 /**
@@ -50,6 +59,8 @@ export function relatedLinks(tool: ToolDef, max = 4): RelatedLink[] {
     href: toolPath(related),
     name: related.name,
     summary: related.summary,
+    id: related.id,
+    accepts: related.accepts,
   }));
 }
 

@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 about 95 % done** (15 of 15 launch tools live, 15 of 17 pair pages; left: the "use in another tool" handoff, then the local-launch checks) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 about 98 % done** (15 of 15 launch tools live, 15 of 17 pair pages; left: the local-launch checks) · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -32,11 +32,12 @@
   - Transparent, color, blur or another image behind; soft or hard edges; PNG or WebP at full size (up to 24 MP); edges fitted with a guided filter.
   - Refine by hand: a keep/erase brush on the result. Changing a setting reuses the cut-out (under a second).
   - Models and ONNX Runtime come from `MODELS_BASE_URL`, fetched and checksum-checked by `pnpm models` (run by `build` and `dev`), downloaded once in the browser with progress and cached.
+- M2: "Use in another tool": the Next links under a result carry the file to the next tool in memory, with no re-upload (#28).
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
-2. M2: the "Use in another tool" handoff (the result goes to the next tool without re-upload), then the local-launch checks (Playwright on Chromium, Firefox, WebKit and phone; Lighthouse; phones by hand).
+2. M2 local-launch checks: Playwright on Chromium, Firefox, WebKit and phone, and the Lighthouse budgets, on the production build.
 3. M2b (11 tools), then checkpoint 3.
 
 ## Blocked
