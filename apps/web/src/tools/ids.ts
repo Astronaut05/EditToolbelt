@@ -16,6 +16,7 @@ export const TOOL_IDS = [
   'remove-background',
   'resize-image',
   'subtitle-converter',
+  'subtitle-shift',
   'timecode-calculator',
   'trim-video',
   'video-to-gif',

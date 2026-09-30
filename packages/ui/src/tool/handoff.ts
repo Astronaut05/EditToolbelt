@@ -16,11 +16,22 @@ let pending: Pending | null = null;
 /** How long a handed-off file waits for its tool to open. */
 const WAIT_MS = 30_000;
 
-/** Whether a tool that accepts these types takes this file ("image/*" matches any image). */
-export function accepts(types: readonly string[] | undefined, mime: string): boolean {
-  if (!types || !mime) return false;
-  return types.some(
-    (type) => type === mime || (type.endsWith('/*') && mime.startsWith(type.slice(0, -1))),
+/**
+ * Whether a tool that accepts these types takes this file: by MIME type
+ * ("image/*" matches any image) or by extension (".srt").
+ */
+export function accepts(
+  types: readonly string[] | undefined,
+  file: { type: string; name: string },
+): boolean {
+  if (!types) return false;
+  const mime = file.type.split(';')[0]?.trim() ?? '';
+  const name = file.name.toLowerCase();
+  return types.some((type) =>
+    type.startsWith('.')
+      ? name.endsWith(type)
+      : mime !== '' &&
+        (type === mime || (type.endsWith('/*') && mime.startsWith(type.slice(0, -1)))),
   );
 }
 

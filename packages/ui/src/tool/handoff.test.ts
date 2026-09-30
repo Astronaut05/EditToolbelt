@@ -17,11 +17,15 @@ describe('handoff', () => {
     expect(takeHandoff('resize-image', 60_000)).toBeNull();
   });
 
-  it('matches exact types and wildcards', () => {
-    expect(accepts(['image/jpeg', 'image/png'], 'image/png')).toBe(true);
-    expect(accepts(['image/*'], 'image/webp')).toBe(true);
-    expect(accepts(['video/mp4'], 'image/png')).toBe(false);
-    expect(accepts(undefined, 'image/png')).toBe(false);
-    expect(accepts(['image/png'], '')).toBe(false);
+  it('matches types, wildcards and extensions', () => {
+    const png = { type: 'image/png', name: 'a.png' };
+    expect(accepts(['image/jpeg', 'image/png'], png)).toBe(true);
+    expect(accepts(['image/*'], { type: 'image/webp', name: 'a.webp' })).toBe(true);
+    expect(accepts(['video/mp4'], png)).toBe(false);
+    expect(accepts(undefined, png)).toBe(false);
+    expect(accepts(['image/png'], { type: '', name: 'a' })).toBe(false);
+    const srt = { type: 'application/x-subrip;charset=utf-8', name: 'film-synced.SRT' };
+    expect(accepts(['.srt', '.vtt'], srt)).toBe(true);
+    expect(accepts(['application/x-subrip'], srt)).toBe(true);
   });
 });

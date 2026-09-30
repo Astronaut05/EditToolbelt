@@ -33,12 +33,13 @@
   - Refine by hand: a keep/erase brush on the result. Changing a setting reuses the cut-out (under a second).
   - Models and ONNX Runtime come from `MODELS_BASE_URL`, fetched and checksum-checked by `pnpm models` (run by `build` and `dev`), downloaded once in the browser with progress and cached.
 - M2: "Use in another tool": the Next links under a result carry the file to the next tool in memory, with no re-upload (#28).
+- M2b: Subtitle Sync (shift by ms, from a cue on; frame rate 23.976 ↔ 25 and more; two-point sync that fixes offset and drift). Only the times are rewritten, so styles, positions and comments stay as they were (#29).
 
 ## Next
 
 1. Checkpoint 2 (M1 done): sent.
 2. M2 local-launch checks: Playwright on Chromium, Firefox, WebKit and phone, and the Lighthouse budgets, on the production build.
-3. M2b (11 tools), then checkpoint 3.
+3. M2b: 10 tools left (Rotate & Flip; Video Converter, GIF to MP4, Mute Video, Video Info; Audio Converter, Trim Audio, BPM & Key; Palette and Color Picker from an image), then checkpoint 3.
 
 ## Blocked
 
