@@ -12,6 +12,15 @@ const engine = mediaEngine((m) => m.trimEngine, MEDIA_META.trim);
 
 const OPTIONS: ShellOption[] = [
   {
+    id: 'selection',
+    label: 'Selection',
+    choices: [
+      { value: 'keep', label: 'Keep it' },
+      { value: 'remove', label: 'Remove it' },
+    ],
+    default: 'keep',
+  },
+  {
     id: 'mode',
     label: 'Mode',
     choices: [
@@ -40,6 +49,8 @@ const PRESET: ShellPreset = {
   tapLabel: 'Choose a video',
   options: OPTIONS,
   probe: (file) => probeVideo(file),
+  // Keep or remove several ranges; the parts join, the audio with a 10 ms crossfade.
+  ranges: true,
   runLabel: 'Trim',
   // Fast keeps the file's own format; the engine reports it.
   outputExt: (options) =>

@@ -1,11 +1,14 @@
 /**
- * V01 Trim Video. Fast copies the packets without re-encoding: the cut
- * starts at the keyframe at or before the In point, so it can begin up to one
- * keyframe interval early, and the result says where. Precise re-encodes the
- * video so the cut lands on the frame; audio is copied when the container
- * takes it (tools/video.md → Fast vs precise).
+ * V01 Trim Video. Keeps or removes one or more ranges and joins what's kept
+ * (join.ts). Fast copies the packets without re-encoding: each part starts at
+ * the keyframe at or before its In point, so it can begin up to one keyframe
+ * interval early, and the result says where. Precise cuts on the frame: VP8
+ * and VP9 in WebM or Matroska by smart cut (only the frames from each In point
+ * to the next keyframe are re-encoded), anything else by a full re-encode
+ * (tools/video.md → Fast vs precise).
  */
 import {
+  canEncodeVideo,
   EncodedPacketSink,
   MkvOutputFormat,
   MovOutputFormat,
@@ -13,10 +16,11 @@ import {
   Quality,
   WebMOutputFormat,
   type Input,
+  type InputVideoTrack,
   type OutputFormat,
 } from 'mediabunny';
 
-import { normalizeRanges, type Span } from '@etb/core';
+import { keptSpans, normalizeRanges, type Span } from '@etb/core';
 
 import type { Engine, EngineOutput } from '../types';
 import {
@@ -28,11 +32,16 @@ import {
   type Container,
 } from './media';
 import { MEDIA_META } from '../media-meta';
+import { joinParts, VIDEO_JOIN_CROSSFADE, type JoinResult } from './join';
 
 export interface TrimOptions {
   /** Seconds. */
   start?: number;
   end?: number;
+  /** Several selections (the timeline's ranges), seconds; `start`–`end` when absent. */
+  ranges?: Span[];
+  /** keep (the selection, joined) or remove (it, joining what's left) */
+  selection?: string;
   /** fast (copy, cut at keyframes) or precise (re-encode, cut on the frame) */
   mode?: string;
   /** keep, mp4 or webm (precise only; fast keeps the file's own format) */
@@ -114,20 +123,99 @@ export function checkRange(start: number, end: number, duration: number): [numbe
 
 const secs = (t: number) => `${t.toFixed(t < 10 ? 2 : 1)} s`;
 
+/**
+ * Whether a precise cut can be a smart cut: VP8 or VP9 (profile 0, 8-bit) in
+ * WebM or Matroska going out as WebM or Matroska, unrotated, with an encoder
+ * for the same codec at this size. Only then can re-encoded and copied frames
+ * share a track.
+ */
+async function smartCutFits(video: InputVideoTrack, family: Family, wanted?: string) {
+  if ((family !== 'webm' && family !== 'mkv') || wanted === 'mp4') return false;
+  const codec = await video.getCodec();
+  if (codec !== 'vp8' && codec !== 'vp9') return false;
+  const config = await video.getDecoderConfig();
+  if (codec === 'vp9' && !config?.codec.startsWith('vp09.00.')) return false;
+  if ((await video.getRotation()) !== 0 || (await video.getFlip())) return false;
+  const size = { width: await video.getCodedWidth(), height: await video.getCodedHeight() };
+  return (await video.canDecode()) && (await canEncodeVideo(codec, size));
+}
+
+/** Shorter than this, what's left beside a removed range isn't kept: under two frames at 50 fps. */
+const MIN_LEFT = 0.04;
+
+const parts = (n: number) => (n === 1 ? '1 part' : `${String(n)} parts`);
+
+/** The notes and details every joined trim shares: what was kept, and how the audio went. */
+function joinNotes(out: JoinResult, remove: boolean, removed: number): string[] {
+  const joins = out.parts.length - 1;
+  return [
+    remove
+      ? `Removed ${parts(removed)}; ${secs(out.length)} left`
+      : `Kept ${parts(out.parts.length)}, joined: ${secs(out.length)}`,
+    ...(joins > 0 && out.audio === 'spliced'
+      ? [
+          `The audio crossfades over ${String(VIDEO_JOIN_CROSSFADE * 1000)} ms at ${joins === 1 ? 'the join' : `each of the ${String(joins)} joins`}, so it doesn’t click`,
+        ]
+      : []),
+    ...out.notes,
+  ];
+}
+
 export const trimEngine: Engine<TrimOptions> = {
   ...MEDIA_META.trim,
   async run(file, opts, ctx): Promise<EngineOutput> {
     const input = openInput(file);
     try {
       const duration = await input.computeDuration();
-      const [start, end] = checkRange(opts.start ?? 0, opts.end ?? duration, duration);
+      const selection = checkRanges(opts, duration);
+      const remove = opts.selection === 'remove';
+      // What's left beside a removed range can be a sliver, the container's
+      // rounding past the last frame: not a part.
+      const spans = keptSpans(selection, duration, remove ? 'remove' : 'keep').filter(
+        (s) => !remove || s.end - s.start >= MIN_LEFT,
+      );
+      if (spans.length === 0) {
+        throw new MediaInputError('That removes the whole video. Select only the parts to remove.');
+      }
+      const [only] = spans.length === 1 ? spans : [];
       const family = await sourceFamily(input);
       const video = await input.getPrimaryVideoTrack();
       const audio = await input.getPrimaryAudioTrack();
       const notes: string[] = [];
       const details: { label: string; value: string }[] = [];
+      const join = (
+        mode: 'copy' | 'smart' | 'encode',
+        format: OutputFormat,
+        label: string,
+        extra?: { videoCodec: 'avc' | 'vp9'; audioCodec: 'aac' | 'opus' },
+      ) => {
+        if (!video) throw new MediaInputError('This file has no video in it.');
+        return joinParts(
+          { input, video, audio, spans, mode, format, ...extra },
+          ctx.signal,
+          (f) => {
+            ctx.progress(f, label);
+          },
+        );
+      };
 
       if (opts.mode !== 'precise') {
+        if (!only) {
+          const out = await join('copy', containerFormat(family), 'Copying');
+          const early = out.parts.filter((p, i) => p.start < (spans[i]?.start ?? 0) - 0.001);
+          notes.push(
+            ...joinNotes(out, remove, selection.length),
+            early.length > 0
+              ? `Fast (no re-encode): each part starts at the keyframe at or before its In point, up to ${secs(Math.max(...out.parts.map((p, i) => (spans[i]?.start ?? 0) - p.start)))} early. Pick Precise to cut on the frame.`
+              : 'Fast (no re-encode): every part starts on a keyframe, so no quality is lost',
+          );
+          details.push(
+            { label: 'Mode', value: 'Fast · copied' },
+            { label: 'Parts', value: String(out.parts.length) },
+          );
+          return result(out, out.length, notes, details, 'Browser · stream copy');
+        }
+        const { start, end } = only;
         const from = await keyframeBefore(input, start);
         const out = await convert(
           {
@@ -141,6 +229,7 @@ export const trimEngine: Engine<TrimOptions> = {
             ctx.progress(f, 'Copying');
           },
         );
+        if (remove) notes.push(`Removed ${parts(selection.length)}; ${secs(end - from)} left`);
         notes.push(
           from < start - 0.001
             ? `Fast (no re-encode): starts at the keyframe at ${secs(from)}, ${secs(start - from)} before your In point. Pick Precise to cut on the frame.`
@@ -154,6 +243,30 @@ export const trimEngine: Engine<TrimOptions> = {
         return result(out, end - from, notes, details, 'Browser · stream copy');
       }
 
+      if (video && (await smartCutFits(video, family, opts.format))) {
+        const out = await join(
+          'smart',
+          containerFormat(family === 'mkv' && opts.format !== 'webm' ? 'mkv' : 'webm'),
+          'Cutting',
+        );
+        const reencoded = out.parts.reduce((sum, p) => sum + p.reencoded, 0);
+        const codec = codecLabel(await video.getCodec());
+        notes.push(
+          ...(only && !remove ? [] : joinNotes(out, remove, selection.length)),
+          reencoded > 0.001
+            ? `Smart cut: re-encoded ${secs(reencoded)} as ${codec} at the ${out.parts.length === 1 ? 'cut' : 'cuts'}, up to the next keyframe; the other ${secs(out.length - reencoded)} copied untouched`
+            : `Smart cut: every cut is on a keyframe, so nothing was re-encoded`,
+        );
+        details.push(
+          { label: 'Mode', value: 'Precise · smart cut' },
+          only
+            ? { label: 'Cut', value: `${secs(only.start)} – ${secs(only.end)}` }
+            : { label: 'Parts', value: String(out.parts.length) },
+          { label: 'Re-encoded', value: secs(reencoded) },
+        );
+        return result(out, out.length, notes, details, 'Browser · smart cut');
+      }
+
       const wanted: Container =
         opts.format === 'webm' || (opts.format !== 'mp4' && family === 'webm') ? 'webm' : 'mp4';
       const plan = await pickOutput(
@@ -162,15 +275,32 @@ export const trimEngine: Engine<TrimOptions> = {
           width: (await video?.getDisplayWidth()) ?? 1280,
           height: (await video?.getDisplayHeight()) ?? 720,
         },
-        { needsEncode: false, copyable: (await audio?.getCodec()) === 'aac' },
+        { needsEncode: !only, copyable: !!only && (await audio?.getCodec()) === 'aac' },
       );
       if (plan.note) notes.push(plan.note);
+      const format = containerFormat(
+        plan.container === 'mp4' ? (family === 'mov' ? 'mov' : 'mp4') : 'webm',
+      );
+      if (!only) {
+        const out = await join('encode', format, 'Re-encoding', {
+          videoCodec: plan.video,
+          audioCodec: plan.audio,
+        });
+        notes.push(
+          ...joinNotes(out, remove, selection.length),
+          `Precise: re-encoded as ${codecLabel(plan.video)}, cut on the frame`,
+        );
+        details.push(
+          { label: 'Mode', value: 'Precise · re-encoded' },
+          { label: 'Parts', value: String(out.parts.length) },
+        );
+        return result(out, out.length, notes, details, 'Browser · WebCodecs');
+      }
+      const { start, end } = only;
       const out = await convert(
         {
           input,
-          format: containerFormat(
-            plan.container === 'mp4' ? (family === 'mov' ? 'mov' : 'mp4') : 'webm',
-          ),
+          format,
           trim: { start, end },
           video: { forceTranscode: true, codec: plan.video, quality: new Quality('high') },
           audio: { codec: plan.audio, quality: new Quality('high') },
@@ -180,6 +310,7 @@ export const trimEngine: Engine<TrimOptions> = {
           ctx.progress(f, 'Re-encoding');
         },
       );
+      if (remove) notes.push(`Removed ${parts(selection.length)}; ${secs(end - start)} left`);
       notes.push(
         `Precise: re-encoded as ${codecLabel(plan.video)}, cut on the frame`,
         ...out.dropped,

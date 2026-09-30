@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M2, the launch set · **M1 done, M2 done: the local launch is ready to stress-test** (15 of 15 launch tools and all 11 M2b tools live; 25 pair pages, 5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair). M2b's last item, V01 multi-range and smart cut, is in progress · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
+**Milestone:** M2, the launch set · **M1 done, M2 done: the local launch is ready to stress-test** (15 of 15 launch tools and all 11 M2b tools live; 25 pair pages, 5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair). M2b done: every M2b item is in · autonomous mode until the M2 local launch (`CLAUDE.md` rule 10)
 
 ## Done
 
@@ -49,13 +49,12 @@
 - M2b: Color Palette from Image (k-means in Oklab, deterministic; CSS, JSON, ASE or a PNG card) and Color Picker from Image (a loupe, 1 px exact or 3 × 3 and 5 × 5 averages, keyboard picking, up to 24 picks). All 11 M2b tools are live (#33).
 - Every video and audio tool loads its engine (and Mediabunny) on first use, not with the page: 167-172 KB of script instead of 325-335 KB (#34).
 - M2b remainder, part 1: the timeline holds several ranges (add, select, remove; they never overlap), and Trim Audio keeps or removes any number of them. Parts join with a 10 ms crossfade, exactly as long as the kept parts, to the sample (#35).
+- M2b remainder, part 2: Trim Video keeps or removes several ranges and joins them. Fast copies each part from its keyframe; Precise smart-cuts VP8 and VP9 (only the frames from each cut to the next keyframe are re-encoded, the rest copied byte for byte) and re-encodes anything else. The audio crossfades 10 ms at each join (#36).
 
 ## Next
 
-1. Checkpoints 1 and 2: sent.
-2. Checkpoint 3 (M2 local launch ready to stress-test): the local-launch checks passed on the production build. Playwright on Chromium, Firefox, WebKit and a phone viewport runs on every PR in CI; the whole suite passes locally on Chromium and phone; the Lighthouse budgets are met on 6 pages. Phones by hand are for the stress test.
-3. M2b remainder, part 2: Trim Video keeps or removes several ranges (Fast joins copied parts, Precise re-encodes) and smart cut re-encodes only the GOPs at the cuts.
-4. Then M3 (accounts, database, admin, flags), which can run alongside; Go public is Astro's call.
+1. Checkpoints 1, 2 and 3: sent. Checkpoint 3 (M2 local launch ready to stress-test): the local-launch checks passed on the production build. Playwright on Chromium, Firefox, WebKit and a phone viewport runs on every PR in CI; the whole suite passes locally on Chromium and phone; the Lighthouse budgets are met on 6 pages. Phones by hand are for the stress test.
+2. M2b is done. Next is M3 (accounts, database, admin, flags), which can run alongside the stress test; Go public is Astro's call.
 
 ## Blocked
 
