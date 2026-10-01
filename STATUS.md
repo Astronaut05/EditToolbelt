@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator and Split Image into Grid (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid and Photo Metadata Viewer & Remover (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -68,6 +68,7 @@
 - Fix: an upload whose file is gone (cancelled or swept) no longer stalls the worker's probe. It used to be retried at once, forever, holding up every upload behind it; now it's refused once, and the API asks for the file again. A storage outage waits 5 s between tries (#52).
 - M8, the rest of Wave 2, starts (beta): Contrast Checker (the WCAG 2.2 ratio, AA and AAA for normal and large text and UI, and the nearest passing text or background color with the same hue) and Print Size & DPI Calculator (pixels to cm, mm or inches; pixels a paper size needs; the DPI of a print; the largest paper an image fills; an image's size read in the browser) (#53).
 - M8: Split Image into Grid (beta). 3 × 3 profile grids, carousels and panoramas, or any grid up to 10 × 10; tiles cut pixel for pixel in the browser and downloaded as one ZIP, numbered row by row or in posting order, with optional feed gaps so the picture lines up across a profile grid (#54).
+- M8: Photo Metadata Viewer & Remover (beta). Drop photos to see camera, settings, date, people and GPS at once; remove everything, the location only, or all but the camera and settings. JPG, PNG and WebP keep their pixels byte for byte; the orientation and colour profile always stay (#55).
 
 ## Next
 

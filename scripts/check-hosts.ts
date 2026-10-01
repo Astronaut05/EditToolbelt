@@ -66,11 +66,13 @@ export function findHosts(text: string): Finding[] {
   const findings: Finding[] = [];
   text.split('\n').forEach((line, index) => {
     if (/["']?\$schema["']?\s*:/.test(line)) return;
-    // XML namespace URIs (xmlns="http://www.w3.org/2000/svg") and the JSON-LD
-    // vocabulary (@context: https://schema.org) are names, never fetched.
+    // XML namespace URIs (xmlns="http://www.w3.org/2000/svg"), the JSON-LD
+    // vocabulary (@context: https://schema.org) and the identifiers XMP blocks
+    // start with inside JPEGs are names, never fetched.
     line = line
       .replace(/\bxmlns(?::\w+)?\s*=\s*(["'])[^"']*\1/g, '')
-      .replace(/(["'])https:\/\/schema\.org\1/g, '');
+      .replace(/(["'])https:\/\/schema\.org\1/g, '')
+      .replace(/http:\/\/ns\.adobe\.com\/(?:xap\/1\.0|xmp\/extension)\//g, '');
     for (const match of line.matchAll(URL_PATTERN)) {
       const host = match[1] ?? '';
       if (!isAllowedHost(host)) findings.push({ line: index + 1, host });

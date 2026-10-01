@@ -973,3 +973,26 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/photo.md` → P14.
 **Reverse:** the grid rules are in `packages/engines/src/image/grid.ts`, with tests.
+
+## 2026-10-01 · Photo Metadata Viewer & Remover (M8)
+
+**Decision:**
+- **Four choices:**
+  - Everything (the default).
+  - Location only: GPS, plus XMP or IPTC that names a place.
+  - All but camera and settings: make, model, lens and exposure stay; dates, people, serial numbers and place go.
+  - Nothing, just look.
+  - The photo shows its metadata the moment it's dropped, and a change of choice runs again.
+- **Always kept:** the orientation (or a phone photo shows turned) and the colour profile (or colours shift). Neither identifies anyone. An upright photo keeps no EXIF at all.
+- **JPEG, PNG and WebP are rewritten around their pixels,** which stay byte for byte:
+  - JPEG: segments before the scan are kept, rewritten or dropped. Adobe's APP14 (colour transform) and the ICC profile stay.
+  - PNG: chunks, with fresh CRCs. Colour chunks stay; text, XMP and `tIME` go.
+  - WebP: RIFF chunks, with VP8X's flags and the RIFF size fixed.
+- **EXIF is rebuilt, not patched.** The kept entries are written into a new TIFF block with their original bytes and byte order. The thumbnail (a preview that can show the uncropped original) and the maker's private notes (which may hold serial numbers, and whose inner offsets break when moved) are never written back.
+- **Anything after a JPEG's end** (motion photos, depth maps, HDR layers) goes with any removal, since it can carry its own EXIF. So does the MPF index that points to it; an Ultra HDR photo becomes a plain one.
+- **HEIC, AVIF, TIFF, GIF and BMP** can't be edited in place here. They're saved as PNG, pixel for pixel, with no metadata, and the page says so.
+- **The report** lists every field by group and marks what was removed. It's computed in the browser; nothing is sent.
+- **`hosts:check` exempts XMP's identifiers** (`http://ns.adobe.com/xap/1.0/` and its extension), as it already did XML namespaces: they're names at the start of an XMP block, never fetched.
+
+**Why:** `tools/photo.md` → P15 ("removal re-writes the container without re-encoding pixels where the format allows").
+**Reverse:** the rules are in `packages/engines/src/image/metadata.ts` and `tiff.ts`, with tests.

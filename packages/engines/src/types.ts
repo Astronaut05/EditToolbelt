@@ -43,6 +43,8 @@ export interface EngineOutput {
   notes?: string[];
   /** Extra facts for the result readout: { label: 'Cues', value: '142' }. */
   details?: { label: string; value: string }[];
+  /** A plain-text report shown under an analyzer's facts (P15: what the photo carried). */
+  report?: string;
   /** Colours found (C01), most common first, in HEX, RGB and HSL, with their share of the image (0-1). */
   swatches?: { hex: string; rgb: string; hsl: string; share: number }[];
 }

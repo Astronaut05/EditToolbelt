@@ -652,9 +652,10 @@ export function ToolShell({
         const url = URL.createObjectURL(out.blob);
         urls.current.push(url);
         const text =
-          preset.preview === 'text'
+          out.report ??
+          (preset.preview === 'text'
             ? (await out.blob.text()).slice(0, TEXT_PREVIEW_CHARS)
-            : undefined;
+            : undefined);
         const seconds = (performance.now() - started) / 1000;
         track('tool_run_succeeded', {
           engine_path: out.path,
