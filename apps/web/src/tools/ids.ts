@@ -50,6 +50,7 @@ export const TOOL_IDS = [
   'rotate-video',
   'shutter-angle-calculator',
   'social-media-image-resizer',
+  'split-audio',
   'split-image',
   'storage-calculator',
   'subtitle-converter',

@@ -63,6 +63,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'rotate-video': dynamic(() => import('./rotate-video')),
   'shutter-angle-calculator': dynamic(() => import('./shutter-angle-calculator')),
   'social-media-image-resizer': dynamic(() => import('./social-media-image-resizer')),
+  'split-audio': dynamic(() => import('./split-audio')),
   'split-image': dynamic(() => import('./split-image')),
   'storage-calculator': dynamic(() => import('./storage-calculator')),
   'subtitle-converter': dynamic(() => import('./subtitle-converter')),

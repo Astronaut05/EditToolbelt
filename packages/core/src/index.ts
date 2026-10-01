@@ -60,6 +60,7 @@ export {
 } from './media/ranges';
 export { Splicer, type SpliceOptions } from './media/splice';
 export { joinGain, reversePieces, type ReversePiece } from './media/reverse';
+export { equalParts, MAX_PARTS, pieceParts, silenceParts, TooManyParts } from './media/split';
 export {
   PLATFORM_NAMES,
   PLATFORMS,
