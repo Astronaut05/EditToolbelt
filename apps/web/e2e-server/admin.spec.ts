@@ -21,7 +21,8 @@ import { closeTestDb, newEmail, signIn, testDb, totp } from './helpers';
 
 const db = testDb();
 
-test.describe.configure({ mode: 'serial' });
+// Tool status reaches every part of the server within 30 s, so some tests wait that long.
+test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
 test.afterAll(async () => {
   await db.delete(toolFlags).where(eq(toolFlags.toolId, 'trim-video'));
@@ -90,7 +91,10 @@ test('disabling a tool takes it off the site, and the default brings it back', a
   request,
 }) => {
   const admin = await becomeAdmin(page);
-  expect((await request.get('/trim-video')).status()).toBe(200);
+  // Another browser's run of this test may have left it off for up to 30 s.
+  await expect
+    .poll(async () => (await request.get('/trim-video')).status(), { timeout: 40_000 })
+    .toBe(200);
 
   await saveTool(page, 'trim-video', async (p) => {
     await p.getByLabel('Status').selectOption('disabled');
@@ -101,8 +105,18 @@ test('disabling a tool takes it off the site, and the default brings it back', a
     .toBe(404);
   const video = await (await request.get('/video')).text();
   expect(video).not.toContain('href="/trim-video"');
-  const api = (await (await request.get('/api/v1/tools')).json()) as { tools: { id: string }[] };
-  expect(api.tools.some((tool) => tool.id === 'trim-video')).toBe(false);
+  // The API's routes keep their own copy of the flags (another bundle): within 30 s too.
+  await expect
+    .poll(
+      async () => {
+        const api = (await (await request.get('/api/v1/tools')).json()) as {
+          tools: { id: string }[];
+        };
+        return api.tools.some((tool) => tool.id === 'trim-video');
+      },
+      { timeout: 40_000 },
+    )
+    .toBe(false);
 
   await saveTool(page, 'trim-video', async (p) => {
     await p.getByLabel('Status').selectOption('default');
