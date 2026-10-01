@@ -222,6 +222,159 @@ async function checkCloudflareR2(env: Env, site: string): Promise<string> {
   return 'EU jurisdiction; every object expires and every multipart upload aborts within 1 day; CORS rule for the site';
 }
 
+// ── DNS and email records, read with the same token ─────────────────────────
+
+interface DnsRecord {
+  type: string;
+  name: string;
+  content: string;
+  proxied?: boolean;
+}
+
+async function zoneRecords(env: Env, host: string): Promise<DnsRecord[]> {
+  const zones = await cloudflare<{ id: string; name: string }[]>(
+    env,
+    `/zones?name=${encodeURIComponent(host)}`,
+  );
+  const zone = zones[0];
+  expect(zone, "the read-only token cannot see the site's zone");
+  return cloudflare<DnsRecord[]>(env, `/zones/${zone.id}/dns_records?per_page=500`);
+}
+
+/** What the domain's records say about the site and its email; names only, never values. */
+export function dnsProblems(records: DnsRecord[], host: string): string[] {
+  const problems: string[] = [];
+  for (const name of [host, `www.${host}`]) {
+    const record = records.find((r) => r.name === name && ['CNAME', 'A', 'AAAA'].includes(r.type));
+    if (!record) problems.push(`no record for ${name}`);
+    else if (!record.proxied) problems.push(`${name} is not proxied through Cloudflare`);
+  }
+  const txt = records.filter((r) => r.type === 'TXT');
+  const unquote = (value: string) => value.replace(/^"|"$/g, '');
+  if (!txt.some((r) => unquote(r.content).startsWith('v=spf1')))
+    problems.push('no SPF record (TXT v=spf1)');
+  if (!records.some((r) => r.name.includes('._domainkey.')))
+    problems.push('no DKIM record (…._domainkey)');
+  if (!txt.some((r) => r.name === `_dmarc.${host}` && unquote(r.content).startsWith('v=DMARC1')))
+    problems.push('no DMARC record (_dmarc, v=DMARC1)');
+  return problems;
+}
+
+async function checkDns(env: Env, site: string): Promise<string> {
+  const host = new URL(site).hostname;
+  const records = await zoneRecords(env, host);
+  const problems = dnsProblems(records, host);
+  expect(problems.length === 0, problems.join('; '));
+  return `${host} and www proxied; SPF, DKIM and DMARC records present`;
+}
+
+// ── Cloudflare Access in front of the site ───────────────────────────────────
+
+interface AccessRule {
+  email?: { email?: string };
+  email_domain?: unknown;
+  everyone?: unknown;
+  service_token?: { token_id?: string };
+  any_valid_service_token?: unknown;
+}
+
+interface AccessPolicy {
+  decision?: string;
+  include?: AccessRule[];
+}
+
+interface AccessApp {
+  type?: string;
+  domain?: string;
+  self_hosted_domains?: string[];
+  destinations?: { type?: string; uri?: string }[];
+  policies?: AccessPolicy[];
+}
+
+/** One self-hosted app covering the site and www: one email allowed, CI's service token, nobody else. */
+export function accessProblems(apps: AccessApp[], host: string): string[] {
+  const covers = (app: AccessApp, name: string) => {
+    const domains = [
+      app.domain,
+      ...(app.self_hosted_domains ?? []),
+      ...(app.destinations ?? []).map((d) => d.uri),
+    ].filter((d): d is string => typeof d === 'string');
+    return domains.some((d) => d === name || d === `${name}/` || d === `${name}/*`);
+  };
+  const app = apps.find((a) => covers(a, host));
+  if (!app) return ['no Access application covers the site'];
+  const problems: string[] = [];
+  if (!covers(app, `www.${host}`)) problems.push('the Access application does not cover www');
+  const policies = app.policies ?? [];
+  const rules = (decision: string) =>
+    policies.filter((p) => p.decision === decision).flatMap((p) => p.include ?? []);
+  const allow = rules('allow');
+  const emails = allow.filter((r) => r.email?.email).length;
+  if (emails !== 1) problems.push(`the allow policy names ${String(emails)} emails, not 1`);
+  if (allow.some((r) => r.everyone !== undefined || r.email_domain !== undefined))
+    problems.push('the allow policy lets in more than one person (everyone or a whole domain)');
+  if (rules('bypass').length > 0) problems.push('a bypass policy opens the whole site');
+  const service = rules('non_identity');
+  if (!service.some((r) => r.service_token || r.any_valid_service_token))
+    problems.push("no Service Auth policy for CI's service token");
+  return problems;
+}
+
+async function checkAccess(env: Env, site: string): Promise<string> {
+  const host = new URL(site).hostname;
+  const apps = await cloudflare<AccessApp[]>(
+    env,
+    `/accounts/${env.CF_ACCOUNT_ID ?? ''}/access/apps`,
+  );
+  const problems = accessProblems(apps, host);
+  expect(problems.length === 0, problems.join('; '));
+  return 'one application covers the site and www; one email allowed; a Service Auth policy for CI';
+}
+
+// ── The live site, from outside and through Access ───────────────────────────
+
+async function checkSite(env: Env, site: string): Promise<string> {
+  const outside = await fetch(`${site}/`, { redirect: 'manual' });
+  const location = outside.headers.get('location') ?? '';
+  expect(
+    (outside.status >= 300 &&
+      outside.status < 400 &&
+      new URL(location, site).hostname.endsWith('.cloudflareaccess.com')) ||
+      outside.status === 403,
+    `without Access the home page answered HTTP ${String(outside.status)}, not the Access login`,
+  );
+  const token = {
+    'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID ?? '',
+    'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
+  };
+  const get = (path: string) => fetch(`${site}${path}`, { headers: token, redirect: 'manual' });
+  const health = await get('/healthz');
+  expect(health.ok, `/healthz answered HTTP ${String(health.status)} through Access`);
+  const { version } = (await health.json()) as { version?: string };
+  const ready = await get('/readyz');
+  expect(ready.ok, `/readyz answered HTTP ${String(ready.status)}: ${await ready.text()}`);
+  const home = await get('/');
+  expect(home.ok, `the home page answered HTTP ${String(home.status)} through Access`);
+  const missing = [
+    'content-security-policy',
+    'strict-transport-security',
+    'x-content-type-options',
+    'x-frame-options',
+    'referrer-policy',
+    'permissions-policy',
+  ].filter((name) => !home.headers.get(name));
+  expect(missing.length === 0, `the home page lacks ${missing.join(', ')}`);
+  const www = await fetch(`${site.replace('://', '://www.')}/convert?x=1`, {
+    headers: token,
+    redirect: 'manual',
+  });
+  expect(
+    www.status === 308 && www.headers.get('location') === `${site}/convert?x=1`,
+    `www answered HTTP ${String(www.status)}, not a redirect to the site`,
+  );
+  return `private (Access login without a token); through Access: version ${version ?? '?'}, ready, security headers, www redirects`;
+}
+
 // ── Running them ─────────────────────────────────────────────────────────────
 
 /** An error a check didn't expect, named without its message (which may carry a URL or a value). */
@@ -245,6 +398,13 @@ export const CHECKS: Check[] = [
     run: checkR2,
   },
   { name: 'cloudflare-r2', needs: ['CF_READ_TOKEN', 'CF_ACCOUNT_ID'], run: checkCloudflareR2 },
+  { name: 'dns', needs: ['CF_READ_TOKEN', 'SITE_URL'], run: checkDns },
+  { name: 'access', needs: ['CF_READ_TOKEN', 'CF_ACCOUNT_ID', 'SITE_URL'], run: checkAccess },
+  {
+    name: 'site',
+    needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
+    run: checkSite,
+  },
 ];
 
 export async function runChecks(env: Env): Promise<Outcome[]> {
