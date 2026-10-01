@@ -11,3 +11,10 @@ minimumReleaseAge: 1440
 # never used. See docs/13-licenses.md.
 ignoredOptionalDependencies:
   - sharp
+
+# drizzle-kit (dev only, `pnpm db:generate`) pulls @esbuild-kit/core-utils,
+# which pins esbuild 0.18: below the fix for GHSA-67mh-4wv8-2f99, a flaw in
+# esbuild's dev server. We never start that server, but the patched line
+# (already in the lockfile for drizzle-kit itself) loads files the same way.
+overrides:
+  '@esbuild-kit/core-utils>esbuild': 0.25.12

@@ -54,6 +54,7 @@
 - M3, part 2: the server build (`ETB_TARGET=server`, what the local stack runs) with accounts. Sign in with an email link (Mailpit catches it on the stack at localhost:8025) or Google, `/account` with profile, "Download my data" and delete (30-day restore), nonce CSP on signed-in pages, `/healthz` and `/readyz` (#38).
 - M3, part 3: tool status from the database (admin changes show within 30 s) and the admin: dashboard, tools, users (credits, disable, revoke keys, export, delete), audit log and system, behind TOTP; `pnpm admin:promote` makes the first admin; `GET /api/v1/tools` (#39).
 - M3, part 4: the worker's scheduler. Heartbeats; alerts to Telegram, email as backup, with a 30-minute cool-down (missing heartbeat, database connections, disk, tool failure rate, queue wait, ledger mismatch); every night at 03:00 Tashkent the ledger check, the 30-day account scrub and the retention purges; the daily digest at 09:00 Tashkent. Admin → System lists recent alerts (#40).
+- Dependabot's one alert (esbuild under drizzle-kit, dev only) cleared with a pnpm override (#41).
 
 ## Next
 
