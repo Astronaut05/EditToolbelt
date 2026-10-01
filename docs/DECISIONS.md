@@ -808,3 +808,24 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M4 ("First server-cpu tools from Wave 2", "Admin Jobs page, job stats, failure alerts", "Runbooks folder started"), `docs/07` → Jobs and Dashboard, `docs/11` → Backups and recovery, `tools/video.md` → V15.
 **Reverse:** set the tool back to `soon` in Admin → Tools. Drop `tool_stats` from the worker's `DAILY` to stop the nightly sums.
+
+## 2026-10-01 · Burn Subtitles, and a second file beside the main one (M4)
+
+**Decision:**
+- **A tool can take more files than its main one**, each as an upload of its own, named in an option (`@etb/registry/options` → `uploadOptions`: Burn Subtitles' `subtitles`).
+  - The jobs API checks each like the main one: the caller's, made for this tool, a subtitle type, unused, probed.
+  - Their keys go into a new `jobs.extra_input_keys` (migration 0007) and their probes into `input_meta.extras`.
+  - The worker downloads them beside the input and deletes them with it, whatever happens. The sweeper and cancel treat them the same way.
+  - Rows never hold the subtitles' text, only random keys and the probe.
+- **Subtitle files go through the same upload API** (`application/x-subrip`, `text/vtt`, `text/x-ssa`), capped at 5 MB. The probe accepts them only as one subtitle stream of the claimed kind. The page types them by extension, since browsers rarely do.
+- **On the page, a `file` option** (a picker beside the settings) holds the second file. The run takes the File itself from memory: fetching its `blob:` URL would need a CSP exception. The run button waits until it's chosen.
+- **Burn Subtitles (V16)** on the worker (`processors/burn_subtitles.py`):
+  - libass through ffmpeg's subtitles filter, then H.264 (CRF 18), with AAC copied when it can be.
+  - SRT and VTT take the person's style: Noto Sans, Serif or Sans Mono; small, medium or large; color; no, thin or thick outline, or a half-clear background box; top or bottom; full or narrow lines.
+  - ASS keeps its own styles.
+  - A subtitle file that isn't UTF-8 is read as Windows-1251 when that gives Cyrillic, else Windows-1252.
+- **libass reads `force_style`'s alignment the legacy way** (2 bottom centre, 6 top centre), not the numpad way ASS files use. Found by rendering, and the tests check positions by pixels.
+- **Fonts:** Debian's `fonts-noto-core` (OFL-1.1) in the worker image and CI's worker job: Latin, Cyrillic and Greek in sans, serif and mono. Registered in `docs/13`.
+
+**Why:** `docs/12` → M4 ("First server-cpu tools from Wave 2 (e.g. … burn subtitles)"), `tools/video.md` → V16, `docs/08` (no file contents in rows).
+**Reverse:** set Burn Subtitles back to `soon` in Admin → Tools. Tools without `uploadOptions` never see extra inputs.

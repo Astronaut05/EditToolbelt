@@ -37,6 +37,13 @@ import {
 export const UPLOAD_TTL_MS = 60 * 60 * 1000;
 /** Unfinished uploads one account may have at once. */
 export const MAX_OPEN_UPLOADS = 5;
+/** Subtitle files that go beside a video (Burn Subtitles); small, so capped on their own. */
+export const SUBTITLE_TYPES: ReadonlySet<string> = new Set([
+  'application/x-subrip',
+  'text/vtt',
+  'text/x-ssa',
+]);
+const MAX_SUBTITLE_BYTES = 5_000_000;
 
 export type Upload = typeof uploads.$inferSelect;
 export type Tier = 'free' | 'paid';
@@ -114,6 +121,15 @@ export async function createUpload(user: CurrentUser, input: NewUpload) {
       'UNSUPPORTED_FORMAT',
       'Unsupported file type',
       `${tool.name} takes ${(tool.accepts ?? []).join(', ')}.`,
+    );
+  }
+  if (SUBTITLE_TYPES.has(mime) && input.bytes > MAX_SUBTITLE_BYTES) {
+    throw new ApiError(
+      413,
+      'FILE_TOO_LARGE',
+      'File too large',
+      `Subtitle files can be up to ${formatBytes(MAX_SUBTITLE_BYTES)}.`,
+      { max_bytes: MAX_SUBTITLE_BYTES },
     );
   }
   const now = new Date();

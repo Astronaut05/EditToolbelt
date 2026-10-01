@@ -44,6 +44,13 @@ CONTAINERS: dict[str, set[str]] = {
     "audio/flac": {"flac"},
     "audio/ogg": {"ogg"},
 }
+#: Subtitle files a tool takes beside a video (Burn Subtitles). ffprobe reads them as one stream.
+SUBTITLES: dict[str, set[str]] = {
+    "application/x-subrip": {"srt"},
+    "text/vtt": {"webvtt"},
+    "text/x-ssa": {"ass"},
+}
+CONTAINERS.update(SUBTITLES)
 
 MAX_PIXELS = 100_000_000  # a decoded frame, docs/11 -> decompression bombs
 #: Frame times read for the variable-frame-rate check: the first minute is enough.
@@ -81,6 +88,17 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
     streams = raw.get("streams") or []
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if mime in SUBTITLES:
+        subtitle = next((s for s in streams if s.get("codec_type") == "subtitle"), None)
+        if subtitle is None or video is not None or audio is not None:
+            raise ProbeRefused("UNSUPPORTED_FORMAT", "not a subtitle file")
+        return {
+            "container": sorted(names & allowed)[0],
+            "streams": len(streams),
+            "subtitle": {"codec": subtitle.get("codec_name")},
+            "video": None,
+            "audio": None,
+        }
     if video is None and audio is None:
         raise ProbeRefused("UNSUPPORTED_FORMAT", "no audio or video streams")
     duration_ms = round(float(fmt.get("duration") or 0) * 1000)

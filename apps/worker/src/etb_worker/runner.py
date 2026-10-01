@@ -160,6 +160,10 @@ class JobRunner:
         input_path = workdir / "input"
         progress.set(0, "downloading")
         self.storage.download(str(job["input_key"]), input_path)
+        extras = []
+        for index, key in enumerate(job.get("extra_input_keys") or []):
+            extras.append(workdir / f"extra-{index}")
+            self.storage.download(str(key), extras[-1])
         ctx = JobContext(
             job_id=str(job["id"]),
             tool_id=str(job["tool_id"]),
@@ -170,6 +174,7 @@ class JobRunner:
             limits=Limits(timeout_sec=float(job.get("timeout_sec") or 900)),
             cancel=cancel,
             progress=progress.set,
+            extra_paths=extras,
         )
         progress.set(0, "processing")
         output = processor.run(ctx)
@@ -197,11 +202,12 @@ class JobRunner:
         log.warning("job.failed", error_code=code)
 
     def _delete_input(self, job: jobqueue.Job) -> None:
-        key = job.get("input_key")
-        if not key:
+        keys = jobqueue.input_keys(job)
+        if not keys:
             return
         try:
-            self.storage.delete(str(key))
+            for key in keys:
+                self.storage.delete(key)
             with self.connect() as conn:
                 jobqueue.input_gone(conn, job)
         except (StorageError, psycopg.Error):

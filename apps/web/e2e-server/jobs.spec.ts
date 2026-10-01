@@ -34,6 +34,10 @@ test.beforeAll(async () => {
     .insert(toolFlags)
     .values({ toolId: 'compress-video', serverEnabled: true })
     .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
+  await db
+    .insert(toolFlags)
+    .values({ toolId: 'burn-subtitles', status: 'beta' })
+    .onConflictDoUpdate({ target: toolFlags.toolId, set: { status: 'beta' } });
 });
 
 // The switches stay on: the API's routes see a change within 30 s, so turning
@@ -51,6 +55,9 @@ async function userId(email: string): Promise<string> {
 interface Probed {
   durationMs?: number;
   probed?: boolean;
+  /** Another tool's upload, or a subtitle file. */
+  tool?: string;
+  subtitles?: boolean;
   probeError?: string;
   /** Put a small object at the upload's key, as a real upload would. */
   stored?: boolean;
@@ -70,19 +77,21 @@ async function upload(owner: string, probe: Probed = {}): Promise<{ id: string; 
       userId: owner,
       storageKey: key,
       bytes: 18,
-      mimeClaimed: 'video/mp4',
-      toolId: 'compress-video',
+      mimeClaimed: probe.subtitles ? 'application/x-subrip' : 'video/mp4',
+      toolId: probe.tool ?? 'compress-video',
       partSize: 8 * 1024 * 1024,
       partCount: 1,
       expiresAt: new Date(Date.now() + 60 * MINUTE),
       completedAt: new Date(),
-      probe: probed
-        ? {
-            container: 'mp4',
-            duration_ms: probe.durationMs ?? 90_000,
-            video: { codec: 'h264', width: 1920, height: 1080, fps: 30 },
-          }
-        : null,
+      probe: !probed
+        ? null
+        : probe.subtitles
+          ? { container: 'srt', subtitle: { codec: 'subrip' }, video: null, audio: null }
+          : {
+              container: 'mp4',
+              duration_ms: probe.durationMs ?? 90_000,
+              video: { codec: 'h264', width: 1920, height: 1080, fps: 30 },
+            },
       probedAt: probed ? new Date() : null,
       probeError: probe.probeError ?? null,
     })
@@ -451,4 +460,65 @@ test('progress streams to the page, then the result downloads', async ({ page, b
   expect(cancel.status()).toBe(404);
   await other.close();
   await storage.fetch(objectUrl(outputKey), { method: 'DELETE' });
+});
+
+test('Burn Subtitles takes the subtitle file as its own upload, beside the video', async ({
+  page,
+  browser,
+}) => {
+  const owner = await newUser(page);
+  const video = await upload(owner, { tool: 'burn-subtitles', durationMs: 3 * MINUTE });
+  const subs = await upload(owner, { tool: 'burn-subtitles', subtitles: true });
+  const burn = (uploadId: string, options: unknown, path = '/api/v1/jobs/quote', extra = {}) =>
+    post(page.request, path, {
+      tool_id: 'burn-subtitles',
+      upload_id: uploadId,
+      options,
+      ...extra,
+    });
+
+  expect(await (await burn(video.id, { subtitles: subs.id, size: 'large' })).json()).toMatchObject({
+    status: 'ready',
+    credits: 3,
+    options: { subtitles: subs.id, size: 'large', font: 'sans', box: false },
+  });
+  // The subtitles can't be the video, and the video can't be the subtitles.
+  expect(await (await burn(subs.id, { subtitles: video.id })).json()).toMatchObject({
+    code: 'BAD_REQUEST',
+    title: 'The video goes first',
+  });
+  const other = await upload(owner, { tool: 'burn-subtitles' });
+  expect(await (await burn(video.id, { subtitles: other.id })).json()).toMatchObject({
+    code: 'BAD_REQUEST',
+    title: 'Not a subtitle file',
+  });
+  expect((await burn(video.id, {})).status()).toBe(400);
+
+  const created = await burn(video.id, { subtitles: subs.id }, '/api/v1/jobs', {
+    quote_credits: 3,
+  });
+  expect(created.status()).toBe(201);
+  const { job } = (await created.json()) as JobBody;
+  const [row] = await db.select().from(jobs).where(eq(jobs.id, job.id));
+  expect(row?.extraInputKeys).toEqual([subs.key]);
+  expect(row?.inputMeta).toMatchObject({ extras: [{ container: 'srt' }] });
+
+  // One job per subtitle file too.
+  const again = await upload(owner, { tool: 'burn-subtitles' });
+  expect(await (await burn(again.id, { subtitles: subs.id })).json()).toMatchObject({
+    code: 'CONFLICT',
+  });
+  // Someone else's subtitle file is no file at all.
+  const other2 = await browser.newContext();
+  const stranger = await other2.newPage();
+  const strangerId = await newUser(stranger);
+  const theirs = await upload(strangerId, { tool: 'burn-subtitles' });
+  const peek = await post(stranger.request, '/api/v1/jobs/quote', {
+    tool_id: 'burn-subtitles',
+    upload_id: theirs.id,
+    options: { subtitles: subs.id },
+  });
+  expect(peek.status()).toBe(404);
+  await other2.close();
+  await post(page.request, `/api/v1/jobs/${job.id}/cancel`, {});
 });

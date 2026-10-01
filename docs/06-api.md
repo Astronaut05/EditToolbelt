@@ -31,7 +31,7 @@ Keys are stored hashed; revocable; `last_used_at` updated at most once per minut
 | `POST /uploads/:id/parts` | `{ from, count }` → fresh presigned URLs for the next parts. Part URLs expire in 15 min, so large uploads fetch them in batches. |
 | `POST /uploads/:id/complete` | `{ parts: [{ n, etag }] }` → completes multipart. |
 | `POST /jobs/quote` | `{ tool_id, upload_id, options }` → `{ credits, funding, can_start, free_jobs_left, balance, balance_after, estimate_seconds, options }` after server probe; `202 { status: "probing" }` with `Retry-After` while the probe runs. |
-| `POST /jobs` | `{ tool_id, upload_id, options, quote_credits }` + `Idempotency-Key` header → `{ job }`. Rejects if the quote changed. |
+| `POST /jobs` | `{ tool_id, upload_id, options, quote_credits }` + `Idempotency-Key` header → `{ job }`. Rejects if the quote changed. A tool that takes a second file names its upload in an option (Burn Subtitles: `subtitles`, an SRT, VTT or ASS upload of up to 5 MB). |
 | `GET /jobs/:id` | Job status, progress, result (when done: `download_url` presigned, expires in 10 min, `expires_at` of the object). |
 | `GET /jobs/:id/events` | SSE progress stream. |
 | `POST /jobs/:id/cancel` | Cancel queued/running; releases credits. |

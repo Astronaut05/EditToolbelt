@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -117,3 +119,25 @@ def test_probes_real_files_and_refuses_broken_ones(media: dict[str, Any]) -> Non
         with pytest.raises(ProbeRefused) as caught:
             summarize(probe_json(media[broken]), "video/mp4")
         assert caught.value.code == "UNSUPPORTED_FORMAT"
+
+
+@pytest.mark.parametrize(
+    ("name", "mime", "body", "codec"),
+    [
+        ("a.srt", "application/x-subrip", "1\n00:00:01,000 --> 00:00:02,000\nHello\n", "subrip"),
+        ("a.vtt", "text/vtt", "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n", "webvtt"),
+    ],
+)
+def test_reads_subtitle_files_and_refuses_impostors(
+    tmp_path: Path, name: str, mime: str, body: str, codec: str
+) -> None:
+    if shutil.which("ffprobe") is None:
+        pytest.skip("ffmpeg not installed")
+    path = tmp_path / name
+    path.write_text(body)
+    record = summarize(probe_json(path), mime)
+    assert record["subtitle"] == {"codec": codec}
+    assert record["video"] is None
+    # A video sent as subtitles, or subtitles as a video, is refused.
+    with pytest.raises(ProbeRefused):
+        summarize(probe_json(path), "video/mp4")

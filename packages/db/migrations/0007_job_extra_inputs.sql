@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "extra_input_keys" text[] DEFAULT '{}'::text[] NOT NULL;

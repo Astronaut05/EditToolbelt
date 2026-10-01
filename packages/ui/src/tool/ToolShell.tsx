@@ -99,7 +99,9 @@ export interface ShellOption {
    * "#rrggbb". image: a second image to pick (a new background), value an
    * object URL. text: typed in, such as a time ("00:01:02.500").
    */
-  kind?: 'choice' | 'select' | 'slider' | 'number' | 'color' | 'image' | 'text';
+  kind?: 'choice' | 'select' | 'slider' | 'number' | 'color' | 'image' | 'text' | 'file';
+  /** file: the types the picker offers (".srt,.vtt,.ass"). */
+  accept?: string;
   /** text: an example shown while it's empty. */
   placeholder?: string;
   choices?: { value: string; label: string }[];
@@ -128,33 +130,67 @@ export function optionSummary(option: ShellOption, value: string): string {
   }
   if (option.kind === 'color') return value.toUpperCase();
   if (option.kind === 'image') return value ? 'Chosen' : 'None';
+  if (option.kind === 'file') return value ? fileOptionName(value) : 'None';
   return option.choices?.find((choice) => choice.value === value)?.label ?? value;
 }
 
-/** A second image for an option (a new background): a button, then its name. */
+/** The files behind `file` options' values, so a run can take the file itself. */
+const OPTION_FILES = new Map<string, File>();
+
+/**
+ * A `file` option's value: an object URL with the file's name after `#`, so
+ * the name (and its extension) stays on the page with the file.
+ */
+export function fileOptionValue(file: File): string {
+  const value = `${URL.createObjectURL(file)}#${encodeURIComponent(file.name)}`;
+  OPTION_FILES.set(value, file);
+  return value;
+}
+
+/** The file a `file` option holds (no fetch of its object URL, which the CSP may not allow). */
+export function fileOptionFile(value: string): File | undefined {
+  return OPTION_FILES.get(value);
+}
+
+export function fileOptionName(value: string): string {
+  const hash = value.indexOf('#');
+  return hash < 0 ? 'Chosen' : decodeURIComponent(value.slice(hash + 1));
+}
+
+/**
+ * A second file for an option: an image (a new background) or any file the
+ * option accepts (subtitles). A button, then its name.
+ */
 function ImagePick({
   label,
   value,
   onChange,
+  accept = 'image/*',
+  named = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  accept?: string;
+  /** The value carries the file's name (`file` options). */
+  named?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [name, setName] = useState<string | null>(null);
   return (
     <span className="flex min-w-0 items-center gap-3">
       {value && (
-        <span className="max-w-40 truncate text-14 text-text-muted">{name ?? 'Image chosen'}</span>
+        <span className="max-w-40 truncate text-14 text-text-muted">
+          {named ? fileOptionName(value) : (name ?? 'Image chosen')}
+        </span>
       )}
       <Button size="sm" onClick={() => input.current?.click()}>
-        {value ? 'Change' : 'Choose image'}
+        {value ? 'Change' : named ? 'Choose file' : 'Choose image'}
       </Button>
       <input
         ref={input}
         type="file"
-        accept="image/*"
+        accept={accept}
         className="sr-only"
         tabIndex={-1}
         aria-hidden="true"
@@ -163,9 +199,10 @@ function ImagePick({
           const file = event.target.files?.[0];
           event.target.value = '';
           if (!file) return;
-          if (value.startsWith('blob:')) URL.revokeObjectURL(value);
+          if (value.startsWith('blob:')) URL.revokeObjectURL(value.split('#')[0] ?? value);
+          OPTION_FILES.delete(value);
           setName(file.name);
-          onChange(URL.createObjectURL(file));
+          onChange(named ? fileOptionValue(file) : URL.createObjectURL(file));
         }}
       />
     </span>
@@ -237,6 +274,17 @@ function OptionControl({
   }
   if (option.kind === 'image') {
     return <ImagePick label={option.label} value={value} onChange={onChange} />;
+  }
+  if (option.kind === 'file') {
+    return (
+      <ImagePick
+        label={option.label}
+        value={value}
+        onChange={onChange}
+        accept={option.accept}
+        named
+      />
+    );
   }
   if (option.kind === 'select') {
     return (

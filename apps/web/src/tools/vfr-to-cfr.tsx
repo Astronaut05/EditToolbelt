@@ -50,7 +50,7 @@ const PRESET: ShellPreset = {
   options: OPTIONS,
   phoneGroups: [['fps'], ['quality', 'audio']],
   probe: async (file) => {
-    const info = await probeVideo(file);
+    const info = await probeVideo(file, false, true);
     // What the browser sees; our servers check the frames' timing again before anything runs.
     const verdict =
       info.frameRate === 'constant'

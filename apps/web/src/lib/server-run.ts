@@ -9,6 +9,7 @@
  */
 import { priceOf } from '@etb/registry/pricing';
 import {
+  fileOptionFile,
   formatBytes,
   ServerRunError,
   type ServerAccount,
@@ -32,6 +33,10 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   mov: 'video/quicktime',
   webm: 'video/webm',
   mkv: 'video/x-matroska',
+  srt: 'application/x-subrip',
+  vtt: 'text/vtt',
+  ass: 'text/x-ssa',
+  ssa: 'text/x-ssa',
 };
 
 /** The worker's stages, in words. */
@@ -123,9 +128,14 @@ interface Created {
 }
 
 /** Uploads the file in parts, several at once, straight to storage. */
-async function upload(file: File, toolId: string, ctx: ServerRunContext): Promise<string> {
-  const type =
-    file.type || TYPE_BY_EXTENSION[file.name.split('.').pop()?.toLowerCase() ?? ''] || '';
+async function upload(
+  file: File,
+  toolId: string,
+  ctx: ServerRunContext,
+  stage = 'Uploading',
+): Promise<string> {
+  // By extension first: browsers type subtitle files inconsistently, if at all.
+  const type = TYPE_BY_EXTENSION[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? file.type;
   const { data: created } = await api<Created>('/api/v1/uploads', {
     method: 'POST',
     body: { tool_id: toolId, bytes: file.size, mime: type },
@@ -156,7 +166,7 @@ async function upload(file: File, toolId: string, ctx: ServerRunContext): Promis
   let next = 1;
   const report = () => {
     ctx.progress({
-      stage: 'Uploading',
+      stage,
       fraction: sent / file.size,
       amount: `${formatBytes(sent)} of ${formatBytes(file.size)}`,
     });
@@ -344,13 +354,16 @@ async function download(job: JobView, ctx: ServerRunContext): Promise<Blob> {
 
 /**
  * The ToolShell's server path for one tool: `toServer` turns the shell's
- * options into the tool's API options (@etb/registry/options).
+ * options into the tool's API options (@etb/registry/options). `files` are
+ * `file` options whose file goes up as its own upload, its id in their place
+ * (Burn Subtitles: `subtitles`).
  */
 export function serverPath(
   toolId: string,
   info: ServerInfo,
   toServer: (options: Record<string, string>) => Record<string, unknown>,
   here: string,
+  files: readonly { option: string; label: string }[] = [],
 ): ShellServer {
   return {
     price: info.price,
@@ -372,10 +385,26 @@ export function serverPath(
       return { tier: me.tier, balance: me.credit_balance, freeJobsLeft: me.free_jobs_left };
     },
     async run(file, shellOptions, ctx): Promise<ServerResult> {
-      const options = toServer(shellOptions);
+      for (const extra of files) {
+        if (!shellOptions[extra.option]) {
+          throw new ServerRunError(`Choose the ${extra.label} first`, 'Something’s missing');
+        }
+      }
       const uploadId = await upload(file, toolId, ctx);
+      const values = { ...shellOptions };
+      const extras: string[] = [];
       let offer: Quote;
+      let options: Record<string, unknown>;
       try {
+        for (const extra of files) {
+          const chosen = fileOptionFile(shellOptions[extra.option] ?? '');
+          if (!chosen)
+            throw new ServerRunError(`Choose the ${extra.label} again`, 'Something’s missing');
+          const id = await upload(chosen, toolId, ctx, `Uploading the ${extra.label}`);
+          values[extra.option] = id;
+          extras.push(id);
+        }
+        options = toServer(values);
         offer = await quote(toolId, uploadId, options, ctx);
         if (!offer.can_start) {
           throw new ServerRunError(
@@ -390,7 +419,7 @@ export function serverPath(
           (!ctx.offered.free && ctx.offered.credits === offer.credits);
         if (!asExpected && !(await ctx.confirm(offer))) throw aborted();
       } catch (error) {
-        forget(`/api/v1/uploads/${uploadId}`, 'DELETE');
+        for (const id of [uploadId, ...extras]) forget(`/api/v1/uploads/${id}`, 'DELETE');
         throw error;
       }
       const { data } = await api<{ job: JobView }>('/api/v1/jobs', {

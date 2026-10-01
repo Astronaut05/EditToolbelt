@@ -51,6 +51,14 @@ export const jobs = pgTable(
     inputMeta: jsonb('input_meta'),
     /** Random storage keys, nulled when the object is deleted. */
     inputKey: text('input_key'),
+    /**
+     * More inputs a tool takes beside the main one, in the order it reads
+     * them (Burn Subtitles: the subtitle file). Emptied when they're deleted.
+     */
+    extraInputKeys: text('extra_input_keys')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     outputKey: text('output_key'),
     outputMeta: jsonb('output_meta'),
     /**

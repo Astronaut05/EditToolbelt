@@ -88,6 +88,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Package | Use | License | Status |
 |---|---|---|---|
 | ffmpeg / ffprobe | server media processing | LGPL/GPL (Debian's package in the worker image: a GPL build, no nonfree) | ⚠️ server only, checked 2026-09-30 |
+| Noto fonts (fonts-noto-core) | the fonts Burn Subtitles draws text with: Noto Sans, Serif and Sans Mono (Latin, Cyrillic, Greek); Debian's package in the worker image | OFL-1.1 | ✅ checked 2026-10-01 |
 | librosa | analysis helpers | ISC | 🔍 |
 | pyloudnorm | loudness (reference/tests) | MIT | 🔍 |
 | potrace | vectorise (Wave 3) | GPL-2.0 | ⚠️ server only |

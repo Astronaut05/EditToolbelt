@@ -80,6 +80,9 @@ export {
 export { Timeline, type TimelineRange } from './tool/Timeline';
 export { useEditor, type EditorState } from './tool/useEditor';
 export {
+  fileOptionFile,
+  fileOptionName,
+  fileOptionValue,
   ToolShell,
   type InputInfo,
   type OutputInfo,

@@ -273,6 +273,49 @@ def test_a_job_runs_end_to_end_and_its_input_is_gone_at_once(
     assert one(db, "select credit_balance from users where id = %s", user)["credit_balance"] == 7
 
 
+class ReadsExtras(Remux):
+    """Remuxes, and records what its extra input said (Burn Subtitles' subtitle file)."""
+
+    def run(self, ctx: JobContext) -> Output:
+        output = super().run(ctx)
+        return Output(
+            path=output.path,
+            content_type=output.content_type,
+            ext=output.ext,
+            meta={"extra": [path.read_text() for path in ctx.extra_paths]},
+        )
+
+
+def test_extra_inputs_reach_the_tool_and_go_with_the_job(
+    db: Conn, storage: Storage, media: dict[str, Any], tmp_path: Path
+) -> None:
+    user = new_user(db)
+    key = put_input(storage, media["mp4"])
+    subtitles = tmp_path / "subs.srt"
+    subtitles.write_text("1\n00:00:00,500 --> 00:00:01,000\nHi\n")
+    extra = put_input(storage, subtitles)
+    db.execute(
+        """
+        insert into uploads (user_id, storage_key, bytes, mime_claimed, tool_id, part_size,
+                             part_count, expires_at, completed_at, probed_at)
+        values (%s, %s, 1, 'application/x-subrip', 'test-remux', 1, 1,
+                now() + interval '1 hour', now(), now())
+        """,
+        (user, extra),
+    )
+    job = new_job(db, user, key, extra_input_keys=[extra])
+    run = runner(storage, ReadsExtras())
+    run.run(claim_this(db, run, job))
+
+    row = one(db, "select * from jobs where id = %s", job)
+    assert row["status"] == "succeeded"
+    assert row["output_meta"]["extra"] == [subtitles.read_text()]
+    assert (row["input_key"], row["extra_input_keys"]) == (None, [])
+    assert not exists(storage, key)
+    assert not exists(storage, extra)
+    assert one(db, "select deleted_at from uploads where storage_key = %s", extra)["deleted_at"]
+
+
 def test_a_failed_job_returns_its_credits_and_drops_its_input(
     db: Conn, storage: Storage, media: dict[str, Any]
 ) -> None:

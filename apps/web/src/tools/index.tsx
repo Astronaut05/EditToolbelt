@@ -21,6 +21,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'audio-converter': dynamic(() => import('./audio-converter')),
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
   'bpm-key-finder': dynamic(() => import('./bpm-key-finder')),
+  'burn-subtitles': dynamic(() => import('./burn-subtitles')),
   'color-converter': dynamic(() => import('./color-converter')),
   'color-palette-from-image': dynamic(() => import('./color-palette-from-image')),
   'color-picker-from-image': dynamic(() => import('./color-picker-from-image')),
