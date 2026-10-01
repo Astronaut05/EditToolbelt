@@ -244,6 +244,41 @@ def test_probe_records_what_a_file_is_and_refuses_broken_ones(
     assert bad["probe_error"] == "UNSUPPORTED_FORMAT"
 
 
+def test_an_upload_whose_file_is_gone_is_refused_and_holds_up_nothing(
+    db: Conn, storage: Storage, media: dict[str, Any]
+) -> None:
+    user = new_user(db)
+    keys = [f"in/{uuid.uuid4()}", put_input(storage, media["mp4"])]
+    ids = [
+        str(
+            one(
+                db,
+                """
+                insert into uploads (user_id, storage_key, bytes, mime_claimed, tool_id, part_size,
+                                     part_count, expires_at, completed_at)
+                values (%s, %s, 1, 'video/mp4', 'test-remux', 1, 1,
+                        now() + interval '1 hour', now() - make_interval(secs => %s))
+                returning id
+                """,
+                user,
+                key,
+                60 - n,
+            )["id"]
+        )
+        for n, key in enumerate(keys)
+    ]
+    passes = 0
+    while probe_next(db, storage):
+        passes += 1
+        assert passes < 50, "probing never settled"
+    gone = one(db, "select probe_error, probed_at from uploads where id = %s", ids[0])
+    assert gone["probe_error"] == "MISSING"
+    assert gone["probed_at"] is not None
+    there = one(db, "select probe, probe_error from uploads where id = %s", ids[1])
+    assert there["probe_error"] is None
+    assert there["probe"]["video"]["width"] == 160
+
+
 def test_a_job_runs_end_to_end_and_its_input_is_gone_at_once(
     db: Conn, storage: Storage, media: dict[str, Any]
 ) -> None:

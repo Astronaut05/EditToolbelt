@@ -920,3 +920,11 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M6 ("`api-client` package used by the web app for server tools"; done when "a script with only an API key can run any server tool end-to-end following the docs").
 **Reverse:** the client is one file; `server-run.ts` can go back to plain `fetch` calls.
+
+## 2026-10-01 · An upload whose file is gone is refused, not retried (M4 fix)
+
+**Decision:**
+- When the probe finds no object behind a completed upload (storage answers 404 or NoSuchKey), the worker marks it once: `probe_error = 'MISSING'`. The jobs API answers `409 UPLOAD_INCOMPLETE`, "The upload is gone. Upload the file again." This happens when the upload was cancelled or swept.
+- Any other storage error leaves the upload unprobed and lets the job slot wait 5 s, as it does for a storage outage.
+**Why:** found on the local stack. The probe took the oldest unprobed upload, retried a missing one at once and forever (2,477 tries in 2 minutes), and so never reached the uploads behind it.
+**Reverse:** remove the `MISSING` branch in `probe.py`; the slot then retries every 5 s instead of refusing.
