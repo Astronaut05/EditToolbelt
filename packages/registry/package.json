@@ -8,7 +8,8 @@
     "./search": "./src/search.ts",
     "./isolated": "./src/isolated.ts",
     "./schema": "./src/schema.ts",
-    "./options": "./src/options.ts"
+    "./options": "./src/options.ts",
+    "./pricing": "./src/pricing.ts"
   },
   "scripts": {
     "lint": "eslint .",

@@ -38,7 +38,7 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 
 ### Upload
 1. Client calls `POST /api/v1/uploads` with size, MIME, tool id → server validates against limits (tier, tool) → returns presigned multipart upload URLs (R2) + an `upload_id`.
-2. Browser uploads directly to storage, parts in parallel (4 at a time), with resume on part failure. The app server never proxies file bytes. R2 requires every part except the last to be the **same size** (min 5 MiB): pick one part size per upload (8 MiB normally, larger for multi-GB files). Part URLs expire in 15 min, so hand them out in batches (`POST /uploads/:id/parts`) — a 2 GB upload on a slow line outlives the first batch.
+2. Browser uploads directly to storage, parts in parallel (4 at a time), with resume on part failure. The app server never proxies file bytes. R2 requires every part except the last to be the **same size** (min 5 MiB): pick one part size per upload (8 MiB normally, larger for multi-GB files). Part URLs expire in 15 min, so hand them out in batches (`POST /uploads/:id/parts`) — a 2 GB upload on a slow line outlives the first batch. The bucket's CORS rules allow our origin for `PUT` and `GET` and **expose `ETag`**: the browser reads each part's ETag to complete the upload.
 3. Client calls `POST /api/v1/jobs` with `upload_id`, tool id, options. Server re-validates (magic bytes probed by the worker, see `11-security.md`), prices the job, reserves credits, inserts the job.
 
 ### Queue

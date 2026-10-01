@@ -111,7 +111,7 @@ export default async function AdminTool({ params, searchParams }: Props) {
                 defaultChecked={flag?.serverEnabled ?? false}
                 className="size-4.5 accent-(--accent)"
               />
-              Server path on (it exists from M4)
+              Server path on (where the tool has one)
             </label>
           )}
           <label className="flex flex-col gap-1.5 text-14">

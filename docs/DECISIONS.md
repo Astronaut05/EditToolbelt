@@ -753,3 +753,33 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M4 ("Credits reserve → capture/release wired … free-tier daily allowance … per-user concurrency caps"), `docs/06` → Endpoints and Job lifecycle, `docs/05` → Free allowance and Abuse.
 **Reverse:** to use `free_quota`, write it in `createJob`'s transaction and give it back wherever a job fails, is cancelled or expires (web and worker). The limits are in `config/business.ts`.
+
+## 2026-10-01 · Compress Video on our servers, and the server offer on tool pages (M4)
+
+**Decision:**
+- **The server offer lives in the ToolShell** (`docs/02` → Routing); a tool page only says how its options map to the API's (`toServerOptions` in `compress-video.tsx`). The page gets the server path from the registry only when an admin has switched it on (`ShellTool.server`, from `hasServerPath()`); the static export never has it.
+- **When the offer shows:**
+  - A file over the browser's limit: the drop zone now takes files up to the server's paid limit, and the shell offers the server instead of refusing.
+  - A file the browser can't read.
+  - A browser run that fails: "Use our servers" on the error.
+  - Within the browser's limits, the person can choose it: "Use our servers instead".
+- **The offer explains before anything is sent:** why, what it costs this account (a free daily job, or about N credits from the file's length with `priceOf`, or the tier's size limit), and that the file is deleted when the job ends and the result within the hour. Signed out, it links to sign-in and back. Nothing is uploaded until the person presses "Compress on our servers".
+- **The server's price is final.** When it differs from what the offer said (or the offer said free and it isn't), a dialog asks again. Declining cancels the upload.
+- **The browser client** (`apps/web/src/lib/server-run.ts`):
+  - It uploads 4 parts at a time, re-signing a part URL after 12 minutes or a refusal, 3 tries a part.
+  - It asks for the quote until the probe is done, starts the job with an Idempotency-Key, and follows it by server-sent events (polling if they fail).
+  - It downloads the result with progress and names it from the original, on the page. The file's name never reaches the API.
+  - Cancel deletes the upload or cancels the job.
+  - It lives in the app, not `packages/api-client`, which stays empty until M6 as `docs/12` says.
+- **`GET /api/v1/me`** (`docs/06`) answers the tier, balance and free jobs left; job results now carry the output's size, picture size and notes. A processor's own failures (`TARGET_TOO_SMALL`, `NO_VIDEO`) show its sentence; every other code shows a fixed one.
+- **The server Compress Video** (`processors/compress_video.py`) plans like the browser tool (`packages/engines/src/video/compress.ts`): the same bitrate sum, bits-per-pixel floor and Auto step-down, so the same settings give the same picture size either way.
+  - Size targets are two-pass (x264, x265, VP9). AV1 runs one pass: SVT-AV1 aims well at a bitrate alone.
+  - An overshoot re-runs the second pass with the bitrate scaled down.
+  - Quality levels are CRFs.
+  - The output is always 8-bit 4:2:0 so it plays everywhere, with metadata and chapters dropped.
+  - Audio is copied when the container takes it, else AAC 128 kbps (MP4) or Opus 96 kbps (WebM).
+  - The probe now records the audio bitrate (192 kbps assumed when a container doesn't say).
+- **The API's Compress Video options follow the browser tool's settings**: `mode`, `targetMb`, `quality`, `resolution`, `fps`, `codec` (`h264`, `h265`, `av1`, `vp9`), `audio`.
+
+**Why:** `docs/12` → M4 ("Hybrid routing UI (server fallback offer with reason)", "large-file video compress"; done-when: "a 1 GB video compresses on the server end-to-end with live progress"), `docs/02` → Routing ("Never upload a file the user didn't explicitly agree to upload"), `tools/video.md` → V02.
+**Reverse:** switch the server path off in Admin → Tools; the page goes back to browser-only within 30 s. The offer is `ServerNotice` and `runOnServer` in the ToolShell.

@@ -1,0 +1,250 @@
+/**
+ * The server path on a tool page (docs/02 → Routing; docs/12 → M4: "Hybrid
+ * routing UI (server fallback offer with reason)"): the offer and its terms,
+ * sign-in, the upload from the page, the server's price, live progress and
+ * the result named after the original. The tests play the worker in the
+ * database, as in jobs.spec.ts; the real worker runs in the stack.
+ */
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { applyCredit, and, desc, eq, isNotNull, jobs, toolFlags, uploads, users } from '@etb/db';
+import { expect, test, type Page } from '@playwright/test';
+import { AwsClient } from 'aws4fetch';
+
+import { TEST_STORAGE } from '../scripts/server-env.ts';
+import { closeTestDb, newEmail, signIn, testDb } from './helpers';
+
+const db = testDb();
+const CLIP = fileURLToPath(new URL('../../../fixtures/video/clip-h264-aac.mp4', import.meta.url));
+
+const storage = new AwsClient({
+  accessKeyId: TEST_STORAGE.S3_ACCESS_KEY_ID,
+  secretAccessKey: TEST_STORAGE.S3_SECRET_ACCESS_KEY,
+  service: 's3',
+  region: TEST_STORAGE.S3_REGION,
+});
+const objectUrl = (key: string) => `${TEST_STORAGE.S3_ENDPOINT}/${TEST_STORAGE.S3_BUCKET}/${key}`;
+
+test.describe.configure({ mode: 'serial' });
+
+test.beforeAll(async () => {
+  await db
+    .insert(toolFlags)
+    .values({ toolId: 'compress-video', serverEnabled: true })
+    .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
+});
+
+// The switches stay on (see jobs.spec.ts): the API's routes would see them go off late.
+test.afterAll(async () => {
+  await closeTestDb();
+});
+
+const offerLink = (page: Page) => page.getByRole('button', { name: 'Use our servers instead' });
+const startButton = (page: Page) =>
+  page.getByRole('button', { name: 'Compress on our servers', exact: true });
+
+/** Drops the clip; the page shows the server path within 30 s of it being switched on. */
+async function dropWithServer(page: Page) {
+  await expect
+    .poll(
+      async () => {
+        await page.goto('/compress-video');
+        await page.locator('input[type=file][data-hydrated]').first().setInputFiles(CLIP);
+        await expect(page.getByRole('button', { name: 'Compress', exact: true })).toBeVisible();
+        return offerLink(page).isVisible();
+      },
+      { timeout: 90_000, intervals: [3000] },
+    )
+    .toBe(true);
+  await offerLink(page).click();
+}
+
+async function userId(email: string): Promise<string> {
+  const [row] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (!row) throw new Error('no such user');
+  return row.id;
+}
+
+/** The worker's probe: waits for the page's upload to complete, then records it. */
+async function probeUpload(owner: string, durationMs: number) {
+  let id = '';
+  await expect
+    .poll(
+      async () => {
+        const [row] = await db
+          .select()
+          .from(uploads)
+          .where(eq(uploads.userId, owner))
+          .orderBy(desc(uploads.createdAt))
+          .limit(1);
+        id = row?.completedAt && !row.probedAt ? row.id : '';
+        return id;
+      },
+      { timeout: 30_000 },
+    )
+    .not.toBe('');
+  await db
+    .update(uploads)
+    .set({
+      probe: {
+        container: 'mp4',
+        duration_ms: durationMs,
+        video: { codec: 'h264', width: 256, height: 144, fps: 30 },
+        audio: { codec: 'aac', channels: 2, sample_rate: 48000, bit_rate: 128000 },
+      },
+      probedAt: new Date(),
+    })
+    .where(eq(uploads.id, id));
+  return id;
+}
+
+async function jobOf(owner: string) {
+  let job: typeof jobs.$inferSelect | undefined;
+  await expect
+    .poll(
+      async () => {
+        [job] = await db
+          .select()
+          .from(jobs)
+          // A job the page started has an input; the ones a test made up don't.
+          .where(and(eq(jobs.userId, owner), isNotNull(jobs.inputKey)))
+          .orderBy(desc(jobs.createdAt))
+          .limit(1);
+        return job?.id ?? '';
+      },
+      { timeout: 30_000 },
+    )
+    .not.toBe('');
+  if (!job) throw new Error('no job');
+  return job;
+}
+
+test('signed out, the offer says why and asks to sign in first', async ({ page }) => {
+  await dropWithServer(page);
+  const notice = page.getByRole('status').filter({ hasText: 'Our servers', visible: true });
+  await expect(notice).toContainText('You chose our servers');
+  await expect(notice).toContainText('Server processing needs an account');
+  await expect(notice.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+    'href',
+    '/sign-in?next=%2Fcompress-video',
+  );
+  await expect(startButton(page)).toBeDisabled();
+});
+
+test('a free server job: upload, live progress, and the result named after the original', async ({
+  page,
+}) => {
+  const email = newEmail();
+  await signIn(page, email);
+  const owner = await userId(email);
+  await dropWithServer(page);
+  await expect(
+    page
+      .getByText('Free: uses 1 of your free server jobs today (3 left).')
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await page.getByRole('combobox', { name: 'Size' }).selectOption('10');
+  await startButton(page).click();
+
+  await probeUpload(owner, 30_000);
+  const job = await jobOf(owner);
+  expect(job).toMatchObject({ funding: 'daily', status: 'queued', creditsQuoted: 0 });
+  expect(job.options).toMatchObject({ mode: 'size', targetMb: 10, codec: 'h264', audio: 'keep' });
+
+  // The worker's part.
+  await db
+    .update(jobs)
+    .set({ status: 'running', progress: 60, stage: 'compressing', startedAt: new Date() })
+    .where(eq(jobs.id, job.id));
+  await expect(page.getByText('Compressing').filter({ visible: true }).first()).toBeVisible({
+    timeout: 10_000,
+  });
+  const output = readFileSync(CLIP).subarray(0, 50_000);
+  const outputKey = `out/${randomUUID()}`;
+  await storage.fetch(objectUrl(outputKey), { method: 'PUT', body: output });
+  await db
+    .update(jobs)
+    .set({
+      status: 'succeeded',
+      progress: 100,
+      outputKey,
+      outputMeta: {
+        bytes: output.length,
+        content_type: 'video/mp4',
+        ext: 'mp4',
+        width: 256,
+        height: 144,
+        notes: ['Saved in 8-bit colour so it plays everywhere'],
+      },
+      finishedAt: new Date(),
+    })
+    .where(eq(jobs.id, job.id));
+
+  const download = page.getByRole('button', { name: /^Download MP4/ });
+  await expect(download).toBeEnabled({ timeout: 20_000 });
+  await expect(
+    page.getByText('Saved in 8-bit colour so it plays everywhere').first(),
+  ).toBeAttached();
+  const saved = page.waitForEvent('download');
+  await download.click();
+  const file = await saved;
+  expect(file.suggestedFilename()).toBe('clip-h264-aac_compressed.mp4');
+  expect(readFileSync(await file.path()).equals(output)).toBe(true);
+  await storage.fetch(objectUrl(outputKey), { method: 'DELETE' });
+});
+
+test('a price that differs from the offer is asked again; declining uploads nothing more', async ({
+  page,
+}) => {
+  const email = newEmail();
+  await signIn(page, email);
+  const owner = await userId(email);
+  for (let i = 0; i < 3; i += 1) {
+    await db.insert(jobs).values({
+      toolId: 'compress-video',
+      userId: owner,
+      source: 'web',
+      status: 'succeeded',
+      funding: 'daily',
+    });
+  }
+  await applyCredit(db, owner, 'welcome_grant', 10);
+  await dropWithServer(page);
+  // 30 s of video: the 2-credit minimum.
+  await expect(
+    page.getByText('About 2 credits; you have 10.').filter({ visible: true }),
+  ).toBeVisible();
+
+  await startButton(page).click();
+  const declined = await probeUpload(owner, 4 * 60_000);
+  const dialog = page.getByRole('dialog', { name: 'Confirm the price' });
+  await expect(dialog).toContainText('this costs 4 credits. You have 10.');
+  await dialog.getByRole('button', { name: 'Not now' }).click();
+  await expect(startButton(page)).toBeEnabled();
+  await expect
+    .poll(async () => {
+      const [row] = await db.select().from(uploads).where(eq(uploads.id, declined));
+      return row?.deletedAt ?? null;
+    })
+    .not.toBeNull();
+
+  await startButton(page).click();
+  await probeUpload(owner, 4 * 60_000);
+  await dialog.getByRole('button', { name: 'Start · 4 credits' }).click();
+  const job = await jobOf(owner);
+  expect(job).toMatchObject({ funding: 'credits', creditsQuoted: 4 });
+  const [after] = await db.select().from(users).where(eq(users.id, owner));
+  expect(after?.creditBalance).toBe(6);
+
+  // The worker gives up: the page says why, and that the credits came back.
+  await db
+    .update(jobs)
+    .set({ status: 'failed', errorCode: 'TIMEOUT', finishedAt: new Date() })
+    .where(eq(jobs.id, job.id));
+  await applyCredit(db, owner, 'release', 4, { jobId: job.id });
+  await expect(page.getByRole('alert').filter({ hasText: 'Couldn' })).toContainText(
+    'It took too long and was stopped. Credits returned.',
+  );
+});

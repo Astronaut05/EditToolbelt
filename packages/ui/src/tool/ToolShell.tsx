@@ -39,6 +39,16 @@ import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
+import { ServerNotice } from './ServerNotice';
+import {
+  plural,
+  ServerRunError,
+  serverTerms,
+  type ServerAccount,
+  type ServerInfo,
+  type ServerQuote,
+  type ShellServer,
+} from './server';
 import type { TimelineRange } from './Timeline';
 import { useEditor, type EditorState } from './useEditor';
 
@@ -76,6 +86,8 @@ export interface ShellTool {
   /** Related tools; those with `accepts` can take this tool's result (the handoff). */
   related: { name: string; href: string; id?: string; accepts?: string[] }[];
   howTo?: string[];
+  /** Set when the tool's server path is on (the server build reads it from the database). */
+  server?: ServerInfo;
 }
 
 export interface ShellOption {
@@ -406,7 +418,14 @@ export type ShellState =
       elapsedSec: number;
     }
   | { kind: 'result'; input: InputInfo; output: OutputInfo; file?: File }
-  | { kind: 'error'; label: string; title: string; body: string };
+  | {
+      kind: 'error';
+      label: string;
+      title: string;
+      body: string;
+      /** The file, when our servers can try it instead. */
+      retry?: { input: InputInfo; file: File };
+    };
 
 export interface ToolShellProps {
   tool: ShellTool;
@@ -421,6 +440,8 @@ export interface ToolShellProps {
   onEvent?: (name: string, props: Record<string, string>) => void;
   /** Calculator tools: their own inputs and live results, in the shared layout. */
   calculator?: { inputs: ReactNode; results: ReactNode };
+  /** A hybrid tool's server path, once an admin has switched it on (docs/02 → Routing). */
+  server?: ShellServer;
 }
 
 /** Refine strokes from their option (JSON), or none if it's empty or malformed. */
@@ -457,8 +478,18 @@ export function ToolShell({
   initialOptions,
   onEvent,
   calculator,
+  server,
 }: ToolShellProps) {
   const [state, setState] = useState<ShellState>(initialState ?? { kind: 'empty' });
+  // The server path: why it's offered for this file, the account, and a price to confirm.
+  const [serverReason, setServerReason] = useState<string | null>(null);
+  const [account, setAccount] = useState<ServerAccount | null | undefined>(undefined);
+  // Whether the current run is on our servers (the running note says where the work happens).
+  const [onServer, setOnServer] = useState(false);
+  const [asking, setAsking] = useState<{
+    quote: ServerQuote;
+    answer: (go: boolean) => void;
+  } | null>(null);
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
@@ -526,6 +557,7 @@ export function ToolShell({
       controller.current = abort;
       const started = performance.now();
       track('tool_run_started', { path: 'client' });
+      setOnServer(false);
       setState({ kind: 'running', input, fraction: 0, elapsedSec: 0 });
       try {
         const edit = editor.edit;
@@ -606,6 +638,7 @@ export function ToolShell({
           title: 'Something went wrong while processing',
           // Engines write whole sentences; don't double the full stop.
           body: `${(error instanceof Error ? error.message : 'Unknown error').replace(/\.$/, '')}. Try again, or try another file.`,
+          retry: server ? { input, file } : undefined,
         });
       }
     },
@@ -619,14 +652,127 @@ export function ToolShell({
       preset,
       range,
       ranges,
+      server,
       tool.ui,
       track,
     ],
   );
 
+  /**
+   * The same file on our servers, once the person has pressed the button that
+   * says so: upload, the server's price (asked again if it differs), the job's
+   * progress, and the result downloaded back like a browser result.
+   */
+  const runOnServer = useCallback(
+    async (input: InputInfo, file: File) => {
+      if (!server) return;
+      controller.current?.abort();
+      const abort = new AbortController();
+      controller.current = abort;
+      const started = performance.now();
+      track('tool_run_started', { path: 'server' });
+      setOnServer(true);
+      setState({ kind: 'running', input, stage: 'Uploading', fraction: 0, elapsedSec: 0 });
+      try {
+        const credits = server.estimate(media?.durationSec ?? input.durationSec);
+        const free =
+          credits === 0 || (account !== null && account !== undefined && account.freeJobsLeft > 0);
+        const out = await server.run(file, options, {
+          signal: abort.signal,
+          offered: { credits, free },
+          progress: ({ stage, fraction, amount, step }) => {
+            setState({
+              kind: 'running',
+              input,
+              stage,
+              fraction,
+              amount,
+              step,
+              elapsedSec: (performance.now() - started) / 1000,
+            });
+          },
+          confirm: (quote) =>
+            new Promise<boolean>((resolve) => {
+              setAsking({
+                quote,
+                answer: (go) => {
+                  setAsking(null);
+                  if (!go) {
+                    // Declined: nothing runs, and the upload goes (the run sees the abort).
+                    abort.abort();
+                    setState({ kind: 'ready', input, files: [file] });
+                  }
+                  resolve(go);
+                },
+              });
+            }),
+        });
+        const url = URL.createObjectURL(out.blob);
+        urls.current.push(url);
+        const seconds = (performance.now() - started) / 1000;
+        track('tool_run_succeeded', {
+          engine_path: 'server',
+          duration: durationBucket(seconds * 1000),
+        });
+        // The balance and free jobs left have changed.
+        setAccount(undefined);
+        setServerReason(null);
+        setState({
+          kind: 'result',
+          input,
+          file,
+          output: {
+            size: out.blob.size,
+            ext: out.ext,
+            url,
+            blob: out.blob,
+            seconds,
+            path: 'server',
+            width: out.width ?? input.width,
+            height: out.height ?? input.height,
+            notes: out.notes,
+          },
+        });
+      } catch (error) {
+        if (abort.signal.aborted) return;
+        track('tool_run_failed', { error_code: 'server', engine_path: 'server' });
+        setAccount(undefined);
+        const known = error instanceof ServerRunError ? error : null;
+        const message = (error instanceof Error ? error.message : 'Unknown error').replace(
+          /\.$/,
+          '',
+        );
+        setState({
+          kind: 'error',
+          label: "Couldn't process this file",
+          title: known?.title ?? 'Our servers couldn’t do this',
+          body: `${message}.${known?.creditsReturned ? ' Credits returned.' : ''}`,
+        });
+      }
+    },
+    [account, media, options, server, track],
+  );
+
+  // The account decides the offer's terms: loaded when the offer shows.
+  useEffect(() => {
+    if (!server || serverReason === null || account !== undefined) return;
+    let live = true;
+    server
+      .account()
+      .then((found) => {
+        if (live) setAccount(found);
+      })
+      .catch(() => {
+        if (live) setAccount(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [account, server, serverReason]);
+
   /** Media tools read the file first: its length sets up the timeline. */
   const inspect = useCallback(
-    async (input: InputInfo, file: File, files: File[]) => {
+    async (input: InputInfo, file: File, files: File[], offer: string | null) => {
       if (!preset.probe) return;
       setMedia(null);
       setThumbs([]);
@@ -636,6 +782,15 @@ export function ToolShell({
       try {
         info = await preset.probe(file);
       } catch (error) {
+        if (server) {
+          // Our servers read more than any browser: offer them instead of a dead end.
+          setServerReason(
+            offer ??
+              `Your browser can’t read this file (${error instanceof Error ? error.message.replace(/\.$/, '') : 'unknown format'}). Our servers can try.`,
+          );
+          setState({ kind: 'ready', input, files });
+          return;
+        }
         setState({
           kind: 'error',
           label: "Couldn't read this file",
@@ -650,9 +805,10 @@ export function ToolShell({
       setRanges([preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }]);
       setActiveRange(0);
       const probed = { ...input, durationSec: info.durationSec };
+      setServerReason(offer);
       setState({ kind: 'ready', input: probed, files });
       // Tools that run as a file arrives (A03) run once it's read.
-      if (preset.autoRun) void run(probed, file);
+      if (preset.autoRun && !offer) void run(probed, file);
       void info
         .thumbnails?.(12)
         .then((frames) => {
@@ -665,7 +821,7 @@ export function ToolShell({
         .then(setPeaks)
         .catch(() => undefined);
     },
-    [preset, run],
+    [preset, run, server],
   );
 
   const intake = useCallback(
@@ -689,6 +845,12 @@ export function ToolShell({
       const url = URL.createObjectURL(file);
       urls.current.push(url);
       const input: InputInfo = { name: file.name, size: file.size, url };
+      // Bigger than the browser takes: our servers, if this tool has them (the drop zone let it in).
+      const offer =
+        server && file.size > preset.maxBytes
+          ? `This is a ${formatBytes(file.size)} file; the browser limit for this tool is ${formatBytes(preset.maxBytes)}. Our servers can take it.`
+          : null;
+      setServerReason(null);
       track('tool_file_added', {
         mime: file.type.split('/')[0] || 'unknown',
         size: sizeBucket(file.size),
@@ -709,13 +871,14 @@ export function ToolShell({
         return;
       }
       if (preset.probe) {
-        void inspect(input, file, files);
+        void inspect(input, file, files, offer);
         return;
       }
-      if (preset.autoRun) void run(input, file);
+      setServerReason(offer);
+      if (preset.autoRun && !offer) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [inspect, preset, resetEditor, run, tool.ui, track],
+    [inspect, preset, resetEditor, run, server, tool.ui, track],
   );
 
   // A result handed over from another tool arrives as if it were dropped here.
@@ -812,6 +975,7 @@ export function ToolShell({
 
   const cancel = useCallback(() => {
     controller.current?.abort();
+    setServerReason(null);
     setState({ kind: 'empty' });
     setBatch([]);
     setBatchDone(false);
@@ -949,6 +1113,45 @@ export function ToolShell({
     </OptionsPanel>
   );
 
+  // The offer's numbers: the price for this file's length, and whether this account can start it.
+  const serverCredits =
+    server && state.kind === 'ready'
+      ? server.estimate(media?.durationSec ?? state.input.durationSec)
+      : null;
+  const serverOffer =
+    server && serverReason !== null && state.kind === 'ready'
+      ? {
+          ok: account ? serverTerms(server, account, state.input.size, serverCredits).ok : false,
+          notice: (className: string) => (
+            <ServerNotice
+              server={server}
+              reason={serverReason}
+              account={account}
+              bytes={state.input.size}
+              credits={serverCredits}
+              className={className}
+            />
+          ),
+        }
+      : null;
+  // Within the browser's limits the server is a choice, never a push.
+  const serverChoice = server &&
+    serverReason === null &&
+    state.kind === 'ready' &&
+    batch.length === 0 && (
+      <p className="mt-3.5 px-4 text-14 lg:px-0">
+        <button
+          type="button"
+          className="link-accent"
+          onClick={() => {
+            setServerReason('You chose our servers: handy for long videos or a slow device.');
+          }}
+        >
+          Use our servers instead
+        </button>
+      </p>
+    );
+
   const inBatch = batch.length > 0;
   const batchRunning = inBatch && !batchDone && batch.some((item) => item.status !== 'queued');
   const running = state.kind === 'running' || batchRunning;
@@ -978,6 +1181,17 @@ export function ToolShell({
             {preset.runLabel ?? 'Start'} · {batch.length} files
           </Button>
         )
+      ) : state.kind === 'ready' && serverOffer ? (
+        <Button
+          variant="primary"
+          className="flex-1"
+          disabled={Boolean(blocked) || !serverOffer.ok}
+          onClick={() => {
+            if (state.files?.[0]) void runOnServer(state.input, state.files[0]);
+          }}
+        >
+          {preset.runLabel ?? 'Start'} on our servers
+        </Button>
       ) : state.kind === 'ready' ? (
         <Button
           variant="primary"
@@ -1124,9 +1338,24 @@ export function ToolShell({
         title={state.title}
         body={state.body}
         actions={
-          <Button variant="primary" onClick={cancel}>
-            Try another file
-          </Button>
+          <>
+            {state.retry && (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  const retry = state.retry;
+                  if (!retry) return;
+                  setServerReason('Your browser couldn’t do this one. Our servers can try.');
+                  setState({ kind: 'ready', input: retry.input, files: [retry.file] });
+                }}
+              >
+                Use our servers
+              </Button>
+            )}
+            <Button variant={state.retry ? 'secondary' : 'primary'} onClick={cancel}>
+              Try another file
+            </Button>
+          </>
         }
       />
     </div>
@@ -1134,7 +1363,8 @@ export function ToolShell({
     <DropZone
       accept={preset.accept}
       multiple={preset.multiple}
-      maxBytes={preset.maxBytes}
+      // With a server path, bigger files come in and get the server offer.
+      maxBytes={server ? Math.max(preset.maxBytes, server.maxBytes.paid) : preset.maxBytes}
       noun={preset.noun}
       title={preset.dropTitle}
       chooseLabel={preset.chooseLabel}
@@ -1177,7 +1407,9 @@ export function ToolShell({
       >
         {header}
         {settings}
+        {serverOffer?.notice('mt-6.5 hidden lg:block')}
         {actions}
+        {serverChoice}
         {blocked && (
           <p role="status" className="mt-3.5 px-4 text-14 leading-body text-text-muted lg:px-0">
             {blocked}
@@ -1186,9 +1418,11 @@ export function ToolShell({
         {state.kind === 'ready' && media?.warnings && media.warnings.length > 0 && (
           <Notes title="Before you start" notes={media.warnings} className="mt-6 px-4 lg:px-0" />
         )}
-        {running && preset.runningNote && (
+        {running && (onServer || preset.runningNote) && (
           <p className="mt-3.5 hidden text-14 leading-body text-text-muted lg:block">
-            {preset.runningNote}
+            {onServer
+              ? 'It runs on our servers; keep this tab open to get the result back.'
+              : preset.runningNote}
           </p>
         )}
         {result && state.output.notes && state.output.notes.length > 0 && (
@@ -1214,9 +1448,46 @@ export function ToolShell({
         {preview}
       </section>
 
+      {asking && (
+        <Dialog
+          open
+          onClose={() => {
+            asking.answer(false);
+          }}
+          title="Confirm the price"
+        >
+          <p className="text-15.5 leading-body">
+            {asking.quote.funding === 'credits'
+              ? `Our servers checked the file: this costs ${plural(asking.quote.credits, 'credit')}. You have ${String(asking.quote.balance)}.`
+              : 'Our servers checked the file: this one is free.'}
+          </p>
+          <p className="mt-2 text-14 text-text-muted">
+            Credits are only kept if it succeeds; a failed job gives them back.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button
+              variant="primary"
+              onClick={() => {
+                asking.answer(true);
+              }}
+            >
+              Start · {plural(asking.quote.credits, 'credit')}
+            </Button>
+            <Button
+              onClick={() => {
+                asking.answer(false);
+              }}
+            >
+              Not now
+            </Button>
+          </div>
+        </Dialog>
+      )}
+
       {/* Phone result: title, settings as tappable rows, handoff links. */}
       {hasFile && (
         <div className="pb-28 lg:hidden">
+          {serverOffer?.notice('mx-4 mt-4')}
           {result && (
             <h2 className="px-4 pt-4 text-24 leading-title font-display tracking-title">
               {preset.resultTitle}

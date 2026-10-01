@@ -84,7 +84,7 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
     record: dict[str, Any] = {
         "container": sorted(names & allowed)[0],
         "duration_ms": duration_ms,
-        "bit_rate": int(fmt["bit_rate"]) if str(fmt.get("bit_rate", "")).isdigit() else None,
+        "bit_rate": _int_or_none(fmt.get("bit_rate")),
         "streams": len(streams),
         "video": None,
         "audio": None,
@@ -110,8 +110,14 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
             "codec": audio.get("codec_name"),
             "sample_rate": int(audio.get("sample_rate") or 0),
             "channels": int(audio.get("channels") or 0),
+            # Not every container says (WebM, MKV); size targets assume 192 kbps then.
+            "bit_rate": _int_or_none(audio.get("bit_rate")),
         }
     return record
+
+
+def _int_or_none(value: object) -> int | None:
+    return int(str(value)) if str(value or "").isdigit() else None
 
 
 def _rotation(stream: dict[str, Any]) -> int:

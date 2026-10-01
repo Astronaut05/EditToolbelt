@@ -1,6 +1,10 @@
 import {
   availableRelated,
+  costOf,
   conversionPath,
+  hasServerPath,
+  limitsOf,
+  priceLabel,
   livePairs,
   PAIR_COPY,
   categoryPath,
@@ -32,6 +36,23 @@ export function shellTool(tool: ToolDef): ShellTool {
       accepts,
     })),
     howTo: tool.seo.howTo,
+    ...(serverInfo(tool) && { server: serverInfo(tool) }),
+  };
+}
+
+/**
+ * A hybrid tool's server path, once an admin has switched it on. Only the
+ * server build knows (it reads the switch from the database); the static
+ * export never offers it.
+ */
+function serverInfo(tool: ToolDef): ShellTool['server'] {
+  const server = limitsOf(tool)?.server;
+  if (tool.runtime !== 'hybrid' || !hasServerPath(tool) || !server) return undefined;
+  const rule = costOf(tool);
+  return {
+    rule,
+    price: priceLabel(rule),
+    maxBytes: { free: server.free.maxBytes, paid: server.paid.maxBytes },
   };
 }
 

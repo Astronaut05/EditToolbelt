@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { priceOf } from './pricing';
+import { priceLabel, priceOf } from './pricing';
 
 describe('priceOf', () => {
   it('prices per started minute, with a minimum', () => {
@@ -17,5 +17,15 @@ describe('priceOf', () => {
     const mp = { kind: 'perMegapixel', credits: 0.25, minCredits: 2 } as const;
     expect(priceOf(mp, { megapixels: 16 })).toBe(4);
     expect(priceOf(mp, { megapixels: 1 })).toBe(2);
+  });
+});
+
+describe('priceLabel', () => {
+  it('says the rule in words', () => {
+    expect(priceLabel({ kind: 'perMinute', credits: 1, minCredits: 2 })).toBe(
+      '1 credit a minute, at least 2',
+    );
+    expect(priceLabel({ kind: 'flat', credits: 2 })).toBe('2 credits');
+    expect(priceLabel({ kind: 'free' })).toBe('Free');
   });
 });

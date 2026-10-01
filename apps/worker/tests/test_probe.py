@@ -22,7 +22,13 @@ def raw(fmt: str = "mov,mp4,m4a,3gp,3g2,mj2", **extra: Any) -> dict[str, Any]:
         "format": {"format_name": fmt, "duration": "12.5", "bit_rate": "800000"},
         "streams": [
             VIDEO,
-            {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2},
+            {
+                "codec_type": "audio",
+                "codec_name": "aac",
+                "sample_rate": "48000",
+                "channels": 2,
+                "bit_rate": "128000",
+            },
         ],
         **extra,
     }
@@ -44,7 +50,7 @@ def test_summarizes_container_streams_and_duration() -> None:
             "pix_fmt": "yuv420p",
             "rotation": 0,
         },
-        "audio": {"codec": "aac", "sample_rate": 48000, "channels": 2},
+        "audio": {"codec": "aac", "sample_rate": 48000, "channels": 2, "bit_rate": 128000},
     }
 
 
