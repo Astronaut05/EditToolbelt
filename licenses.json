@@ -403,7 +403,7 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": ["fflate"],
-      "use": "ZIP of batch outputs, loaded only when \"Download all\" is used",
+      "use": "ZIP of batch outputs (\"Download all\") and of Split Image's tiles, in the image worker",
       "license": "MIT",
       "scope": "browser",
       "status": "approved",

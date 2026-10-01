@@ -955,3 +955,21 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/color.md` → C04, `tools/utility.md` → U03.
 **Reverse:** the rules live in `packages/core/src/color/contrast.ts` and `calc/print.ts`, with their tests.
+
+## 2026-10-01 · Split Image into Grid (M8)
+
+**Decision:**
+- **The image worker cuts the tiles.** It decodes once, crops each tile pixel for pixel, encodes it, adds the chosen metadata, and answers one ZIP.
+  - The ZIP is stored, not deflated: images don't shrink.
+  - fflate, already in the register for batch ZIPs, now also runs in the worker.
+  - Tiles skip PNG's slow lossless pass: a dozen would take a minute.
+- **Grids:** presets 3 × 3, 1 × 2, 1 × 3, 1 × 4, 1 × 10, 2 × 2, 2 × 3, 3 × 2, or custom up to 10 × 10. At most 100 tiles, none under 16 px.
+- **Gaps**, the spec's "gap handling": "Feed gaps" leaves out a strip 2.5 % of a tile wide between tiles, so a picture lines up across a profile grid's own gaps (about 3 px between 120-odd px posts).
+- **Leftover pixels:** "Equal size" (the default) trims them evenly from the edges. "Every pixel" lets tiles differ by 1 px.
+- **Naming:** `name_01_r1c1.png`.
+  - The number follows the chosen order: row by row, or posting order (the last tile first, so a profile grid reads right after the final post).
+  - The row and column are always in the name.
+- **The result card for a non-image output:** the ToolShell shows a file card instead of a before/after when the result isn't an image.
+
+**Why:** `tools/photo.md` → P14.
+**Reverse:** the grid rules are in `packages/engines/src/image/grid.ts`, with tests.

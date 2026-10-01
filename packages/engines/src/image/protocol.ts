@@ -1,5 +1,6 @@
 /** Messages between the image engines and their worker. */
 import type { GeometryJob } from './geometry';
+import type { GridSpec } from './grid';
 import type { ImageFormat } from './sniff';
 
 export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'bmp';
@@ -40,6 +41,8 @@ export interface ImageJob {
   neverGrow?: boolean;
   /** Turn, flip, crop, resize (P02 Crop, P03 Resize). */
   geometry?: GeometryJob;
+  /** P14: cut into tiles and answer a ZIP of them, named from `stem`. */
+  tiles?: GridSpec & { stem: string };
 }
 
 export type WorkerMessage =
@@ -52,5 +55,7 @@ export type WorkerMessage =
       output: OutputFormat;
       notes: string[];
       quality?: number;
+      /** P14: the bytes are a ZIP of this many tiles. */
+      tiles?: number;
     }
   | { type: 'error'; message: string };

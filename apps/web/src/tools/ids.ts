@@ -25,6 +25,7 @@ export const TOOL_IDS = [
   'remove-background',
   'resize-image',
   'rotate-image',
+  'split-image',
   'subtitle-converter',
   'subtitle-shift',
   'timecode-calculator',
