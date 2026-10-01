@@ -52,6 +52,27 @@ export function headerRules(): HeaderRule[] {
   ];
 }
 
+/**
+ * The headers `headerRules()` sets on one path, as `pnpm preview` and
+ * Cloudflare Pages apply `_headers`: every matching rule, in order (`*` is
+ * any run of characters). The server build's proxy uses it; the CSP is left
+ * to the proxy, which builds the page's own.
+ */
+export function headersForPath(pathname: string, rules = headerRules()): [string, string][] {
+  const out = new Map<string, [string, string]>();
+  for (const rule of rules) {
+    const pattern = new RegExp(
+      `^${rule.path.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`,
+    );
+    if (!pattern.test(pathname)) continue;
+    for (const [name, value] of rule.headers) {
+      if (name === 'Content-Security-Policy') continue;
+      out.set(name.toLowerCase(), [name, value]);
+    }
+  }
+  return [...out.values()];
+}
+
 export function renderHeaders(rules: HeaderRule[]): string {
   return rules
     .map((rule) =>

@@ -253,6 +253,40 @@ jobs:
         if: always()
         run: docker compose down --volumes
 
+  image:
+    name: Production web image · builds, starts, refuses pages without Access
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The same Dockerfile Railway builds (.railway/railway.ts). Hosts are
+      # reserved test names; nothing here reaches a real service.
+      - name: Build
+        run: >
+          docker build --file apps/web/Dockerfile --tag etb-web
+          --build-arg SITE_URL=https://site.example
+          --build-arg S3_ENDPOINT=https://storage.example .
+      - name: Starts, reports its version, and refuses pages until Access is set up
+        run: |
+          docker run --detach --name web --publish 8080:8080 \
+            --env APP_ENV=production --env APP_VERSION=ci-check \
+            --env SITE_URL=https://site.example --env DATABASE_URL=postgresql://none:none@127.0.0.1:1/none \
+            --env BETTER_AUTH_SECRET=ci-only-secret-never-used-anywhere-else-00 \
+            --env SMTP_URL=smtp://127.0.0.1:1 --env S3_ENDPOINT=https://storage.example \
+            --env S3_BUCKET=ci-only --env S3_ACCESS_KEY_ID=ci --env S3_SECRET_ACCESS_KEY=ci \
+            etb-web
+          for i in $(seq 1 60); do
+            curl -fs http://localhost:8080/healthz > /dev/null && break
+            sleep 1
+          done
+          curl -fs http://localhost:8080/healthz | jq -e '.version == "ci-check"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/)" = 503
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/tools)" = 503
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: www.site.example' http://localhost:8080/convert)" = 308
+      - name: Show logs
+        if: failure()
+        run: docker logs web
+
   # Dormant until Go public (docs/12-milestones.md): without the
   # CLOUDFLARE_API_TOKEN secret the deploy job below is skipped, not failed.
   deploy-gate:

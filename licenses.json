@@ -856,6 +856,32 @@
       "checked": "2026-09-30"
     },
     {
+      "label": "Railway SDK (`railway`)",
+      "section": "Development, build and CI",
+      "ecosystem": "npm",
+      "packages": ["railway"],
+      "use": "describes the production project for Railway's CLI to plan and apply (.railway/railway.ts; never shipped)",
+      "license": "MIT",
+      "scope": "dev",
+      "status": "approved",
+      "version": "3.12.0",
+      "source": "https://github.com/railwayapp/railway-ts-sdk",
+      "checked": "2026-10-01"
+    },
+    {
+      "label": "Railway CLI (`@railway/cli`)",
+      "section": "Development, build and CI",
+      "ecosystem": "service",
+      "packages": ["@railway/cli"],
+      "use": "plans and applies .railway/railway.ts from CI (installed in the workflow, pinned version)",
+      "license": "ISC",
+      "scope": "dev",
+      "status": "approved",
+      "version": "5.63.1",
+      "source": "https://github.com/railwayapp/cli",
+      "checked": "2026-10-01"
+    },
+    {
       "label": "DefinitelyTyped types",
       "section": "Development, build and CI",
       "ecosystem": "npm",

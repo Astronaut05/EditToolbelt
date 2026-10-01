@@ -15,7 +15,7 @@
     "js-budget": "node scripts/js-budget.ts",
     "models": "node scripts/models.ts",
     "e2e:server": "node scripts/e2e-server.ts",
-    "build:server": "ETB_TARGET=server next build",
+    "build:server": "node scripts/models.ts --strict && ETB_TARGET=server next build",
     "start:server": "ETB_TARGET=server next start"
   },
   "dependencies": {
