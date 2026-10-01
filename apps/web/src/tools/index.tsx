@@ -64,6 +64,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'video-info': dynamic(() => import('./video-info')),
   'video-speed': dynamic(() => import('./video-speed')),
   'video-to-gif': dynamic(() => import('./video-to-gif')),
+  'watermark-image': dynamic(() => import('./watermark-image')),
 };
 
 export function ToolView({ tool, to }: { tool: ShellTool; to?: string }) {

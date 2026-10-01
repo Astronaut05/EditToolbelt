@@ -51,6 +51,7 @@ export const TOOL_IDS = [
   'video-info',
   'video-speed',
   'video-to-gif',
+  'watermark-image',
 ] as const;
 
 export type ToolId = (typeof TOOL_IDS)[number];

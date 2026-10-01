@@ -17,6 +17,14 @@ export * as contrast from './color/contrast';
 export { CSS_NAMED_COLORS } from './color/names';
 export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
 export {
+  ANCHORS,
+  markBox,
+  tileBoxes,
+  type Anchor,
+  type MarkBox,
+  type Placement as MarkPlacement,
+} from './image/watermark';
+export {
   extractPalette,
   paletteAse,
   paletteCss,

@@ -8,6 +8,7 @@
     "./env": "./src/env.ts",
     "./logger": "./src/logger.ts",
     "./lut": "./src/color/lut.ts",
+    "./watermark": "./src/image/watermark.ts",
     "./qr": "./src/qr/index.ts",
     "./ranges": "./src/media/ranges.ts",
     "./upload": "./src/upload.ts",

@@ -23,6 +23,7 @@ import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel, OptionStack } from '../primitives/OptionsPanel';
 import { ColorInput, Input, NumberWithUnit, Select, Slider } from '../primitives/fields';
 import { Dialog } from '../primitives/overlays';
+import { PositionGrid } from '../primitives/PositionGrid';
 import { PresetChecklist, type PresetGroup } from '../primitives/PresetPicker';
 import { PrivacyBadge, type Noun } from '../primitives/PrivacyBadge';
 import { SegmentedControl } from '../primitives/SegmentedControl';
@@ -105,10 +106,20 @@ export interface ShellOption {
    * "#rrggbb". image: a second image to pick (a new background), value an
    * object URL. text: typed in, such as a time ("00:01:02.500"). checklist:
    * several choices at once, grouped (P13's sizes), value the picked values
-   * comma-separated.
+   * comma-separated. grid: one of nine spots on a 3 × 3 grid (a watermark's
+   * place), the choices in reading order.
    */
   kind?:
-    'choice' | 'select' | 'slider' | 'number' | 'color' | 'image' | 'text' | 'file' | 'checklist';
+    | 'choice'
+    | 'select'
+    | 'slider'
+    | 'number'
+    | 'color'
+    | 'image'
+    | 'text'
+    | 'file'
+    | 'checklist'
+    | 'grid';
   /** file: the types the picker offers (".srt,.vtt,.ass"). */
   accept?: string;
   /** text: an example shown while it's empty. */
@@ -326,6 +337,16 @@ function OptionControl({
     }
     return (
       <PresetChecklist groups={groups} value={value} onChange={onChange} label={option.label} />
+    );
+  }
+  if (option.kind === 'grid') {
+    return (
+      <PositionGrid
+        label={option.label}
+        options={option.choices ?? []}
+        value={value}
+        onChange={onChange}
+      />
     );
   }
   if (option.kind === 'select') {

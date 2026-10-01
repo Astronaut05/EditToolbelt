@@ -20,6 +20,7 @@ export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './im
 export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
 export { socialResizeEngine, type SocialResizeOptions } from './image/social-resize';
 export { lutPreviewEngine, type LutPreviewOptions } from './image/lut-preview';
+export { watermarkEngine, type WatermarkOptions } from './image/watermark';
 export { fitPlacement, focusCrop, focusOf, type Focus, type SocialFit } from './image/social';
 export { imageMetadataEngine, type MetadataOptions } from './image/metadata';
 export {
