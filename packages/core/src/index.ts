@@ -11,7 +11,9 @@ export { joinUrl } from './urls';
 export * as timecode from './calc/timecode';
 export * as aspect from './calc/aspect';
 export * as bitrate from './calc/bitrate';
+export * as print from './calc/print';
 export * as color from './color/color';
+export * as contrast from './color/contrast';
 export { CSS_NAMED_COLORS } from './color/names';
 export {
   extractPalette,

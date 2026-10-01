@@ -928,3 +928,30 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - Any other storage error leaves the upload unprobed and lets the job slot wait 5 s, as it does for a storage outage.
 **Why:** found on the local stack. The probe took the oldest unprobed upload, retried a missing one at once and forever (2,477 tries in 2 minutes), and so never reached the uploads behind it.
 **Reverse:** remove the `MISSING` branch in `probe.py`; the slot then retries every 5 s instead of refusing.
+
+## 2026-10-01 · M8 starts while M5 and M7 wait
+
+**Decision:** After M6, work moves to M8: the rest of Wave 2, one tool or a small group per PR, `beta` first. Browser tools come first, then CPU server tools.
+**Why:**
+- M5 needs Go public, which needs Astro (see "M6 before M5").
+- M7, the Premiere panel, is done when auto-subtitles and stems land in a bin. Those are M5's GPU tools, and checking them needs Premiere itself, which this build environment doesn't have.
+- M8's browser and CPU tools need neither.
+**Reverse:** nothing to undo. M5 starts when Go public is done; M7 after M5's GPU tools.
+
+## 2026-10-01 · Contrast Checker and the DPI calculator (M8)
+
+**Decision:**
+- **Contrast Checker (C04):**
+  - The ratio is shown cut to two decimals, never rounded up, so a pair that just misses a threshold never reads as exactly it. Pass or fail always uses the exact ratio.
+  - Transparent colors are measured as a page shows them: the text over the background, and the background over white.
+  - The suggested fix keeps the color's hue and moves only its Oklch lightness, darker or lighter, whichever changes it least (Oklab ΔE). Chroma is eased only where sRGB runs out, and greys stay grey.
+  - The final 8-bit value is checked against the target again, so rounding can't push it back under.
+  - Suggestions are given for both the text and the background, for the chosen aim: AA, AAA, or large text and UI at 3:1.
+- **Print Size & DPI (U03):**
+  - Pixels for a print are rounded to the nearest pixel, as the standard tables have them (A4 at 300 DPI: 2480 × 3508).
+  - Quality is judged on the whole DPI as shown: 299.96 counts as 300.
+  - "Largest paper" turns the paper to match the image.
+  - "Use an image's size" decodes the image in the browser (`createImageBitmap`); the file never leaves the page.
+
+**Why:** `tools/color.md` → C04, `tools/utility.md` → U03.
+**Reverse:** the rules live in `packages/core/src/color/contrast.ts` and `calc/print.ts`, with their tests.
