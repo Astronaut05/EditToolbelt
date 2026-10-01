@@ -1052,3 +1052,24 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/audio.md` → A05, A06 ("in-house implementation, validated against pyloudnorm in tests").
 **Reverse:** the measurement and the plan are pure functions in `@etb/core`, with tests. The tools' pages and engines only decode, call them and encode.
+
+## 2026-10-01 · Fade In / Fade Out and Audio Channel Tools (M8)
+
+**Decision:**
+- **Fade In / Fade Out is a form, not a timeline** (its registry `ui` was `timeline`). The fades sit at the two ends of the whole file, so the timeline's in and out handles would only suggest a trim that doesn't happen. Fades inside a selection are Trim Audio's. The result's player is the preview.
+- **The four curves have exact formulas,** in `packages/core/src/audio/fades.ts`, stated in the FAQ (gain from 0 to 1 through the fade):
+  - Linear x.
+  - Exponential (e^4x − 1)/(e^4 − 1): 0.119 halfway.
+  - Logarithmic, its inverse, ln(1 + (e^4 − 1)x)/4: 0.831 halfway.
+  - S-curve (1 − cos πx)/2: 0.5 halfway.
+  - Each frame takes the curve at its centre, so a fade lasts exactly its frames.
+- **Channel tools work on mono and stereo only.** A file with more channels is refused with its count; surround needs its own tool.
+- **A stereo file is checked as it arrives** (its first two minutes): a silent side (under −70 dBFS RMS), dual-mono, one side inverted (correlation under −0.7), or ordinary stereo.
+  - Dual-mono means the sides' difference is 45 dB under the quieter side, to allow for what MP3 or AAC leaves.
+  - The page says what it found and picks the fix: the live side on both, mono from one side, or the right side inverted. A mono file is offered mono to stereo.
+- **Mixed mono is (L + R) / 2,** so it can never clip; the notes say so.
+- **Split gives a stored ZIP** of `name_L.ext` and `name_R.ext`, each mono, in the chosen format.
+- **Both tools keep the source format** (MP3 at its own bitrate) unless another is picked. Downloads are named for what changed: `_faded`, `_mono`, `_stereo`, `_fixed`, `_swapped`, `_inverted`, `_split`.
+
+**Why:** `tools/audio.md` → A07, A13.
+**Reverse:** the maths is in `@etb/core` (`fades.ts`, `channels.ts`), with tests; the pages only pick options.
