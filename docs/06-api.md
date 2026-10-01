@@ -22,6 +22,8 @@ One API for everything: the website's own tool pages, the Premiere panel, the mo
 
 Keys are stored hashed; revocable; `last_used_at` updated at most once per minute.
 
+Device flow, as built: `POST /auth/device` `{ client_name? }` (anonymous, 20 a minute per address) → `{ device_code, user_code: "BCDF-GHJK", verification_uri, verification_uri_complete, expires_in: 600, interval: 5 }`. The panel polls `POST /auth/device/token` `{ device_code }` every 5 s and gets problem+json `AUTHORIZATION_PENDING` (400), `SLOW_DOWN` (400, sooner than 4 s), `ACCESS_DENIED` (403) or `EXPIRED_TOKEN` (400, expired, unknown or already collected), then once `{ api_key, key_prefix, name, scopes }`. The key is made at that moment, so it is never stored.
+
 Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, starting and cancelling jobs), `account:read` (`/me`). The session cookie can do all three. A request with an `Authorization` header is judged by its key alone: 401 for a wrong or revoked key, 403 for a missing scope. At most 10 live keys per account; rate limits count per key.
 
 ## Endpoints

@@ -35,6 +35,20 @@ Conventions: `id` is UUIDv7 (time-sortable) unless noted, with Postgres 18's nat
 | last_used_at | timestamptz null | |
 | revoked_at | timestamptz null | |
 
+**device_codes** — the panel's connect flow (`06` → Auth). Deleted a day after they expire.
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| device_hash | text unique | SHA-256 of the code the panel polls with; the code itself is never kept |
+| user_code | text unique | what the person types at /connect: 8 consonants, shown `BCDF-GHJK` |
+| client_name | text | names the key it becomes: "Premiere panel" |
+| scopes | text[] | the key's scopes |
+| status | enum | `pending`, `approved`, `denied`, `used` |
+| user_id | fk users null | who approved or declined |
+| api_key_id | fk api_keys null | the key the panel collected; made at collection, so never stored in the clear |
+| last_polled_at | timestamptz null | for `SLOW_DOWN` |
+| expires_at | timestamptz | 10 minutes after the request |
+
 ### Money
 
 **credit_transactions** — append-only ledger. No UPDATE or DELETE ever (enforced by a trigger that raises).

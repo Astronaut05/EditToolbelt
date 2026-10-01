@@ -86,9 +86,10 @@ export async function createKey(
   userId: string,
   name: string,
   scopes: readonly Scope[],
+  q: Queryable = db(),
 ): Promise<{ key: string; row: KeyRow }> {
   const key = newKey();
-  return db().transaction(async (tx) => {
+  return q.transaction(async (tx) => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
     const [live] = await tx
       .select({ n: count() })

@@ -96,6 +96,18 @@ export async function readJson<S extends z.ZodType>(
   return parsed.data;
 }
 
+/**
+ * Where an anonymous call comes from, for its rate limit: the address
+ * Cloudflare or a reverse proxy passes. Only compared, never kept or logged.
+ */
+export function sourceOf(request: Request): string {
+  return (
+    request.headers.get('cf-connecting-ip') ??
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    'direct'
+  );
+}
+
 /** A write carrying our session cookie must come from our own origin. */
 export function requireSameOrigin(request: Request): void {
   const origin = request.headers.get('origin');

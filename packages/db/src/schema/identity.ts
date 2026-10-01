@@ -1,5 +1,6 @@
 /**
- * Identity (docs/04 → Identity): users, the Better Auth tables, API keys.
+ * Identity (docs/04 → Identity): users, the Better Auth tables, API keys and
+ * the panel's connect codes.
  *
  * Better Auth reads and writes `users`, `sessions`, `accounts`,
  * `verifications` and `twoFactors` through its Drizzle adapter, by these
@@ -153,4 +154,39 @@ export const apiKeys = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('api_keys_user_id_idx').on(t.userId)],
+);
+
+export const deviceCodeStatus = pgEnum('device_code_status', [
+  'pending',
+  'approved',
+  'denied',
+  'used',
+]);
+
+/**
+ * The panel's connect flow (docs/06 → Auth): the panel asks for a code, the
+ * person approves it at /connect, the panel collects a key. The key is made
+ * when the panel collects it, so it is never stored, not even for a moment.
+ */
+export const deviceCodes = pgTable(
+  'device_codes',
+  {
+    id: id(),
+    /** SHA-256 of the device code the panel polls with, hex; the code itself is never kept. */
+    deviceHash: text('device_hash').notNull().unique(),
+    /** What the person types: 8 consonants, shown as BCDF-GHJK. */
+    userCode: text('user_code').notNull().unique(),
+    /** Names the key it becomes: "Premiere panel". */
+    clientName: text('client_name').notNull(),
+    scopes: text('scopes').array().notNull(),
+    status: deviceCodeStatus('status').notNull().default('pending'),
+    /** Who approved or denied it. */
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    /** The key the panel collected. */
+    apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'set null' }),
+    lastPolledAt: tstz('last_polled_at'),
+    expiresAt: tstz('expires_at').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('device_codes_expires_at_idx').on(t.expiresAt)],
 );
