@@ -139,6 +139,11 @@ test('/developers lists every endpoint and passes axe', async ({ page }) => {
     'href',
     '/api/v1/openapi.json',
   );
+  const script = await page.request.get(
+    (await page.getByRole('link', { name: 'run-tool.mjs' }).getAttribute('href')) ?? '',
+  );
+  expect(script.status()).toBe(200);
+  expect(await script.text()).toContain('ETB_KEY');
   await signIn(page, newEmail());
   await page.goto('/developers');
   const found: string[] = [];

@@ -902,3 +902,21 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/06` → Basics ("Schemas defined once in Zod → OpenAPI 3.1 generated … published at `/api/v1/openapi.json` and a docs page at `/developers`").
 **Reverse:** to stop publishing the description, remove the `openapi.json` route and `/developers`. The schemas stay, since the routes read requests with them.
+
+## 2026-10-01 · The typed client, and a script that needs only a key (M6)
+
+**Decision:**
+- **`@etb/api-client` is hand-written over the shared types, not generated.** It imports only types from `@etb/core/api`, so it adds no runtime code (no Zod) to the website's bundles or the panel. Answers are trusted as the API's own; the end-to-end contract test is what checks them.
+  - It has a call for each endpoint, and problem answers become `ApiError` with the stable `code`.
+  - `uploadFile` sends parts in parallel, re-signs URLs older than 12 minutes or refused ones, retries a part 3 times, and cancels the upload if it fails.
+  - `readyQuote` asks until the probe is done; `finished` polls a job to its end.
+  - Without a key it sends the site's session cookie (same origin only).
+- **The website's server path uses it** (`apps/web/src/lib/server-run.ts`). Following a job's progress (EventSource) and the result's download with progress stay in the app, since both are browser-only.
+- **The example script is `apps/web/public/examples/run-tool.mjs`:**
+  - Node 20+, no packages, so anyone can run it without our workspace.
+  - `/developers` offers it for download at `/examples/run-tool.mjs`, beside the curl walkthrough.
+  - An option written `@path` is a file uploaded on its own, as Burn Subtitles' subtitle file needs.
+  - M6's done-when is tested by running it as a separate Node process with only a key, the test playing the worker. It was also run by hand against the local stack with the real worker.
+
+**Why:** `docs/12` → M6 ("`api-client` package used by the web app for server tools"; done when "a script with only an API key can run any server tool end-to-end following the docs").
+**Reverse:** the client is one file; `server-run.ts` can go back to plain `fetch` calls.

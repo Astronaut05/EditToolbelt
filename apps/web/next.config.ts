@@ -40,6 +40,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Internal packages ship TypeScript source.
   transpilePackages: [
+    '@etb/api-client',
     '@etb/config',
     '@etb/core',
     '@etb/db',
