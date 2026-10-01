@@ -61,6 +61,8 @@ async function saveTool(page: Page, id: string, fill: (page: Page) => Promise<vo
   await fill(page);
   await page.getByLabel('Reason (goes into the audit log)').fill('End-to-end test');
   await page.getByRole('button', { name: 'Save' }).click();
+  // A server action, a cache clear and a redirect: slower than one expect's 5 s in CI's Firefox.
+  await expect(page).toHaveURL(/[?&]saved=1/, { timeout: 30_000 });
   await expect(page.getByRole('main').getByRole('status')).toContainText('Saved');
 }
 

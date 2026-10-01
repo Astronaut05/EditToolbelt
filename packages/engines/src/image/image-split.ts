@@ -3,6 +3,7 @@
  * in, a ZIP of tiles out, cut and encoded in the image worker from a single
  * decode. Tiles keep the source's format unless another is picked.
  */
+import { safeStem } from '../names';
 import type { Engine, EngineOutput } from '../types';
 import type { GridSpec } from './grid';
 import {
@@ -44,16 +45,6 @@ export function gridOf(opts: ImageSplitOptions): Omit<GridSpec, never> {
   };
 }
 
-/** A safe file-name stem from the original name: letters, digits, dashes and underscores. */
-export function stemOf(name: string): string {
-  const stem = name
-    .replace(/\.[^.]*$/, '')
-    .replace(/[^\p{L}\p{N}_-]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
-  return stem || 'image';
-}
-
 export const imageSplitEngine: Engine<ImageSplitOptions> = {
   capabilities: (caps) => imageCodecEngine.capabilities(caps),
   estimate: (input, opts) => {
@@ -63,7 +54,7 @@ export const imageSplitEngine: Engine<ImageSplitOptions> = {
   async run(input, opts, ctx): Promise<EngineOutput> {
     const bytes = await input.arrayBuffer();
     const format = checkImage(new Uint8Array(bytes), input.size);
-    const stem = stemOf(input instanceof File ? input.name : 'image');
+    const stem = safeStem(input instanceof File ? input.name : 'image', 'image');
     const done = await runImageJob(
       // Tiles skip PNG's slow lossless pass: a dozen of them would take a minute.
       { ...baseJob(bytes, format, opts), optimise: false, tiles: { ...gridOf(opts), stem } },
