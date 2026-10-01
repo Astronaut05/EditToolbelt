@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M4, server job pipeline · **in progress: parts 1 to 3 of 5 in review (uploads straight to storage; the worker's job queue; the jobs API)**. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M4, server job pipeline · **in progress: parts 1 to 4 of 5 in review (uploads straight to storage; the worker's job queue; the jobs API; Compress Video on our servers)**. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -58,11 +58,12 @@
 - M4, part 1: uploads straight to storage. `POST /api/v1/uploads` checks the tool, limits and type, and hands out presigned part URLs that each accept only their exact size; the browser PUTs the parts to storage itself; `complete` joins them and checks the size. `/readyz` checks storage (#42).
 - M4, part 2: the worker's job queue. Job slots claim jobs (`SKIP LOCKED`, per-tool caps), heartbeat every 5 s, and the reaper requeues a job whose worker died (twice, then it fails and refunds). Every upload is probed with ffprobe before use. ffmpeg runs sandboxed (clean env, `prlimit`, process group, timeout, no protocols but files). A job's input is deleted the moment it ends; the sweeper deletes outputs after 60 min and aborts abandoned uploads (#43).
 - M4, part 3: the jobs API. `POST /api/v1/jobs/quote` prices a job from the probe and says what pays: one of 3 free jobs a day, or credits. `POST /api/v1/jobs` starts it at that price (Idempotency-Key, credits reserved), at most 2 at once per account (4 once paid). `GET /api/v1/jobs/:id/events` streams progress, `GET /api/v1/jobs/:id` gives a 10-minute download link, and cancel gives credits back (#44).
+- M4, part 4: Compress Video on our servers. Two-pass ffmpeg with the browser tool's plan (H.264, H.265, AV1, VP9). The tool page offers the server for files over the browser's limit, files the browser can't read, or on request: it says why and what it costs (a free daily job or credits), asks again if the server's price differs, uploads in parallel parts, shows live progress and names the result on the page. A 1.06 GB video came back at 24.4 MB for a 25 MB target in 80 s on the local stack; killing the worker mid-job requeued it and it still finished (#45).
 
 ## Next
 
-1. Checkpoints 1, 2 and 3: sent. M2b and M3 are done.
-2. M4, then: Compress Video's server path, VFR to CFR and Burn Subtitles with the hybrid routing UI; the admin's Jobs page.
+1. Checkpoints 1, 2 and 3, and the M3 sign-off: sent. M2b and M3 are done.
+2. M4, part 5: VFR to CFR and Burn Subtitles (server only), the admin's Jobs page and job stats, runbooks.
 
 ## Blocked
 
@@ -83,3 +84,5 @@ pnpm db:migrate                # apply migrations to DATABASE_URL (the stack's m
 docker compose up --watch      # dev stack: http://localhost:3000 (sign in at /sign-in; emails at http://localhost:8025; /admin after pnpm admin:promote)
 docker compose exec worker python -m etb_worker --task daily_digest   # send the digest now (lands in Mailpit, or Telegram if set up)
 ```
+
+Server Compress Video on the stack: in Admin → Tools → Compress Video, tick "Server path on" and save. Within 30 s, /compress-video offers "Use our servers instead" after you add a video. Signed in, you get 3 free server jobs a day.

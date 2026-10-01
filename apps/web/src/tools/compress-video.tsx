@@ -2,8 +2,10 @@
 
 import { MEDIA_META } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
+import { useMemo } from 'react';
 
 import { trackUnknown } from '../lib/analytics';
+import { serverPath } from '../lib/server-run';
 import { mediaEngine } from './media-engine';
 import { probeVideo, VIDEO_INTAKE } from './video-presets';
 
@@ -132,7 +134,37 @@ const PRESET: ShellPreset = {
   runningNote: 'Keep this tab open while it compresses: the work happens on your device.',
 };
 
-/** V02 Compress Video (tools/video.md); the server path arrives with M4/M5. */
+const SERVER_CODECS: Record<string, string> = { avc: 'h264', hevc: 'h265', av1: 'av1', vp9: 'vp9' };
+
+/** The same settings for our servers (@etb/registry/options → compress-video). */
+export function toServerOptions(options: Record<string, string>): Record<string, unknown> {
+  const quality = options.mode === 'quality';
+  const targetMb = options.target === 'custom' ? Number(options.targetMb) : Number(options.target);
+  return {
+    mode: quality ? 'quality' : 'size',
+    ...(quality ? { quality: options.quality } : { targetMb }),
+    resolution: options.resolution,
+    fps: options.fps,
+    codec: SERVER_CODECS[options.codec ?? ''] ?? 'h264',
+    audio: options.audio === 'remove' ? 'remove' : 'keep',
+  };
+}
+
+/** V02 Compress Video (tools/video.md): in the browser, or two-pass ffmpeg on our servers. */
 export default function CompressVideo({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
+  const info = tool.server;
+  const server = useMemo(
+    () =>
+      info &&
+      serverPath(
+        tool.id,
+        info,
+        toServerOptions,
+        typeof window === 'undefined' ? '/' : window.location.pathname,
+      ),
+    [info, tool.id],
+  );
+  return (
+    <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} server={server} />
+  );
 }

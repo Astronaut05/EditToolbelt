@@ -83,5 +83,9 @@ def ffmpeg_progress(
     return on_line
 
 
-# Filled by the tool modules that follow (M4: Compress Video, VFR to CFR, Burn Subtitles).
-PROCESSORS: dict[str, Processor] = {}
+# The tool modules import the helpers above, so they come last.
+from etb_worker.processors import compress_video  # noqa: E402
+
+PROCESSORS: dict[str, Processor] = {
+    processor.tool_id: processor for processor in (compress_video.PROCESSOR,)
+}

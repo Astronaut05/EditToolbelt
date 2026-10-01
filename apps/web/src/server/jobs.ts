@@ -392,18 +392,40 @@ async function position(job: Job): Promise<number> {
   return row?.n ?? 0;
 }
 
+/**
+ * Failures the worker reports with a code only. A processor's own failures
+ * (TARGET_TOO_SMALL, NO_VIDEO) carry a sentence written for the person,
+ * which is shown as it is.
+ */
 const ERROR_TEXT: Record<string, string> = {
   DECODE_FAILED: 'The file couldn’t be decoded; it may be damaged.',
   TIMEOUT: 'It took too long and was stopped.',
   WORKER_LOST: 'Our server stopped while working on it.',
   EXPIRED: 'It waited too long in the queue. Try again.',
   TOOL_FAILED: 'The tool couldn’t process this file.',
+  TOOL_UNAVAILABLE: 'This tool isn’t running on our servers right now.',
+  NOT_FOUND: 'The upload was gone before the job started. Try again.',
   STORAGE_UNAVAILABLE: 'Storage wasn’t answering. Try again.',
+  INTERNAL: 'Something went wrong on our side.',
 };
+const PROCESSOR_CODES: ReadonlySet<string> = new Set(['TARGET_TOO_SMALL', 'NO_VIDEO']);
+
+function errorText(job: Job): string {
+  const code = job.errorCode ?? '';
+  if (PROCESSOR_CODES.has(code) && job.errorDetail) return job.errorDetail;
+  return ERROR_TEXT[code] ?? 'Something went wrong.';
+}
 
 /** A job as the API shows it: metadata only, and a download URL once it's done. */
 export async function jobView(job: Job) {
-  const meta = (job.outputMeta ?? {}) as { bytes?: number; content_type?: string; ext?: string };
+  const meta = (job.outputMeta ?? {}) as {
+    bytes?: number;
+    content_type?: string;
+    ext?: string;
+    width?: number;
+    height?: number;
+    notes?: string[];
+  };
   const done = job.status === 'succeeded' && job.outputKey && job.finishedAt;
   return {
     id: job.id,
@@ -422,7 +444,7 @@ export async function jobView(job: Job) {
       job.status === 'failed' || job.status === 'expired'
         ? {
             code: job.errorCode ?? 'FAILED',
-            detail: ERROR_TEXT[job.errorCode ?? ''] ?? 'Something went wrong.',
+            detail: errorText(job),
             credits_returned: job.creditsQuoted > 0,
           }
         : null,
@@ -435,6 +457,9 @@ export async function jobView(job: Job) {
           bytes: meta.bytes ?? null,
           content_type: meta.content_type ?? null,
           ext: meta.ext ?? null,
+          width: meta.width ?? null,
+          height: meta.height ?? null,
+          notes: meta.notes ?? [],
           expires_at: new Date((job.finishedAt?.getTime() ?? 0) + OUTPUT_TTL_MS).toISOString(),
         }
       : job.status === 'succeeded'
@@ -581,4 +606,18 @@ export function jobEvents(
       closed = true;
     },
   });
+}
+
+/** GET /me: who's asking, their tier, balance and free server jobs left today. */
+export async function me(user: CurrentUser) {
+  const tier = await tierOf(user.id);
+  const used = tier === 'free' ? await dailyJobsUsed(user.id) : 0;
+  return {
+    email: user.email,
+    name: user.displayName,
+    tier,
+    credit_balance: user.creditBalance,
+    free_jobs_left: tier === 'free' ? Math.max(0, freeAllowance.signedInDailyServerJobs - used) : 0,
+    max_concurrent_jobs: maxConcurrentServerJobs[tier],
+  };
 }

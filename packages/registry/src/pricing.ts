@@ -28,3 +28,18 @@ export function priceOf(rule: CreditRule, input: PriceInput): number {
     }
   }
 }
+
+/** The rule in words, for the server offer: "1 credit a minute, at least 2". */
+export function priceLabel(rule: CreditRule): string {
+  const credits = (n: number) => `${String(n)} credit${n === 1 ? '' : 's'}`;
+  switch (rule.kind) {
+    case 'free':
+      return 'Free';
+    case 'flat':
+      return credits(rule.credits);
+    case 'perMinute':
+      return `${credits(rule.credits)} a minute, at least ${String(rule.minCredits)}`;
+    case 'perMegapixel':
+      return `${credits(rule.credits)} a megapixel, at least ${String(rule.minCredits)}`;
+  }
+}
