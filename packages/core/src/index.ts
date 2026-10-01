@@ -99,6 +99,8 @@ export {
   type CutOptions,
 } from './audio/silence';
 export { Resampler } from './audio/resample';
+export { Fft } from './audio/fft';
+export { TimeStretch } from './audio/stretch';
 export {
   placedGain,
   placedLength,

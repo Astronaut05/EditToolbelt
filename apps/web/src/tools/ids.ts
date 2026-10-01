@@ -9,6 +9,7 @@ export const TOOL_IDS = [
   'audio-converter',
   'bitrate-calculator',
   'bpm-key-finder',
+  'change-pitch',
   'burn-subtitles',
   'color-converter',
   'color-palette-from-image',
