@@ -69,3 +69,22 @@ export {
   type ScanResult,
 } from './audio/loudness';
 export { LOUDNESS_TARGETS, targetVerdict, type LoudnessTarget } from './audio/targets';
+export {
+  applyFades,
+  FADE_CURVES,
+  fadeCurveOf,
+  fadeGain,
+  type FadeCurve,
+  type Fades,
+} from './audio/fades';
+export {
+  CHANNEL_ACTIONS,
+  channelActionOf,
+  ChannelStats,
+  channelVerdict,
+  needsStereo,
+  remix,
+  VERDICTS,
+  type ChannelAction,
+  type ChannelVerdict,
+} from './audio/channels';
