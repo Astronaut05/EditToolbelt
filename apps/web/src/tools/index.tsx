@@ -39,6 +39,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'exif-remover': dynamic(() => import('./exif-remover')),
   'extract-audio': dynamic(() => import('./extract-audio')),
   'extract-frames': dynamic(() => import('./extract-frames')),
+  'file-checksum': dynamic(() => import('./file-checksum')),
   'fade-audio': dynamic(() => import('./fade-audio')),
   'gif-to-mp4': dynamic(() => import('./gif-to-mp4')),
   'image-converter': dynamic(() => import('./image-converter')),

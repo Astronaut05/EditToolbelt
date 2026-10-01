@@ -26,6 +26,7 @@ export const TOOL_IDS = [
   'exif-remover',
   'extract-audio',
   'extract-frames',
+  'file-checksum',
   'fade-audio',
   'gif-to-mp4',
   'image-converter',

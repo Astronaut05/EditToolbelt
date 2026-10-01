@@ -143,7 +143,8 @@ export interface ShellOption {
    * object URL. text: typed in, such as a time ("00:01:02.500"). checklist:
    * several choices at once, grouped (P13's sizes), value the picked values
    * comma-separated. grid: one of nine spots on a 3 × 3 grid (a watermark's
-   * place), the choices in reading order.
+   * place), the choices in reading order. textarea: several lines pasted
+   * in (U04's expected hashes).
    */
   kind?:
     | 'choice'
@@ -155,7 +156,8 @@ export interface ShellOption {
     | 'text'
     | 'file'
     | 'checklist'
-    | 'grid';
+    | 'grid'
+    | 'textarea';
   /** file: the types the picker offers (".srt,.vtt,.ass"). */
   accept?: string;
   /** text: an example shown while it's empty. */
@@ -189,6 +191,10 @@ export function optionSummary(option: ShellOption, value: string): string {
   if (option.kind === 'image') return value ? 'Chosen' : 'None';
   if (option.kind === 'file') return value ? fileOptionName(value) : 'None';
   if (option.kind === 'text') return value || 'None';
+  if (option.kind === 'textarea') {
+    const lines = value.split('\n').filter((line) => line.trim()).length;
+    return lines === 0 ? 'None' : plural(lines, 'line');
+  }
   if (option.kind === 'checklist') {
     const picked = value.split(',').filter(Boolean);
     if (picked.length === 1) {
@@ -342,6 +348,22 @@ function OptionControl({
           }}
         />
       </span>
+    );
+  }
+  if (option.kind === 'textarea') {
+    return (
+      <textarea
+        aria-label={option.label}
+        placeholder={option.placeholder}
+        spellCheck={false}
+        autoComplete="off"
+        rows={3}
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+        className="block w-full min-w-0 resize-y rounded-control border border-border bg-bg px-3 py-2 font-mono text-12.5 text-text placeholder:text-text-muted hover:border-text focus-visible:border-text sm:w-72"
+      />
     );
   }
   if (option.kind === 'color') {
@@ -537,10 +559,34 @@ export interface ShellPreset {
     inPlace?: boolean;
   };
   /**
+   * U04: each finished file's results checked against the settings without
+   * running again (a pasted hash): a line under the file, or a problem.
+   */
+  batchCheck?: (item: BatchResult, options: Record<string, string>) => BatchVerdict | null;
+  /** U04: one line over a batch's results: "The 2 files are identical". */
+  batchSummary?: (items: BatchResult[], options: Record<string, string>) => string | null;
+  /** U04: a batch gives values, not files, so its download is one list made from them, not a ZIP. */
+  batchList?: {
+    label: (options: Record<string, string>) => string;
+    make: (items: BatchResult[], options: Record<string, string>) => { text: string; name: string };
+  };
+  /**
    * The timeline holds several ranges (V01, A02): the engine gets them all as
    * `ranges`, in order; `start` and `end` stay those of the selected one.
    */
   ranges?: boolean;
+}
+
+/** A finished batch file's values, for `batchCheck`, `batchSummary` and `batchList`. */
+export interface BatchResult {
+  name: string;
+  size: number;
+  facts: { label: string; value: string }[];
+}
+
+export interface BatchVerdict {
+  note?: string;
+  problem?: string;
 }
 
 /** A timeline's several ranges (`preset.ranges`): the list, the selected one, and changes. */
@@ -799,6 +845,8 @@ export function ToolShell({
     () => false,
   );
   const batchOutputs = useRef(new Map<string, { blob: Blob; name: string }>());
+  /** U04: a batch that starts as soon as its files arrive (`preset.autoRun`). */
+  const autoBatch = useRef(false);
   const [sheet, setSheet] = useState<number | null>(null);
   const controller = useRef<AbortController | null>(null);
   const urls = useRef<string[]>([]);
@@ -1189,6 +1237,7 @@ export function ToolShell({
             status: 'queued',
           })),
         );
+        autoBatch.current = preset.autoRun === true;
         setState({ kind: 'ready', input, files });
         return;
       }
@@ -1250,7 +1299,14 @@ export function ToolShell({
           blob: out.blob,
           name: out.name ?? outputName(file.name, out.nameSuffix ?? preset.outputSuffix, out.ext),
         });
-        update({ status: 'done', resultSize: out.blob.size, note: out.notes?.join('. ') });
+        update({
+          status: 'done',
+          resultSize: out.blob.size,
+          note: out.notes?.join('. '),
+          ...(out.details && {
+            facts: out.details.map(({ label, value }) => ({ label, value })),
+          }),
+        });
       } catch (error) {
         if (abort.signal.aborted) return;
         update({
@@ -1298,6 +1354,31 @@ export function ToolShell({
     saveBlob(new Blob([zip], { type: 'application/zip' }), `${tool.id}.zip`);
     track('tool_download', { files: String(batchOutputs.current.size) });
   }, [preset.names, saveBlob, tool.id, track]);
+
+  // A batch that runs on arrival starts once its list is in place, so each file's row is known.
+  useEffect(() => {
+    if (!autoBatch.current || state.kind !== 'ready' || !state.files || batch.length === 0) return;
+    autoBatch.current = false;
+    void runBatch(state.files);
+  });
+
+  /** U04: the finished files' values, for checks, the summary and the list. */
+  const batchResults: BatchResult[] = batch
+    .filter((item) => item.status === 'done' && item.facts)
+    .map((item) => ({ name: item.name, size: item.size, facts: item.facts ?? [] }));
+
+  const downloadList = useCallback(() => {
+    if (!preset.batchList) return;
+    const list = preset.batchList.make(batchResults, options);
+    // A name with no extension (SHA256SUMS) goes as plain bytes: as text/plain, Chrome adds ".txt".
+    const type = list.name.endsWith('.csv')
+      ? 'text/csv'
+      : list.name.includes('.')
+        ? 'text/plain'
+        : 'application/octet-stream';
+    saveBlob(new Blob([list.text], { type }), list.name);
+    track('tool_download', { files: String(batchResults.length) });
+  }, [batchResults, options, preset.batchList, saveBlob, track]);
 
   // U02: the files are named again whenever they or the settings change; the newest answer wins.
   const namer = preset.names;
@@ -1659,15 +1740,27 @@ export function ToolShell({
         )
       ) : inBatch ? (
         batchDone ? (
-          <Button
-            variant="primary"
-            className="flex-1"
-            disabled={batch.every((item) => item.status !== 'done')}
-            onClick={() => void downloadAll()}
-            icon={<Download aria-hidden="true" size={18} strokeWidth={2} />}
-          >
-            Download all · ZIP
-          </Button>
+          preset.batchList ? (
+            <Button
+              variant="primary"
+              className="flex-1"
+              disabled={batchResults.length === 0}
+              onClick={downloadList}
+              icon={<Download aria-hidden="true" size={18} strokeWidth={2} />}
+            >
+              {preset.batchList.label(options)}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              className="flex-1"
+              disabled={batch.every((item) => item.status !== 'done')}
+              onClick={() => void downloadAll()}
+              icon={<Download aria-hidden="true" size={18} strokeWidth={2} />}
+            >
+              Download all · ZIP
+            </Button>
+          )
         ) : (
           <Button
             variant="primary"
@@ -1806,9 +1899,21 @@ export function ToolShell({
               const named = namesPlan.names[i];
               return named ? { ...item, ...named } : item;
             })
-          : batch
+          : preset.batchCheck
+            ? batch.map((item) => {
+                if (item.status !== 'done' || !item.facts) return item;
+                const verdict = preset.batchCheck?.(
+                  { name: item.name, size: item.size, facts: item.facts },
+                  options,
+                );
+                return verdict
+                  ? { ...item, note: verdict.note ?? item.note, problem: verdict.problem }
+                  : item;
+              })
+            : batch
       }
-      onDownloadItem={folder ? undefined : downloadItem}
+      batchSummary={batchDone ? (preset.batchSummary?.(batchResults, options) ?? null) : null}
+      onDownloadItem={folder || preset.batchList ? undefined : downloadItem}
       combine={
         preset.combine
           ? {
@@ -2242,6 +2347,7 @@ function Workspace({
   setRange,
   multiRange,
   batch,
+  batchSummary,
   onDownloadItem,
   combine,
   editor,
@@ -2260,6 +2366,8 @@ function Workspace({
   setRange: (range: TimelineRange) => void;
   multiRange: MultiRange | null;
   batch: BatchItem[];
+  /** U04: a line over the list, from the results ("The 2 files are identical"). */
+  batchSummary: string | null;
   onDownloadItem?: (id: string) => void;
   combine: {
     items: OrderedFile[];
@@ -2317,7 +2425,12 @@ function Workspace({
   if (tool.ui === 'batch' || batch.length > 0) {
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
-        <BatchList items={batch} onDownload={onDownloadItem} />
+        {batchSummary && (
+          <p role="status" className="mb-4 text-15 font-strong">
+            {batchSummary}
+          </p>
+        )}
+        <BatchList items={batch} onDownload={onDownloadItem} results={!preset.batchList} />
       </div>
     );
   }
