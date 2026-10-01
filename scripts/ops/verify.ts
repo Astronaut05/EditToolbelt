@@ -452,6 +452,24 @@ export function shapeOf(value: string): string {
   if (/\s/.test(value)) notes.push('has spaces or line breaks inside');
   if (/^bearer\s/i.test(value)) notes.push('starts with "Bearer "');
   if (/^https?:\/\//.test(value)) notes.push('is a URL');
+  // Which kinds of characters, never which characters.
+  const kinds = [
+    [/[a-z]/, 'lowercase'],
+    [/[A-Z]/, 'uppercase'],
+    [/[0-9]/, 'digits'],
+    [/_/, '_'],
+    [/-/, '-'],
+    [/\./, '.'],
+    [/[^A-Za-z0-9_.\-\s"']/, 'other symbols'],
+  ] as const;
+  notes.push(
+    `made of ${
+      kinds
+        .filter(([re]) => re.test(value))
+        .map(([, name]) => name)
+        .join(', ') || 'nothing'
+    }`,
+  );
   return notes.join(', ');
 }
 
