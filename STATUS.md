@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M6, public API · **in review: parts 1 to 4 of 4 (API keys; the panel's connect flow; the OpenAPI document and `/developers`; the typed client and a script that needs only a key)**. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker and Print Size & DPI Calculator (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -66,12 +66,14 @@
 - M6, part 3: the API described once. Zod schemas for every body in `@etb/core/api`; the routes read requests with them; `GET /api/v1/openapi.json` (OpenAPI 3.1) and `/developers` (keys, a curl walkthrough of a whole job, every endpoint) are generated from them. New: `GET /api/v1/tools/:id` with the options' JSON Schema, `GET /api/v1/me/credits` (#50).
 - M6, part 4: `@etb/api-client`, the typed client, now behind the website's server path; `/examples/run-tool.mjs` (Node 20, no packages) runs any server tool with only an API key: parts in parallel, the price, progress, the download (#51).
 - Fix: an upload whose file is gone (cancelled or swept) no longer stalls the worker's probe. It used to be retried at once, forever, holding up every upload behind it; now it's refused once, and the API asks for the file again. A storage outage waits 5 s between tries (#52).
+- M8, the rest of Wave 2, starts (beta): Contrast Checker (the WCAG 2.2 ratio, AA and AAA for normal and large text and UI, and the nearest passing text or background color with the same hue) and Print Size & DPI Calculator (pixels to cm, mm or inches; pixels a paper size needs; the DPI of a print; the largest paper an image fills; an image's size read in the browser) (#53).
 
 ## Next
 
 1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
-2. M6 sign-off once parts 1 to 4 merge; then M7, the Premiere panel (it needs only the API), unless Go public comes first for M5.
-3. M5 (credits, payments, GPU tools) after Go public.
+2. M6 sign-off once parts 1 to 4 merge.
+3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
+4. M5 (credits, payments, GPU tools) after Go public.
 
 ## Blocked
 

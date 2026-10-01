@@ -137,7 +137,10 @@ test('the account page passes axe with a new key and the list on it', async ({ p
   await signIn(page, newEmail());
   await makeKey(page, 'Axe check');
   await makeKey(page, 'Second key');
-  // The action's refresh streams the page's metadata back in; axe reads the title.
+  // The action's refresh streams the page back in, its <title> after the body. The old title
+  // is still there until the refreshed list is in, so wait for the list, then for the title,
+  // or axe can land while the title is being swapped.
+  await expect(page.getByRole('list', { name: 'Your API keys' })).toContainText('Second key');
   await expect(page).toHaveTitle(/Your account/);
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {
