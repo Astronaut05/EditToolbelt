@@ -72,6 +72,17 @@ export const MEDIA_META = {
     capabilities: () => ({ supported: true }),
     estimate: (input) => ({ seconds: Math.max(0.5, input.size / 100_000_000) }),
   },
+  rotate: {
+    capabilities: () => ({ supported: true }),
+    estimate: (input) => ({ seconds: Math.max(1, input.size / 20_000_000) }),
+  },
+  reframe: {
+    capabilities: () => ({
+      supported: typeof VideoEncoder === 'function' && typeof OffscreenCanvas !== 'undefined',
+      reason: EDIT_VIDEO,
+    }),
+    estimate: (input) => ({ seconds: Math.max(2, input.size / 8_000_000) }),
+  },
   audioEdit: {
     capabilities: () => ({ supported: hasAudioDecoder(), reason: READ_AUDIO }),
     estimate: (input) => ({ seconds: Math.max(0.5, input.size / 40_000_000) }),

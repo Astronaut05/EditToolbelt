@@ -1073,3 +1073,20 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/audio.md` → A07, A13.
 **Reverse:** the maths is in `@etb/core` (`fades.ts`, `channels.ts`), with tests; the pages only pick options.
+
+## 2026-10-01 · Rotate & Flip Video and Resize Video for Social (M8)
+
+**Decision:**
+- **Rotate & Flip defaults to turning every frame** (re-encoded at high quality), as the spec asks for 90°: it plays upright in every player.
+  - Fast writes the container's rotation and flip flag instead: instant, every packet copied, and the notes say a few web players ignore it.
+  - WebM has no such flag, so Fast on WebM turns the frames and says so.
+  - Flips apply to the turned picture. Upside down is a mirror plus half a turn, which is how Mediabunny is asked for it.
+- **Resize Video for Social:**
+  - Presets: Reels, TikTok and Shorts 1080 × 1920; Instagram portrait 1080 × 1350; square 1080 × 1080; YouTube 1920 × 1080. Or a custom size in px, rounded to even numbers for H.264.
+  - Fill crops the largest window of the shape, placed by two framing sliders (0-100% across and down; 50% is the middle). This is P13's crop maths, done by Mediabunny's crop and resize. Framing stays fixed for the whole video; following the subject is a later idea.
+  - Fit on blur and Fit on color draw each frame on a canvas: the colour, or the frame filling the size, scaled down to a 40th and back up in three steps. That blur needs no canvas `filter` (Safari's is recent) and looks the same everywhere.
+  - The video is re-encoded at high quality in its own container; the sound is copied.
+- **Tests use the VP9 fixtures** for anything re-encoded: Playwright's Chromium has no H.264 encoder. The MP4 fixture shows Fast's lossless copy.
+
+**Why:** `tools/video.md` → V09, V11.
+**Reverse:** both engines are thin over Mediabunny's conversion (`video/rotate.ts`, `video/reframe.ts`).
