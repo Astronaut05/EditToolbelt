@@ -39,6 +39,7 @@ import { accepts, handOff, takeHandoff } from './handoff';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import type { FocusFrame } from './FocusPicker';
+import type { GraphInfo } from './LineGraph';
 import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
 import { ServerNotice } from './ServerNotice';
@@ -61,6 +62,7 @@ const CanvasEditor = lazy(() =>
 );
 const ColorPicker = lazy(() => import('./ColorPicker').then((m) => ({ default: m.ColorPicker })));
 const FocusPicker = lazy(() => import('./FocusPicker').then((m) => ({ default: m.FocusPicker })));
+const LineGraph = lazy(() => import('./LineGraph').then((m) => ({ default: m.LineGraph })));
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
 const Swatches = lazy(() => import('./Swatches').then((m) => ({ default: m.Swatches })));
@@ -498,7 +500,9 @@ export interface OutputInfo {
   /** What the engine changed or dropped, in plain words. */
   notes?: string[];
   /** Extra readout facts from the engine (cue count, source format). */
-  details?: { label: string; value: string }[];
+  details?: { label: string; value: string; unit?: string }[];
+  /** A level over time, drawn under an analyzer's facts (A06). */
+  graph?: GraphInfo;
   /** The start of a text output, for `preview: 'text'`. */
   text?: string;
   /** Colours found (C01), shown as a palette. */
@@ -730,6 +734,7 @@ export function ToolShell({
             notes: out.notes,
             details: out.details,
             swatches: out.swatches,
+            graph: out.graph,
             text,
           },
         });
@@ -1942,6 +1947,11 @@ function Workspace({
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
         <FactGrid facts={grid} />
+        {output.graph && (
+          <Suspense fallback={null}>
+            <LineGraph graph={output.graph} />
+          </Suspense>
+        )}
         {output.text !== undefined && (
           <pre
             tabIndex={0}

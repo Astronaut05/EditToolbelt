@@ -1022,3 +1022,33 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/photo.md` → P13 ("preset table lives in `packages/core/social-presets.ts` with a `verified_on` date per preset; review quarterly").
 **Reverse:** the sizes are one table, and the framing is in `packages/engines/src/image/social.ts`, with tests.
+
+## 2026-10-01 · Loudness Meter and Normalize Loudness (M8)
+
+**Decision:**
+- **One in-house BS.1770-4 / EBU R128 implementation** in `packages/core/src/audio/loudness.ts`, shared by both tools and the panel:
+  - K-weighting is designed per sample rate from the analogue prototypes (libebur128's constants), so it matches BS.1770's 48 kHz table and stays right at 44.1 and 96 kHz.
+  - Channel weights: 1 for L, R and C, 1.41 for the surrounds, 0 for the LFE (WAV order, L R C LFE Ls Rs for 5.1).
+  - Integrated: 400 ms blocks every 100 ms, gated at −70 LUFS and 10 LU below. Loudness range (Tech 3342): short-term every 100 ms, gated at −70 and 20 LU below, P95 − P10.
+  - True peak: 4× oversampling below 96 kHz (2× below 192 kHz) with a 16-tap Kaiser-windowed sinc per phase, flat within 0.01 dB to a quarter of the sample rate. That's finer than BS.1770's 12-tap example filter, whose coefficients we didn't copy.
+  - The meter skips the oversampling where a stretch's samples, times the most the filter can amplify, can't beat the peak found so far. The result is the same, and it's faster on music.
+- **Checked against the EBU's own conformance signals** (Tech 3341 cases 1-5, Tech 3342 cases 1-4) and **against pyloudnorm 0.1.1** (MIT):
+  - pyloudnorm ran once, in a scratch environment, on four signals the tests regenerate: noise at 44.1 kHz, two tones mono, five channels, 96 kHz. All within 0.1 LU.
+  - pyloudnorm is not a dependency, and nothing of it is in the repo but the four numbers.
+- **The normaliser** measures once, keeping each millisecond's K-weighted energy and true peak, then plans in memory:
+  - Gain alone when the peaks allow it.
+  - Otherwise, with Gain + limiter (the default), a true-peak limiter with 5 ms look-ahead and about 80 ms release, aiming 0.1 dB under the ceiling. Each knot also covers 2 ms either side, for a timeline a frame off.
+  - The gain is raised until the limited result, predicted from the per-ms energies, reaches the target.
+  - With Gain only, the gain stops where the peaks reach the ceiling, and the notes say by how much the target was missed.
+- **The normaliser writes, then measures what it wrote:** lossless output from the processed samples, MP3, M4A and OGG by decoding the encoded file. If encoding pushed the true peak over the ceiling, the notes say so.
+  - The format is kept by default (MP3 stays MP3 at its bitrate). There's no dither on 16-bit output.
+- **Targets the meter checks** (`targets.ts`):
+  - Streaming, judged ±1 LU with a −1 dBTP recommendation: YouTube −14, Spotify −14, Apple Music −16.
+  - Delivery specs: podcasts −16 ±1 LU (−1 dBTP); EBU R128 −23 ±0.5 LU (−1 dBTP); ATSC A/85 −24 ±2 LU (−2 dBTP).
+  - Streaming verdicts say how much quieter the service will play a loud file. Netflix's dialogue-gated measure isn't covered: it needs speech detection.
+- **The meter's download** is a text report, or the momentary and short-term loudness every 100 ms as a CSV.
+- **The graph** is short-term loudness over time (at most 1,200 points, the loudest of each stretch), with the integrated level dashed. It's an SVG named for assistive tech, and the numbers are also in the facts and the report.
+- **Shell:** an analyzer's facts can carry a unit, and an engine can return a `graph`.
+
+**Why:** `tools/audio.md` → A05, A06 ("in-house implementation, validated against pyloudnorm in tests").
+**Reverse:** the measurement and the plan are pure functions in `@etb/core`, with tests. The tools' pages and engines only decode, call them and encode.

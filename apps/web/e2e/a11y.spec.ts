@@ -56,6 +56,36 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test('loudness meter result with its graph: no serious issues', async ({ page }) => {
+      await page.goto('/loudness-meter', { waitUntil: 'networkidle' });
+      const rate = 48_000;
+      const frames = rate * 6;
+      const wav = Buffer.alloc(44 + frames * 2);
+      wav.write('RIFF', 0);
+      wav.writeUInt32LE(36 + frames * 2, 4);
+      wav.write('WAVEfmt ', 8);
+      wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20);
+      wav.writeUInt16LE(1, 22);
+      wav.writeUInt32LE(rate, 24);
+      wav.writeUInt32LE(rate * 2, 28);
+      wav.writeUInt16LE(2, 32);
+      wav.writeUInt16LE(16, 34);
+      wav.write('data', 36);
+      wav.writeUInt32LE(frames * 2, 40);
+      for (let i = 0; i < frames; i += 1) {
+        wav.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 4000), 44 + i * 2);
+      }
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles({ name: 'tone.wav', mimeType: 'audio/wav', buffer: wav });
+      await expect(page.getByRole('img', { name: /^Short-term loudness/ })).toBeVisible({
+        timeout: 30_000,
+      });
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('remove background result and refine brush: no serious issues', async ({ page }) => {
       await page.goto('/remove-background', { waitUntil: 'networkidle' });
       const sample = await page.request.get('/samples/mug.jpg');

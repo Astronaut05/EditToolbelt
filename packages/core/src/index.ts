@@ -57,3 +57,15 @@ export {
   type Platform,
   type SocialPreset,
 } from './social-presets';
+export {
+  applyPlan,
+  dbOf,
+  LoudnessScan,
+  lufs,
+  measure,
+  planNormalize,
+  type Loudness,
+  type NormalizePlan,
+  type ScanResult,
+} from './audio/loudness';
+export { LOUDNESS_TARGETS, targetVerdict, type LoudnessTarget } from './audio/targets';
