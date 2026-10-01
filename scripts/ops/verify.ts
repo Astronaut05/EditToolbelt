@@ -96,8 +96,18 @@ async function checkR2(env: Env, site: string): Promise<string> {
     secretAccessKey: env.R2_SECRET_ACCESS_KEY ?? '',
     region: 'auto',
   };
+  let endpoint: URL;
+  try {
+    endpoint = new URL(s3.endpoint);
+  } catch {
+    throw new Failed(
+      `R2_ENDPOINT is not a URL (${shapeOf(s3.endpoint)}): paste the EU endpoint R2 shows, starting with https://`,
+    );
+  }
+  // The endpoint R2 shows has no path; one pasted with the bucket on the end still works.
+  s3.endpoint = endpoint.origin;
   expect(
-    new URL(s3.endpoint).hostname.split('.').includes('eu'),
+    endpoint.hostname.split('.').includes('eu'),
     'R2_ENDPOINT is not the EU jurisdiction endpoint (its host has no `.eu.` label)',
   );
   const key = `ops-check/${randomUUID()}.txt`;
@@ -205,7 +215,38 @@ export function corsProblems(rules: CorsRule[], site: string): string[] {
   return problems;
 }
 
+/** The read-only token works and the account id looks like one; a readable reason if not. */
+async function checkToken(env: Env): Promise<void> {
+  const account = env.CF_ACCOUNT_ID ?? '';
+  expect(
+    /^[0-9a-f]{32}$/.test(account),
+    `CF_ACCOUNT_ID should be 32 hexadecimal characters (it is ${shapeOf(account)})`,
+  );
+  const token = env.CF_READ_TOKEN ?? '';
+  const verify = async (path: string) => {
+    const response = await fetch(`${CLOUDFLARE_API}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      result?: { status?: string };
+      errors?: { code: number }[];
+    };
+    return { ok: Boolean(data.success), status: data.result?.status, errors: data.errors ?? [] };
+  };
+  // A user token verifies at /user, an account-owned one under its account.
+  let result = await verify('/user/tokens/verify');
+  if (!result.ok) result = await verify(`/accounts/${account}/tokens/verify`);
+  const codes = result.errors.map((e) => String(e.code)).join(', ');
+  expect(
+    result.ok,
+    `CF_READ_TOKEN is not a working API token (${shapeOf(token)}${codes ? `; Cloudflare error ${codes}` : ''}). Use the token from My Profile → API Tokens → edittoolbelt-ci-read, not an R2 key or the Global API Key`,
+  );
+  expect(result.status === 'active', `CF_READ_TOKEN is ${result.status ?? 'not active'}`);
+}
+
 async function checkCloudflareR2(env: Env, site: string): Promise<string> {
+  await checkToken(env);
   const account = env.CF_ACCOUNT_ID ?? '';
   const bucket = env.R2_BUCKET ?? 'edittoolbelt-files';
   const eu = { 'cf-r2-jurisdiction': 'eu' };
@@ -379,10 +420,33 @@ async function checkSite(env: Env, site: string): Promise<string> {
 
 /** An error a check didn't expect, named without its message (which may carry a URL or a value). */
 function unexpected(error: unknown): string {
-  const cause =
-    error instanceof Error ? (error.cause as { code?: unknown } | undefined) : undefined;
-  const code = typeof cause?.code === 'string' ? ` ${cause.code}` : '';
+  const own = error as { code?: unknown; cause?: { code?: unknown } } | undefined;
+  const code =
+    typeof own?.code === 'string'
+      ? ` ${own.code}`
+      : typeof own?.cause?.code === 'string'
+        ? ` ${own.cause.code}`
+        : '';
   return `${error instanceof Error ? error.name : 'Error'}${code} (details withheld)`;
+}
+
+/**
+ * The shape of a secret, never its content: its length and what is off about
+ * it. Secrets pasted into GitHub often carry a space, quotes, a newline or a
+ * "Bearer " prefix; values are trimmed before use, and the rest is reported.
+ */
+export function shapeOf(value: string): string {
+  const notes: string[] = [`${String(value.length)} characters`];
+  if (/^["']|["']$/.test(value)) notes.push('quoted');
+  if (/\s/.test(value)) notes.push('has spaces or line breaks inside');
+  if (/^bearer\s/i.test(value)) notes.push('starts with "Bearer "');
+  if (/^https?:\/\//.test(value)) notes.push('is a URL');
+  return notes.join(', ');
+}
+
+/** Secrets as checked: surrounding whitespace removed, as GitHub's form keeps it. */
+export function cleaned(env: Env): Env {
+  return Object.fromEntries(Object.entries(env).map(([name, value]) => [name, value?.trim()]));
 }
 
 interface Check {
@@ -407,10 +471,13 @@ export const CHECKS: Check[] = [
   },
 ];
 
-export async function runChecks(env: Env): Promise<Outcome[]> {
+export async function runChecks(raw: Env): Promise<Outcome[]> {
+  const env = cleaned(raw);
   // An unset repository variable arrives as an empty string.
-  const site = new URL(env.SITE_URL?.trim() ? env.SITE_URL : 'http://localhost:3000').origin;
-  const wanted = (env.OPS_CHECKS ?? '')
+  const site = new URL(env.SITE_URL ? env.SITE_URL : 'http://localhost:3000').origin;
+  // A push names its checks in the commit message: a line `ops-checks: r2,dns`.
+  const fromMessage = /^ops-checks:\s*(.+)$/m.exec(env.OPS_COMMIT_MESSAGE ?? '')?.[1];
+  const wanted = (env.OPS_CHECKS || fromMessage || '')
     .split(',')
     .map((name) => name.trim())
     .filter(Boolean);
