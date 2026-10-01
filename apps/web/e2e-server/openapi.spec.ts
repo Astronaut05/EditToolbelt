@@ -54,8 +54,8 @@ async function keyFor(email: string): Promise<string> {
   const [user] = await db.insert(users).values({ email, emailVerified: true }).returning();
   if (!user) throw new Error('no user');
   await applyCredit(db, user.id, 'welcome_grant', 30);
-  const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-  const key = `etb_live_${[...randomBytes(32)].map((b) => alphabet.charAt(b % 62)).join('')}`;
+  // 32 hex characters: letters and digits, as a key's body is.
+  const key = `etb_live_${randomBytes(16).toString('hex')}`;
   await db.insert(apiKeys).values({
     userId: user.id,
     name: 'contract test',
