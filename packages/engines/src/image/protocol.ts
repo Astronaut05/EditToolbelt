@@ -4,6 +4,7 @@ import type { Lut } from '@etb/core/lut';
 import type { Mark } from './annotate';
 import type { GeometryJob } from './geometry';
 import type { GridSpec } from './grid';
+import type { Redact } from './redact';
 import type { ImageFormat } from './sniff';
 import type { Focus, SocialFit } from './social';
 import type { WatermarkJob } from './watermark-draw';
@@ -44,11 +45,13 @@ export interface ImageJob {
   optimise?: boolean;
   /** Return the original file when re-encoding would make it bigger (Compress). */
   neverGrow?: boolean;
-  /** Turn, flip, crop, resize (P02 Crop, P03 Resize). */
+  /** P12: areas blurred, pixelated or covered, in the image's own pixels, first of all. */
+  redact?: Redact;
   /** P09: marks drawn on the decoded image, in its own pixels, before any geometry. */
   marks?: Mark[];
   /** P10: text drawn on the page at the image's size, laid over it after the marks. */
   overlay?: ImageBitmap;
+  /** Turn, flip, crop, resize (P02 Crop, P03 Resize). */
   geometry?: GeometryJob;
   /** P14: cut into tiles and answer a ZIP of them, named from `stem`. */
   tiles?: GridSpec & { stem: string };

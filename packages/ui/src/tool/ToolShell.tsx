@@ -1,6 +1,6 @@
 'use client';
 
-import type { Engine, NamesPlan } from '@etb/engines';
+import { activeAreas, type Engine, type NamesPlan } from '@etb/engines';
 import { ChevronRight, Download, Undo2 } from 'lucide-react';
 import {
   lazy,
@@ -30,6 +30,7 @@ import { SegmentedControl } from '../primitives/SegmentedControl';
 import { StatePanel } from '../primitives/states';
 import { BatchList, type BatchItem } from './BatchList';
 import { BeforeAfter, MediaTag } from './BeforeAfter';
+import type { FaceFinder } from './BlurLayer';
 import { CalculatorShell } from './CalculatorShell';
 import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
@@ -463,6 +464,8 @@ export interface ShellPreset {
     ratio?: (options: Record<string, string>) => number | null;
     /** The option that holds Refine brush strokes (JSON): P07's keep/erase brush on the result. */
     refine?: string;
+    /** P12: blur mode's "Find faces". */
+    findFaces?: FaceFinder;
   };
   /**
    * C02: the image becomes a colour picker. Picks are kept (as a JSON list of
@@ -854,6 +857,7 @@ export function ToolShell({
               flip: edit.flip,
               flipV: edit.flipV,
               angle: edit.angle,
+              ...(edit.redact && activeAreas(edit.redact).length > 0 && { redact: edit.redact }),
               ...(edit.marks && edit.marks.length > 0 && { marks: edit.marks }),
               ...(edit.texts &&
                 edit.texts.length > 0 &&
@@ -2344,6 +2348,7 @@ function Workspace({
             ratio={ratio}
             initialMode={preset.editor?.mode}
             enabledModes={preset.editor?.modes}
+            findFaces={preset.editor?.findFaces}
           />
         </Suspense>
       </div>

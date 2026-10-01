@@ -9,6 +9,7 @@ import {
   turnedSize,
   type Mark,
   type Rect,
+  type Redact,
   type Size,
   type TextLayer,
 } from '@etb/engines';
@@ -26,7 +27,9 @@ export interface Edit {
   angle: number;
   /** Crop box in turned pixels; null until the image size is known. */
   crop: Rect | null;
-  /** P09: drawn marks, in the image's own pixels (before turns), drawn first. */
+  /** P12: areas to blur, pixelate or cover, in the image's own pixels (before turns), hidden first. */
+  redact?: Redact;
+  /** P09: drawn marks, in the image's own pixels (before turns), drawn after the hidden areas. */
   marks?: Mark[];
   /** P10: text layers, in the image's own pixels (before turns), drawn after the marks. */
   texts?: TextLayer[];

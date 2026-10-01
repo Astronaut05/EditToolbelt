@@ -80,7 +80,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Whisper / faster-whisper | transcription, auto subtitles | MIT | MIT | 🔍 |
 | DeepFilterNet | noise reduction | MIT / Apache-2.0 | same | 🔍 |
 | LaMa | object eraser (inpainting) | Apache-2.0 | 🔍 check weights | 🔍 |
-| YuNet (OpenCV zoo) | face detection for face blur | 🔍 | 🔍 | 🔍 |
+| YuNet (OpenCV zoo) | face detection for Blur & Pixelate's Find faces (P12) | MIT | MIT | ✅ checked 2026-10-01: `face_detection_yunet_2023mar.onnx` from opencv/opencv_zoo, whose model folder carries its own MIT licence (© 2020 Shiqi Yu). Pinned by SHA-256 in `packages/engines/src/image/faces/yunet.ts`. 0.2 MB, WASM, run with the ONNX Runtime Web already registered for P07 |
 | Face-restoration models (CodeFormer, GFPGAN-class) | "face-friendly" upscale | 🔍 | 🔍 — CodeFormer's licence is understood to be non-commercial; don't add any face model without a verified commercial licence | 🔍 |
 | RobustVideoMatting | video background removal | GPL-3.0 | 🔍 | ⚠️ server only, if weights allow commercial use |
 

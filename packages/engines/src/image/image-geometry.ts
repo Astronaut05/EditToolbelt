@@ -5,6 +5,7 @@
  */
 import type { Engine, EngineOutput } from '../types';
 import type { Mark } from './annotate';
+import type { Redact } from './redact';
 import { renderTextOverlay, type TextLayer } from './text-layer';
 import type { Filter, Fit, GeometryJob, Rect, ResizeBy, ResizeSpec } from './geometry';
 import {
@@ -51,6 +52,8 @@ export interface ImageGeometryOptions extends Pick<
   pad?: string;
   /** lanczos, bicubic, bilinear, nearest */
   filter?: string;
+  /** P12: areas to blur, pixelate or cover, from the editor, in the image's own pixels. */
+  redact?: Redact;
   /** P09: marks from the editor, in the image's own pixels, drawn before the geometry. */
   marks?: Mark[];
   /** P10: text layers from the editor, and the image's size as the editor saw it (orientation applied). */
@@ -134,6 +137,7 @@ export const imageGeometryEngine: Engine<ImageGeometryOptions> = {
       {
         ...baseJob(bytes, format, opts),
         geometry: geometryJob(opts),
+        redact: opts.redact,
         marks: opts.marks,
         // Text is laid out here, where the page's fonts are, at full size, and laid over in the worker.
         ...(opts.texts &&

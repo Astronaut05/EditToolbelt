@@ -1,6 +1,13 @@
 'use client';
 
-import { turnedSize, type Size } from '@etb/engines';
+import {
+  defaultAmount,
+  faceArea,
+  maxAmount,
+  turnedSize,
+  type Redact,
+  type Size,
+} from '@etb/engines';
 import {
   Crop,
   FlipHorizontal2,
@@ -29,6 +36,14 @@ import {
 
 import { cn } from '../cn';
 import { Slider } from '../primitives/fields';
+import {
+  BlurBar,
+  BlurLayer,
+  centredBox,
+  type BlurPen,
+  type FaceFinder,
+  type FaceSearch,
+} from './BlurLayer';
 import { boxLabel, dragHandle, moveBox, turnEdit, type Edit, type Handle } from './crop';
 import { DrawBar, DrawLayer, defaultSize, type DrawStyle } from './DrawLayer';
 import { TextBar } from './TextBar';
@@ -93,6 +108,8 @@ export interface CanvasEditorProps {
   initialMode?: EditorMode;
   /** Modes the preset shows; all by default. */
   enabledModes?: EditorMode[];
+  /** P12: finds faces for blur mode's "Find faces"; without it the button isn't shown. */
+  findFaces?: FaceFinder;
   className?: string;
 }
 
@@ -120,6 +137,7 @@ export function CanvasEditor({
   ratio = null,
   initialMode = 'crop',
   enabledModes,
+  findFaces,
   className,
 }: CanvasEditorProps) {
   const { edit, onEdit, natural, onNatural, history } = editor;
@@ -153,6 +171,74 @@ export function CanvasEditor({
   const texts = edit.texts ?? [];
   /** P10: the text layer being edited. */
   const [selectedText, setSelectedText] = useState<string | null>(null);
+  /** P12: the shape blur mode draws, and the face search. */
+  const [blurPenChoice, setBlurPen] = useState<BlurPen | null>(null);
+  const [search, setSearch] = useState<FaceSearch>({ kind: 'idle' });
+  const searching = useRef<AbortController | null>(null);
+  const latest = useRef(edit);
+  useEffect(() => {
+    latest.current = edit;
+  });
+  useEffect(
+    () => () => {
+      searching.current?.abort();
+    },
+    [],
+  );
+  const blurPen: BlurPen | null =
+    blurPenChoice ??
+    (natural
+      ? {
+          shape: 'rect',
+          brush: Math.max(8, Math.round(Math.max(natural.width, natural.height) / 30)),
+        }
+      : null);
+  const redact: Redact | null =
+    edit.redact ??
+    (natural
+      ? { effect: 'blur', amount: defaultAmount(natural), color: '#000000', areas: [] }
+      : null);
+
+  /** Finds faces and hides them all, replacing faces found before; drawn areas stay. One undo step. */
+  function find() {
+    if (!findFaces || !natural) return;
+    searching.current?.abort();
+    const controller = new AbortController();
+    searching.current = controller;
+    setSearch({ kind: 'running', label: 'Finding faces' });
+    findFaces(src, controller.signal, (progress) => {
+      if (!controller.signal.aborted) {
+        setSearch({ kind: 'running', label: progress.label, amount: progress.amount });
+      }
+    }).then(
+      (faces) => {
+        if (controller.signal.aborted) return;
+        const now = latest.current;
+        const current = now.redact ?? redact;
+        if (!current) return;
+        const bounds = { x: 0, y: 0, ...natural };
+        onEdit({
+          ...now,
+          redact: {
+            ...current,
+            areas: [
+              ...current.areas.filter((area) => area.face === undefined),
+              ...faces.map((face) => faceArea(face, bounds)),
+            ],
+          },
+        });
+        setSearch({ kind: 'done', count: faces.length });
+      },
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        setSearch({
+          kind: 'error',
+          message:
+            error instanceof Error ? error.message.replace(/\.$/, '') : 'Faces couldn’t be found',
+        });
+      },
+    );
+  }
 
   const turned = natural ? turnedSize(natural, edit.turns) : null;
   const fit =
@@ -381,6 +467,26 @@ export function CanvasEditor({
           }}
         />
       )}
+      {mode === 'blur' && natural && blurPen && redact && (
+        <BlurBar
+          pen={blurPen}
+          onPen={setBlurPen}
+          redact={redact}
+          onRedact={(next, transient) => {
+            onEdit({ ...edit, redact: next }, transient);
+          }}
+          natural={natural}
+          maxStrength={maxAmount(natural)}
+          search={search}
+          onFind={findFaces ? find : undefined}
+          onAddBox={() => {
+            onEdit({
+              ...edit,
+              redact: { ...redact, areas: [...redact.areas, centredBox(natural)] },
+            });
+          }}
+        />
+      )}
       {mode === 'text' && natural && (
         <TextBar
           layers={texts}
@@ -439,6 +545,30 @@ export function CanvasEditor({
                 transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
               }}
             />
+            {blurPen && redact && (mode === 'blur' || redact.areas.length > 0) && (
+              // Hidden areas sit on the image and turn with it; only blur mode takes the pointer.
+              <div
+                className={cn('absolute', mode !== 'blur' && 'pointer-events-none')}
+                style={{
+                  left: (stage.width - imageSize.width) / 2,
+                  top: (stage.height - imageSize.height) / 2,
+                  width: imageSize.width,
+                  height: imageSize.height,
+                  transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
+                }}
+              >
+                <BlurLayer
+                  src={src}
+                  natural={natural}
+                  redact={redact}
+                  pen={blurPen}
+                  active={mode === 'blur'}
+                  onRedact={(next, transient) => {
+                    onEdit({ ...edit, redact: next }, transient);
+                  }}
+                />
+              </div>
+            )}
             {pen && (mode === 'draw' || marks.length > 0) && (
               // Marks sit on the image and turn with it; only draw mode takes the pointer.
               <div

@@ -567,6 +567,19 @@
       "checked": "2026-09-30"
     },
     {
+      "label": "YuNet (OpenCV zoo)",
+      "section": "Models",
+      "ecosystem": "model",
+      "packages": ["YuNet", "face_detection_yunet_2023mar"],
+      "use": "face detection for Blur & Pixelate's Find faces (P12)",
+      "license": "MIT",
+      "weightsLicense": "MIT",
+      "scope": "browser",
+      "status": "approved",
+      "source": "https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE",
+      "checked": "2026-10-01"
+    },
+    {
       "label": "Real-ESRGAN",
       "section": "Models",
       "ecosystem": "model",
@@ -619,17 +632,6 @@
       "license": "Apache-2.0",
       "weightsLicense": "unknown",
       "scope": "server",
-      "status": "verify"
-    },
-    {
-      "label": "YuNet (OpenCV zoo)",
-      "section": "Models",
-      "ecosystem": "model",
-      "packages": ["YuNet"],
-      "use": "face detection for face blur",
-      "license": "unknown",
-      "weightsLicense": "unknown",
-      "scope": "browser",
       "status": "verify"
     },
     {

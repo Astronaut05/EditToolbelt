@@ -23,6 +23,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'audio-converter': dynamic(() => import('./audio-converter')),
   'batch-rename': dynamic(() => import('./batch-rename')),
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
+  'blur-image': dynamic(() => import('./blur-image')),
   'bpm-key-finder': dynamic(() => import('./bpm-key-finder')),
   'change-pitch': dynamic(() => import('./change-pitch')),
   'burn-subtitles': dynamic(() => import('./burn-subtitles')),

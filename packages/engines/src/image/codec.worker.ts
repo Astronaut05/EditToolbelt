@@ -7,6 +7,7 @@
 import { applyLut } from '@etb/core/lut';
 
 import { drawMarks } from './annotate';
+import { applyRedact, type RedactEffect } from './redact';
 
 import { encodeBmp } from './bmp';
 import { decodeImage, ImageReadError } from './decode';
@@ -349,6 +350,12 @@ async function runSocial(
   };
 }
 
+const REDACT_DONE: Record<RedactEffect, string> = {
+  blur: 'blurred',
+  pixelate: 'pixelated',
+  solid: 'covered',
+};
+
 /** The image with the marks drawn on it at `scale` (smaller when the decode was scaled down). */
 function drawn(image: ImageData, marks: NonNullable<ImageJob['marks']>, scale: number): ImageData {
   const canvas = new OffscreenCanvas(image.width, image.height);
@@ -379,6 +386,15 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   if (scale < 1) notes.push(`Scaled down to ${String(width)} × ${String(height)} px`);
   let image = rgba(bitmap, width, height);
   bitmap.close();
+  if (job.redact) {
+    post({ type: 'progress', fraction: 0.12, stage: 'Hiding' });
+    const hidden = applyRedact(image, job.redact, scale);
+    if (hidden > 0) {
+      notes.push(
+        `${String(hidden)} ${hidden === 1 ? 'area' : 'areas'} ${REDACT_DONE[job.redact.effect]}`,
+      );
+    }
+  }
   if (job.marks && job.marks.length > 0) {
     post({ type: 'progress', fraction: 0.15, stage: 'Drawing' });
     image = drawn(image, job.marks, scale);

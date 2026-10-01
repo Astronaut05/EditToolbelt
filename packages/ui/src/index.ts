@@ -57,6 +57,7 @@ export { BatchList, type BatchItem } from './tool/BatchList';
 export { BeforeAfter, MediaTag } from './tool/BeforeAfter';
 export { CalculatorShell } from './tool/CalculatorShell';
 export { CanvasEditor, type CanvasEditorProps, type EditorMode } from './tool/CanvasEditor';
+export type { FaceFinder } from './tool/BlurLayer';
 export { NO_EDIT, type Edit } from './tool/crop';
 export { CropFields } from './tool/CropFields';
 export { DropZone, type DropZoneProps } from './tool/DropZone';

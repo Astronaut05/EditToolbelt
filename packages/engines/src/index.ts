@@ -150,3 +150,18 @@ export {
   type TextLayer,
 } from './image/text-layer';
 export { TEXT_FONTS } from './image/text-fonts';
+export {
+  activeAreas,
+  applyRedact,
+  areaBoxOf,
+  defaultAmount,
+  faceArea,
+  maxAmount,
+  REDACT_EFFECTS,
+  REDACT_SHAPES,
+  type Redact,
+  type RedactEffect,
+  type Redaction,
+  type RedactShape,
+} from './image/redact';
+export { YUNET, type FaceBox } from './image/faces/yunet';
