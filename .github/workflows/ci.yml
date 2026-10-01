@@ -204,7 +204,7 @@ jobs:
         run: |
           docker compose run --rm -T migrate
           docker compose exec -T postgres psql -U etb -d etb -tAc \
-            "select count(*) from information_schema.tables where table_schema = 'public'" | grep -qx 19
+            "select count(*) from information_schema.tables where table_schema = 'public'" | grep -qx 20
       - name: Worker hello-world job (JSON logs, job succeeds)
         run: |
           set -o pipefail
