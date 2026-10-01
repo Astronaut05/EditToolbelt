@@ -20,6 +20,7 @@ export * as contrast from './color/contrast';
 export * as gradient from './color/gradient';
 export { CSS_NAMED_COLORS } from './color/names';
 export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
+export { format3dl, formatCube, GRID_SIZES, parse3dl, resample, to1d } from './color/lut-convert';
 export {
   ANCHORS,
   markBox,

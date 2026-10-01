@@ -33,6 +33,7 @@ export const TOOL_IDS = [
   'image-converter',
   'loop-video',
   'loudness-meter',
+  'lut-converter',
   'lut-preview',
   'merge-audio',
   'merge-videos',

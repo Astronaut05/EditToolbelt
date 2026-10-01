@@ -46,6 +46,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'image-converter': dynamic(() => import('./image-converter')),
   'loop-video': dynamic(() => import('./loop-video')),
   'loudness-meter': dynamic(() => import('./loudness-meter')),
+  'lut-converter': dynamic(() => import('./lut-converter')),
   'lut-preview': dynamic(() => import('./lut-preview')),
   'merge-audio': dynamic(() => import('./merge-audio')),
   'merge-videos': dynamic(() => import('./merge-videos')),

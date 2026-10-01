@@ -95,12 +95,13 @@
 - Wave 3: Loop Video (beta). A clip repeated 2 to 50 times or up to a length, copied without re-encoding when it can be; or a boomerang, forwards then back.
 - Wave 3: Split Audio (beta). Equal parts, pieces of a length, at silences or by hand, the parts shown and editable on the timeline; every part in one ZIP, copied without re-encoding when the format is kept.
 - Wave 3: Gradient Generator (beta). Linear, radial and conic gradients with up to 8 stops, blended in Oklch (Smooth) or sRGB; the CSS to copy, and a dithered PNG up to 8,000 px a side that matches the preview.
+- Wave 3: LUT Converter (beta). `.cube` to Autodesk `.3dl` and back, the grid resampled to 17, 33 or 65 points with tetrahedral interpolation, and 1D ↔ 3D where it's exact.
 
 ## Next
 
 1. Checkpoints 1, 2 and 3, and the M3, M4 and M6 sign-offs: sent.
 2. M8: every browser tool of Wave 2 is built, and so are the mobile parts (share target, install button, desktop notes). Left: Noise Reduction (blocked, below) and the GPU tools (with M5). Then the M8 sign-off. M7 (the Premiere panel) follows M5's GPU tools.
-3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum, Reverse Audio, Reverse Video, Loop Video, Split Audio, Gradient Generator. Next: LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor.
+3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum, Reverse Audio, Reverse Video, Loop Video, Split Audio, Gradient Generator, LUT Converter. Next: Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor.
 4. M5 (credits, payments, GPU tools) after Go public.
 
 ## Blocked
