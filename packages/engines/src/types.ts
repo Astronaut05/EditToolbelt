@@ -43,10 +43,22 @@ export interface EngineOutput {
   path: string;
   /** What changed or was dropped, in plain words: "12 style overrides removed". */
   notes?: string[];
-  /** Extra facts for the result readout: { label: 'Cues', value: '142' }. */
-  details?: { label: string; value: string }[];
+  /** Extra facts for the result readout: { label: 'Cues', value: '142' }, with a unit if it has one. */
+  details?: { label: string; value: string; unit?: string }[];
   /** A plain-text report shown under an analyzer's facts (P15: what the photo carried). */
   report?: string;
+  /** A line over time under an analyzer's facts (A06: short-term loudness). */
+  graph?: {
+    label: string;
+    unit: string;
+    /** When the first value is, and the time between values, seconds. */
+    startSec: number;
+    stepSec: number;
+    values: number[];
+    /** Horizontal lines: the integrated loudness. */
+    marks: { label: string; value: number }[];
+    durationSec: number;
+  };
   /** Colours found (C01), most common first, in HEX, RGB and HSL, with their share of the image (0-1). */
   swatches?: { hex: string; rgb: string; hsl: string; share: number }[];
 }

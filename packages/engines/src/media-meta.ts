@@ -72,6 +72,10 @@ export const MEDIA_META = {
     capabilities: () => ({ supported: true }),
     estimate: (input) => ({ seconds: Math.max(0.5, input.size / 100_000_000) }),
   },
+  loudness: {
+    capabilities: () => ({ supported: hasAudioDecoder(), reason: READ_AUDIO }),
+    estimate: (input) => ({ seconds: Math.max(1, input.size / 15_000_000) }),
+  },
   bpmKey: {
     capabilities: () => ({ supported: hasAudioDecoder(), reason: READ_AUDIO }),
     estimate: (input) => ({ seconds: Math.max(1, input.size / 20_000_000) }),
