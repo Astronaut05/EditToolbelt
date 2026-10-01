@@ -78,6 +78,7 @@
 - M8: Add or Replace Audio in Video (beta). Replace a video's sound with music, or mix the music under it, each at its own level; fade in and out, start the music at any point, loop it or play it once. The picture is copied as it is; the new sound is AAC or Opus at 48 kHz, whatever the music's own rate (#62).
 - M8: Merge Audio (beta). Drop 2 to 20 files, put them in order (arrow buttons, keyboard too), and join them back to back, with equal-power crossfades or with gaps, or mix them together, lowered just enough not to clip. Files at different rates meet at 48 kHz; the result can be normalised to −14, −16 or −23 LUFS (#63).
 - M8: LUT Preview on Image (beta). Drop a still and a .cube LUT (1D or 3D), set the intensity, and compare before and after; download the graded image. Tetrahedral interpolation, matching the LUT within 1/255; a broken .cube says what's wrong and on which line (#64).
+- Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#65).
 
 ## Next
 
