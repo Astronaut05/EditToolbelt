@@ -384,6 +384,8 @@ export interface ShellPreset {
   maxFiles?: number;
   /** Runs as soon as a file arrives (P07), or waits for the primary action. */
   autoRun?: boolean;
+  /** Once there's a result, a changed setting runs it again (C05's intensity), when nothing blocks the run. */
+  rerun?: boolean;
   /** Primary action before a run: "Trim video". */
   runLabel?: string;
   /** Output file extension from the options. */
@@ -672,6 +674,8 @@ export function ToolShell({
   /** Which search is the latest, and the timer that waits for typing to stop. */
   const detectRound = useRef(0);
   const detectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** C05: a run again after a setting changes, once the slider stops moving. */
+  const rerunTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detectRanges = useCallback(
     async (file: File, values: Record<string, string>) => {
       const detect = preset.detect;
@@ -1235,6 +1239,13 @@ export function ToolShell({
     }
     if (preset.autoRun && state.kind === 'result' && state.file) {
       void run(state.input, state.file, next);
+    }
+    if (preset.rerun && state.kind === 'result' && state.file && !preset.blocked?.(next, 1)) {
+      const { input, file } = state;
+      if (rerunTimer.current) clearTimeout(rerunTimer.current);
+      rerunTimer.current = setTimeout(() => {
+        void run(input, file, next);
+      }, 250);
     }
   };
 

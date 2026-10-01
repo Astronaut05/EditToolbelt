@@ -25,6 +25,7 @@ export const TOOL_IDS = [
   'gif-to-mp4',
   'image-converter',
   'loudness-meter',
+  'lut-preview',
   'merge-audio',
   'mute-video',
   'normalize-audio',

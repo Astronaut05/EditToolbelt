@@ -1173,3 +1173,19 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/audio.md` → A04.
 **Reverse:** the placement maths is `packages/core/src/audio/merge.ts` (pure, with tests); the engine is `packages/engines/src/audio/merge.ts`; the list is `packages/ui/src/tool/FileOrder.tsx`.
+
+## 2026-10-01 · LUT Preview (M8)
+
+**Decision:**
+- **The LUT is applied on the CPU, in the image worker, not in WebGL** (the spec's suggestion):
+  - Each channel's 256 levels are placed on the grid once, so the loop is plain arithmetic: a 24 MP frame takes under a second.
+  - It gives the same result in every browser and on every GPU, the same as in the unit tests. A WebGL 3D texture would vary with each driver's filtering and precision, and the "±1/255 of the reference" test would then depend on the machine.
+  - The spec's "if feasible" tetrahedral interpolation is what's used: the method grading apps use, exact on the grey axis.
+- **What's read:** Adobe/Resolve `.cube`: 3D (2³ to 256³) or 1D (up to 65,536 points), `TITLE`, `DOMAIN_MIN`/`DOMAIN_MAX`, `LUT_*_INPUT_RANGE`, comments. Anything else is refused with what's wrong and the line number (`Line 3: expected three numbers`), before the image is touched. Files over 32 MB are refused.
+- **Intensity** blends the graded colour with the original, 0-100% in 5% steps. Alpha is kept.
+- **A changed setting redoes the result** (the shell's new `preset.rerun`), 250 ms after the slider stops, so before and after can be compared straight away. Unlike `autoRun`, nothing runs before a LUT is chosen.
+- **Output:** the still's own format or JPG, PNG, WebP or AVIF; the metadata choice as in the other photo tools. One still at a time, so the result is the before-and-after compare.
+- **Colour:** the LUT is applied to the decoded sRGB values as they are. The FAQ says a LUT for log footage expects a log frame.
+
+**Why:** `tools/color.md` → C05.
+**Reverse:** `packages/core/src/color/lut.ts` (pure, with tests, also at `@etb/core/lut` so the worker loads only that); the engine is `packages/engines/src/image/lut-preview.ts`.

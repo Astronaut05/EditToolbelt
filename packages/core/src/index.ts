@@ -15,6 +15,7 @@ export * as print from './calc/print';
 export * as color from './color/color';
 export * as contrast from './color/contrast';
 export { CSS_NAMED_COLORS } from './color/names';
+export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
 export {
   extractPalette,
   paletteAse,
