@@ -121,8 +121,13 @@ async function checkR2(env: Env, site: string): Promise<string> {
   });
   expect(put.ok, `PUT with the app's key answered HTTP ${String(put.status)}`);
   expect(put.headers.get('etag'), 'PUT answered no ETag');
+  // CORS headers are settings, not secrets: say what came back.
+  const allowOrigin = put.headers.get('access-control-allow-origin');
   const exposed = (put.headers.get('access-control-expose-headers') ?? '').toLowerCase();
-  expect(exposed.includes('etag'), 'CORS: ETag is not exposed to the site (ExposeHeaders)');
+  expect(
+    exposed.includes('etag'),
+    `CORS: ETag is not exposed to the site (the upload answered Access-Control-Allow-Origin: ${allowOrigin ?? 'none'}, Access-Control-Expose-Headers: ${exposed || 'none'})`,
+  );
 
   try {
     const get = await fetch(presign(s3, 'GET', key));
@@ -235,12 +240,18 @@ async function checkToken(env: Env): Promise<void> {
     return { ok: Boolean(data.success), status: data.result?.status, errors: data.errors ?? [] };
   };
   // A user token verifies at /user, an account-owned one under its account.
-  let result = await verify('/user/tokens/verify');
-  if (!result.ok) result = await verify(`/accounts/${account}/tokens/verify`);
-  const codes = result.errors.map((e) => String(e.code)).join(', ');
+  const asUser = await verify('/user/tokens/verify');
+  const asAccount = asUser.ok ? asUser : await verify(`/accounts/${account}/tokens/verify`);
+  const result = asUser.ok ? asUser : asAccount;
+  const codes = [asUser, ...(asUser.ok ? [] : [asAccount])]
+    .map(
+      (r, i) =>
+        `${i === 0 ? 'as a user token' : 'as an account token'}: ${r.errors.map((e) => String(e.code)).join(', ') || 'no error code'}`,
+    )
+    .join('; ');
   expect(
     result.ok,
-    `CF_READ_TOKEN is not a working API token (${shapeOf(token)}${codes ? `; Cloudflare error ${codes}` : ''}). Use the token from My Profile → API Tokens → edittoolbelt-ci-read, not an R2 key or the Global API Key`,
+    `CF_READ_TOKEN is not a working API token (${shapeOf(token)}; Cloudflare answered ${codes}). Use the token from My Profile → API Tokens → edittoolbelt-ci-read, not an R2 key or the Global API Key`,
   );
   expect(result.status === 'active', `CF_READ_TOKEN is ${result.status ?? 'not active'}`);
 }
