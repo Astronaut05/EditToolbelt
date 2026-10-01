@@ -30,6 +30,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'contrast-checker': dynamic(() => import('./contrast-checker')),
   'crop-image': dynamic(() => import('./crop-image')),
   'dpi-calculator': dynamic(() => import('./dpi-calculator')),
+  'exif-remover': dynamic(() => import('./exif-remover')),
   'extract-audio': dynamic(() => import('./extract-audio')),
   'gif-to-mp4': dynamic(() => import('./gif-to-mp4')),
   'image-converter': dynamic(() => import('./image-converter')),

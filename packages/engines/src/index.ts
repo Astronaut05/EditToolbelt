@@ -18,6 +18,7 @@ export { FORMAT_LABELS as IMAGE_FORMAT_LABELS, sniffImage, type ImageFormat } fr
 export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';
 export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './image/image-geometry';
 export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
+export { imageMetadataEngine, type MetadataOptions } from './image/metadata';
 export {
   centredRatio,
   clampRect,
