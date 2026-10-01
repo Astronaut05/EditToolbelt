@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import type { Page } from '@playwright/test';
 
-import { choose, cspViolations, expect, test } from './fixtures';
+import { choose, cspViolations, expect, setRange, test } from './fixtures';
 
 // A01 Audio Converter (tools/audio.md → Tests).
 
@@ -124,10 +124,7 @@ async function trimTone(page: Page) {
   await expect(
     page.getByText('PCM 16-bit · 48 kHz · mono · 0:20').filter({ visible: true }),
   ).toBeVisible();
-  await page.getByRole('textbox', { name: 'Out point' }).fill('15');
-  await page.getByRole('textbox', { name: 'Out point' }).press('Enter');
-  await page.getByRole('textbox', { name: 'In point' }).fill('5');
-  await page.getByRole('textbox', { name: 'In point' }).press('Enter');
+  await setRange(page, '5', '15');
 }
 
 async function trimmed(page: Page) {
@@ -186,10 +183,7 @@ test('removes two ranges and joins what’s left', async ({ page, isMobile }) =>
     'aria-pressed',
     'true',
   );
-  await page.getByRole('textbox', { name: 'Out point' }).fill('17');
-  await page.getByRole('textbox', { name: 'Out point' }).press('Enter');
-  await page.getByRole('textbox', { name: 'In point' }).fill('16');
-  await page.getByRole('textbox', { name: 'In point' }).press('Enter');
+  await setRange(page, '16', '17');
   await expect(page.getByRole('button', { name: 'Range 2: 00:16.000 to 00:17.000' })).toBeVisible();
   await expect(page.getByText('2 ranges · 11.00 s')).toBeVisible();
   const out = await trimmed(page);
