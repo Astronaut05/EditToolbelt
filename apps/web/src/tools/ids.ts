@@ -29,6 +29,7 @@ export const TOOL_IDS = [
   'file-checksum',
   'fade-audio',
   'gif-to-mp4',
+  'gradient-generator',
   'image-converter',
   'loop-video',
   'loudness-meter',

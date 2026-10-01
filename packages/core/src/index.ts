@@ -17,6 +17,7 @@ export * as storage from './calc/storage';
 export * as checksum from './checksum';
 export * as color from './color/color';
 export * as contrast from './color/contrast';
+export * as gradient from './color/gradient';
 export { CSS_NAMED_COLORS } from './color/names';
 export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
 export {

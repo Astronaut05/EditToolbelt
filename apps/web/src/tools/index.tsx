@@ -42,6 +42,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'file-checksum': dynamic(() => import('./file-checksum')),
   'fade-audio': dynamic(() => import('./fade-audio')),
   'gif-to-mp4': dynamic(() => import('./gif-to-mp4')),
+  'gradient-generator': dynamic(() => import('./gradient-generator')),
   'image-converter': dynamic(() => import('./image-converter')),
   'loop-video': dynamic(() => import('./loop-video')),
   'loudness-meter': dynamic(() => import('./loudness-meter')),
