@@ -45,6 +45,17 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test('social sizes and focal point: no serious issues', async ({ page }) => {
+      await page.goto('/social-media-image-resizer', { waitUntil: 'networkidle' });
+      const sample = await page.request.get('/samples/mug.jpg');
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles({ name: 'mug.jpg', mimeType: 'image/jpeg', buffer: await sample.body() });
+      await expect(page.getByRole('application', { name: /^Focal point/ })).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('remove background result and refine brush: no serious issues', async ({ page }) => {
       await page.goto('/remove-background', { waitUntil: 'networkidle' });
       const sample = await page.request.get('/samples/mug.jpg');

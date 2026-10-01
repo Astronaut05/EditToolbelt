@@ -20,9 +20,10 @@ import { Breadcrumb } from '../primitives/Breadcrumb';
 import { Button } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
 import { NumberedList } from '../primitives/NumberedList';
-import { OptionFact, OptionRow, OptionsPanel } from '../primitives/OptionsPanel';
+import { OptionFact, OptionRow, OptionsPanel, OptionStack } from '../primitives/OptionsPanel';
 import { ColorInput, Input, NumberWithUnit, Select, Slider } from '../primitives/fields';
 import { Dialog } from '../primitives/overlays';
+import { PresetChecklist, type PresetGroup } from '../primitives/PresetPicker';
 import { PrivacyBadge, type Noun } from '../primitives/PrivacyBadge';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { StatePanel } from '../primitives/states';
@@ -37,6 +38,7 @@ import type { SwatchInfo } from './Swatches';
 import { accepts, handOff, takeHandoff } from './handoff';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
+import type { FocusFrame } from './FocusPicker';
 import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
 import { ServerNotice } from './ServerNotice';
@@ -58,6 +60,7 @@ const CanvasEditor = lazy(() =>
   import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
 );
 const ColorPicker = lazy(() => import('./ColorPicker').then((m) => ({ default: m.ColorPicker })));
+const FocusPicker = lazy(() => import('./FocusPicker').then((m) => ({ default: m.FocusPicker })));
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
 const Swatches = lazy(() => import('./Swatches').then((m) => ({ default: m.Swatches })));
@@ -97,14 +100,18 @@ export interface ShellOption {
    * choice (default): a segmented control. select: a dropdown, for longer
    * lists. slider and number: a value with its unit. color: a swatch, value
    * "#rrggbb". image: a second image to pick (a new background), value an
-   * object URL. text: typed in, such as a time ("00:01:02.500").
+   * object URL. text: typed in, such as a time ("00:01:02.500"). checklist:
+   * several choices at once, grouped (P13's sizes), value the picked values
+   * comma-separated.
    */
-  kind?: 'choice' | 'select' | 'slider' | 'number' | 'color' | 'image' | 'text' | 'file';
+  kind?:
+    'choice' | 'select' | 'slider' | 'number' | 'color' | 'image' | 'text' | 'file' | 'checklist';
   /** file: the types the picker offers (".srt,.vtt,.ass"). */
   accept?: string;
   /** text: an example shown while it's empty. */
   placeholder?: string;
-  choices?: { value: string; label: string }[];
+  /** checklist: `group` heads a set of choices, `detail` is its numbers ("1080 × 1350"). */
+  choices?: { value: string; label: string; group?: string; detail?: string }[];
   min?: number;
   max?: number;
   step?: number;
@@ -131,6 +138,14 @@ export function optionSummary(option: ShellOption, value: string): string {
   if (option.kind === 'color') return value.toUpperCase();
   if (option.kind === 'image') return value ? 'Chosen' : 'None';
   if (option.kind === 'file') return value ? fileOptionName(value) : 'None';
+  if (option.kind === 'checklist') {
+    const picked = value.split(',').filter(Boolean);
+    if (picked.length === 1) {
+      const choice = option.choices?.find((candidate) => candidate.value === picked[0]);
+      return choice ? [choice.group, choice.label].filter(Boolean).join(' · ') : '1 chosen';
+    }
+    return picked.length === 0 ? 'None' : `${String(picked.length)} chosen`;
+  }
   return option.choices?.find((choice) => choice.value === value)?.label ?? value;
 }
 
@@ -209,6 +224,15 @@ function ImagePick({
   );
 }
 
+/** A settings row: label and control side by side, or stacked for a checklist. */
+function OptionLine({ option, children }: { option: ShellOption; children: ReactNode }) {
+  return option.kind === 'checklist' ? (
+    <OptionStack label={option.label}>{children}</OptionStack>
+  ) : (
+    <OptionRow label={option.label}>{children}</OptionRow>
+  );
+}
+
 function OptionControl({
   option,
   value,
@@ -284,6 +308,21 @@ function OptionControl({
         accept={option.accept}
         named
       />
+    );
+  }
+  if (option.kind === 'checklist') {
+    const groups: PresetGroup[] = [];
+    for (const choice of option.choices ?? []) {
+      const label = choice.group ?? '';
+      let group = groups.find((candidate) => candidate.label === label);
+      if (!group) {
+        group = { label, presets: [] };
+        groups.push(group);
+      }
+      group.presets.push({ id: choice.value, label: choice.label, detail: choice.detail ?? '' });
+    }
+    return (
+      <PresetChecklist groups={groups} value={value} onChange={onChange} label={option.label} />
     );
   }
   if (option.kind === 'select') {
@@ -372,6 +411,16 @@ export interface ShellPreset {
    * the loupe.
    */
   picker?: { history: string; sample: string; zoom: string };
+  /**
+   * P13: the image takes a focal point (click, drag or arrow keys), kept in
+   * `option` as "x,y" shares of the width and height. `frames` are the sizes
+   * it's made into, outlined on the image; shown while `when` holds.
+   */
+  focus?: {
+    option: string;
+    frames: (options: Record<string, string>) => FocusFrame[];
+    when?: (options: Record<string, string>) => boolean;
+  };
   /** A03: a tap tempo pad and a metronome under the settings, file or not. */
   tempo?: boolean;
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
@@ -438,6 +487,8 @@ export interface InputInfo {
 export interface OutputInfo {
   size: number;
   ext: string;
+  /** The download name's suffix, when the engine set one for this run. */
+  suffix?: string;
   url?: string;
   blob?: Blob;
   seconds: number;
@@ -669,6 +720,7 @@ export function ToolShell({
             size: out.blob.size,
             // The engine knows the real format ("Keep format" depends on the input).
             ext: out.ext || preset.outputExt(values),
+            suffix: out.nameSuffix,
             url,
             blob: out.blob,
             seconds,
@@ -885,9 +937,11 @@ export function ToolShell({
       if (!file) return;
       resetEditor();
       setRefining(false);
-      // Refine strokes belong to the last image.
+      // Refine strokes and a focal point belong to the last image.
       const refineId = preset.editor?.refine;
       if (refineId) setOptions((current) => ({ ...current, [refineId]: '' }));
+      const focusId = preset.focus?.option;
+      if (focusId) setOptions((current) => ({ ...current, [focusId]: '' }));
       if (preset.maxFiles && files.length > preset.maxFiles) {
         setState({
           kind: 'error',
@@ -984,7 +1038,7 @@ export function ToolShell({
         );
         batchOutputs.current.set(id, {
           blob: out.blob,
-          name: outputName(file.name, preset.outputSuffix, out.ext),
+          name: outputName(file.name, out.nameSuffix ?? preset.outputSuffix, out.ext),
         });
         update({ status: 'done', resultSize: out.blob.size, note: out.notes?.join('. ') });
       } catch (error) {
@@ -1063,7 +1117,11 @@ export function ToolShell({
     if (state.kind !== 'result' || !state.output.url) return;
     const a = document.createElement('a');
     a.href = state.output.url;
-    a.download = outputName(state.input.name, preset.outputSuffix, state.output.ext);
+    a.download = outputName(
+      state.input.name,
+      state.output.suffix ?? preset.outputSuffix,
+      state.output.ext,
+    );
     a.click();
     track('tool_download');
   }, [preset.outputSuffix, state, track]);
@@ -1149,7 +1207,7 @@ export function ToolShell({
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
       {visibleOptions.map((option) => (
-        <OptionRow key={option.id} label={option.label}>
+        <OptionLine key={option.id} option={option}>
           <OptionControl
             option={option}
             value={options[option.id] ?? option.default}
@@ -1157,7 +1215,7 @@ export function ToolShell({
               changeOption(option.id, value);
             }}
           />
-        </OptionRow>
+        </OptionLine>
       ))}
       {showCrop && (
         <Suspense fallback={null}>
@@ -1310,7 +1368,8 @@ export function ToolShell({
     </p>
   );
 
-  const back = state.kind === 'result' && editing && state.file && (
+  // Back to the image to change the crop (editors) or the sizes and focal point (P13), then run again.
+  const back = state.kind === 'result' && (editing || preset.focus) && state.file && (
     <p className="mt-3.5 px-4 text-14 lg:px-0">
       <button
         type="button"
@@ -1319,7 +1378,7 @@ export function ToolShell({
           if (state.file) setState({ kind: 'ready', input: state.input, files: [state.file] });
         }}
       >
-        Back to the editor
+        {editing ? 'Back to the editor' : 'Back to the settings'}
       </button>
     </p>
   );
@@ -1336,7 +1395,11 @@ export function ToolShell({
             onEvent?.('tool_handoff', { from_tool: tool.id, to_tool: link.href.slice(1) });
             // The result goes along when the next tool takes its type (docs/02 → Result panel).
             const blob = state.output.blob;
-            const name = outputName(state.input.name, preset.outputSuffix, state.output.ext);
+            const name = outputName(
+              state.input.name,
+              state.output.suffix ?? preset.outputSuffix,
+              state.output.ext,
+            );
             if (blob && link.id && accepts(link.accepts, { type: blob.type, name })) {
               handOff(new File([blob], name, { type: blob.type }), link.id);
             }
@@ -1371,6 +1434,17 @@ export function ToolShell({
               history: options[preset.picker.history],
               onPick: (hexes) => {
                 if (preset.picker) changeOption(preset.picker.history, JSON.stringify(hexes));
+              },
+            }
+          : null
+      }
+      focus={
+        preset.focus && (preset.focus.when?.(options) ?? true)
+          ? {
+              value: options[preset.focus.option],
+              frames: preset.focus.frames(options),
+              onChange: (value) => {
+                if (preset.focus) changeOption(preset.focus.option, value);
               },
             }
           : null
@@ -1637,7 +1711,7 @@ export function ToolShell({
               const option = visibleOptions.find((candidate) => candidate.id === id);
               if (!option) return null;
               return (
-                <OptionRow key={option.id} label={option.label}>
+                <OptionLine key={option.id} option={option}>
                   <OptionControl
                     option={option}
                     value={options[option.id] ?? option.default}
@@ -1645,7 +1719,7 @@ export function ToolShell({
                       changeOption(option.id, value);
                     }}
                   />
-                </OptionRow>
+                </OptionLine>
               );
             })}
           </Dialog>
@@ -1729,6 +1803,7 @@ function Workspace({
   thumbs,
   peaks,
   picker,
+  focus,
   refine,
 }: {
   state: ShellState;
@@ -1749,6 +1824,11 @@ function Workspace({
     zoom: number;
     history: string | undefined;
     onPick: (hexes: string[]) => void;
+  } | null;
+  focus: {
+    value: string | undefined;
+    frames: FocusFrame[];
+    onChange: (value: string) => void;
   } | null;
   refine: {
     strokes: BrushStroke[];
@@ -1771,6 +1851,16 @@ function Workspace({
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
         <BatchList items={batch} onDownload={onDownloadItem} />
+      </div>
+    );
+  }
+
+  if (focus && state.kind === 'ready' && state.input.url) {
+    return (
+      <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
+        <Suspense fallback={null}>
+          <FocusPicker src={state.input.url} {...focus} />
+        </Suspense>
       </div>
     );
   }
@@ -1886,7 +1976,7 @@ function Workspace({
   ];
 
   if (preset.preview === 'text' && output.text !== undefined) {
-    const name = outputName(input.name, preset.outputSuffix, output.ext);
+    const name = outputName(input.name, output.suffix ?? preset.outputSuffix, output.ext);
     return (
       <>
         <div className={cn(frame, 'flex flex-col bg-surface')}>
@@ -1966,7 +2056,7 @@ function Workspace({
           <InputPreview
             input={{
               ...input,
-              name: outputName(input.name, preset.outputSuffix, output.ext),
+              name: outputName(input.name, output.suffix ?? preset.outputSuffix, output.ext),
               size: output.size,
             }}
             noun={preset.noun}

@@ -47,3 +47,13 @@ export {
   type Span,
 } from './media/ranges';
 export { Splicer, type SpliceOptions } from './media/splice';
+export {
+  PLATFORM_NAMES,
+  PLATFORMS,
+  SOCIAL_PRESETS,
+  socialLabel,
+  socialPreset,
+  socialPresetsOf,
+  type Platform,
+  type SocialPreset,
+} from './social-presets';

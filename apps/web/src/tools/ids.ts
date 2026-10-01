@@ -26,6 +26,7 @@ export const TOOL_IDS = [
   'remove-background',
   'resize-image',
   'rotate-image',
+  'social-media-image-resizer',
   'split-image',
   'subtitle-converter',
   'subtitle-shift',
