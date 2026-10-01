@@ -6,6 +6,8 @@
  */
 import { applyLut } from '@etb/core/lut';
 
+import { drawMarks } from './annotate';
+
 import { encodeBmp } from './bmp';
 import { decodeImage, ImageReadError } from './decode';
 import { zipSync } from 'fflate';
@@ -347,6 +349,16 @@ async function runSocial(
   };
 }
 
+/** The image with the marks drawn on it at `scale` (smaller when the decode was scaled down). */
+function drawn(image: ImageData, marks: NonNullable<ImageJob['marks']>, scale: number): ImageData {
+  const canvas = new OffscreenCanvas(image.width, image.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No 2D canvas in this browser');
+  ctx.putImageData(image, 0, 0);
+  drawMarks(ctx, marks, scale);
+  return ctx.getImageData(0, 0, image.width, image.height);
+}
+
 async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done' }>> {
   const notes: string[] = [];
   post({ type: 'progress', fraction: 0.1, stage: 'Reading' });
@@ -357,6 +369,11 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   if (scale < 1) notes.push(`Scaled down to ${String(width)} × ${String(height)} px`);
   let image = rgba(bitmap, width, height);
   bitmap.close();
+  if (job.marks && job.marks.length > 0) {
+    post({ type: 'progress', fraction: 0.15, stage: 'Drawing' });
+    image = drawn(image, job.marks, scale);
+    notes.push(`${String(job.marks.length)} ${job.marks.length === 1 ? 'mark' : 'marks'} drawn`);
+  }
   if (job.geometry) {
     post({ type: 'progress', fraction: 0.2, stage: job.geometry.resize ? 'Resizing' : 'Cropping' });
     const done = applyGeometry(image, job.geometry);

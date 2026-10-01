@@ -30,6 +30,7 @@ import {
 import { cn } from '../cn';
 import { Slider } from '../primitives/fields';
 import { boxLabel, dragHandle, moveBox, turnEdit, type Edit, type Handle } from './crop';
+import { DrawBar, DrawLayer, defaultSize, type DrawStyle } from './DrawLayer';
 import type { EditorState } from './useEditor';
 
 export type EditorMode =
@@ -122,6 +123,8 @@ export function CanvasEditor({
   const { edit, onEdit, natural, onNatural, history } = editor;
   const [mode, setMode] = useState<EditorMode>(initialMode);
   const [zoom, setZoom] = useState(100);
+  /** P09: the pen as changed; until then, a red arrow sized for the image. */
+  const [penChoice, setPen] = useState<DrawStyle | null>(null);
   const [frame, setFrame] = useState<Size>({ width: 0, height: 0 });
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -140,6 +143,11 @@ export function CanvasEditor({
       observer.disconnect();
     };
   }, []);
+
+  const pen: DrawStyle | null =
+    penChoice ??
+    (natural ? { tool: 'arrow', color: '#e53935', size: defaultSize(natural), opacity: 1 } : null);
+  const marks = edit.marks ?? [];
 
   const turned = natural ? turnedSize(natural, edit.turns) : null;
   const fit =
@@ -357,6 +365,17 @@ export function CanvasEditor({
           </button>
         </div>
       )}
+      {mode === 'draw' && natural && pen && (
+        <DrawBar
+          style={pen}
+          onStyle={setPen}
+          maxSize={Math.max(20, Math.round(Math.max(natural.width, natural.height) / 20))}
+          canClear={marks.length > 0}
+          onClear={() => {
+            onEdit({ ...edit, marks: [] });
+          }}
+        />
+      )}
       <div ref={frameRef} className="relative min-h-0 flex-1 overflow-hidden">
         {/* Loads the image to learn its size; the stage shows it once known. */}
         {!natural && (
@@ -400,6 +419,28 @@ export function CanvasEditor({
                 transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
               }}
             />
+            {pen && (mode === 'draw' || marks.length > 0) && (
+              // Marks sit on the image and turn with it; only draw mode takes the pointer.
+              <div
+                className={cn('absolute', mode !== 'draw' && 'pointer-events-none')}
+                style={{
+                  left: (stage.width - imageSize.width) / 2,
+                  top: (stage.height - imageSize.height) / 2,
+                  width: imageSize.width,
+                  height: imageSize.height,
+                  transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
+                }}
+              >
+                <DrawLayer
+                  natural={natural}
+                  marks={marks}
+                  style={pen}
+                  onMarks={(next, transient) => {
+                    onEdit({ ...edit, marks: next }, transient);
+                  }}
+                />
+              </div>
+            )}
             {mode === 'straighten' && (
               // A grid to line the horizon or a wall up against.
               <span

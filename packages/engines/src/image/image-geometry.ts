@@ -4,6 +4,7 @@
  * straightens, crops and resamples between decoding and encoding (./geometry).
  */
 import type { Engine, EngineOutput } from '../types';
+import type { Mark } from './annotate';
 import type { Filter, Fit, GeometryJob, Rect, ResizeBy, ResizeSpec } from './geometry';
 import {
   baseJob,
@@ -49,6 +50,8 @@ export interface ImageGeometryOptions extends Pick<
   pad?: string;
   /** lanczos, bicubic, bilinear, nearest */
   filter?: string;
+  /** P09: marks from the editor, in the image's own pixels, drawn before the geometry. */
+  marks?: Mark[];
 }
 
 /** A crop ratio from the options: width / height, or null for Free. */
@@ -124,7 +127,7 @@ export const imageGeometryEngine: Engine<ImageGeometryOptions> = {
     const bytes = await input.arrayBuffer();
     const format = checkImage(new Uint8Array(bytes), input.size);
     const done = await runImageJob(
-      { ...baseJob(bytes, format, opts), geometry: geometryJob(opts) },
+      { ...baseJob(bytes, format, opts), geometry: geometryJob(opts), marks: opts.marks },
       ctx.signal,
       (fraction, stage) => {
         ctx.progress(fraction, stage);

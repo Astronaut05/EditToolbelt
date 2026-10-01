@@ -125,3 +125,13 @@ export {
   type NamesPlan,
 } from './files/batch-rename';
 export { takenDate } from './files/taken';
+export {
+  arrowHead,
+  drawMark,
+  drawMarks,
+  MARK_TOOLS,
+  nextMarker,
+  type Mark,
+  type MarkTool,
+  type Point,
+} from './image/annotate';

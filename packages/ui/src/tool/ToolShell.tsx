@@ -854,6 +854,7 @@ export function ToolShell({
               flip: edit.flip,
               flipV: edit.flipV,
               angle: edit.angle,
+              ...(edit.marks && edit.marks.length > 0 && { marks: edit.marks }),
             }),
             ...(preset.combine && { files: queue.map((q) => q.file) }),
             ...(tool.ui === 'timeline' && {

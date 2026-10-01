@@ -1,6 +1,7 @@
 /** Messages between the image engines and their worker. */
 import type { Lut } from '@etb/core/lut';
 
+import type { Mark } from './annotate';
 import type { GeometryJob } from './geometry';
 import type { GridSpec } from './grid';
 import type { ImageFormat } from './sniff';
@@ -44,6 +45,8 @@ export interface ImageJob {
   /** Return the original file when re-encoding would make it bigger (Compress). */
   neverGrow?: boolean;
   /** Turn, flip, crop, resize (P02 Crop, P03 Resize). */
+  /** P09: marks drawn on the decoded image, in its own pixels, before any geometry. */
+  marks?: Mark[];
   geometry?: GeometryJob;
   /** P14: cut into tiles and answer a ZIP of them, named from `stem`. */
   tiles?: GridSpec & { stem: string };

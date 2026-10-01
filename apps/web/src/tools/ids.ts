@@ -20,6 +20,7 @@ export const TOOL_IDS = [
   'contrast-checker',
   'crop-image',
   'dpi-calculator',
+  'draw-on-image',
   'exif-remover',
   'extract-audio',
   'extract-frames',
