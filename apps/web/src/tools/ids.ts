@@ -20,6 +20,7 @@ export const TOOL_IDS = [
   'dpi-calculator',
   'exif-remover',
   'extract-audio',
+  'extract-frames',
   'fade-audio',
   'gif-to-mp4',
   'image-converter',

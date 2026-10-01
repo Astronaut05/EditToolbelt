@@ -1090,3 +1090,21 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/video.md` → V09, V11.
 **Reverse:** both engines are thin over Mediabunny's conversion (`video/rotate.ts`, `video/reframe.ts`).
+
+## 2026-10-01 · Extract Frames / Thumbnail (M8)
+
+**Decision:**
+- **One frame is the frame on screen at the timeline's In point.** The timeline snaps the In point to a frame and steps frame by frame, so the time picked is a frame's own. The engine decodes that exact frame (never a neighbour) and names the file by when it starts (`clip_00-00-05.400.png`).
+- **Every N seconds, N evenly spaced, and the contact sheet work inside the selection** between In and Out:
+  - Every N seconds starts at In and stops before Out.
+  - N frames take the middle of N equal parts, so the first and last aren't the edges.
+  - At most 500 frames a run.
+  - The end is the video track's own length, as the sound can run a few milliseconds longer.
+- **Several frames download as a stored ZIP,** each encoded as it is decoded (no hundred full-size canvases in memory) and named by time.
+- **The contact sheet:**
+  - 3 × 3, 4 × 4, 5 × 5 or 4 × 6 thumbnails, 320 px wide unless the video is narrower, with 8 px gaps on #111111.
+  - Each thumbnail carries its time in the system monospace font: a canvas draws only fonts it already has.
+- **PNG by default** (every pixel); JPG and WebP at quality 0.92. The width is Original, 1920, 1280 or 640 px, never wider than the video.
+
+**Why:** `tools/video.md` → V10.
+**Reverse:** `packages/engines/src/video/frames.ts`; `frameTimes` and `stamp` are pure, with tests.

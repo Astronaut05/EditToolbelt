@@ -6,6 +6,7 @@
 export { compressEngine } from './video/compress';
 export { videoConverterEngine } from './video/convert-video';
 export { extractAudioEngine } from './video/extract-audio';
+export { framesEngine } from './video/frames';
 export { gifToVideoEngine } from './video/gif-to-video';
 export { videoInfoEngine } from './video/info';
 export { muteVideoEngine } from './video/mute';

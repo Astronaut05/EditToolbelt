@@ -72,6 +72,14 @@ export const MEDIA_META = {
     capabilities: () => ({ supported: true }),
     estimate: (input) => ({ seconds: Math.max(0.5, input.size / 100_000_000) }),
   },
+  frames: {
+    capabilities: () => ({
+      supported: typeof VideoDecoder === 'function' && typeof OffscreenCanvas !== 'undefined',
+      reason:
+        'This browser can’t read video frames yet. Try a current Chrome, Edge, Safari or Firefox.',
+    }),
+    estimate: () => ({ seconds: 2 }),
+  },
   rotate: {
     capabilities: () => ({ supported: true }),
     estimate: (input) => ({ seconds: Math.max(1, input.size / 20_000_000) }),
