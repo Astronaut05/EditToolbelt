@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter and Normalize Loudness (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter and Normalize Loudness (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -73,6 +73,8 @@
 - M8: Loudness Meter and Normalize Loudness (beta). Integrated, short-term and momentary LUFS, loudness range and 4× oversampled true peak to ITU-R BS.1770-4 and EBU R128. The meter shows a graph and pass or fail for YouTube, Spotify, Apple Music, podcasts, EBU R128 and US TV. The normaliser hits −14, −16, −23, −24 or any target with a −1 dBTP ceiling, adding a true-peak limiter only when the gain needs it, and measures the file it made. Our own implementation, checked against the EBU's test signals and pyloudnorm (#57).
 
 ## Next
+
+0. Phase 1 (with Astro): the production setup, step by step, each checked from CI (`.github/workflows/ops.yml`). Then Phase 2 runs on its own: M5 (payments built and off), M5's GPU tools on Modal, the rest of M8 and Wave 3, a final pass.
 
 1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
 2. M6 sign-off once parts 1 to 4 merge.

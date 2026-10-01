@@ -1091,3 +1091,32 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** Astro's instruction of 2026-10-01. It replaces `01`'s "Production (from M5): EU VPS (Hetzner or equivalent)" plan: a managed platform with deploys from Git and a hard spending cap, and GPUs billed only while they run.
 **Reverse:** the containers are plain Dockerfiles and the storage is S3-compatible, so moving to a VPS is new hosting and variables, not code. Modal sits behind `GpuBackend`.
+
+## 2026-10-01 · How production is wired (Railway as code, Access checked twice)
+
+**Decision:**
+- **The Railway project is code:** `.railway/railway.ts` (Railway's infrastructure-as-code, applied by its CLI), not `railway.json`, which Railway stops reading on 2026-12-01.
+  - **Postgres:** Railway's own Postgres image, which is 18.
+  - **Services:** web and worker build from `main` once its GitHub checks pass.
+  - **Region:** EU West for everything.
+  - **Web:** migrations run as its pre-deploy command, and its health check is `/readyz`.
+  - **No Railway hostname:** only the custom domains, edittoolbelt.com and www.
+- **Applying it needs Astro.** CI shows the plan on every change, and the apply job waits for Astro's approval (the `railway` GitHub environment). Removing anything is never applied from CI.
+- **Secrets are Railway shared variables** that Astro types in, referenced by name in the code. `docs/runbooks/production.md` lists every name.
+- **The web service checks Cloudflare Access's token on every request** (`src/server/access.ts`), as well as Access itself:
+  - In production, a request without a valid token for this application gets 403.
+  - Without the Access settings, every request gets 503: the site fails closed.
+  - Exempt: `/healthz` and `/readyz` (Railway's health check; they reveal nothing), and `/api/webhooks/*` (signed by the payment providers, 404 while payments are off).
+- **`www` redirects to the apex** in the app (308), so Cloudflare needs no redirect rule.
+- **The web image builds with placeholder secrets.** Only the values inlined into pages are build arguments: SITE_URL, the storage endpoint and analytics. The real secrets are read when the server starts.
+- **The worker gets no volume.** Railway gives a paid plan's container 100 GB of its own disk. The largest upload is 10 GiB and the worker runs 2 jobs at once, which fits with room for outputs.
+- **No staging environment** while one person uses the site: PRs are tested in CI against real Postgres and S3-compatible storage, and production is checked after each deploy.
+
+**Why:**
+- Infrastructure as code can be reviewed and reverted like the rest of the repo, and survives Railway's deprecation of the old file.
+- A gated apply keeps infrastructure changes in Astro's hands.
+- Checking the token in the app means a leaked Railway URL or a direct hit on Railway's edge still can't reach the site.
+
+**Reverse:**
+- Delete `.railway/` and configure the services in Railway's dashboard.
+- Unset `CF_ACCESS_*` and change the proxy's production rule at Go public.
