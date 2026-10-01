@@ -49,6 +49,7 @@ export const TOOL_IDS = [
   'vfr-to-cfr',
   'video-converter',
   'video-info',
+  'video-speed',
   'video-to-gif',
 ] as const;
 

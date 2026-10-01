@@ -23,7 +23,6 @@ import {
   Output,
   Quality,
   VideoSample,
-  VideoSampleSink,
   VideoSampleSource,
   type AudioCodec,
   type Input,
@@ -36,6 +35,7 @@ import { Frames, framesOf } from '../audio/stream';
 import { EngineAbortError } from '../dummy';
 import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput } from '../types';
+import { Held, shownFor } from './held';
 import { codecLabel, MediaInputError, openInput } from './media';
 import { containerFormat, sourceFamily } from './trim';
 
@@ -101,18 +101,6 @@ async function sameAudio(a: InputAudioTrack | null, b: InputAudioTrack | null): 
     ca.numberOfChannels === cb.numberOfChannels &&
     sameBytes(bytesOf(ca.description), bytesOf(cb.description))
   );
-}
-
-/**
- * How long a clip's picture shows: to the end of its last frame. Matroska
- * often leaves the last frame's duration out, which would end the clip a
- * frame early and land the next clip on top of that frame.
- */
-async function shownFor(video: InputVideoTrack, fps: number): Promise<number> {
-  const end = await video.computeDuration();
-  const last = await new EncodedPacketSink(video).getPacket(end);
-  if (last && end - last.timestamp < 0.5 / fps) return last.timestamp + 1 / fps;
-  return end;
 }
 
 async function openClips(files: Blob[]): Promise<Clip[]> {
@@ -236,38 +224,6 @@ async function copyJoin(clips: Clip[], signal: AbortSignal, progress: (f: number
   const bytes = target.buffer;
   if (!bytes) throw new Error('No file was written');
   return { bytes, mime: format.mimeType, ext: format.fileExtension.slice(1), length: total };
-}
-
-/** A clip's frames, read in order: the one on screen at any later time. */
-class Held {
-  private iterator: AsyncGenerator<VideoSample> | null;
-  private current: VideoSample | null = null;
-  private upcoming: VideoSample | null = null;
-
-  constructor(track: InputVideoTrack) {
-    this.iterator = new VideoSampleSink(track).samples();
-  }
-
-  /** The frame showing at `time` (seconds into the clip); times only go forward. */
-  async at(time: number): Promise<VideoSample | null> {
-    for (;;) {
-      if (!this.upcoming && this.iterator) {
-        const next = await this.iterator.next();
-        if (next.done) this.iterator = null;
-        else this.upcoming = next.value;
-      }
-      if (!this.upcoming || this.upcoming.timestamp > time + 1e-6) return this.current;
-      this.current?.close();
-      this.current = this.upcoming;
-      this.upcoming = null;
-    }
-  }
-
-  close(): void {
-    this.current?.close();
-    this.upcoming?.close();
-    void this.iterator?.return(undefined);
-  }
 }
 
 async function videoCodecFor(mime: string, width: number, height: number): Promise<VideoCodec> {

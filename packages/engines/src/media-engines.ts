@@ -15,6 +15,7 @@ export { reframeEngine } from './video/reframe';
 export { replaceAudioEngine } from './video/replace-audio';
 export { rotateEngine } from './video/rotate';
 export { trimEngine } from './video/trim';
+export { videoSpeedEngine } from './video/video-speed';
 export { videoToGifEngine } from './video/video-to-gif';
 export { audioConverterEngine } from './audio/convert';
 export { bpmKeyEngine } from './audio/bpm-key';
