@@ -17,6 +17,8 @@ from etb_worker.clock import day_bounds, local
 from etb_worker.db import Conn, record_check
 from etb_worker.logs import get_logger
 from etb_worker.notify import Notifier
+from etb_worker.retention import lifecycle_check
+from etb_worker.storage import Storage
 
 GRACE_DAYS = 30
 
@@ -25,6 +27,7 @@ GRACE_DAYS = 30
 class TaskContext:
     notifier: Notifier
     now: datetime
+    storage: Storage | None = None
 
 
 def ledger_check(conn: Conn, ctx: TaskContext) -> None:
@@ -210,3 +213,11 @@ def daily_digest(conn: Conn, ctx: TaskContext) -> None:
         detail={"day": stats["day"], "channels": channels},
     )
     get_logger().info("task.daily_digest", day=stats["day"], channels=channels)
+
+
+def lifecycle_rules(conn: Conn, ctx: TaskContext) -> None:
+    """The bucket's backstop rules are in place (docs/11 -> Storage); "not supported" locally."""
+    if ctx.storage is None:
+        return
+    for alert in lifecycle_check(conn, ctx.storage):
+        raise_alert(conn, alert, ctx.notifier)

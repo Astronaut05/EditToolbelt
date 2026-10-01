@@ -685,3 +685,38 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M4 ("Upload API (multipart presign)"), `docs/01` → Upload, `docs/06` → Endpoints, `docs/11` → Storage.
 **Reverse:** the routes are `apps/web/src/app/api/v1/uploads/**`; the logic is `apps/web/src/server/uploads.ts` and `storage.ts`.
+
+## 2026-09-30 · The worker's job queue, probe, sandbox and retention sweeper (M4)
+
+**Decision:**
+- **The worker runs job slots beside its scheduler** (`WORKER_SLOTS`, default 1): threads, each probing new uploads and running one job at a time. The work happens in ffmpeg processes, so threads are enough. A listener wakes idle slots on `NOTIFY etb_jobs` / `etb_uploads`; they also poll every 2 s (`01`).
+- **The queue is the `jobs` table** (`apps/worker/src/etb_worker/jobqueue.py`):
+  - Claims take the highest-priority, oldest queued job whose tool is under its cap, `FOR UPDATE SKIP LOCKED`.
+  - Running jobs heartbeat every 5 s; the heartbeat also notices a cancel.
+  - The reaper sends a job whose worker went quiet for 60 s back to the queue, at most twice. The third time it fails with `WORKER_LOST`.
+  - A job queued for 15 min expires.
+  - Every status change and its ledger row are one transaction: release on failure or expiry, a 0-credit capture on success. `ledger.py` mirrors `applyCredit`, and the nightly ledger check covers both.
+- **Job rows carry the registry's `timeout_sec` and `max_concurrent`** (migration 0005), written by the web when it creates the job. The worker then needs no copy of the registry.
+- **Every upload is probed before any job may use it** (`probe.py`, `11` → File intake).
+  - ffprobe runs under the sandbox; its container must be one the claimed MIME type allows, so a WebM sent as `video/mp4` is refused.
+  - Frames are capped at 100 MP and media at 24 h.
+  - The record (container, streams, duration, rate, rotation, a "maybe VFR" hint, never a filename) goes into `uploads.probe`; a refusal into `uploads.probe_error` as an API code.
+  - Tool limits (duration, size by tier) are the web's to apply at quote time: it has the registry.
+- **The sandbox** (`sandbox.py`, `11` → ffmpeg and native tools):
+  - Argument lists only, and a clean environment (no storage keys, database URL or proxy).
+  - `prlimit` for address space, file size and open files, and no core dumps. It's a wrapper command, not `preexec_fn`, which isn't safe once the worker has threads.
+  - Its own process group, killed as a whole on timeout or cancel; stdin closed.
+  - ffmpeg always runs with `-protocol_whitelist file,pipe` and `-nostdin`.
+  - Still to come with production hosting: no network namespace for the ffmpeg process and a seccomp profile. Those are container settings, not code.
+- **Inputs live exactly as long as their job.** The runner's `finally` deletes the temp dir and the input object, whatever the outcome. Only a worker that dies mid-job leaves it, so another worker can retry. A reaped job that fails for good, or an expired one, loses its input at once.
+- **The retention sweeper** runs every 5 min under the scheduler's lock (`retention.py`):
+  - It deletes outputs 60 min after their job finished.
+  - It aborts multipart uploads not completed within the hour: ours, and any storage still lists.
+  - It deletes completed uploads no job used before they expired.
+  - It then lists the bucket, and alerts on anything older than 2 h or any upload open longer than 2 h. `sweeper_stale` alerts when it hasn't finished in 30 min.
+  - The lifecycle rules are checked nightly: "not supported" on the local gateway (`12` → M4), a missing-rules alert on R2.
+- **ffmpeg is Debian's package** in the worker image (a GPL build, never `nonfree`); CI's worker job installs Ubuntu's for the tests. The register entry now says so.
+- **Processors are keyed by tool id** (`processors/__init__.py`: `estimate`, `run(ctx)`, `JobFailed` for errors the user sees). The first real ones come with the tools (M4, part 4); the tests use a remux processor on files ffmpeg generates, so no binary fixtures are committed.
+
+**Why:** `docs/12` → M4 ("claim/heartbeat/reaper, processor interface, ffmpeg sandboxing per 11"; "Retention: immediate input deletion, 60-min output sweeper (also aborts stale multipart uploads)… lifecycle check… reports not supported locally"; done-when: "input is gone from storage immediately after, output gone within the hour; killing a worker mid-job requeues it; malformed-file fixtures fail cleanly"), `docs/01` → Queue, Workers, Retention, `docs/11`.
+**Reverse:** `WORKER_SLOTS=0` isn't allowed; to stop job processing, stop the worker. The sweep interval and TTLs are constants at the top of `retention.py` and `jobqueue.py`.

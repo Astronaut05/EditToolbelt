@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     s3_access_key_id: SecretStr
     s3_secret_access_key: SecretStr
 
+    # Jobs this worker runs at once, one tool process each (docs/01 -> Workers).
+    worker_slots: int = Field(default=1, ge=1, le=32)
+
     # Alerts and the daily digest (docs/07 -> Alerts): Telegram first, email as
     # backup. Both optional; with neither, alerts are only logged and listed in
     # the admin's System page.

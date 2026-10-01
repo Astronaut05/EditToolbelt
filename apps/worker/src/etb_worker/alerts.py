@@ -5,8 +5,9 @@ sends an alert unless the same rule and subject alerted in the last 30
 minutes (immediate alerts, like a ledger mismatch, skip the cool-down), and
 records it in the ``alerts`` table either way it's sent.
 
-Rules for things that arrive later are added with them: webhook errors (M5),
-the retention sweeper and bucket lifecycle (M4), tool margin (M4 digest).
+Rules for things that arrive later are added with them: webhook errors (M5)
+and tool margin (the digest, once jobs have costs). The sweeper's storage
+checks and the lifecycle rules are raised by retention.py.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ FAILURE_MIN_JOBS = 10
 QUEUE_WINDOW = timedelta(minutes=10)
 QUEUE_P95_SEC = 120
 USE_LIMIT = 0.80
+SWEEPER_STALE = timedelta(minutes=30)
 
 
 @dataclass(frozen=True)
@@ -192,6 +194,27 @@ def _ago(seconds: int) -> str:
     return f"{seconds // 60} min" if seconds >= 60 else f"{seconds} s"
 
 
+def sweeper_stale(conn: Conn) -> list[Alert]:
+    """The retention sweeper hasn't finished a pass in 30 minutes (docs/07 -> Alerts)."""
+    row = conn.execute(
+        """
+        select extract(epoch from now() - ran_at)::int as ago from system_checks
+        where name = 'retention_sweeper' and ran_at < now() - %s
+        """,
+        (SWEEPER_STALE,),
+    ).fetchone()
+    if row is None:
+        return []
+    return [
+        Alert(
+            "sweeper_stale",
+            "retention_sweeper",
+            f"The retention sweeper last finished {_ago(row['ago'])} ago; "
+            "files may outlive their hour.",
+        )
+    ]
+
+
 Rule = Callable[[Conn], list[Alert]]
 
 DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
@@ -199,4 +222,5 @@ DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
     ("db_connections", database_connections),
     ("tool_failure_rate", tool_failure_rates),
     ("queue_wait", queue_wait),
+    ("sweeper_stale", sweeper_stale),
 )

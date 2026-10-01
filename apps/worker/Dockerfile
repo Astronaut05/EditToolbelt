@@ -24,6 +24,12 @@ ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+# ffmpeg and ffprobe for the processors: Debian's build (GPL, never
+# --enable-nonfree; docs/13-licenses.md), updated with every image rebuild.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root (docs/11-security.md → ffmpeg and native tools on the server).
 RUN groupadd --system --gid 10001 etb && useradd --system --uid 10001 --gid etb --no-create-home etb
 COPY --from=build /opt/venv /opt/venv

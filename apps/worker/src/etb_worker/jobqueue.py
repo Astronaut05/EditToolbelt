@@ -1,0 +1,196 @@
+"""The job queue: the ``jobs`` table (docs/01 -> Queue).
+
+- Claim: the highest-priority, oldest queued job whose tool is under its
+  concurrency cap, with ``FOR UPDATE SKIP LOCKED`` so workers never collide.
+- Heartbeat every 5 s while running; it also notices a cancel.
+- Reaper: a running job silent for 60 s goes back to the queue, at most
+  twice; the third time it fails and its credits come back.
+- Expiry: a job queued for 15 min is expired and its credits come back.
+
+Every status change and its ledger row happen in one transaction.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Any
+
+from psycopg.types.json import Jsonb
+
+from etb_worker.db import Conn
+from etb_worker.ledger import capture, release
+from etb_worker.logs import get_logger
+
+HEARTBEAT_SEC = 5
+STALE_AFTER = timedelta(seconds=60)
+MAX_ATTEMPTS = 3  # the first run and 2 retries
+QUEUE_EXPIRY = timedelta(minutes=15)
+
+Job = dict[str, Any]
+
+
+def claim(conn: Conn, worker_id: str) -> Job | None:
+    """Takes the next job off the queue, or None."""
+    with conn.transaction():
+        return conn.execute(
+            """
+            with next as (
+              select j.id from jobs j
+              where j.status = 'queued'
+                and (j.max_concurrent is null or (
+                  select count(*) from jobs r
+                  where r.status = 'running' and r.tool_id = j.tool_id
+                ) < j.max_concurrent)
+              order by j.priority desc, j.created_at
+              limit 1
+              for update skip locked
+            )
+            update jobs
+            set status = 'running', started_at = now(), heartbeat_at = now(),
+                attempts = jobs.attempts + 1, worker_id = %s, progress = 0,
+                stage = 'starting', updated_at = now()
+            from next
+            where jobs.id = next.id
+            returning jobs.*
+            """,
+            (worker_id,),
+        ).fetchone()
+
+
+def heartbeat(conn: Conn, job_id: str, worker_id: str, progress: int, stage: str) -> bool:
+    """Records progress; False when the job is no longer ours to run (cancelled, reaped)."""
+    row = conn.execute(
+        """
+        update jobs set heartbeat_at = now(), progress = %s, stage = %s, updated_at = now()
+        where id = %s and worker_id = %s and status = 'running'
+        returning id
+        """,
+        (max(0, min(100, progress)), stage[:40], job_id, worker_id),
+    ).fetchone()
+    return row is not None
+
+
+def succeed(
+    conn: Conn, job: Job, worker_id: str, output_key: str, output_meta: dict[str, Any]
+) -> bool:
+    """Marks the job done and captures its credits; False if it was cancelled meanwhile."""
+    with conn.transaction():
+        row = conn.execute(
+            """
+            update jobs
+            set status = 'succeeded', progress = 100, stage = 'done', output_key = %s,
+                output_meta = %s, credits_charged = credits_quoted, finished_at = now(),
+                updated_at = now()
+            where id = %s and worker_id = %s and status = 'running'
+            returning *
+            """,
+            (output_key, Jsonb(output_meta), job["id"], worker_id),
+        ).fetchone()
+        if row is None:
+            return False
+        capture(conn, row)
+    return True
+
+
+def fail(conn: Conn, job: Job, worker_id: str | None, code: str, detail: str) -> bool:
+    """Marks the job failed and returns its credits; False if it was no longer running."""
+    with conn.transaction():
+        row = conn.execute(
+            """
+            update jobs
+            set status = 'failed', error_code = %s, error_detail = %s, finished_at = now(),
+                updated_at = now()
+            where id = %s and status = 'running' and (%s::text is null or worker_id = %s)
+            returning *
+            """,
+            (code, detail[:500], job["id"], worker_id, worker_id),
+        ).fetchone()
+        if row is None:
+            return False
+        release(conn, row)
+    return True
+
+
+def requeue(conn: Conn, job_id: str, worker_id: str) -> None:
+    """A worker stopping on purpose hands its job back at once."""
+    conn.execute(
+        """
+        update jobs
+        set status = 'queued', worker_id = null, stage = null, progress = 0,
+            heartbeat_at = null, queued_at = now(), updated_at = now()
+        where id = %s and worker_id = %s and status = 'running'
+        """,
+        (job_id, worker_id),
+    )
+
+
+def reap(conn: Conn) -> list[Job]:
+    """Running jobs whose worker went quiet: back to the queue, or failed after 3 attempts.
+
+    Returns the jobs that failed for good, so the caller can delete their input.
+    """
+    failed: list[Job] = []
+    log = get_logger()
+    with conn.transaction():
+        stale = conn.execute(
+            """
+            select * from jobs
+            where status = 'running' and heartbeat_at < now() - %s
+            for update skip locked
+            """,
+            (STALE_AFTER,),
+        ).fetchall()
+        for job in stale:
+            if job["attempts"] < MAX_ATTEMPTS:
+                conn.execute(
+                    """
+                    update jobs
+                    set status = 'queued', worker_id = null, stage = null, progress = 0,
+                        heartbeat_at = null, queued_at = now(), updated_at = now()
+                    where id = %s
+                    """,
+                    (job["id"],),
+                )
+                log.warning("job.requeued", job_id=str(job["id"]), tool_id=job["tool_id"])
+            else:
+                fail(conn, job, None, "WORKER_LOST", "the worker stopped answering three times")
+                failed.append(job)
+                log.error(
+                    "job.failed",
+                    job_id=str(job["id"]),
+                    tool_id=job["tool_id"],
+                    error_code="WORKER_LOST",
+                )
+    return failed
+
+
+def expire(conn: Conn) -> list[Job]:
+    """Jobs queued for 15 minutes: expired, credits back. Returns them (their input goes too)."""
+    expired: list[Job] = []
+    with conn.transaction():
+        rows = conn.execute(
+            """
+            update jobs
+            set status = 'expired', error_code = 'EXPIRED', finished_at = now(), updated_at = now()
+            where status = 'queued' and queued_at < now() - %s
+            returning *
+            """,
+            (QUEUE_EXPIRY,),
+        ).fetchall()
+        for job in rows:
+            release(conn, job)
+            expired.append(job)
+            get_logger().warning("job.expired", job_id=str(job["id"]), tool_id=job["tool_id"])
+    return expired
+
+
+def input_gone(conn: Conn, job: Job) -> None:
+    """Records that the job's input object is deleted (the job row and the upload row)."""
+    key = job.get("input_key")
+    if not key:
+        return
+    conn.execute("update jobs set input_key = null where id = %s", (job["id"],))
+    conn.execute(
+        "update uploads set deleted_at = now() where storage_key = %s and deleted_at is null",
+        (key,),
+    )

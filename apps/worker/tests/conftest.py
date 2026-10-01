@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 from collections.abc import Callable
 from typing import Any
 
@@ -29,6 +31,7 @@ OPTIONAL_ENV = (
     "SMTP_URL",
     "MAIL_FROM",
     "ALERT_EMAIL",
+    "WORKER_SLOTS",
 )
 
 
@@ -57,3 +60,36 @@ def log_lines() -> Callable[[], list[dict[str, Any]]]:
         return [json.loads(line) for line in buffer.getvalue().splitlines() if line]
 
     return lines
+
+
+@pytest.fixture(scope="session")
+def media(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """Small license-free files made by ffmpeg's own test sources, plus broken ones."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    folder = tmp_path_factory.mktemp("media")
+
+    def make(name: str, *args: str) -> Any:
+        path = folder / name
+        subprocess.run(  # noqa: S603
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *args, str(path)],  # noqa: S607
+            check=True,
+        )
+        return path
+
+    mp4 = make(
+        "clip.mp4",
+        *("-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=2"),
+        *("-f", "lavfi", "-i", "sine=frequency=440:duration=2"),
+        *("-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"),
+    )
+    webm = make(
+        "clip.webm",
+        *("-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=1"),
+        *("-c:v", "libvpx-vp9", "-b:v", "200k"),
+    )
+    garbage = folder / "garbage.mp4"
+    garbage.write_bytes(bytes(range(256)) * 64)
+    truncated = folder / "truncated.mp4"
+    truncated.write_bytes(mp4.read_bytes()[:1500])
+    return {"mp4": mp4, "webm": webm, "garbage": garbage, "truncated": truncated}
