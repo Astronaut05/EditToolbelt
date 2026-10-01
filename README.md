@@ -121,7 +121,7 @@ packages/ui         design system and ToolShell (M1)
 packages/registry   tool registry (M1)
 packages/engines    browser processing engines (M2)
 packages/db         Drizzle schema and migrations (M3)
-packages/api-client typed API client (M6)
+packages/api-client typed API client (used by the web app; the panel next)
 config/business.ts  business numbers (credit packs, quotas, retention)
 fixtures/           small, license-free test fixtures
 licenses.json       machine-readable license register (docs/13-licenses.md)

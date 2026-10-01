@@ -117,6 +117,26 @@ JOB=$(jq -r .job.id job.json)`}</Code>
 done
 curl -s -o small.mp4 "$(jq -r .job.result.download_url job.json)"`}</Code>
 
+        <h2 id="script">The whole thing as a script</h2>
+        <p>
+          <a href="/examples/run-tool.mjs" download className="underline underline-offset-4">
+            run-tool.mjs
+          </a>{' '}
+          does all of the above for any server tool and any size of file: parts in parallel, URLs
+          signed again when they run out, the price, progress, and the download. Node 20 or newer,
+          no packages. An option written <Mono>@path</Mono> is a file that goes up as its own
+          upload, like Burn Subtitles’ subtitle file.
+        </p>
+        <Code label="Run the script">{`ETB_API=${api} ETB_KEY=etb_live_… \
+  node run-tool.mjs compress-video clip.mov '{"mode":"size","targetMb":25}'
+
+ETB_API=${api} ETB_KEY=etb_live_… \
+  node run-tool.mjs burn-subtitles clip.mp4 '{"subtitles":"@clip.srt"}'`}</Code>
+        <p>
+          Each tool’s options, with their defaults, are in <Mono>GET /tools/{'{id}'}</Mono> as JSON
+          Schema.
+        </p>
+
         <h2 id="connect">Apps that connect to an account</h2>
         <p>
           An app like the Premiere panel never asks for a password or a pasted key. It calls{' '}
