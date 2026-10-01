@@ -4,6 +4,7 @@
  * Pure, so it is unit tested without a browser.
  */
 import {
+  type Adjust,
   centredRatio,
   clampRect,
   turnedSize,
@@ -27,7 +28,9 @@ export interface Edit {
   angle: number;
   /** Crop box in turned pixels; null until the image size is known. */
   crop: Rect | null;
-  /** P12: areas to blur, pixelate or cover, in the image's own pixels (before turns), hidden first. */
+  /** P01: exposure, brightness, contrast, saturation and warmth, applied to the photo first. */
+  adjust?: Adjust;
+  /** P12: areas to blur, pixelate or cover, in the image's own pixels (before turns), hidden next. */
   redact?: Redact;
   /** P09: drawn marks, in the image's own pixels (before turns), drawn after the hidden areas. */
   marks?: Mark[];

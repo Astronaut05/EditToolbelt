@@ -9,8 +9,11 @@ import {
   snapCentre,
   type Size,
   type TextLayer,
+  type Upright,
 } from '@etb/engines';
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+
+import { baseOf, boxMapping, imagePerScreen, type Nudge, type ToImage } from './mapping';
 
 /** Snapping reach to the image's middle lines, in screen pixels. */
 const SNAP_PX = 8;
@@ -20,8 +23,11 @@ export function newTextLayer(
   natural: Size,
   x = natural.width / 2,
   y = natural.height / 2,
+  upright?: Upright,
 ): TextLayer {
+  const base = baseOf(upright);
   return {
+    ...(base && { base }),
     id: `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     text: 'Your text',
     font: 'onest',
@@ -53,12 +59,21 @@ export function TextLayers({
   selected,
   onSelect,
   onLayers,
+  toImage,
+  upright,
+  nudge,
 }: {
   natural: Size;
   layers: readonly TextLayer[];
   selected: string | null;
   onSelect: (id: string | null) => void;
   onLayers: (layers: TextLayer[], transient?: boolean) => void;
+  /** P01: the editor's pointer mapping, its turns and flips undone. */
+  toImage?: ToImage;
+  /** P01: the turn that keeps a new layer upright in the editor's frame. */
+  upright?: Upright;
+  /** P01: arrow-key moves taken into the image's own pixels. */
+  nudge?: Nudge;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [fontsReady, setFontsReady] = useState(0);
@@ -108,14 +123,10 @@ export function TextLayers({
 
   /** Screen pixels per image pixel, and a pointer's place in image pixels. */
   const geometry = () => {
-    const rect = canvas.current?.getBoundingClientRect();
-    const scale = rect && rect.width > 0 ? rect.width / natural.width : 1;
+    const map = toImage ?? boxMapping(canvas.current, natural);
     return {
-      scale,
-      at: (event: { clientX: number; clientY: number }) => [
-        rect ? (event.clientX - rect.left) / scale : 0,
-        rect ? (event.clientY - rect.top) / scale : 0,
-      ],
+      scale: 1 / imagePerScreen(map),
+      at: (event: { clientX: number; clientY: number }) => map(event.clientX, event.clientY),
     };
   };
 
@@ -128,11 +139,11 @@ export function TextLayers({
     if (event.button !== 0) return;
     event.preventDefault();
     const { scale, at } = geometry();
-    const [px = 0, py = 0] = at(event);
+    const [px, py] = at(event);
     // Topmost first: the last layer is drawn last.
     const hit = [...layers].reverse().find((layer) => hitsLayer(blockOf(layer), layer, px, py));
     if (!hit) {
-      const added = newTextLayer(natural, px, py);
+      const added = newTextLayer(natural, px, py, upright);
       onLayers([...layers, added]);
       onSelect(added.id);
       return;
@@ -144,9 +155,10 @@ export function TextLayers({
     let latest: TextLayer[] = [...layers];
     const follow = (e: globalThis.PointerEvent) => {
       if (e.pointerId !== pointer) return;
-      const dx = (e.clientX - start.x) / scale;
-      const dy = (e.clientY - start.y) / scale;
-      if (!moved && Math.hypot(dx * scale, dy * scale) < 3) return;
+      if (!moved && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 3) return;
+      const [qx, qy] = at(e);
+      const dx = qx - px;
+      const dy = qy - py;
       moved = true;
       const snapped = snapCentre(
         start.layer.x + dx,
@@ -186,13 +198,18 @@ export function TextLayers({
       ArrowUp: [0, -step],
       ArrowDown: [0, step],
     };
-    const move = moves[event.key];
-    if (move) {
+    const key = moves[event.key];
+    if (key) {
       event.preventDefault();
+      const move = nudge ? nudge(key[0], key[1]) : key;
       onLayers(
         layers.map((candidate) =>
           candidate.id === layer.id
-            ? { ...candidate, x: candidate.x + move[0], y: candidate.y + move[1] }
+            ? {
+                ...candidate,
+                x: Math.round(candidate.x + move[0]),
+                y: Math.round(candidate.y + move[1]),
+              }
             : candidate,
         ),
       );
@@ -240,7 +257,7 @@ export function TextLayers({
             top: `${String((chosen.y / natural.height) * 100)}%`,
             width: `${String((frame.width / natural.width) * 100)}%`,
             height: `${String((frame.height / natural.height) * 100)}%`,
-            transform: `translate(-50%, -50%) rotate(${String(chosen.rotation)}deg)`,
+            transform: `translate(-50%, -50%)${chosen.base ? ` rotate(${String(chosen.base.rotation)}deg)${chosen.base.mirror ? ' scaleX(-1)' : ''}` : ''} rotate(${String(chosen.rotation)}deg)`,
           }}
         />
       )}

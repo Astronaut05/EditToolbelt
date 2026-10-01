@@ -9,6 +9,7 @@ import {
   type MarkTool,
   type Point,
   type Size,
+  type Upright,
 } from '@etb/engines';
 import {
   ArrowUpRight,
@@ -24,6 +25,7 @@ import { useEffect, useId, useRef, useState, type PointerEvent, type ReactNode }
 
 import { cn } from '../cn';
 import { ColorInput, Slider } from '../primitives/fields';
+import { baseOf, boxMapping, type ToImage } from './mapping';
 
 const icon = (Icon: typeof Pencil) => <Icon size={16} strokeWidth={1.75} aria-hidden="true" />;
 
@@ -183,10 +185,16 @@ export function DrawLayer({
   marks,
   style,
   onMarks,
+  toImage,
+  upright,
 }: {
   natural: Size;
   marks: readonly Mark[];
   style: DrawStyle;
+  /** P01: the editor's pointer mapping, its turns and flips undone. */
+  toImage?: ToImage;
+  /** P01: keeps a new marker's number upright in the editor's frame. */
+  upright?: Upright;
   /** `transient` while a stroke is under way; the last call of a stroke is one undo step. */
   onMarks: (marks: Mark[], transient?: boolean) => void;
 }) {
@@ -224,10 +232,7 @@ export function DrawLayer({
 
   /** A pointer's place in image pixels. */
   const at = (event: { clientX: number; clientY: number }): Point => {
-    const rect = canvas.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return [0, 0];
-    const x = ((event.clientX - rect.left) / rect.width) * natural.width;
-    const y = ((event.clientY - rect.top) / rect.height) * natural.height;
+    const [x, y] = (toImage ?? boxMapping(canvas.current, natural))(event.clientX, event.clientY);
     return [
       Math.round(Math.min(natural.width, Math.max(0, x)) * 10) / 10,
       Math.round(Math.min(natural.height, Math.max(0, y)) * 10) / 10,
@@ -241,6 +246,7 @@ export function DrawLayer({
     size: style.size,
     opacity: style.opacity,
     ...(style.tool === 'marker' && { n: nextMarker(marks) }),
+    ...(style.tool === 'marker' && baseOf(upright) && { base: baseOf(upright) }),
   });
 
   function onPointerDown(event: PointerEvent<HTMLCanvasElement>) {

@@ -48,6 +48,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'merge-videos': dynamic(() => import('./merge-videos')),
   'mute-video': dynamic(() => import('./mute-video')),
   'normalize-audio': dynamic(() => import('./normalize-audio')),
+  'photo-editor': dynamic(() => import('./photo-editor')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
   'remove-background': dynamic(() => import('./remove-background')),
   'remove-silence': dynamic(() => import('./remove-silence')),

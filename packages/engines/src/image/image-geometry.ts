@@ -4,6 +4,7 @@
  * straightens, crops and resamples between decoding and encoding (./geometry).
  */
 import type { Engine, EngineOutput } from '../types';
+import type { Adjust } from './adjust';
 import type { Mark } from './annotate';
 import type { Redact } from './redact';
 import { renderTextOverlay, type TextLayer } from './text-layer';
@@ -52,6 +53,8 @@ export interface ImageGeometryOptions extends Pick<
   pad?: string;
   /** lanczos, bicubic, bilinear, nearest */
   filter?: string;
+  /** P01: the editor's adjustments, applied to the photo first. */
+  adjust?: Adjust;
   /** P12: areas to blur, pixelate or cover, from the editor, in the image's own pixels. */
   redact?: Redact;
   /** P09: marks from the editor, in the image's own pixels, drawn before the geometry. */
@@ -137,6 +140,7 @@ export const imageGeometryEngine: Engine<ImageGeometryOptions> = {
       {
         ...baseJob(bytes, format, opts),
         geometry: geometryJob(opts),
+        adjust: opts.adjust,
         redact: opts.redact,
         marks: opts.marks,
         // Text is laid out here, where the page's fonts are, at full size, and laid over in the worker.

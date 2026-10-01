@@ -128,6 +128,15 @@ export function clampRect(rect: Rect, bounds: Size): Rect {
   return { x, y, width, height };
 }
 
+/** Where two rectangles overlap, or null when they don't. */
+export function intersectRect(a: Rect, b: Rect): Rect | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
+}
+
 /** Copies a rectangle out, pixel for pixel. */
 export function cropPixels(image: Pixels, rect: Rect): Pixels {
   const r = clampRect(rect, image);
@@ -589,19 +598,31 @@ export function applyGeometry(image: Pixels, job: GeometryJob): { image: Pixels;
     notes.push('Flipped top to bottom');
   }
   const angle = Math.round((job.angle ?? 0) * 10) / 10;
+  /** P01: the crop box was drawn over the straightened image, in its frame, so it's applied there. */
+  let cropped = false;
   if (angle !== 0) {
     if (Math.abs(angle) > 45) throw new GeometryError('Pick an angle from −45° to 45°.');
     const before = { width: out.width, height: out.height };
     if (job.angleFit === 'crop') {
       // Rotate onto the same canvas, then keep the centre that has no corners showing.
       const rotated = rotateFree(out, angle, before);
-      const keep = straightenedCrop(before, angle);
-      out = cropPixels(rotated, {
-        x: Math.floor((before.width - keep.width) / 2),
-        y: Math.floor((before.height - keep.height) / 2),
-        ...keep,
-      });
-      notes.push(`Straightened ${String(angle)}° and cropped to ${dims(out)}`);
+      const size = straightenedCrop(before, angle);
+      const keep = {
+        x: Math.floor((before.width - size.width) / 2),
+        y: Math.floor((before.height - size.height) / 2),
+        ...size,
+      };
+      if (job.crop) {
+        // A box drawn on the straightened photo: what of it has no corners showing.
+        const box = intersectRect(clampRect(job.crop, before), keep);
+        if (!box) throw new GeometryError('The crop box is all outside the straightened photo.');
+        out = cropPixels(rotated, box);
+        cropped = true;
+        notes.push(`Straightened ${String(angle)}° and cropped to ${dims(out)}`);
+      } else {
+        out = cropPixels(rotated, keep);
+        notes.push(`Straightened ${String(angle)}° and cropped to ${dims(out)}`);
+      }
     } else {
       const size = expandedSize(before, angle);
       if (size.width * size.height > OUTPUT_LIMITS.maxPixels) {
@@ -611,15 +632,17 @@ export function applyGeometry(image: Pixels, job: GeometryJob): { image: Pixels;
       notes.push(`Rotated ${String(angle)}° on a canvas of ${dims(out)}`);
     }
   }
-  const crop = job.crop
-    ? clampRect(job.crop, out)
-    : job.cropRatio
-      ? centredRatio(out, job.cropRatio)
-      : undefined;
+  const crop = cropped
+    ? undefined
+    : job.crop
+      ? clampRect(job.crop, out)
+      : job.cropRatio
+        ? centredRatio(out, job.cropRatio)
+        : undefined;
   if (crop && (crop.width !== out.width || crop.height !== out.height)) {
     out = cropPixels(out, crop);
     notes.push(`Cropped to ${dims(out)}`);
-  } else if (job.crop) {
+  } else if (job.crop && !cropped) {
     notes.push('The box covers the whole image, so nothing was cropped');
   }
   if (job.resize) {

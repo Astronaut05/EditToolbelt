@@ -1,6 +1,7 @@
 /** Messages between the image engines and their worker. */
 import type { Lut } from '@etb/core/lut';
 
+import type { Adjust } from './adjust';
 import type { Mark } from './annotate';
 import type { GeometryJob } from './geometry';
 import type { GridSpec } from './grid';
@@ -45,7 +46,9 @@ export interface ImageJob {
   optimise?: boolean;
   /** Return the original file when re-encoding would make it bigger (Compress). */
   neverGrow?: boolean;
-  /** P12: areas blurred, pixelated or covered, in the image's own pixels, first of all. */
+  /** P01: exposure, brightness, contrast, saturation and warmth, on the photo before anything is drawn. */
+  adjust?: Adjust;
+  /** P12: areas blurred, pixelated or covered, in the image's own pixels, after the adjustments. */
   redact?: Redact;
   /** P09: marks drawn on the decoded image, in its own pixels, before any geometry. */
   marks?: Mark[];

@@ -6,6 +6,7 @@
  */
 import { applyLut } from '@etb/core/lut';
 
+import { adjustNote, applyAdjust, isNeutral } from './adjust';
 import { drawMarks } from './annotate';
 import { applyRedact, type RedactEffect } from './redact';
 
@@ -386,6 +387,11 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   if (scale < 1) notes.push(`Scaled down to ${String(width)} × ${String(height)} px`);
   let image = rgba(bitmap, width, height);
   bitmap.close();
+  if (job.adjust && !isNeutral(job.adjust)) {
+    post({ type: 'progress', fraction: 0.11, stage: 'Adjusting' });
+    applyAdjust(image.data, job.adjust);
+    notes.push(adjustNote(job.adjust));
+  }
   if (job.redact) {
     post({ type: 'progress', fraction: 0.12, stage: 'Hiding' });
     const hidden = applyRedact(image, job.redact, scale);

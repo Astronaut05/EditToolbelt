@@ -151,6 +151,22 @@ export {
 } from './image/text-layer';
 export { TEXT_FONTS } from './image/text-fonts';
 export {
+  throughFrame,
+  throughUpright,
+  uprightFor,
+  type Frame,
+  type Upright,
+} from './image/upright';
+export {
+  ADJUST_RANGES,
+  adjustNote,
+  adjustValue,
+  applyAdjust,
+  isNeutral,
+  NO_ADJUST,
+  type Adjust,
+} from './image/adjust';
+export {
   activeAreas,
   applyRedact,
   areaBoxOf,

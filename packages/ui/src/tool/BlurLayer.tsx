@@ -1,10 +1,12 @@
 'use client';
 
 import {
+  applyAdjust,
   applyRedact,
   areaBoxOf,
   REDACT_EFFECTS,
   REDACT_SHAPES,
+  type Adjust,
   type FaceBox,
   type Point,
   type Redact,
@@ -26,6 +28,7 @@ import {
 
 import { cn } from '../cn';
 import { ColorInput, Slider } from '../primitives/fields';
+import { boxMapping, type Nudge, type ToImage } from './mapping';
 
 const icon = (Icon: typeof Square) => <Icon size={16} strokeWidth={1.75} aria-hidden="true" />;
 
@@ -373,13 +376,22 @@ export function centredBox(natural: Size): Redaction {
 export function BlurLayer({
   src,
   natural,
+  adjust,
   redact,
   pen,
   active,
   onRedact,
+  toImage,
+  nudge,
 }: {
   src: string;
   natural: Size;
+  /** P01: the editor's pointer mapping, its turns and flips undone. */
+  toImage?: ToImage;
+  /** P01: arrow-key moves taken into the image's own pixels. */
+  nudge?: Nudge;
+  /** P01: the photo's adjustments, previewed with the export's code before the areas. */
+  adjust?: Adjust;
   redact: Redact;
   pen: BlurPen;
   /** Blur mode: the layer takes the pointer and shows its controls. */
@@ -428,6 +440,7 @@ export function BlurLayer({
       }
       const pixels = new ImageData(new Uint8ClampedArray(base.current.pixels.data), width, height);
       const scale = width / natural.width;
+      if (adjust) applyAdjust(pixels.data, adjust);
       const preview =
         pending && cursor && pen.shape !== 'brush'
           ? [...redact.areas, { shape: pen.shape, points: [pending, cursor] }]
@@ -475,14 +488,11 @@ export function BlurLayer({
     return () => {
       observer.disconnect();
     };
-  }, [photo, redact, natural, pending, cursor, pen.shape, active]);
+  }, [photo, adjust, redact, natural, pending, cursor, pen.shape, active]);
 
   /** A pointer's place in image pixels. */
   const at = (event: { clientX: number; clientY: number }): Point => {
-    const rect = canvas.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return [0, 0];
-    const x = ((event.clientX - rect.left) / rect.width) * natural.width;
-    const y = ((event.clientY - rect.top) / rect.height) * natural.height;
+    const [x, y] = (toImage ?? boxMapping(canvas.current, natural))(event.clientX, event.clientY);
     return [
       Math.round(Math.min(natural.width, Math.max(0, x))),
       Math.round(Math.min(natural.height, Math.max(0, y))),
@@ -560,18 +570,20 @@ export function BlurLayer({
     )[event.key];
     if (!move) return;
     event.preventDefault();
-    const next = nudgeArea(target, move[0], move[1], natural, event.altKey);
+    const [dx, dy] = nudge ? nudge(move[0], move[1]) : move;
+    const next = nudgeArea(target, Math.round(dx), Math.round(dy), natural, event.altKey);
     onRedact({ ...redact, areas: redact.areas.map((a, i) => (i === index ? next : a)) });
   }
 
   const pct = (value: number, of: number) => `${String((value / of) * 100)}%`;
+  const hidden = redact.areas.filter((a) => !a.off).length;
   let faceNumber = 0;
   return (
     <>
       <canvas
         ref={canvas}
         role="img"
-        aria-label={`Photo with ${String(redact.areas.filter((a) => !a.off).length)} hidden ${redact.areas.length === 1 ? 'area' : 'areas'}`}
+        aria-label={`Photo with ${String(hidden)} hidden ${hidden === 1 ? 'area' : 'areas'}`}
         onPointerDown={active ? onPointerDown : undefined}
         onPointerMove={(event) => {
           if (pending) setCursor(at(event));

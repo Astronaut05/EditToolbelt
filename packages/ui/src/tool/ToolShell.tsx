@@ -1,6 +1,6 @@
 'use client';
 
-import { activeAreas, type Engine, type NamesPlan } from '@etb/engines';
+import { activeAreas, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
 import { ChevronRight, Download, Undo2 } from 'lucide-react';
 import {
   lazy,
@@ -466,6 +466,8 @@ export interface ShellPreset {
     refine?: string;
     /** P12: blur mode's "Find faces". */
     findFaces?: FaceFinder;
+    /** P01: the modes in a rail on the left (a bar along the bottom on phones). */
+    layout?: 'bar' | 'rail';
   };
   /**
    * C02: the image becomes a colour picker. Picks are kept (as a JSON list of
@@ -857,6 +859,7 @@ export function ToolShell({
               flip: edit.flip,
               flipV: edit.flipV,
               angle: edit.angle,
+              ...(!isNeutral(edit.adjust) && { adjust: edit.adjust }),
               ...(edit.redact && activeAreas(edit.redact).length > 0 && { redact: edit.redact }),
               ...(edit.marks && edit.marks.length > 0 && { marks: edit.marks }),
               ...(edit.texts &&
@@ -2281,7 +2284,11 @@ function Workspace({
   } | null;
 }) {
   if (state.kind !== 'running' && state.kind !== 'result' && state.kind !== 'ready') return null;
-  const frame = 'relative h-98 overflow-hidden lg:absolute lg:inset-0 lg:h-auto';
+  // P01's editor carries a mode bar and a tool bar on phones: it gets most of the screen.
+  const frame = cn(
+    'relative overflow-hidden lg:absolute lg:inset-0 lg:h-auto',
+    preset.editor?.layout === 'rail' ? 'h-[max(24.5rem,72dvh)]' : 'h-98',
+  );
 
   if (picker && state.input.url) {
     return (
@@ -2349,6 +2356,7 @@ function Workspace({
             initialMode={preset.editor?.mode}
             enabledModes={preset.editor?.modes}
             findFaces={preset.editor?.findFaces}
+            layout={preset.editor?.layout}
           />
         </Suspense>
       </div>

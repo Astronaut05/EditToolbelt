@@ -35,6 +35,7 @@ export const TOOL_IDS = [
   'merge-videos',
   'mute-video',
   'normalize-audio',
+  'photo-editor',
   'qr-code-generator',
   'remove-background',
   'remove-silence',

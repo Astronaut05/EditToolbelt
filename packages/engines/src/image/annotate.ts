@@ -5,6 +5,8 @@
  * so what you see is what you download.
  */
 
+import type { Upright } from './upright';
+
 export type MarkTool = 'brush' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'marker';
 
 export const MARK_TOOLS: readonly MarkTool[] = [
@@ -31,6 +33,8 @@ export interface Mark {
   opacity: number;
   /** A numbered marker's number. */
   n?: number;
+  /** P01: keeps a marker's number upright in a turned or flipped photo. */
+  base?: Upright;
 }
 
 /** The drawing calls the marks need: a CanvasRenderingContext2D, or OffscreenCanvas's. */
@@ -49,6 +53,8 @@ export type Pen = Pick<
   | 'rect'
   | 'fillText'
   | 'scale'
+  | 'translate'
+  | 'rotate'
   | 'quadraticCurveTo'
 > & {
   strokeStyle: string | CanvasGradient | CanvasPattern;
@@ -184,7 +190,12 @@ export function drawMark(pen: Pen, mark: Mark, scale = 1): void {
       pen.font = `700 ${String(Math.round(radius * 1.15))}px sans-serif`;
       pen.textAlign = 'center';
       pen.textBaseline = 'middle';
-      pen.fillText(String(mark.n ?? 1), x0, y0 + radius * 0.05);
+      pen.translate(x0, y0);
+      if (mark.base) {
+        pen.rotate((mark.base.rotation * Math.PI) / 180);
+        if (mark.base.mirror) pen.scale(-1, 1);
+      }
+      pen.fillText(String(mark.n ?? 1), 0, radius * 0.05);
       break;
     }
   }

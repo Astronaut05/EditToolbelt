@@ -4,6 +4,7 @@
  * draws them on screen at its zoom, and the export draws them at full size
  * with the same code and the same fonts, so the text lands where it was shown.
  */
+import type { Upright } from './upright';
 import {
   fontFile,
   TEXT_FONT_PATH,
@@ -42,6 +43,8 @@ export interface TextLayer {
   boxColor: string;
   /** 0-1. */
   boxOpacity: number;
+  /** P01: the turn and mirror that keep it upright in a turned or flipped photo, under `rotation`. */
+  base?: Upright;
 }
 
 /** Line height, as a multiple of the size. */
@@ -121,6 +124,10 @@ export function drawTextLayer(pen: TextPen, layer: TextLayer, scale = 1): void {
   pen.save();
   pen.scale(scale, scale);
   pen.translate(layer.x, layer.y);
+  if (layer.base) {
+    pen.rotate((layer.base.rotation * Math.PI) / 180);
+    if (layer.base.mirror) pen.scale(-1, 1);
+  }
   pen.rotate((layer.rotation * Math.PI) / 180);
   if (layer.box) {
     const frame = layerFrame(block, layer);
@@ -135,12 +142,15 @@ export function drawTextLayer(pen: TextPen, layer: TextLayer, scale = 1): void {
   const x =
     layer.align === 'left' ? -block.width / 2 : layer.align === 'right' ? block.width / 2 : 0;
   const lineHeight = layer.size * LINE_HEIGHT;
-  // A shadow's blur and offset aren't scaled by the transform, so they are by hand.
+  // A shadow's blur and offset aren't scaled or turned by the transform, so they are by hand:
+  // straight down in the saved image, so turned with the layer's base in the photo's own pixels.
+  const drop = layer.size * 0.06 * scale;
+  const turn = ((layer.base?.rotation ?? 0) * Math.PI) / 180;
   const shadow = () => {
     pen.shadowColor = 'rgba(0, 0, 0, 0.5)';
     pen.shadowBlur = layer.size * 0.15 * scale;
-    pen.shadowOffsetX = 0;
-    pen.shadowOffsetY = layer.size * 0.06 * scale;
+    pen.shadowOffsetX = -Math.sin(turn) * drop;
+    pen.shadowOffsetY = Math.cos(turn) * drop;
   };
   const plain = () => {
     pen.shadowColor = 'transparent';
@@ -174,8 +184,16 @@ export function drawTextLayers(pen: TextPen, layers: readonly TextLayer[], scale
 /** Whether a point (image pixels) is on a layer, its rotation undone. */
 export function hitsLayer(block: TextBlock, layer: TextLayer, px: number, py: number): boolean {
   const angle = (-layer.rotation * Math.PI) / 180;
-  const dx = px - layer.x;
-  const dy = py - layer.y;
+  let dx = px - layer.x;
+  let dy = py - layer.y;
+  if (layer.base) {
+    const back = (-layer.base.rotation * Math.PI) / 180;
+    [dx, dy] = [
+      dx * Math.cos(back) - dy * Math.sin(back),
+      dx * Math.sin(back) + dy * Math.cos(back),
+    ];
+    if (layer.base.mirror) dx = -dx;
+  }
   const lx = dx * Math.cos(angle) - dy * Math.sin(angle);
   const ly = dx * Math.sin(angle) + dy * Math.cos(angle);
   const frame = layerFrame(block, layer);
