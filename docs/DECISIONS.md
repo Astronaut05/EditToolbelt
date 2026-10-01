@@ -1052,3 +1052,71 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/audio.md` → A05, A06 ("in-house implementation, validated against pyloudnorm in tests").
 **Reverse:** the measurement and the plan are pure functions in `@etb/core`, with tests. The tools' pages and engines only decode, call them and encode.
+
+## 2026-10-01 · A private live site before Go public, and the run that builds it
+
+**Decision:** Astro's instruction of 2026-10-01. The site goes live now, privately, at the real domain, and only Astro can open it.
+- **Phase 1** (with Astro, one step at a time): Cloudflare R2, Railway, Modal, sign-in email, Google sign-in, Cloudflare Access, the Paddle sandbox, Telegram, then the first deploy. Each step is checked from GitHub Actions before the next (`scripts/ops/verify.ts`, `.github/workflows/ops.yml`): this build environment can't reach Cloudflare, Railway, Modal or the domain itself.
+- **Phase 2** (autonomous, until done): M5 complete with payments built and switched **off**, M5's GPU tools on Modal, the rest of M8, every tool after M8 including Wave 3, then a final pass. No stopping at milestone gates: each one updates `STATUS.md` and work continues. What only Astro can decide goes in `STATUS.md` → "Parked for Astro", with a recommended pick. Every merge deploys, and CI checks the live site through Access after each deploy; a broken production comes before anything else.
+- **Not in this run:** M7 (the Premiere panel, which comes last), legal texts, Go public, removing Access. The panel work already started stays on the branch `claude/panel-wip`, unmerged.
+- **This replaces `CLAUDE.md` rule 10's milestone gate for the run.** Every other non-negotiable still holds: licenses (6), no retained files (4), the append-only ledger (5).
+- **Several PRs at once:** this session can now push branches other than its own (it couldn't on 2026-09-29, see "One PR at a time"), so independent topics get their own branches and PRs.
+
+**Why:** Astro's instruction of 2026-10-01.
+**Reverse:** take Access off (Go public), or stop the services in Railway and Modal.
+
+## 2026-10-01 · Production: Railway, Cloudflare (DNS, R2, Access) and Modal
+
+**Decision:** decided by Astro (2026-10-01):
+- **Railway**, EU West (Amsterdam), Hobby plan, with a hard usage limit of $30 a month. Three services from this repo:
+  - **web**: the Next.js server build (`ETB_TARGET=server`) serving every page. It applies the `_headers` file's security headers, CSP and COOP/COEP itself, as `pnpm preview` does for the static export.
+  - **worker**: `apps/worker`.
+  - **Postgres 18**: Railway's template if it's 18; otherwise the official `postgres:18` image with a volume.
+  - Railway deploys every merge to `main`, after CI passes. Migrations run as the pre-deploy command, and the health check is `/readyz`.
+- **Cloudflare:**
+  - DNS for edittoolbelt.com.
+  - R2 for files: the bucket `edittoolbelt-files` in the EU jurisdiction, with lifecycle rules of 1-day expiry and 1-day multipart abort (`01` → Retention).
+  - Cloudflare Access (Zero Trust, free plan) in front of the whole domain, letting in Astro's email only, plus a service token for CI's checks of the live site.
+- **GPU: Modal**, serverless, billed per second, scaling to zero, with a $20 monthly spend limit. It is the `ServerlessGpu` backend:
+  - The worker calls Modal; Modal never calls us.
+  - Files move through R2 presigned URLs, and nothing is kept on Modal.
+  - L4 by default, T4 where it's enough.
+  - `LocalGpu` stays, for development only.
+- **Sign-in email:** an SMTP provider with a free tier, chosen at Phase 1 step 4 (its own entry).
+- **Cloudflare Pages is not used while the site is private.** The static export and its deploy job stay, dormant (without `CLOUDFLARE_API_TOKEN` it's skipped); Go public revisits them.
+- **Secrets** go straight from Astro into Railway's variables or GitHub's secrets, never through a chat or the repo. The checks read GitHub's copies:
+  - `R2_*`: the app's own key.
+  - `CF_READ_TOKEN`: a read-only Cloudflare token for R2, DNS and Access settings. The app's key is limited to objects, so it can't read the bucket's settings.
+  - The Access service token.
+
+**Why:** Astro's instruction of 2026-10-01. It replaces `01`'s "Production (from M5): EU VPS (Hetzner or equivalent)" plan: a managed platform with deploys from Git and a hard spending cap, and GPUs billed only while they run.
+**Reverse:** the containers are plain Dockerfiles and the storage is S3-compatible, so moving to a VPS is new hosting and variables, not code. Modal sits behind `GpuBackend`.
+
+## 2026-10-01 · How production is wired (Railway as code, Access checked twice)
+
+**Decision:**
+- **The Railway project is code:** `.railway/railway.ts` (Railway's infrastructure-as-code, applied by its CLI), not `railway.json`, which Railway stops reading on 2026-12-01.
+  - **Postgres:** Railway's own Postgres image, which is 18.
+  - **Services:** web and worker build from `main` once its GitHub checks pass.
+  - **Region:** EU West for everything.
+  - **Web:** migrations run as its pre-deploy command, and its health check is `/readyz`.
+  - **No Railway hostname:** only the custom domains, edittoolbelt.com and www.
+- **Applying it needs Astro.** CI shows the plan on every change, and the apply job waits for Astro's approval (the `railway` GitHub environment). Removing anything is never applied from CI.
+- **Secrets are Railway shared variables** that Astro types in, referenced by name in the code. `docs/runbooks/production.md` lists every name.
+- **The web service checks Cloudflare Access's token on every request** (`src/server/access.ts`), as well as Access itself:
+  - In production, a request without a valid token for this application gets 403.
+  - Without the Access settings, every request gets 503: the site fails closed.
+  - Exempt: `/healthz` and `/readyz` (Railway's health check; they reveal nothing), and `/api/webhooks/*` (signed by the payment providers, 404 while payments are off).
+- **`www` redirects to the apex** in the app (308), so Cloudflare needs no redirect rule.
+- **The web image builds with placeholder secrets.** Only the values inlined into pages are build arguments: SITE_URL, the storage endpoint and analytics. The real secrets are read when the server starts.
+- **The worker gets no volume.** Railway gives a paid plan's container 100 GB of its own disk. The largest upload is 10 GiB and the worker runs 2 jobs at once, which fits with room for outputs.
+- **No staging environment** while one person uses the site: PRs are tested in CI against real Postgres and S3-compatible storage, and production is checked after each deploy.
+
+**Why:**
+- Infrastructure as code can be reviewed and reverted like the rest of the repo, and survives Railway's deprecation of the old file.
+- A gated apply keeps infrastructure changes in Astro's hands.
+- Checking the token in the app means a leaked Railway URL or a direct hit on Railway's edge still can't reach the site.
+
+**Reverse:**
+- Delete `.railway/` and configure the services in Railway's dashboard.
+- Unset `CF_ACCESS_*` and change the proxy's production rule at Go public.

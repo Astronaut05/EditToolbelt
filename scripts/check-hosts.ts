@@ -44,8 +44,12 @@ const DENY_PATTERN =
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '[::]']);
 const RESERVED_SUFFIXES = ['.test', '.example', '.invalid', '.localhost'];
 const RESERVED_NAMES = /(^|\.)example\.(com|net|org)$/;
-/** Each needs a reason. Telegram's Bot API: the worker's alerts (docs/07 → Alerts). */
-const THIRD_PARTY_APIS = new Set(['api.telegram.org']);
+/**
+ * Each needs a reason. Telegram's Bot API: the worker's alerts (docs/07 →
+ * Alerts). Cloudflare's API: the ops checks read R2, DNS and Access settings
+ * (scripts/ops/verify.ts).
+ */
+const THIRD_PARTY_APIS = new Set(['api.telegram.org', 'api.cloudflare.com']);
 
 function isAllowedHost(rawHost: string): boolean {
   const host = rawHost.toLowerCase().replace(/\.$/, '');

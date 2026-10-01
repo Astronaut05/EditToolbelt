@@ -1,0 +1,95 @@
+# The production project on Railway, from .railway/railway.ts
+# (docs/01-architecture.md → Hosting). Every PR that changes it, and every
+# push of it to main, shows the plan: what Railway would change.
+# Nothing is applied without Astro: the apply job runs only from Actions →
+# Railway → Run workflow, in the `railway` environment, which waits for
+# Astro's approval (Settings → Environments → railway → Required reviewers),
+# then plans again from the same commit and applies exactly that plan. Removing anything is
+# never applied from here. Deploys need no workflow: Railway builds every
+# commit on main once its checks pass.
+name: Railway
+
+on:
+  pull_request:
+    paths: ['.railway/**', '.github/workflows/railway.yml']
+  push:
+    branches: [main, 'claude/ops-**']
+    paths: ['.railway/**', '.github/workflows/railway.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway
+
+env:
+  RAILWAY_CLI_VERSION: '5.63.1'
+
+jobs:
+  plan:
+    name: Plan the Railway project
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      ready: ${{ steps.ready.outputs.ready }}
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      SITE_URL: ${{ vars.SITE_URL }}
+    steps:
+      - name: Needs the RAILWAY_TOKEN secret and the SITE_URL variable
+        id: ready
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$SITE_URL" ]; then
+            echo "::notice::RAILWAY_TOKEN or SITE_URL is not set: nothing to plan."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.ready.outputs.ready == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: steps.ready.outputs.ready == 'true'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - if: steps.ready.outputs.ready == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install the Railway SDK and CLI
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          pnpm install --frozen-lockfile --filter edittoolbelt
+          npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+      - name: Plan (variable values are redacted by the CLI)
+        if: steps.ready.outputs.ready == 'true'
+        run: railway config plan
+
+  apply:
+    name: Apply the plan (after Astro approves)
+    needs: plan
+    if: github.event_name == 'workflow_dispatch' && needs.plan.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: railway
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      SITE_URL: ${{ vars.SITE_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install the Railway SDK and CLI
+        run: |
+          pnpm install --frozen-lockfile --filter edittoolbelt
+          npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+      # The same commit as the plan Astro approved. Railway refuses a plan if
+      # the project changed since it was made, and never removes anything
+      # without --confirm-destructive, which this workflow doesn't pass.
+      - name: Plan again, then apply exactly that plan
+        run: |
+          railway config plan --json --out "$RUNNER_TEMP/railway-plan.json"
+          railway config plan
+          railway config apply --plan "$RUNNER_TEMP/railway-plan.json" --yes

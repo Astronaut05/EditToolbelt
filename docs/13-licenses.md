@@ -111,6 +111,8 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | Prettier | formatting | MIT | ✅ 3.9.9, checked 2026-09-29 |
 | Vitest | unit tests | MIT | ✅ 5.0.2, checked 2026-09-29 |
 | drizzle-kit | generates SQL migrations from the Drizzle schema | MIT | ✅ 0.31.11, checked 2026-09-30 |
+| Railway SDK (`railway`) | describes the production project; Railway's CLI plans and applies it from CI (`.railway/railway.ts`) | MIT | ✅ 3.12.0, checked 2026-10-01 |
+| Railway CLI (`@railway/cli`) | plans and applies `.railway/railway.ts`, deploy logs, one-off commands; installed in CI at a pinned version | ISC | ✅ 5.63.1, checked 2026-10-01 |
 | DefinitelyTyped types (`@types/node`, `@types/react`, `@types/react-dom`, `@types/qrcode`, `@types/pg`, `@types/nodemailer`) | type definitions | MIT | ✅ checked 2026-09-29 |
 | Ruff | Python lint and format | MIT | ✅ 0.16.9, checked 2026-09-29 |
 | mypy | Python type checking | MIT | ✅ 2.3.1, checked 2026-09-29 |

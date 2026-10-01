@@ -50,7 +50,8 @@ Tool specs are split by category: `tools/photo.md`, `tools/video.md`, `tools/aud
 - `apps/worker`: Python 3.12 job workers (ffmpeg, ML models). Talks to Postgres and object storage only.
 - `apps/panel`: Premiere UXP panel (milestone 7).
 - `packages/ui` design system · `packages/registry` tool registry · `packages/engines` browser processing engines · `packages/core` pure logic shared by web and panel (calculators, subtitle parsing, timecode) · `packages/db` Drizzle schema + migrations · `packages/api-client` typed client for web and panel.
-- Postgres (also the job queue). S3-compatible object storage (Cloudflare R2 in production, Versity S3 Gateway locally; MinIO is AGPL, see `docs/13-licenses.md`). Cloudflare in front for CDN, TLS and edge rate limiting, from the Go public step on; until then everything runs locally on Astro's PC (no domain, no Cloudflare).
+- Postgres 18 (also the job queue). S3-compatible object storage (Cloudflare R2 in production, Versity S3 Gateway locally; MinIO is AGPL, see `docs/13-licenses.md`).
+- Production (decided 2026-10-01, `docs/01-architecture.md` → Hosting): **Railway**, EU West, Hobby plan, $30 hard limit. Three services: web (the Next.js server build), worker, Postgres 18. Railway deploys every merge to `main` after CI; migrations run pre-deploy; the health check is `/readyz`. **Cloudflare**: DNS, R2 (EU jurisdiction), and Access in front of the whole domain, so the site stays private until Go public. **Modal** is the serverless GPU backend (per second, $20 monthly limit); `LocalGpu` is dev only. Cloudflare Pages is not used while the site is private.
 - Auth: Better Auth — email magic link + Google. Payments: Paddle (merchant of record) behind a `PaymentProvider` interface.
 - Local dev: `docker compose up --watch` gives Postgres, S3 storage, worker, and web with hot reload.
 
