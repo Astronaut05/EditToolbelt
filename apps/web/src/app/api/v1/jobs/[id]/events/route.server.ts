@@ -3,16 +3,17 @@
  * events (`progress`, then `done`), for EventSource. Polling
  * GET /jobs/:id works too.
  */
-import { rateLimit, requireUser, route } from '../../../../../../server/api';
+import { preflight, rateLimit, requireCaller, route } from '../../../../../../server/api';
 import { jobEvents, ownJob } from '../../../../../../server/jobs';
 
 export const dynamic = 'force-dynamic';
+export const OPTIONS = preflight;
 
 type Context = { params: Promise<{ id: string }> };
 
 export const GET = route('jobs.events', async (request, { params }: Context) => {
-  const user = await requireUser();
-  const limits = rateLimit(`jobs.events:${user.id}`, 30, 60);
+  const { user, ref } = await requireCaller(request, 'jobs:read');
+  const limits = rateLimit(`jobs.events:${ref}`, 30, 60);
   const job = await ownJob(user, (await params).id);
   return new Response(jobEvents(user, job, request.signal), {
     headers: {

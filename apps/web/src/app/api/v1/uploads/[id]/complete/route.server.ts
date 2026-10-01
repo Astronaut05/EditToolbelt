@@ -6,16 +6,11 @@
 import { MAX_PARTS } from '@etb/core/upload';
 import { z } from 'zod';
 
-import {
-  json,
-  readJson,
-  requireSameOrigin,
-  requireUser,
-  route,
-} from '../../../../../../server/api';
+import { json, readJson, preflight, requireCaller, route } from '../../../../../../server/api';
 import { completeUpload } from '../../../../../../server/uploads';
 
 export const dynamic = 'force-dynamic';
+export const OPTIONS = preflight;
 
 const Body = z.strictObject({
   parts: z
@@ -32,8 +27,7 @@ const Body = z.strictObject({
 type Context = { params: Promise<{ id: string }> };
 
 export const POST = route('uploads.complete', async (request, { params }: Context) => {
-  requireSameOrigin(request);
-  const user = await requireUser();
+  const { user } = await requireCaller(request, 'jobs:write');
   // 10,000 parts with ETags fit in about 700 KB.
   const body = await readJson(request, Body, 1024 * 1024);
   return json(await completeUpload(user, (await params).id, body.parts));

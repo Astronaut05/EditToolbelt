@@ -7,21 +7,20 @@ import { costOf, isListed, limitsOf, statusOf, surfacesOf, toolFlag, tools } fro
 import { SURFACES, type Surface } from '@etb/registry/schema';
 
 import { loadToolFlags } from '../../../../lib/flags';
+import { ApiError, preflight, route } from '../../../../server/api';
 
 export const dynamic = 'force-dynamic';
+export const OPTIONS = preflight;
 
-export async function GET(request: Request) {
+export const GET = route('tools', async (request) => {
   await loadToolFlags();
   const surface = new URL(request.url).searchParams.get('surface');
   if (surface !== null && !SURFACES.includes(surface as Surface)) {
-    return Response.json(
-      {
-        type: 'about:blank',
-        title: 'Unknown surface',
-        status: 400,
-        detail: `surface is one of: ${SURFACES.join(', ')}`,
-      },
-      { status: 400, headers: { 'Content-Type': 'application/problem+json' } },
+    throw new ApiError(
+      400,
+      'BAD_REQUEST',
+      'Unknown surface',
+      `surface is one of: ${SURFACES.join(', ')}`,
     );
   }
   const list = tools
@@ -43,4 +42,4 @@ export async function GET(request: Request) {
       };
     });
   return Response.json({ tools: list }, { headers: { 'Cache-Control': 'public, max-age=30' } });
-}
+});

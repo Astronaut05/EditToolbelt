@@ -829,3 +829,31 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M4 ("First server-cpu tools from Wave 2 (e.g. … burn subtitles)"), `tools/video.md` → V16, `docs/08` (no file contents in rows).
 **Reverse:** set Burn Subtitles back to `soon` in Admin → Tools. Tools without `uploadOptions` never see extra inputs.
+
+## 2026-10-01 · M6 (public API) before M5 (credits and payments)
+
+**Decision:** After M4, work moves to M6. M5 waits.
+**Why:** `docs/12` makes M5 require Go public (Paddle onboards only a live, reviewed site), and Go public needs Astro: the domain, hosting, Paddle and real secrets (`CLAUDE.md` → off-limits). M6 needs none of that: its done-when ("a script with only an API key can run any server tool end-to-end following the docs") runs on the local stack with M4's server tools. The checkout endpoint (`POST /credits/checkout`) stays with M5.
+**Reverse:** nothing to undo; M5 starts whenever Go public is done, and nothing in M6 depends on it.
+
+## 2026-10-01 · API keys: format, scopes, and who may call from where (M6)
+
+**Decision:**
+- **Keys are `etb_live_` and 32 characters from [0-9A-Za-z]** (about 190 bits). They're shown once, when made. We keep the SHA-256 and the first 8 characters after the prefix (`etb_live_ab12cd34`), so a key can be named but never shown again.
+- **Three scopes,** as `docs/04` lists them:
+  - `jobs:read`: list and read jobs, their progress, and results.
+  - `jobs:write`: uploads, quotes, starting and cancelling jobs.
+  - `account:read`: `/me`.
+  - The website's session cookie can do all three.
+- **10 live keys per account.** Revoked keys don’t count; their rows stay, marked revoked.
+- **One check for every route** (`requireCaller(request, scope)` in `server/api.ts`):
+  - If an `Authorization` header is present, it must hold a live key with the scope: 401 (with `WWW-Authenticate: Bearer`) otherwise, 403 for a missing scope. It never falls back to the cookie.
+  - Without the header, the session cookie, and a write must come from our origin, as before.
+- **CORS:** every `/api/v1` answer has `Access-Control-Allow-Origin: *` and never `Allow-Credentials`. Each route answers preflights (`OPTIONS`).
+  - Scripts and other sites can call with a key.
+  - A browser never hands another site an answer made with our cookie. The cookie is SameSite=Lax, so it isn't even sent.
+- **Rate limits count per key,** or per account for the website. The account's own caps hold whatever the caller: concurrent jobs, unfinished uploads, the free daily jobs.
+- **`last_used_at` is written at most once a minute.** Key events are logged by key and account id, never the key itself.
+
+**Why:** `docs/06` → Auth ("Keys are stored hashed; revocable; `last_used_at` updated at most once per minute") and → Basics → CORS ("API-key auth allowed from any origin").
+**Reverse:** to close cross-origin use, drop the CORS headers in `route()`. To turn keys off, have `requireCaller` refuse the `Authorization` header.
