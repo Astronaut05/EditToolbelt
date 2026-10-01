@@ -14,6 +14,7 @@ export const TOOL_IDS = [
   'bpm-key-finder',
   'change-pitch',
   'burn-subtitles',
+  'collage-maker',
   'color-converter',
   'color-palette-from-image',
   'color-picker-from-image',

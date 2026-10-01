@@ -18,6 +18,7 @@ export {
 export { FORMAT_LABELS as IMAGE_FORMAT_LABELS, sniffImage, type ImageFormat } from './image/sniff';
 export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';
 export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './image/image-geometry';
+export { collageEngine, COLLAGE_SIZES, type CollageOptions } from './image/collage';
 export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
 export { imagesToPdfEngine, type ImagesToPdfOptions } from './image/images-to-pdf';
 export { socialResizeEngine, type SocialResizeOptions } from './image/social-resize';

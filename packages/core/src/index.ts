@@ -144,3 +144,4 @@ export {
   type RenameRules,
 } from './rename';
 export * as pdf from './image/pdf';
+export * as collage from './image/collage';

@@ -27,6 +27,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'bpm-key-finder': dynamic(() => import('./bpm-key-finder')),
   'change-pitch': dynamic(() => import('./change-pitch')),
   'burn-subtitles': dynamic(() => import('./burn-subtitles')),
+  'collage-maker': dynamic(() => import('./collage-maker')),
   'color-converter': dynamic(() => import('./color-converter')),
   'color-palette-from-image': dynamic(() => import('./color-palette-from-image')),
   'color-picker-from-image': dynamic(() => import('./color-picker-from-image')),
