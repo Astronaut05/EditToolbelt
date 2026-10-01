@@ -64,7 +64,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | `@mediabunny/flac-encoder` | FLAC encoding — no browser encodes FLAC | package MPL-2.0; libFLAC inside is BSD-3-Clause | ✅ checked 2026-09-30 (1.60.0) |
 | `@mediabunny/aac-encoder` | AAC-LC encoding where the browser's WebCodecs can't (feature-detect first) | package MPL-2.0; WASM build of FFmpeg's AAC encoder (LGPL) | ⚠️ separate lazy-loaded file, source offer; AAC patent question → open question 10 |
 | pdf-lib | images to PDF (Wave 3) | MIT | not used: Images to PDF writes its PDFs with a few hundred lines of our own (`packages/core/src/image/pdf.ts`), since images on pages are all it needs; see `DECISIONS.md` |
-| vtracer (WASM) | image to SVG (Wave 3) | MIT | 🔍 |
+| vtracer (WASM) | image to SVG (Wave 3) | MIT | not used: Image to SVG traces with our own code (`packages/core/src/image/vectorize.ts`), so no WASM build has to be picked or built and checked; see `DECISIONS.md` |
 | jsQR | QR decode — **tests only**, not shipped | Apache-2.0 | ✅ checked 2026-09-30 (1.4.0) |
 
 ## Models

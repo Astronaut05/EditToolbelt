@@ -101,8 +101,8 @@ function random(seed: number) {
 }
 
 /** Weighted k-means with k-means++ seeding. */
-function kmeans(points: Point[], k: number): { centre: Oklab; weight: number }[] {
-  const rand = random(7);
+function kmeans(points: Point[], k: number, seed = 7): { centre: Oklab; weight: number }[] {
+  const rand = random(seed);
   const centres: Oklab[] = [];
   // The heaviest bin first, then k-means++: far from every centre so far, by weight.
   const heaviest = points.reduce((best, p) => (p.weight > best.weight ? p : best));
@@ -162,21 +162,10 @@ function kmeans(points: Point[], k: number): { centre: Oklab; weight: number }[]
   return centres.map((centre, j) => ({ centre, weight: weights[j] ?? 0 }));
 }
 
-/**
- * The image's palette, most common first. May hold fewer colours than asked
- * when the image has fewer distinct ones.
- */
-export function extractPalette(rgba: ArrayLike<number>, options: PaletteOptions): Swatch[] {
-  const count = Math.min(12, Math.max(3, Math.round(options.count)));
-  const points = byMethod(
-    histogram(rgba, options.ignoreExtremes ?? true),
-    options.method ?? 'dominant',
-  );
-  if (points.length === 0) return [];
-  const clusters = kmeans(points, count).filter((c) => c.weight > 0);
-  // Centres that ended up the same colour are one colour.
+/** Clusters that ended up the same colour are one colour, heaviest first; empty ones dropped. */
+function mergeClose(clusters: { centre: Oklab; weight: number }[]) {
   const merged: { centre: Oklab; weight: number }[] = [];
-  for (const c of clusters.sort((x, y) => y.weight - x.weight)) {
+  for (const c of clusters.filter((x) => x.weight > 0).sort((x, y) => y.weight - x.weight)) {
     const same = merged.find((m) => distance2(m.centre, c.centre) < SAME * SAME);
     if (same) {
       const w = same.weight + c.weight;
@@ -190,6 +179,49 @@ export function extractPalette(rgba: ArrayLike<number>, options: PaletteOptions)
       merged.push({ ...c });
     }
   }
+  return merged;
+}
+
+/**
+ * P19's colours: `count` (2-16) clusters covering every opaque pixel, with
+ * no filtering, most common first. Fewer when the image has fewer colours.
+ */
+export function quantize(rgba: ArrayLike<number>, count: number): Oklab[] {
+  const points = histogram(rgba, false);
+  if (points.length === 0) return [];
+  const k = Math.min(16, Math.max(2, Math.round(count)));
+  // k-means can settle with two clusters on one colour and none on another:
+  // the best of a few seedings, by how far the pixels are from their colour.
+  let best: { centre: Oklab; weight: number }[] = [];
+  let bestError = Infinity;
+  for (const seed of [7, 101, 4099, 65_537]) {
+    const clusters = kmeans(points, k, seed);
+    let error = 0;
+    for (const p of points) {
+      let nearest = Infinity;
+      for (const c of clusters) nearest = Math.min(nearest, distance2(p, c.centre));
+      error += nearest * p.weight;
+    }
+    if (error < bestError) {
+      bestError = error;
+      best = clusters;
+    }
+  }
+  return mergeClose(best).map((c) => c.centre);
+}
+
+/**
+ * The image's palette, most common first. May hold fewer colours than asked
+ * when the image has fewer distinct ones.
+ */
+export function extractPalette(rgba: ArrayLike<number>, options: PaletteOptions): Swatch[] {
+  const count = Math.min(12, Math.max(3, Math.round(options.count)));
+  const points = byMethod(
+    histogram(rgba, options.ignoreExtremes ?? true),
+    options.method ?? 'dominant',
+  );
+  if (points.length === 0) return [];
+  const merged = mergeClose(kmeans(points, count));
   const total = merged.reduce((n, c) => n + c.weight, 0);
   return merged
     .sort((x, y) => y.weight - x.weight)

@@ -98,12 +98,13 @@
 - Wave 3: LUT Converter (beta). `.cube` to Autodesk `.3dl` and back, the grid resampled to 17, 33 or 65 points with tetrahedral interpolation, and 1D ↔ 3D where it's exact.
 - Wave 3: Images to PDF (beta). Up to 100 images in the order set, one per page on A4, Letter or the image's own size; JPEGs embedded byte for byte and turned upright by their EXIF, everything else lossless with transparency.
 - Wave 3: Collage Maker (beta). 2 to 9 photos in a grid, one big photo beside or above the rest, columns or rows; each cropped to fill its box, with the spacing, corner radius and background set; square, 4:5, 9:16, 16:9 or A4, saved as JPG, PNG or WebP.
+- Wave 3: Image to SVG (beta). Logos and illustrations traced in the browser by our own tracer: 2 to 16 colours or black and white, three levels of detail, smooth, sharp or pixel-exact edges; neighbouring shapes share their borders, so no hairline gaps; nothing but filled paths in the file.
 
 ## Next
 
 1. Checkpoints 1, 2 and 3, and the M3, M4 and M6 sign-offs: sent.
 2. M8: every browser tool of Wave 2 is built, and so are the mobile parts (share target, install button, desktop notes). Left: Noise Reduction (blocked, below) and the GPU tools (with M5). Then the M8 sign-off. M7 (the Premiere panel) follows M5's GPU tools.
-3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum, Reverse Audio, Reverse Video, Loop Video, Split Audio, Gradient Generator, LUT Converter, Images to PDF, Collage Maker. Next: Image to SVG, Audio to Video, Subtitle Editor.
+3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum, Reverse Audio, Reverse Video, Loop Video, Split Audio, Gradient Generator, LUT Converter, Images to PDF, Collage Maker, Image to SVG. Next: Audio to Video, Subtitle Editor.
 4. M5 (credits, payments, GPU tools) after Go public.
 
 ## Blocked

@@ -502,7 +502,7 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": [],
-      "use": "image to SVG (Wave 3); package not chosen yet",
+      "use": "image to SVG (Wave 3); not used: our own tracer, see DECISIONS.md",
       "license": "MIT",
       "scope": "browser",
       "status": "verify"

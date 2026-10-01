@@ -32,6 +32,7 @@ export const TOOL_IDS = [
   'gif-to-mp4',
   'gradient-generator',
   'image-converter',
+  'image-to-svg',
   'images-to-pdf',
   'loop-video',
   'loudness-meter',

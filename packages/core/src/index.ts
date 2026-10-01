@@ -31,6 +31,7 @@ export {
 } from './image/watermark';
 export {
   extractPalette,
+  quantize,
   paletteAse,
   paletteCss,
   paletteJson,
@@ -145,3 +146,4 @@ export {
 } from './rename';
 export * as pdf from './image/pdf';
 export * as collage from './image/collage';
+export * as vector from './image/vectorize';
