@@ -7,5 +7,5 @@
     "erasableSyntaxOnly": true,
     "types": ["node"]
   },
-  "include": ["*.ts", "samples/*.ts"]
+  "include": ["*.ts", "samples/*.ts", "ops/*.ts"]
 }

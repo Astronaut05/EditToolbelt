@@ -58,8 +58,8 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
   - `run(ctx) -> Result` — does the work, reports progress through `ctx.progress(pct, stage)`.
 
 ### GPU backend
-- `GpuBackend` interface, two production implementations (plus `LocalGpu`, dev only: the Pascal card in the M3–M4 local stack, see Hosting):
-  - `ServerlessGpu` (start here): our own Docker images with our chosen models, deployed to a per-second-billed serverless GPU provider. No idle cost, cold starts of seconds to tens of seconds. This satisfies "self-hosted models, not someone else's API" without a fixed monthly GPU bill.
+- `GpuBackend` interface, two production implementations (plus `LocalGpu`, dev only: the Pascal card in the local stack, see Hosting):
+  - `ServerlessGpu` (start here, on **Modal**, decided 2026-10-01): our own images with our chosen models, deployed to a per-second-billed serverless GPU provider. No idle cost, cold starts of seconds to tens of seconds. This satisfies "self-hosted models, not someone else's API" without a fixed monthly GPU bill. The worker calls out and polls; inputs and outputs move through R2 presigned URLs.
   - `DedicatedGpu`: a rented GPU server running the **same images**, switched on when monthly GPU-seconds make it cheaper (break-even formula in `05-credits-and-payments.md`).
 - The CPU worker claims GPU jobs too, forwards them to the backend, then does upload/cleanup as usual — switching backend is a config change.
 - Every GPU job records `gpu_seconds`; admin shows real cost per tool.
@@ -77,25 +77,54 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 
 ## Hosting
 
-### Until Go public: everything runs locally (decided 2026-09-29, M0 sign-off)
+### Production, private until Go public (decided 2026-10-01)
 
-No Cloudflare, no domain and no hosting bill until Astro decides to go public (the **Go public** step in `12-milestones.md`). Nothing is public before then, so nothing needs redirects afterwards.
+The site runs at its real domain from now on, behind Cloudflare Access, so only Astro can open it. Go public (below) takes Access off; nothing else about hosting changes then.
 
-- **Code on GitHub** (private repo). CI runs lint, typecheck, tests and license checks on every PR. GitHub Pages is **not** used: its terms forbid using it to run an online business or SaaS, and it can't set response headers (CSP, COOP/COEP).
-- **The site runs on Astro's PC.** `docker compose up --watch` for development; `pnpm preview` builds the Next.js static export (`output: 'export'`; images pre-built as AVIF/WebP, no `next/image` optimisation) and serves it locally the way Cloudflare Pages will, including the headers from the `_headers` file (CSP, and COOP/COEP on M2b's ffmpeg.wasm routes; the local server applies them from M1). Milestones are signed off against that production build.
-- **No host is hard-coded.** Every absolute URL (canonical, sitemap, OG, JSON-LD, robots.txt) is built from `SITE_URL` (default `http://localhost:3000`). Model and WASM files load from `MODELS_BASE_URL` (default `/models`, a local path under `apps/web/public/models/`, not committed). CI fails on a hard-coded domain or host in code (`pnpm hosts:check`).
-- **Phones** reach the PC over USB (Android, port forwarding: `localhost` is a secure context) or over Wi-Fi with local HTTPS (mkcert). Plain `http://192.168.x.x` is not a secure context, so service workers, WebGPU and `crossOriginIsolated` all fail there. See README → Testing on phones.
-- **Server parts, M3–M4: the same PC** runs the full stack with `docker compose`. Only Astro uses it — no real users' files and no payments go through a home PC (uptime, home upload speed, and the privacy page promises EU hosting).
-- The Cloudflare Pages deploy job stays in `.github/workflows/ci.yml` and is skipped while the `CLOUDFLARE_API_TOKEN` secret is absent.
+```
+ Astro ──► Cloudflare (DNS, TLS, Access) ──► Railway, EU West (Amsterdam)
+                                               ├─ web       Next.js server build (pages, API, auth, admin)
+                                               ├─ worker    apps/worker (queue, ffmpeg, CPU tools) ──► Modal (GPU, per second)
+                                               └─ Postgres  18, private network only
+ browser ◄── presigned URLs ──► Cloudflare R2 (EU jurisdiction) ◄── worker, Modal
+```
 
-### Go public (when Astro decides; required before M5)
+- **Railway**, region EU West (Amsterdam), Hobby plan with a hard usage limit of $30 a month (Workspace → Usage). Three services from this repo:
+  - **web**: the Next.js server build (`ETB_TARGET=server`), serving every page, the API and the admin. It sets the same security headers, CSP and COOP/COEP as the `_headers` file the static export uses, and CI checks them on the live site.
+  - **worker**: `apps/worker`. It reaches Postgres over Railway's private network and storage over HTTPS. Its disk holds one job's input and output at a time per job slot, sized against the largest upload allowed (`config/business.ts`), with a volume where the container's own disk is too small.
+  - **Postgres 18** (UUIDv7 ids need 18, see `04`): Railway's template if it's 18, else the official `postgres:18` image with a volume. Private network only, with no public TCP proxy. One-off commands (`pnpm admin:promote`) run inside the web service with `railway ssh`.
+  - **Deploys:** Railway builds and deploys every merge to `main` once CI has passed on it. Migrations run as the web service's pre-deploy command, so a failed migration stops the deploy, and migrations stay backward-compatible with the release before. The health check is `/readyz` (database and storage).
+  - **After each deploy** CI waits for the new commit to answer, then smoke-tests the live site through Access with a service token: pages, headers, `/readyz`, sign-in, and the API.
+  - Only the custom domain is public. The web service accepts a request only when it carries a valid Cloudflare Access token (`Cf-Access-Jwt-Assertion`, checked against the team's keys and the app's audience), so Railway's own hostname and direct hits on Railway's edge can't bypass Access. The health check, which Railway sends on its private network, is the one exception.
+- **Cloudflare:**
+  - DNS for edittoolbelt.com, proxied, SSL mode Full (strict). `www` redirects to the apex.
+  - **Access** (Zero Trust, free plan): one self-hosted application for edittoolbelt.com and www. One policy allows Astro's email only, with a one-time PIN by email or Google. A Service Auth policy lets CI's service token through. Paths that payment providers must reach (their webhooks) get a bypass only when payments are turned on (`docs/runbooks/turn-on-payments.md`).
+  - **R2:** the bucket `edittoolbelt-files` in the EU jurisdiction. Lifecycle: every object deleted after 1 day, multipart uploads aborted after 1 day (see Retention). CORS: the site's origin may `GET`, `PUT` and `HEAD`, and `ETag` is exposed. The app's key is an R2 token limited to this bucket's objects.
+  - Models and WASM files are served by the web service itself (`MODELS_BASE_URL=/models`), the same origin as the pages, so Access covers them and COEP needs no extra headers.
+- **GPU: Modal**, serverless and billed per second, scaling to zero, with a $20 monthly spend limit. This is `ServerlessGpu` (see GPU backend):
+  - The worker calls Modal's functions and polls them. Modal never calls us.
+  - Inputs and outputs move through R2 presigned URLs, and nothing is kept on Modal.
+  - L4 by default, T4 where it's enough.
+  - A GitHub Action deploys the Modal app on every merge to `main`.
+- **Sign-in and alert email:** an SMTP provider with a free tier (`docs/DECISIONS.md`), sending from the domain with SPF and DKIM.
+- **Environments:** `local` (docker compose) and `production`. There is no staging while one person uses the site: PRs are tested in CI against real Postgres and S3-compatible storage, and production is checked after each deploy. Add staging (a second Railway environment and bucket) before Go public if needed.
+- **Why Railway, not a VPS:** deploys from Git with config in the repo, a private network, a hard monthly cap, and no servers to patch. The containers are plain Dockerfiles, so a VPS later is new hosting and variables, not code.
+- **Why EU:** GDPR-friendly default for the largest paying audience; also satisfies the "adequate protection" route for keeping Uzbek users' (non-sensitive) personal data abroad (see `08-legal-and-privacy.md`).
 
-- **Buy the domain** (edittoolbelt.com, .app or .io; open question 1) and point it at Cloudflare Pages. Search ranking belongs to the domain, so later moves are DNS changes.
-- **Public site: Cloudflare Pages (free)**, deployed by CI from `main` once the Cloudflare secrets and the `SITE_URL` variable are set. The static export works there because every launch-set and M2b tool runs in the browser; headers come from the same `_headers` file (max 100 rules).
-  - Limits to design for: **25 MiB max per file**, 20,000 files. ML models and big WASM files are served from an R2 bucket on a `models.` subdomain (R2's free tier, no egress fees) with CORS, immutable caching and `Cross-Origin-Resource-Policy: cross-origin` (needed once COEP routes load them); `MODELS_BASE_URL` points there.
-- Search Console and Bing verification, sitemap submission, and the Paddle seller application (Paddle's onboarding reviews the live website).
+### Local development
 
-### Local GPU and paid hosting
+- **Code on GitHub.** CI runs lint, typecheck, tests and license checks on every PR. GitHub Pages is **not** used: its terms forbid using it to run an online business or SaaS, and it can't set response headers (CSP, COOP/COEP).
+- `docker compose up --watch` runs the whole stack: web, worker, Postgres, S3-compatible storage (Versity S3 Gateway) and Mailpit. `pnpm preview` builds the static export (`output: 'export'`; images pre-built as AVIF/WebP, no `next/image` optimisation) and serves it with the headers from the `_headers` file (CSP, and COOP/COEP on the routes that need them).
+- **No host is hard-coded.** Every absolute URL (canonical, sitemap, OG, JSON-LD, robots.txt) is built from `SITE_URL` (default `http://localhost:3000`). Model and WASM files load from `MODELS_BASE_URL` (default `/models`, a local path under `apps/web/public/models/`, not committed). CI fails on a hard-coded domain or host in code (`pnpm hosts:check`); workflows read the domain from the `SITE_URL` repository variable.
+- **Phones** reach the PC over USB (Android, port forwarding: `localhost` is a secure context) or over Wi-Fi with local HTTPS (mkcert). Plain `http://192.168.x.x` is not a secure context, so service workers, WebGPU and `crossOriginIsolated` all fail there. See README → Testing on phones. The private live site works on phones too, after the Access login.
+
+### Go public (when Astro decides)
+
+- **Take Access off** (or narrow it to `/admin`), and turn on the public parts that wait for it: Search Console and Bing verification, sitemap submission, and Paddle's live onboarding (Paddle reviews the live website).
+- **Revisit Cloudflare Pages** for the static pages. The static export and its dormant deploy job (`CLOUDFLARE_API_TOKEN`, Pages' 25 MiB per-file and 20,000-file limits, models from an R2 `models.` subdomain) are still in the repo. The alternative is to keep serving everything from Railway behind Cloudflare's cache.
+- Legal pages carry their final text before money is taken.
+
+### Local GPU (development only)
 
 - **Local GPU for M3–M4: Astro's GTX 1080 Ti.** The `server-gpu` tools run on this card in the local stack, so GPU jobs are tested end-to-end before renting anything. It's a Pascal card (compute capability 6.1), which sets hard rules for the dev worker image:
   - **Pin PyTorch to a build that still includes Pascal.** PyTorch removed Maxwell/Pascal from its CUDA 12.8+ wheels (starting with 2.8). CI check in the dev image: `torch.cuda.get_arch_list()` must contain `sm_61`, else fail the build.
@@ -103,16 +132,7 @@ No Cloudflare, no domain and no hosting bill until Astro decides to go public (t
   - **Run models in fp32 (or int8 where the runtime supports it on this card).** Consumer Pascal has almost no fp16 throughput, so fp16 is slower, not faster.
   - Memory: 11 GB on a 1080 Ti (8 GB if it's a plain 1080 — check Task Manager → Performance → GPU). Real-ESRGAN and BiRefNet run tiled; Demucs splits into segments; one GPU job at a time (`limits.maxConcurrent = 1` in local config).
   - This is a **dev-only** image (`apps/worker/Dockerfile.gpu-pascal`). The production GPU image targets current cards and CUDA and is built separately. Speed numbers measured on the 1080 Ti are not used for pricing.
-- **Buy hosting before M5** (first public server jobs and payments; Go public must have happened) and move to the production setup below. The domain doesn't change.
-
-### Production (from M5)
-
-- `apps/web` and `apps/worker` as Docker containers on EU VPS (Hetzner or equivalent), behind Cloudflare.
-- Postgres: managed or self-run on the same provider, daily backups + 7-day point-in-time recovery if available. DB holds no user files, so backups are small.
-- Object storage: Cloudflare R2 (no egress fees — matters for download-heavy tools), EU jurisdiction bucket.
-- Environments: `local` (docker compose on Astro's PC, which is also where M3–M4 are tested), `staging`, `production`. Identical config shape, separate DBs and buckets.
-- CI (GitHub Actions): lint, typecheck, unit tests, Playwright on staging, then deploy. Migrations run as a separate step before new containers start; migrations must be backward-compatible with the previous release.
-- Why EU: GDPR-friendly default for the largest paying audience; also satisfies the "adequate protection" route for keeping Uzbek users' (non-sensitive) personal data abroad (see `08-legal-and-privacy.md`).
+- `LocalGpu` is for development only; production GPU jobs run on Modal.
 
 ## Configuration
 
