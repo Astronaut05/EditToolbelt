@@ -1,0 +1,100 @@
+import { describe, expect, it } from 'vitest';
+
+import { ENDPOINTS, openApiDocument } from './openapi';
+import { Job, Quote, Tool } from './schemas';
+
+const doc = openApiDocument('https://example.test');
+
+/** Every `$ref` anywhere in `value`. */
+function refs(value: unknown, found: string[] = []): string[] {
+  if (Array.isArray(value)) for (const item of value) refs(item, found);
+  else if (value && typeof value === 'object') {
+    for (const [key, inner] of Object.entries(value)) {
+      if (key === '$ref' && typeof inner === 'string') found.push(inner);
+      else refs(inner, found);
+    }
+  }
+  return found;
+}
+
+describe('the OpenAPI document', () => {
+  it('is 3.1 with the API under /api/v1', () => {
+    expect(doc.openapi).toMatch(/^3\.1\./);
+    expect(doc.servers).toEqual([{ url: 'https://example.test/api/v1' }]);
+  });
+
+  it('has every endpoint once, by path and method', () => {
+    const operations = Object.entries(doc.paths).flatMap(([path, methods]) =>
+      Object.keys(methods).map((method) => `${method} ${path}`),
+    );
+    expect(operations).toHaveLength(ENDPOINTS.length);
+    expect(new Set(operations).size).toBe(ENDPOINTS.length);
+    expect(new Set(ENDPOINTS.map((e) => e.operationId)).size).toBe(ENDPOINTS.length);
+  });
+
+  it('resolves every $ref to a component', () => {
+    const schemas = doc.components.schemas;
+    const all = refs(doc);
+    expect(all.length).toBeGreaterThan(20);
+    for (const ref of all) {
+      expect(ref).toMatch(/^#\/components\/schemas\//);
+      expect(schemas).toHaveProperty(ref.split('/').pop() ?? '');
+    }
+  });
+
+  it('names a scope for everything but the public endpoints', () => {
+    for (const endpoint of ENDPOINTS) {
+      const op = (doc.paths[endpoint.path] as Record<string, { security: unknown[] }>)[
+        endpoint.method
+      ];
+      if (endpoint.auth === 'public') expect(op?.security).toEqual([]);
+      else expect(op?.security).toEqual([{ apiKey: [endpoint.auth] }]);
+    }
+  });
+
+  it('describes bodies as they are on the wire', () => {
+    const job = doc.components.schemas.Job as { required: string[]; additionalProperties: boolean };
+    expect(job.required).toContain('result');
+    expect(job.additionalProperties).toBe(false);
+    expect(JSON.stringify(doc.components.schemas.Quote)).toContain('probing');
+  });
+});
+
+describe('the schemas', () => {
+  it('read real answers', () => {
+    expect(
+      Quote.safeParse({
+        status: 'ready',
+        tool_id: 'compress-video',
+        upload_id: 'u',
+        credits: 2,
+        funding: 'daily',
+        can_start: true,
+        free_jobs_left: 3,
+        balance: 0,
+        balance_after: 0,
+        estimate_seconds: null,
+        options: { mode: 'size' },
+      }).success,
+    ).toBe(true);
+    expect(
+      Job.safeParse({
+        id: 'j',
+        tool_id: 'compress-video',
+        status: 'succeeded',
+        progress: 100,
+        stage: null,
+        position: null,
+        funding: 'daily',
+        credits_quoted: 2,
+        credits_charged: 0,
+        created_at: '2026-10-01T00:00:00.000Z',
+        started_at: '2026-10-01T00:00:01.000Z',
+        finished_at: '2026-10-01T00:00:09.000Z',
+        error: null,
+        result: { expired: true },
+      }).success,
+    ).toBe(true);
+    expect(Tool.safeParse({ id: 'x' }).success).toBe(false);
+  });
+});

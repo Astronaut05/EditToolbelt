@@ -6,13 +6,13 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
+import { SCOPES, type Scope } from '@etb/core/api';
 import { and, apiKeys, count, desc, eq, isNull, sql, users, type Queryable } from '@etb/db';
 
 import type { CurrentUser } from './account';
 import { db } from './db';
 
-export const SCOPES = ['jobs:read', 'jobs:write', 'account:read'] as const;
-export type Scope = (typeof SCOPES)[number];
+export { SCOPES, type Scope };
 
 /** What each scope lets a key do, in the settings page's words. */
 export const SCOPE_LABELS: Record<Scope, string> = {

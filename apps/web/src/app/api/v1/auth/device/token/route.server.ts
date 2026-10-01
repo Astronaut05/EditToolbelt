@@ -3,7 +3,7 @@
  * `{ device_code }` every 5 s. Once the person approves, the answer is an API
  * key, given this once; until then a problem with AUTHORIZATION_PENDING.
  */
-import { z } from 'zod';
+import { DeviceTokenRequest, type DeviceToken } from '@etb/core/api';
 
 import {
   json,
@@ -18,21 +18,15 @@ import { collectKey } from '../../../../../../server/device';
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
 
-const Body = z.strictObject({
-  device_code: z.string().min(16).max(128),
-});
-
 export const POST = route('auth.device.token', async (request) => {
   const limits = rateLimit(`device.token:${sourceOf(request)}`, 60, 60);
-  const body = await readJson(request, Body);
+  const body = await readJson(request, DeviceTokenRequest);
   const collected = await collectKey(body.device_code);
-  return json(
-    {
-      api_key: collected.key,
-      key_prefix: collected.prefix,
-      name: collected.name,
-      scopes: collected.scopes,
-    },
-    { headers: limits },
-  );
+  const answer: DeviceToken = {
+    api_key: collected.key,
+    key_prefix: collected.prefix,
+    name: collected.name,
+    scopes: collected.scopes,
+  };
+  return json(answer, { headers: limits });
 });

@@ -6,7 +6,7 @@ One API for everything: the website's own tool pages, the Premiere panel, the mo
 
 - Base: `/api/v1`. Breaking changes → `/api/v2`; v1 kept for at least 6 months after.
 - JSON in/out. Errors are RFC 9457 `application/problem+json`: `{ type, title, status, detail, code, ...extra }` with stable `code` values (`INSUFFICIENT_CREDITS`, `FILE_TOO_LARGE`, `UNSUPPORTED_FORMAT`, `TOOL_UNAVAILABLE`, `RATE_LIMITED`, `QUOTA_EXCEEDED`, `NOT_FOUND`, `UNAUTHORIZED`).
-- Schemas defined once in Zod (`packages/core/api-schemas.ts`) → OpenAPI 3.1 generated at build → published at `/api/v1/openapi.json` and a docs page at `/developers`.
+- Schemas defined once in Zod (`@etb/core/api`, `packages/core/src/api/`) → OpenAPI 3.1 generated at build → published at `/api/v1/openapi.json` and a docs page at `/developers`.
 - Typed client `packages/api-client` generated from the same schemas; used by the web app and the panel.
 - Rate-limit headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
 - CORS: our own origins only for cookie auth; API-key auth allowed from any origin (keys are secret, so browser use is the developer's own risk — docs say so).
@@ -30,7 +30,7 @@ Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, st
 
 | Method & path | Purpose |
 |---|---|
-| `GET /tools` | Registry view: id, name, category, status, runtime, surfaces, accepts, limits for caller's tier, cost rule. Filter `?surface=panel`. |
+| `GET /tools` | Registry view: id, name, category, status, runtime, surfaces, accepts, limits for caller's tier, cost rule, and `server` (our servers run it now). Filter `?surface=panel`. |
 | `GET /tools/:id` | One tool, including option schema (JSON Schema from Zod) so clients can render forms. |
 | `POST /uploads` | `{ tool_id, bytes, mime }` → `{ upload_id, parts: [{ n, url }], part_size, complete_url }`. Validates size/type for tier. |
 | `POST /uploads/:id/parts` | `{ from, count }` → fresh presigned URLs for the next parts. Part URLs expire in 15 min, so large uploads fetch them in batches. |
@@ -42,7 +42,7 @@ Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, st
 | `POST /jobs/:id/cancel` | Cancel queued/running; releases credits. |
 | `GET /jobs` | Caller's recent jobs (metadata only), paginated by cursor. |
 | `GET /me` | Profile, tier, balance, free allowance left today. |
-| `GET /me/credits` | Ledger, paginated. |
+| `GET /me/credits` | Ledger, newest first, 50 a page by cursor: kind, amount, balance after, job id. No admin notes or purchase ids. |
 | `POST /credits/checkout` | `{ pack_id }` → Paddle checkout data. Web only. |
 | `POST /auth/device`, `POST /auth/device/token` | Panel connect flow. |
 | `POST /webhooks/paddle` | Payment webhooks (not under the public docs). |

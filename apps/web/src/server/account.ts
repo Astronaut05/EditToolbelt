@@ -15,6 +15,7 @@ import {
   gte,
   isNull,
   jobs,
+  lt,
   purchases,
   sessions,
   sql,
@@ -22,8 +23,11 @@ import {
   type Queryable,
 } from '@etb/db';
 
+import type { CreditList } from '@etb/core/api';
+
 import { auth } from './auth';
 import { db } from './db';
+import { ApiError } from './problem';
 
 export type CurrentUser = typeof users.$inferSelect;
 
@@ -169,4 +173,41 @@ export async function deleteAccount(userId: string): Promise<void> {
       .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)));
     await cancelQueuedJobs(tx, userId);
   });
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CREDIT_PAGE = 50;
+
+/** GET /me/credits: the account's ledger, newest first; no admin notes or purchase ids. */
+export async function creditHistory(userId: string, cursor: string | null): Promise<CreditList> {
+  if (cursor !== null && !UUID.test(cursor)) throw new ApiError(400, 'BAD_REQUEST', 'Bad cursor');
+  const rows = await db()
+    .select({
+      id: creditTransactions.id,
+      kind: creditTransactions.kind,
+      amount: creditTransactions.amount,
+      balanceAfter: creditTransactions.balanceAfter,
+      jobId: creditTransactions.jobId,
+      createdAt: creditTransactions.createdAt,
+    })
+    .from(creditTransactions)
+    .where(
+      and(
+        eq(creditTransactions.userId, userId),
+        cursor ? lt(creditTransactions.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(creditTransactions.id))
+    .limit(CREDIT_PAGE);
+  return {
+    entries: rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      amount: row.amount,
+      balance_after: row.balanceAfter,
+      job_id: row.jobId,
+      created_at: row.createdAt.toISOString(),
+    })),
+    next_cursor: rows.length === CREDIT_PAGE ? (rows[rows.length - 1]?.id ?? null) : null,
+  };
 }

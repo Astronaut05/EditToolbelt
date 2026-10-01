@@ -103,7 +103,11 @@ export default async function AccountPage({ searchParams }: Props) {
         <h2 id="api-keys">API keys</h2>
         <p>
           A key lets a script or the Premiere panel use our servers as you, from anywhere: keep it
-          secret. Send it as <code className="font-mono">Authorization: Bearer etb_live_…</code>.
+          secret. Send it as <code className="font-mono">Authorization: Bearer etb_live_…</code>;{' '}
+          <a href="/developers" className="underline underline-offset-4">
+            the API docs
+          </a>{' '}
+          show the rest.
         </p>
         {params.revoked === '1' && <p role="status">The key is revoked. It stops working now.</p>}
         {keys.length === 0 ? (

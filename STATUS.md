@@ -1,6 +1,6 @@
 # Status
 
-**Milestone:** M6, public API · **in review: parts 1 and 2 of 4 (API keys; the panel's connect flow)**. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Milestone:** M6, public API · **in review: parts 1 to 3 of 4 (API keys; the panel's connect flow; the OpenAPI document and `/developers`)**. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -63,11 +63,12 @@
 - M4, part 6: Burn Subtitles (an admin switches it on). SRT, VTT or ASS burned in with libass: Noto fonts (Latin, Cyrillic, Greek), size, color, outline or a background box, top or bottom; ASS keeps its own styles; Windows-1251 and -1252 files read correctly. The subtitle file goes up as its own upload beside the video, and goes with the job (#47).
 - M6, part 1: API keys. Make one in `/account` → API keys (shown once, with a copy button; up to 10), choose what it can do (`jobs:read`, `jobs:write`, `account:read`), revoke it there. Send it as `Authorization: Bearer etb_live_…` from a script or any site: every `/api/v1` answer allows any origin without credentials, and rate limits count per key (#48).
 - M6, part 2: the panel's connect flow. The panel asks `POST /api/v1/auth/device` for a code, shows `BCDF-GHJK` and opens `/connect`; the person signs in, sees what it asks for and approves; the panel's poll of `POST /api/v1/auth/device/token` then answers its API key, once (#49).
+- M6, part 3: the API described once. Zod schemas for every body in `@etb/core/api`; the routes read requests with them; `GET /api/v1/openapi.json` (OpenAPI 3.1) and `/developers` (keys, a curl walkthrough of a whole job, every endpoint) are generated from them. New: `GET /api/v1/tools/:id` with the options' JSON Schema, `GET /api/v1/me/credits` (#50).
 
 ## Next
 
 1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
-2. M6, the public API: the OpenAPI document with the `/developers` page, then the typed client, ending with a script that runs a server tool with only a key.
+2. M6, the public API: the typed client, used by the web app, and a script that runs a server tool with only a key.
 3. M5 (credits, payments, GPU tools) after Go public.
 
 ## Blocked
@@ -93,4 +94,4 @@ docker compose exec worker python -m etb_worker --task daily_digest   # send the
 
 Server Compress Video on the stack: in Admin → Tools → Compress Video, tick "Server path on" and save. Within 30 s, /compress-video offers "Use our servers instead" after you add a video. Signed in, you get 3 free server jobs a day. VFR to CFR and Burn Subtitles: in Admin → Tools, set each one's status to beta; its page works within 30 s. Admin → Jobs lists every server job.
 
-API keys on the stack: sign in, open /account → API keys, make one, then `curl -H "Authorization: Bearer etb_live_…" http://localhost:3000/api/v1/me`. The panel's connect flow by hand: `curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:3000/api/v1/auth/device`, open its `verification_uri_complete`, approve, then post its `device_code` to `/api/v1/auth/device/token`.
+API docs on the stack: http://localhost:3000/developers and /api/v1/openapi.json. API keys: sign in, open /account → API keys, make one, then `curl -H "Authorization: Bearer etb_live_…" http://localhost:3000/api/v1/me`. The panel's connect flow by hand: `curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:3000/api/v1/auth/device`, open its `verification_uri_complete`, approve, then post its `device_code` to `/api/v1/auth/device/token`.
