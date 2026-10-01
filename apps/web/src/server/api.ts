@@ -3,15 +3,20 @@
  * problem+json with a stable `code`, JSON bodies checked by Zod, the caller,
  * and per-caller rate limits with `RateLimit-*` headers.
  *
- * The website calls the API with its session cookie. A write with a cookie
- * must come from our own origin (docs/06 → CORS: "our own origins only for
- * cookie auth"): the session cookie is SameSite=Lax already, and this refuses
- * anything else that carries it. API keys arrive with the Premiere panel (M7).
+ * Two kinds of caller (docs/06 → Auth, CORS):
+ * - The website, with its session cookie. A write with a cookie must come
+ *   from our own origin: the cookie is SameSite=Lax already, and this refuses
+ *   anything else that carries it.
+ * - Scripts, the panel and other sites, with an API key in
+ *   `Authorization: Bearer`, from any origin. Every answer allows any origin
+ *   but never credentials, so a browser won't hand another site an answer
+ *   made with our cookie.
  */
 import type { z } from 'zod';
 
 import { log } from '../lib/log';
 import { currentUser, type CurrentUser } from './account';
+import { keyCaller, type Scope } from './api-keys';
 import { serverEnv } from './env';
 import { ApiError, problem } from './problem';
 
@@ -27,14 +32,40 @@ export function route<A extends unknown[]>(
   handler: (request: Request, ...rest: A) => Promise<Response>,
 ): (request: Request, ...rest: A) => Promise<Response> {
   return async (request, ...rest) => {
+    let response: Response;
     try {
-      return await handler(request, ...rest);
+      response = await handler(request, ...rest);
     } catch (error) {
-      if (error instanceof ApiError) return problem(error);
-      log.error({ err: error, route: name }, 'api.failed');
-      return problem(new ApiError(500, 'INTERNAL', 'Something went wrong on our side'));
+      if (error instanceof ApiError) {
+        response = problem(error);
+      } else {
+        log.error({ err: error, route: name }, 'api.failed');
+        response = problem(new ApiError(500, 'INTERNAL', 'Something went wrong on our side'));
+      }
     }
+    for (const [header, value] of Object.entries(CORS)) response.headers.set(header, value);
+    return response;
   };
+}
+
+/** On every answer: any origin may read it, never with credentials (see above). */
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Expose-Headers':
+    'RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset, Retry-After, Location',
+};
+
+/** The answer to a CORS preflight; each `/api/v1` route exports it as `OPTIONS`. */
+export function preflight(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      ...CORS,
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, Idempotency-Key, Last-Event-ID',
+      'Access-Control-Max-Age': '600',
+    },
+  });
 }
 
 /** Reads a JSON body of at most `maxBytes` and checks it with `schema`. */
@@ -71,6 +102,52 @@ export function requireSameOrigin(request: Request): void {
   if (origin !== new URL(serverEnv().SITE_URL).origin) {
     throw new ApiError(403, 'FORBIDDEN', 'Cross-site request refused');
   }
+}
+
+export interface Caller {
+  user: CurrentUser;
+  /** The key the call came with; null for the website's session. */
+  keyId: string | null;
+  /** Rate limits count per key, or per account for the website. */
+  ref: string;
+}
+
+const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const BEARER = /^Bearer\s+(\S+)$/i;
+
+/**
+ * Who is calling: an API key in `Authorization: Bearer` that holds `scope`,
+ * or the session cookie (which can do everything its account can). 401 for
+ * a bad key or no session, 403 for a key without the scope.
+ */
+export async function requireCaller(request: Request, scope: Scope): Promise<Caller> {
+  const authorization = request.headers.get('authorization');
+  if (authorization !== null) {
+    const key = BEARER.exec(authorization.trim())?.[1];
+    const caller = key ? await keyCaller(key) : null;
+    if (!caller) {
+      throw new ApiError(
+        401,
+        'UNAUTHORIZED',
+        'Invalid API key',
+        'The key is wrong or revoked, or its account is closed.',
+        {},
+        { 'WWW-Authenticate': 'Bearer' },
+      );
+    }
+    if (!caller.scopes.includes(scope)) {
+      throw new ApiError(
+        403,
+        'FORBIDDEN',
+        'This key can’t do that',
+        `It needs the ${scope} scope.`,
+      );
+    }
+    return { user: caller.user, keyId: caller.keyId, ref: `key:${caller.keyId}` };
+  }
+  if (WRITES.has(request.method)) requireSameOrigin(request);
+  const user = await requireUser();
+  return { user, keyId: null, ref: `user:${user.id}` };
 }
 
 /** The signed-in caller, or 401. */

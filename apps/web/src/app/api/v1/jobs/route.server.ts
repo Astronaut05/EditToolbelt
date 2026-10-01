@@ -10,15 +10,16 @@ import { z } from 'zod';
 import {
   ApiError,
   json,
+  preflight,
   rateLimit,
   readJson,
-  requireSameOrigin,
-  requireUser,
+  requireCaller,
   route,
 } from '../../../../server/api';
 import { createJob, jobView, listJobs } from '../../../../server/jobs';
 
 export const dynamic = 'force-dynamic';
+export const OPTIONS = preflight;
 
 const Body = z.strictObject({
   tool_id: z.string().min(1).max(64),
@@ -30,9 +31,8 @@ const Body = z.strictObject({
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{8,128}$/;
 
 export const POST = route('jobs.create', async (request) => {
-  requireSameOrigin(request);
-  const user = await requireUser();
-  const limits = rateLimit(`jobs:${user.id}`, 30, 60);
+  const { user, ref } = await requireCaller(request, 'jobs:write');
+  const limits = rateLimit(`jobs:${ref}`, 30, 60);
   const key = request.headers.get('idempotency-key');
   if (key !== null && !IDEMPOTENCY_KEY.test(key)) {
     throw new ApiError(400, 'BAD_REQUEST', 'Bad Idempotency-Key', '8 to 128 printable characters.');
@@ -52,8 +52,8 @@ export const POST = route('jobs.create', async (request) => {
 });
 
 export const GET = route('jobs.list', async (request) => {
-  const user = await requireUser();
-  const limits = rateLimit(`jobs.read:${user.id}`, 120, 60);
+  const { user, ref } = await requireCaller(request, 'jobs:read');
+  const limits = rateLimit(`jobs.read:${ref}`, 120, 60);
   const cursor = new URL(request.url).searchParams.get('cursor');
   return json(await listJobs(user, cursor), { headers: limits });
 });

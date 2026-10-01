@@ -10,6 +10,7 @@ One API for everything: the website's own tool pages, the Premiere panel, the mo
 - Typed client `packages/api-client` generated from the same schemas; used by the web app and the panel.
 - Rate-limit headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
 - CORS: our own origins only for cookie auth; API-key auth allowed from any origin (keys are secret, so browser use is the developer's own risk — docs say so).
+  Done as: every answer carries `Access-Control-Allow-Origin: *` and never `Allow-Credentials`, so a browser won't give another site an answer made with our cookie (which is SameSite=Lax anyway); a cookie write must come from our origin.
 
 ## Auth
 
@@ -20,6 +21,8 @@ One API for everything: the website's own tool pages, the Premiere panel, the mo
 | Developers | API key created in settings, shown once. Header: `Authorization: Bearer etb_live_…`. |
 
 Keys are stored hashed; revocable; `last_used_at` updated at most once per minute.
+
+Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, starting and cancelling jobs), `account:read` (`/me`). The session cookie can do all three. A request with an `Authorization` header is judged by its key alone: 401 for a wrong or revoked key, 403 for a missing scope. At most 10 live keys per account; rate limits count per key.
 
 ## Endpoints
 

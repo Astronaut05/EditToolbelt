@@ -10,13 +10,14 @@ import {
   json,
   rateLimit,
   readJson,
-  requireSameOrigin,
-  requireUser,
+  preflight,
+  requireCaller,
   route,
 } from '../../../../../server/api';
 import { quote } from '../../../../../server/jobs';
 
 export const dynamic = 'force-dynamic';
+export const OPTIONS = preflight;
 
 const Body = z.strictObject({
   tool_id: z.string().min(1).max(64),
@@ -25,9 +26,8 @@ const Body = z.strictObject({
 });
 
 export const POST = route('jobs.quote', async (request) => {
-  requireSameOrigin(request);
-  const user = await requireUser();
-  const limits = rateLimit(`jobs.quote:${user.id}`, 60, 60);
+  const { user, ref } = await requireCaller(request, 'jobs:write');
+  const limits = rateLimit(`jobs.quote:${ref}`, 60, 60);
   const body = await readJson(request, Body);
   const answer = await quote(user, {
     toolId: body.tool_id,

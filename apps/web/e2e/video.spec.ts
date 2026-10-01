@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { probeMedia, videoFrameTimes, videoPackets } from '@etb/engines';
 import type { Download, Page } from '@playwright/test';
 
-import { choose, cspViolations, expect, test } from './fixtures';
+import { choose, cspViolations, expect, setRange, test } from './fixtures';
 
 // V01 Trim Video and V06 Extract Audio (tools/video.md → Tests). Outputs are
 // read back in Node with the engine's own probe. Test browsers differ in what
@@ -70,13 +70,6 @@ async function canEncode(page: Page, codec: string, kind: 'video' | 'audio') {
           ).supported === true,
     [codec, kind] as const,
   );
-}
-
-async function setRange(page: Page, start: string, end: string) {
-  await page.getByRole('textbox', { name: 'Out point' }).fill(end);
-  await page.getByRole('textbox', { name: 'Out point' }).press('Enter');
-  await page.getByRole('textbox', { name: 'In point' }).fill(start);
-  await page.getByRole('textbox', { name: 'In point' }).press('Enter');
 }
 
 test('fast trim copies from the keyframe before In, and says so', async ({ page }) => {

@@ -9,13 +9,14 @@ import {
   json,
   rateLimit,
   readJson,
-  requireSameOrigin,
-  requireUser,
+  preflight,
+  requireCaller,
   route,
 } from '../../../../../../server/api';
 import { partUrls } from '../../../../../../server/uploads';
 
 export const dynamic = 'force-dynamic';
+export const OPTIONS = preflight;
 
 const Body = z.strictObject({
   from: z.number().int().min(1),
@@ -25,9 +26,8 @@ const Body = z.strictObject({
 type Context = { params: Promise<{ id: string }> };
 
 export const POST = route('uploads.parts', async (request, { params }: Context) => {
-  requireSameOrigin(request);
-  const user = await requireUser();
-  const limits = rateLimit(`upload-parts:${user.id}`, 600, 60);
+  const { user, ref } = await requireCaller(request, 'jobs:write');
+  const limits = rateLimit(`upload-parts:${ref}`, 600, 60);
   const body = await readJson(request, Body);
   return json(await partUrls(user, (await params).id, body.from, body.count), { headers: limits });
 });

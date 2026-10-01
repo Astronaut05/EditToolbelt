@@ -4,11 +4,20 @@ import { redirect } from 'next/navigation';
 import { accounts, eq } from '@etb/db';
 import { Button, CreditBadge, Input } from '@etb/ui';
 
+import { NewKeyForm } from '../../components/account/NewKeyForm';
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
 import { currentUser } from '../../server/account';
+import { listKeys, MAX_KEYS, SCOPE_LABELS, SCOPES } from '../../server/api-keys';
 import { db } from '../../server/db';
-import { deleteMyAccount, saveProfile, signOut, signOutEverywhere } from './actions';
+import {
+  createApiKey,
+  deleteMyAccount,
+  revokeApiKey,
+  saveProfile,
+  signOut,
+  signOutEverywhere,
+} from './actions';
 
 export const metadata: Metadata = {
   title: 'Your account',
@@ -19,7 +28,9 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 const METHOD_NAMES: Record<string, string> = { google: 'Google' };
 
-/** Account settings (server build): profile, sign-in, your data, deleting the account. */
+const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** Account settings (server build): profile, sign-in, API keys, your data, deleting the account. */
 export default async function AccountPage({ searchParams }: Props) {
   const me = await currentUser();
   if (!me) redirect('/sign-in?next=/account');
@@ -30,6 +41,7 @@ export default async function AccountPage({ searchParams }: Props) {
     .from(accounts)
     .where(eq(accounts.userId, user.id));
   const methods = ['Email link', ...linked.map((a) => METHOD_NAMES[a.providerId] ?? a.providerId)];
+  const keys = await listKeys(user.id);
 
   return (
     <SiteFrame signedIn>
@@ -73,7 +85,8 @@ export default async function AccountPage({ searchParams }: Props) {
           <CreditBadge credits={user.creditBalance} />
         </p>
         <p className="text-text-muted">
-          Credits pay for server tools, which arrive later. Every browser tool is free.
+          Every browser tool is free. Our servers run a few small jobs a day for free; credits pay
+          for the rest.
         </p>
 
         <h2>Signing in</h2>
@@ -86,6 +99,50 @@ export default async function AccountPage({ searchParams }: Props) {
             <Button type="submit">Sign out everywhere</Button>
           </form>
         </div>
+
+        <h2 id="api-keys">API keys</h2>
+        <p>
+          A key lets a script or the Premiere panel use our servers as you, from anywhere: keep it
+          secret. Send it as <code className="font-mono">Authorization: Bearer etb_live_…</code>.
+        </p>
+        {params.revoked === '1' && <p role="status">The key is revoked. It stops working now.</p>}
+        {keys.length === 0 ? (
+          <p className="text-text-muted">No keys yet.</p>
+        ) : (
+          <ul aria-label="Your API keys" className="flex flex-col gap-3 pl-0">
+            {keys.map((key) => (
+              <li
+                key={key.id}
+                className="flex list-none flex-wrap items-center justify-between gap-3 rounded-card border border-border p-4"
+              >
+                <div className="flex flex-col gap-1">
+                  <span className="font-strong">{key.name}</span>
+                  <span className="font-mono text-14 text-text-muted">{key.prefix}…</span>
+                  <span className="text-14 text-text-muted">
+                    {key.scopes.join(' · ')} · made {day.format(key.createdAt)} ·{' '}
+                    {key.lastUsedAt ? `last used ${day.format(key.lastUsedAt)}` : 'never used'}
+                  </span>
+                </div>
+                <form action={revokeApiKey}>
+                  <input type="hidden" name="id" value={key.id} />
+                  <Button type="submit" aria-label={`Revoke ${key.name}`}>
+                    Revoke
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+        {keys.length < MAX_KEYS ? (
+          <NewKeyForm
+            action={createApiKey}
+            scopes={SCOPES.map((id) => ({ id, label: SCOPE_LABELS[id] }))}
+          />
+        ) : (
+          <p className="text-text-muted">
+            That’s {MAX_KEYS} keys, the most an account can have. Revoke one to make another.
+          </p>
+        )}
 
         <h2>Your data</h2>
         <p>

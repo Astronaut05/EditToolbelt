@@ -83,3 +83,29 @@ export async function pick(page: Page, isMobile: boolean, label: string, value: 
     await page.getByRole('combobox', { name: label }).selectOption(value);
   }
 }
+
+/** A time as the timeline's In and Out fields show it: "00:00:05.000". */
+function shownTime(seconds: string): string {
+  const total = Number(seconds);
+  const m = Math.floor(total / 60);
+  return `00:${String(m).padStart(2, '0')}:${(total % 60).toFixed(3).padStart(6, '0')}`;
+}
+
+/**
+ * Types Out, then In, into the timeline and waits until both show them. Two
+ * commits in a row can land before the page has re-rendered the first (seen
+ * once in WebKit: In applied to the old Out), so the pair is typed again
+ * until the selection holds both.
+ */
+export async function setRange(page: Page, start: string, end: string): Promise<void> {
+  const inPoint = page.getByRole('textbox', { name: 'In point' });
+  const outPoint = page.getByRole('textbox', { name: 'Out point' });
+  await expect(async () => {
+    await outPoint.fill(end);
+    await outPoint.press('Enter');
+    await inPoint.fill(start);
+    await inPoint.press('Enter');
+    await expect(inPoint).toHaveValue(shownTime(start), { timeout: 1000 });
+    await expect(outPoint).toHaveValue(shownTime(end), { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+}
