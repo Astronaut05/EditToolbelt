@@ -14,9 +14,14 @@ import {
   apiKeys,
   applyCredit,
   eq,
+  inArray,
   InsufficientCreditsError,
+  isNotNull,
   isNull,
+  jobs,
   ledgerMismatches,
+  sql,
+  uploads,
   sessions,
   systemChecks,
   toolFlags,
@@ -31,6 +36,7 @@ import { audit, requireAdmin } from '../../../server/admin';
 import { db } from '../../../server/db';
 import { invalidateToolFlags } from '../../../server/flags';
 import { field } from '../../../server/form';
+import { stopJob } from '../../../server/jobs';
 import { hasView } from '../../../tools/ids';
 
 const Reason = z.string().trim().min(3).max(500);
@@ -270,4 +276,91 @@ export async function runLedgerCheck(formData: FormData): Promise<void> {
     });
   });
   redirect('/admin/system?saved=1');
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+async function jobFor(formData: FormData) {
+  const id = field(formData, 'jobId');
+  if (!UUID.test(id)) redirect('/admin/jobs');
+  const [job] = await db().select().from(jobs).where(eq(jobs.id, id));
+  if (!job) redirect('/admin/jobs');
+  return job;
+}
+
+/** docs/07 → Jobs: cancel a queued or running job, with its credits back. */
+export async function cancelJobAsAdmin(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const job = await jobFor(formData);
+  const back = `/admin/jobs/${job.id}`;
+  const reason = Reason.safeParse(field(formData, 'reason'));
+  if (!reason.success) redirect(`${back}?error=reason`);
+  const stopped = await stopJob(job, (tx, row) =>
+    audit(tx, {
+      adminId: admin.id,
+      action: 'job.cancel',
+      targetType: 'job',
+      targetId: row.id,
+      before: { status: job.status },
+      after: { status: row.status, credits_returned: row.creditsQuoted },
+      reason: reason.data,
+    }),
+  );
+  redirect(`${back}?${stopped ? 'saved=cancelled' : 'error=ended'}`);
+}
+
+/**
+ * docs/07 → Jobs: run an ended job again, if its input is still there (it
+ * usually goes when the job ends). On us: no credits, no free daily job.
+ */
+export async function retryJob(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const job = await jobFor(formData);
+  const back = `/admin/jobs/${job.id}`;
+  const reason = Reason.safeParse(field(formData, 'reason'));
+  if (!reason.success) redirect(`${back}?error=reason`);
+  const retried = await db().transaction(async (tx) => {
+    const [row] = await tx
+      .update(jobs)
+      .set({
+        status: 'queued',
+        progress: 0,
+        stage: null,
+        errorCode: null,
+        errorDetail: null,
+        attempts: 0,
+        workerId: null,
+        heartbeatAt: null,
+        startedAt: null,
+        finishedAt: null,
+        queuedAt: new Date(),
+        funding: 'none',
+        creditsQuoted: 0,
+        creditsCharged: 0,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(jobs.id, job.id),
+          inArray(jobs.status, ['failed', 'cancelled', 'expired']),
+          isNotNull(jobs.inputKey),
+          sql`exists (select 1 from ${uploads} where ${uploads.storageKey} = ${jobs.inputKey} and ${uploads.deletedAt} is null)`,
+        ),
+      )
+      .returning();
+    if (!row) return null;
+    await audit(tx, {
+      adminId: admin.id,
+      action: 'job.retry',
+      targetType: 'job',
+      targetId: row.id,
+      before: { status: job.status, error_code: job.errorCode },
+      after: { status: 'queued', funding: 'none' },
+      reason: reason.data,
+    });
+    await tx.execute(sql`select pg_notify('etb_jobs', ${row.id})`);
+    return row;
+  });
+  log.info({ job_id: job.id, retried: Boolean(retried) }, 'admin.job_retry');
+  redirect(`${back}?${retried ? 'saved=retried' : 'error=input'}`);
 }

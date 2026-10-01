@@ -171,12 +171,16 @@ export default async function AdminUser({ params, searchParams }: Props) {
 
       <Section title="Recent server jobs">
         {recent.length === 0 ? (
-          <p className="text-14 text-text-muted">None. Server tools arrive in M4.</p>
+          <p className="text-14 text-text-muted">None.</p>
         ) : (
           <Table label="Recent server jobs" head={['When', 'Tool', 'Status', 'Credits', 'Error']}>
             {recent.map((job) => (
               <tr key={job.id}>
-                <td>{when(job.createdAt)}</td>
+                <td>
+                  <a href={`/admin/jobs/${job.id}`} className="underline underline-offset-4">
+                    {when(job.createdAt)}
+                  </a>
+                </td>
                 <td>{job.toolId}</td>
                 <td>{job.status}</td>
                 <td>{job.creditsCharged}</td>

@@ -40,6 +40,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
   'trim-audio': dynamic(() => import('./trim-audio')),
   'trim-video': dynamic(() => import('./trim-video')),
+  'vfr-to-cfr': dynamic(() => import('./vfr-to-cfr')),
   'video-converter': dynamic(() => import('./video-converter')),
   'video-info': dynamic(() => import('./video-info')),
   'video-to-gif': dynamic(() => import('./video-to-gif')),

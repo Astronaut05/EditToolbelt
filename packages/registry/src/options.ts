@@ -36,8 +36,18 @@ const compressVideo = z
     }
   });
 
+/** V15: the rate to put the frames on, the picture's quality, and the sound. */
+const vfrToCfr = z.strictObject({
+  /** auto: the standard rate nearest the video's average. */
+  fps: z.enum(['auto', '23.976', '24', '25', '29.97', '30', '50', '59.94', '60']).default('auto'),
+  /** best is visually lossless. */
+  quality: z.enum(['best', 'high', 'small']).default('best'),
+  audio: z.enum(['keep', 'remove']).default('keep'),
+});
+
 export const serverOptions = {
   'compress-video': compressVideo,
+  'vfr-to-cfr': vfrToCfr,
 } satisfies Record<string, z.ZodType>;
 
 export type ServerToolId = keyof typeof serverOptions;

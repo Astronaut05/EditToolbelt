@@ -24,6 +24,7 @@ export {
   or,
   sql,
   sum,
+  type SQL,
 } from 'drizzle-orm';
 export { createDb, type Db, type Queryable, type Schema } from './client';
 export {

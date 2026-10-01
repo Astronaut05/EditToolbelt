@@ -27,6 +27,7 @@ export const TOOL_IDS = [
   'timecode-calculator',
   'trim-audio',
   'trim-video',
+  'vfr-to-cfr',
   'video-converter',
   'video-info',
   'video-to-gif',

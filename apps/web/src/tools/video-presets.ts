@@ -65,6 +65,7 @@ export async function probeVideo(file: File, audioTracks = false): Promise<Probe
     height: info.video?.height,
     summary: describeMedia(info),
     warnings: mediaWarnings(info, codecLabel),
+    frameRate: info.video ? (info.video.variableFrameRate ? 'variable' : 'constant') : undefined,
     thumbnails: (count) => thumbnails(file, count),
     choices: {
       track: info.audio.map((track) => ({

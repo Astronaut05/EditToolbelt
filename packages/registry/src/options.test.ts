@@ -24,7 +24,16 @@ describe('parseServerOptions', () => {
   });
 
   it('takes nothing for tools without options', () => {
-    expect(parseServerOptions('vfr-to-cfr', undefined)).toEqual({ ok: true, options: {} });
-    expect(parseServerOptions('vfr-to-cfr', { any: 1 }).ok).toBe(false);
+    expect(parseServerOptions('burn-subtitles', undefined)).toEqual({ ok: true, options: {} });
+    expect(parseServerOptions('burn-subtitles', { any: 1 }).ok).toBe(false);
+  });
+
+  it('defaults VFR to CFR to the nearest rate, visually lossless, with the sound', () => {
+    expect(parseServerOptions('vfr-to-cfr', {})).toEqual({
+      ok: true,
+      options: { fps: 'auto', quality: 'best', audio: 'keep' },
+    });
+    expect(parseServerOptions('vfr-to-cfr', { fps: '29.97' }).ok).toBe(true);
+    expect(parseServerOptions('vfr-to-cfr', { fps: '29' }).ok).toBe(false);
   });
 });

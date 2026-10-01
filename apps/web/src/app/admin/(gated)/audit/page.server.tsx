@@ -46,6 +46,10 @@ export default async function AdminAudit({ searchParams }: Props) {
                   <a href={`/admin/users/${row.targetId}`} className="underline underline-offset-4">
                     user {row.targetId.slice(0, 8)}
                   </a>
+                ) : row.targetType === 'job' ? (
+                  <a href={`/admin/jobs/${row.targetId}`} className="underline underline-offset-4">
+                    job {row.targetId.slice(0, 8)}
+                  </a>
                 ) : row.targetType === 'tool' ? (
                   <a href={`/admin/tools/${row.targetId}`} className="underline underline-offset-4">
                     {row.targetId}

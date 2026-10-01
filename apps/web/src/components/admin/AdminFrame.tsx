@@ -7,6 +7,7 @@ import { SiteFrame } from '../SiteFrame';
 const NAV = [
   { href: '/admin', label: 'Dashboard' },
   { href: '/admin/tools', label: 'Tools' },
+  { href: '/admin/jobs', label: 'Jobs' },
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/audit', label: 'Audit log' },
   { href: '/admin/system', label: 'System' },
@@ -132,3 +133,10 @@ export function ReasonField({ id = 'reason' }: { id?: string }) {
 
 export const when = (date: Date | null | undefined) =>
   date ? `${date.toISOString().replace('T', ' ').slice(0, 16)} UTC` : 'never';
+
+/** The time between two moments, or a dash when one is missing. */
+export function took(from: Date | null, to: Date | null): string {
+  if (!from || !to) return '–';
+  const seconds = (to.getTime() - from.getTime()) / 1000;
+  return seconds < 120 ? `${seconds.toFixed(1)} s` : `${(seconds / 60).toFixed(1)} min`;
+}

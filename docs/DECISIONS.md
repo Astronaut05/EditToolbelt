@@ -783,3 +783,28 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M4 ("Hybrid routing UI (server fallback offer with reason)", "large-file video compress"; done-when: "a 1 GB video compresses on the server end-to-end with live progress"), `docs/02` → Routing ("Never upload a file the user didn't explicitly agree to upload"), `tools/video.md` → V02.
 **Reverse:** switch the server path off in Admin → Tools; the page goes back to browser-only within 30 s. The offer is `ServerNotice` and `runOnServer` in the ToolShell.
+
+## 2026-10-01 · VFR to CFR, server-only tools, the admin's Jobs page and job stats (M4)
+
+**Decision:**
+- **Server-only tools stay `soon` in the registry; an admin switches each one on** (Admin → Tools → status `beta` or `live`) in the server build, the way a hybrid tool's server path is switched on. The static export has no API, so it never offers a server path, and its pages for these tools stay "coming soon".
+- **The ToolShell runs server-only tools:** a tool view with no browser engine gets the server offer as soon as a file is in, with the tool's own reason ("Precise frame timing needs ffmpeg"), and no browser button.
+- **VFR to CFR (V15)** on the worker (`processors/vfr_to_cfr.py`):
+  - ffmpeg's fps filter puts each frame on the new clock by its timestamp.
+  - The sound is resampled against its own timestamps and re-encoded (AAC 256 kbps), so it ends with the picture.
+  - Visually lossless by default (CRF 16), with a keyframe every second for scrubbing.
+  - A 10-bit source stays 10-bit as H.265, keeping its colour; 8-bit becomes H.264.
+  - Auto picks the standard rate nearest the video's average (23.976 to 60).
+- **Variable frame rate is read from the frames' own clock:** the probe reads the first minute's packet times. A frame gap more than 25 % off the usual one is irregular; a few in a hundred is VFR. The header's average-vs-real hint stays as the fallback.
+- **"Already CFR? No charge"** (`tools/video.md` → V15): the quote refuses a file the probe found constant with `422 NOTHING_TO_DO`, before any job exists. The upload is deleted at once. The page warns before upload when the browser can already tell.
+- **Admin → Jobs** (`docs/07`): a list filtered by tool, status, source, the user's email and the day, 50 a page.
+  - The detail shows metadata, options, the probe, timings, attempts, worker, error and credits. It never links either file.
+  - Cancel gives the credits back (the same path as the user's cancel, with the audit row in its transaction).
+  - Retry runs an ended job again only while its input is still in storage. That's rare, since inputs go when jobs end, and the retry is on us: no credits, no free job.
+- **Job stats:** at 03:00 Tashkent the worker sums up yesterday's server jobs by tool into `tool_stats_daily`: jobs, failures, p50 and p95 run time, GPU seconds, credits. A job that used a GPU counts as `server-gpu`. Running it again rewrites the day.
+  - The dashboard adds waiting and running now, p95 wait and run time over 24 h, failures by tool, and the daily table.
+- **Runbooks** (`docs/runbooks/`): every alert, disabling a tool, a stuck job, draining workers, restoring the database, rotating secrets, and a breach template. The webhook page waits for M5.
+- **Burn Subtitles is its own part:** it takes a second file (the subtitles) beside the video, which the upload and job APIs don't carry yet, and bundled OFL fonts in the worker image.
+
+**Why:** `docs/12` → M4 ("First server-cpu tools from Wave 2", "Admin Jobs page, job stats, failure alerts", "Runbooks folder started"), `docs/07` → Jobs and Dashboard, `docs/11` → Backups and recovery, `tools/video.md` → V15.
+**Reverse:** set the tool back to `soon` in Admin → Tools. Drop `tool_stats` from the worker's `DAILY` to stop the nightly sums.
