@@ -14,6 +14,7 @@
  * slot back. At most 2 jobs (4 once paid) wait or run per account at once.
  */
 import { freeAllowance, maxConcurrentServerJobs } from '@etb/config/business';
+import type { Job as ApiJob, JobList, Me } from '@etb/core/api';
 import {
   and,
   applyCredit,
@@ -318,6 +319,8 @@ export async function createJob(
   user: CurrentUser,
   request: JobRequest & { quoteCredits: number },
   idempotencyKey: string | null,
+  /** `api` for a call with an API key, `web` for the website's own. */
+  source: 'web' | 'api' = 'web',
 ): Promise<{ job: Job; created: boolean }> {
   if (idempotencyKey) {
     const [existing] = await db()
@@ -388,7 +391,7 @@ export async function createJob(
       .values({
         toolId: prepared.tool.id,
         userId: user.id,
-        source: 'web',
+        source,
         // Paid credits go before free jobs (docs/01 → Queue).
         priority: paying.funding === 'credits' ? 1 : 0,
         options: prepared.options,
@@ -482,7 +485,7 @@ function errorText(job: Job): string {
 }
 
 /** A job as the API shows it: metadata only, and a download URL once it's done. */
-export async function jobView(job: Job) {
+export async function jobView(job: Job): Promise<ApiJob> {
   const meta = (job.outputMeta ?? {}) as {
     bytes?: number;
     content_type?: string;
@@ -499,7 +502,7 @@ export async function jobView(job: Job) {
     progress: job.progress,
     stage: job.stage,
     position: job.status === 'queued' ? await position(job) : null,
-    funding: job.funding,
+    funding: job.funding as Funding,
     credits_quoted: job.creditsQuoted,
     credits_charged: job.creditsCharged,
     created_at: job.createdAt.toISOString(),
@@ -591,7 +594,7 @@ export async function cancelJob(user: CurrentUser, id: string): Promise<Job> {
 }
 
 /** The caller's recent jobs, newest first, 20 a page; `cursor` is the last id of the previous page. */
-export async function listJobs(user: CurrentUser, cursor: string | null) {
+export async function listJobs(user: CurrentUser, cursor: string | null): Promise<JobList> {
   if (cursor !== null && !UUID.test(cursor)) throw new ApiError(400, 'BAD_REQUEST', 'Bad cursor');
   const rows = await db()
     .select()
@@ -691,11 +694,11 @@ export function jobEvents(
 }
 
 /** GET /me: who's asking, their tier, balance and free server jobs left today. */
-export async function me(user: CurrentUser) {
+export async function me(user: CurrentUser): Promise<Me> {
   const tier = await tierOf(user.id);
   const used = tier === 'free' ? await dailyJobsUsed(user.id) : 0;
   return {
-    email: user.email,
+    email: user.email ?? '',
     name: user.displayName,
     tier,
     credit_balance: user.creditBalance,

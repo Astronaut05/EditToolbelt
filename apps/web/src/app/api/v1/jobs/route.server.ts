@@ -5,7 +5,7 @@
  *   repeat with the same key answers the same job.
  * - GET lists the caller's recent jobs, metadata only, 20 a page by `?cursor=`.
  */
-import { z } from 'zod';
+import { JobCreate, JobEnvelope, JobList } from '@etb/core/api';
 
 import {
   ApiError,
@@ -21,23 +21,16 @@ import { createJob, jobView, listJobs } from '../../../../server/jobs';
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
 
-const Body = z.strictObject({
-  tool_id: z.string().min(1).max(64),
-  upload_id: z.string().min(1).max(64),
-  options: z.record(z.string(), z.unknown()).optional(),
-  quote_credits: z.number().int().min(0),
-});
-
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{8,128}$/;
 
 export const POST = route('jobs.create', async (request) => {
-  const { user, ref } = await requireCaller(request, 'jobs:write');
+  const { user, ref, keyId } = await requireCaller(request, 'jobs:write');
   const limits = rateLimit(`jobs:${ref}`, 30, 60);
   const key = request.headers.get('idempotency-key');
   if (key !== null && !IDEMPOTENCY_KEY.test(key)) {
     throw new ApiError(400, 'BAD_REQUEST', 'Bad Idempotency-Key', '8 to 128 printable characters.');
   }
-  const body = await readJson(request, Body);
+  const body = await readJson(request, JobCreate);
   const { job, created } = await createJob(
     user,
     {
@@ -47,13 +40,16 @@ export const POST = route('jobs.create', async (request) => {
       quoteCredits: body.quote_credits,
     },
     key,
+    keyId ? 'api' : 'web',
   );
-  return json({ job: await jobView(job) }, { status: created ? 201 : 200, headers: limits });
+  const answer: JobEnvelope = { job: await jobView(job) };
+  return json(answer, { status: created ? 201 : 200, headers: limits });
 });
 
 export const GET = route('jobs.list', async (request) => {
   const { user, ref } = await requireCaller(request, 'jobs:read');
   const limits = rateLimit(`jobs.read:${ref}`, 120, 60);
   const cursor = new URL(request.url).searchParams.get('cursor');
-  return json(await listJobs(user, cursor), { headers: limits });
+  const page: JobList = await listJobs(user, cursor);
+  return json(page, { headers: limits });
 });

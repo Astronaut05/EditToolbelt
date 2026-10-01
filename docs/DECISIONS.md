@@ -874,3 +874,31 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/06` → Auth ("panel calls `POST /auth/device` → shows a short code + opens `/connect` …").
 **Reverse:** without a panel, nothing calls these endpoints. To close them, have `POST /api/v1/auth/device` answer 404.
+
+## 2026-10-01 · One set of API schemas, the OpenAPI document and /developers (M6)
+
+**Decision:**
+- **The schemas live in `@etb/core/api`** (`packages/core/src/api/`), not a top-level `api-schemas.ts`:
+  - Every request and answer body as Zod, with snake_case field names.
+  - The routes read requests with them. Their answers are typed against them (`Promise<Job>`, `satisfies Upload`), so a change that drifts fails `tsc`.
+  - Core now depends on `@etb/registry` for the tool, limits and price schemas. The registry depends only on Zod, so there's no cycle.
+- **The OpenAPI 3.1 document is generated, with no new dependency:**
+  - Zod 4's own `z.toJSONSchema` turns every schema in the `api` registry into a component, with `$ref`s between them.
+  - The paths come from one list, `ENDPOINTS` (method, path, scope, bodies, problem codes).
+  - `GET /api/v1/openapi.json` serves it, built once per process.
+- **`/developers` is made from the same list** (server build only: the static site has no API):
+  - Keys and scopes.
+  - A curl walkthrough of a whole job.
+  - Connecting an app, errors and limits, every endpoint with the scope it needs, and versioning.
+  - Account → API keys links to it.
+- **New endpoints:**
+  - `GET /tools/:id`: a tool with its options as JSON Schema (input side, so defaults aren't required) and the extra uploads it takes.
+  - `GET /me/credits`: the ledger, 50 a page by cursor, without admin notes or purchase ids.
+  - `GET /tools` gains `server`: our servers run the tool now.
+- **Jobs started with a key are `source = 'api'`;** the website's stay `web`.
+- **Two checks against drift:**
+  - A unit test that every listed endpoint has its route file, exporting the method and `OPTIONS`.
+  - An end-to-end test that parses real answers with the schemas.
+
+**Why:** `docs/06` → Basics ("Schemas defined once in Zod → OpenAPI 3.1 generated … published at `/api/v1/openapi.json` and a docs page at `/developers`").
+**Reverse:** to stop publishing the description, remove the `openapi.json` route and `/developers`. The schemas stay, since the routes read requests with them.
