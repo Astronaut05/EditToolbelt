@@ -1,4 +1,4 @@
-import { sql, systemChecks } from '@etb/db';
+import { alerts, desc, sql, systemChecks } from '@etb/db';
 import { Button } from '@etb/ui';
 
 import {
@@ -41,10 +41,11 @@ async function migrations(): Promise<{ applied: number; last: Date | null }> {
 export default async function AdminSystem({ searchParams }: Props) {
   const env = serverEnv();
   const query = await searchParams;
-  const [migrated, checks, version] = await Promise.all([
+  const [migrated, checks, version, recent] = await Promise.all([
     migrations(),
     db().select().from(systemChecks).orderBy(systemChecks.name),
     db().execute<{ server_version: string }>(sql`show server_version`),
+    db().select().from(alerts).orderBy(desc(alerts.createdAt)).limit(20),
   ]);
   const on = (value: unknown) => (value ? 'on' : 'off');
 
@@ -96,10 +97,33 @@ export default async function AdminSystem({ searchParams }: Props) {
           The retention sweeper and the bucket lifecycle rules report here from M4.
         </p>
       </Section>
+      <Section title="Recent alerts">
+        <p className="text-14 text-text-muted">
+          The worker checks every 30 s and sends each alert to Telegram, or by email when Telegram
+          isn’t set up or fails, at most once per 30 min for the same thing. The digest goes out at
+          09:00 Tashkent. Where they go is the worker’s config: TELEGRAM_BOT_TOKEN and
+          TELEGRAM_CHAT_ID, ALERT_EMAIL.
+        </p>
+        {recent.length === 0 ? (
+          <p className="text-14 text-text-muted">No alerts yet.</p>
+        ) : (
+          <Table label="Recent alerts" head={['When', 'Rule', 'About', 'Message', 'Sent by']}>
+            {recent.map((alert) => (
+              <tr key={alert.id}>
+                <td>{when(alert.createdAt)}</td>
+                <td className="font-mono text-12">{alert.rule}</td>
+                <td className="font-mono text-12">{alert.subject}</td>
+                <td>{alert.message}</td>
+                <td>{alert.channels.join(', ') || 'not sent (no channel set up)'}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </Section>
       <Section title="Ledger check">
         <p className="text-14 text-text-muted">
-          Every balance must equal the sum of its ledger rows. It runs nightly; run it now if
-          something looks off.
+          Every balance must equal the sum of its ledger rows. The worker runs it at 03:00 Tashkent
+          and alerts at once on a mismatch; run it here if something looks off.
         </p>
         <form action={runLedgerCheck} className="flex max-w-md flex-col gap-3">
           <ReasonField />

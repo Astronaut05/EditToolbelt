@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     s3_access_key_id: SecretStr
     s3_secret_access_key: SecretStr
 
+    # Alerts and the daily digest (docs/07 -> Alerts): Telegram first, email as
+    # backup. Both optional; with neither, alerts are only logged and listed in
+    # the admin's System page.
+    telegram_bot_token: SecretStr | None = None
+    telegram_chat_id: str | None = Field(default=None, pattern=r"^(-?\d{1,20}|@\w{5,32})$")
+    # Telegram's Bot API; tests point it at a local fake.
+    telegram_api_url: HttpUrl = HttpUrl("https://api.telegram.org")
+    smtp_url: SecretStr | None = None
+    mail_from: str | None = Field(default=None, min_length=3, max_length=200)
+    alert_email: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
     @field_validator("database_url")
     @classmethod
     def _postgres_url(cls, value: SecretStr) -> SecretStr:
@@ -46,12 +57,40 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return value
 
+    @field_validator("smtp_url")
+    @classmethod
+    def _smtp_url(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            parts = urlsplit(value.get_secret_value())
+            if parts.scheme not in {"smtp", "smtps"} or not parts.hostname:
+                msg = "must be an smtp:// or smtps:// URL"
+                raise ValueError(msg)
+        return value
+
     @model_validator(mode="after")
     def _no_debug_in_production(self) -> Settings:
         if self.app_env == "production" and self.log_level == "debug":
             msg = "LOG_LEVEL: debug logging is not allowed in production"
             raise ValueError(msg)
         return self
+
+    @model_validator(mode="after")
+    def _alert_channels_complete(self) -> Settings:
+        if (self.telegram_bot_token is None) != (self.telegram_chat_id is None):
+            msg = "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID: set both, or neither"
+            raise ValueError(msg)
+        if self.alert_email and not (self.smtp_url and self.mail_from):
+            msg = "ALERT_EMAIL: needs SMTP_URL and MAIL_FROM to send"
+            raise ValueError(msg)
+        return self
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return self.telegram_bot_token is not None and self.telegram_chat_id is not None
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.alert_email and self.smtp_url and self.mail_from)
 
 
 def format_errors(error: ValidationError) -> list[str]:

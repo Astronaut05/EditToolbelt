@@ -4,8 +4,10 @@
  * and audit). Tests change `trim-video` and `crop-image`, so they run one at a
  * time and put the tools back.
  */
+import AxeBuilder from '@axe-core/playwright';
 import {
   adminAuditLog,
+  alerts,
   and,
   creditTransactions,
   eq,
@@ -13,7 +15,6 @@ import {
   toolFlags,
   users,
 } from '@etb/db';
-import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 import { closeTestDb, newEmail, signIn, testDb, totp } from './helpers';
@@ -191,4 +192,19 @@ test('the signed-in pages pass axe, light and dark', async ({ page }) => {
     }
   }
   expect(found).toEqual([]);
+});
+
+test('the system page lists the alerts the worker raised', async ({ page }) => {
+  await becomeAdmin(page);
+  const subject = `worker/e2e-${String(Date.now())}`;
+  await db.insert(alerts).values({
+    rule: 'heartbeat_missing',
+    subject,
+    message: `worker ${subject} last checked in 5 min ago.`,
+    channels: ['email'],
+  });
+  await page.goto('/admin/system');
+  const row = page.getByRole('row').filter({ hasText: subject }).first();
+  await expect(row).toContainText('heartbeat_missing');
+  await expect(row).toContainText('email');
 });

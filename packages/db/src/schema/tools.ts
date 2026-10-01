@@ -1,13 +1,15 @@
 /**
  * Tools and admin (docs/04 → Tools and admin, docs/07): runtime overrides of
  * the registry, free quota, welcome-grant claims, the admin audit log and the
- * daily job stats. Plus two operational tables the admin reads: service
- * heartbeats and the results of scheduled checks (docs/07 → Dashboard, System).
+ * daily job stats. Plus three operational tables the admin reads: service
+ * heartbeats, the results of scheduled checks and the alerts the worker sent
+ * (docs/07 → Dashboard, System, Alerts).
  */
 import { sql } from 'drizzle-orm';
 import {
   boolean,
   date,
+  index,
   integer,
   jsonb,
   numeric,
@@ -112,3 +114,26 @@ export const systemChecks = pgTable('system_checks', {
   detail: jsonb('detail'),
   ranAt: tstz('ran_at').notNull().defaultNow(),
 });
+
+/**
+ * Every alert the worker raised (docs/07 → Alerts): the 30-minute cool-down
+ * per rule and subject reads it, and the System page lists it. Only rule
+ * names, tool ids, service names and numbers: never personal data. Kept 90 days.
+ */
+export const alerts = pgTable(
+  'alerts',
+  {
+    id: id(),
+    rule: text('rule').notNull(),
+    /** What it's about: a tool id, a service instance, `postgres`; '' for the whole system. */
+    subject: text('subject').notNull().default(''),
+    message: text('message').notNull(),
+    /** Where it went: `telegram`, `email`; empty when neither is set up. */
+    channels: text('channels')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    createdAt: createdAt(),
+  },
+  (t) => [index('alerts_rule_subject_idx').on(t.rule, t.subject, t.createdAt.desc())],
+);
