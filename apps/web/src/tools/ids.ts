@@ -6,6 +6,7 @@
 export const TOOL_IDS = [
   'add-text-to-image',
   'aspect-ratio-calculator',
+  'audio-to-video',
   'audio-channels',
   'audio-converter',
   'batch-rename',

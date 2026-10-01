@@ -64,6 +64,7 @@ export {
 export { Splicer, type SpliceOptions } from './media/splice';
 export { joinGain, reversePieces, type ReversePiece } from './media/reverse';
 export { equalParts, MAX_PARTS, pieceParts, silenceParts, TooManyParts } from './media/split';
+export * as audiogram from './media/audiogram';
 export {
   PLATFORM_NAMES,
   PLATFORMS,
