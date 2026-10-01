@@ -661,3 +661,27 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 **Decision:** a pnpm override (`pnpm-workspace.yaml`) moves the esbuild that `@esbuild-kit/core-utils` (under drizzle-kit, dev only) pins from 0.18.20 to 0.25.12. That clears Dependabot's moderate alert for GHSA-67mh-4wv8-2f99 on `main`. The flaw is in esbuild's dev server, which drizzle-kit never starts, so nothing was exposed; the override just keeps the alert list empty. 0.25.12 was already in the lockfile (drizzle-kit uses it directly), so nothing new is downloaded, and `pnpm db:generate` works the same.
 **Why:** `docs/11` (keep dependency alerts at zero); `pnpm audit` is clean after it.
 **Reverse:** delete the `overrides` entry once drizzle-kit drops `@esbuild-kit`.
+
+## 2026-09-30 · Uploads straight to storage (M4)
+
+**Decision:**
+- **`POST /api/v1/uploads`, `/uploads/:id/parts`, `/uploads/:id/complete` and `DELETE /uploads/:id`** (`06`), in the server build.
+  - Signed-in callers only; API keys come with the panel (M7).
+  - A write carrying the session cookie must come from our own origin, else 403. The cookie is SameSite=Lax already; this refuses anything else that carries it.
+  - The tool must be available and have a server path: a `server-cpu`/`server-gpu` tool, or a `hybrid` one whose server path an admin switched on (`hasServerPath()` in the registry).
+  - Size, the caller's tier (paid once a purchase has gone through) and type are checked against the registry. Answers are problem+json with `06`'s stable codes (`FILE_TOO_LARGE` with `max_bytes`, `UNSUPPORTED_FORMAT`, `TOOL_UNAVAILABLE`, `UPLOAD_INCOMPLETE` with the missing parts).
+  - At most 5 unfinished uploads per account, and 30 new uploads a minute, with `RateLimit-*` headers.
+- **Parts:** 8 MiB each (whole MiB above that when 10,000 parts aren't enough), one size per upload as R2 requires (`planParts()` in `packages/core/src/upload.ts`, shared with the browser uploader).
+  - The first 20 part URLs come with the upload; more come 50 at a time.
+  - Each part URL is presigned for 15 minutes **with the part's exact length signed**, so storage refuses anything else. A test checks it.
+- **Keys are `in/<uuid>`**, never derived from the user or the file. Complete checks the stored size against the claimed one and deletes a mismatch. It then sets the upload to expire in an hour unless a job uses it, and `NOTIFY`s the worker to probe it.
+- **Signing with aws4fetch** (MIT, no dependencies), not the AWS SDK: six plain S3 calls (create, complete, abort multipart, head, delete, presign) don't need a large, daily-released dependency tree.
+- **Two storage addresses:** the server calls storage at `S3_ENDPOINT`, and presigns URLs for `S3_PUBLIC_ENDPOINT` (the stack: `storage:7070` inside, `localhost:7070` for your browser).
+  - The storage origin joins the server build's CSP `connect-src`.
+  - `/readyz` now checks storage too.
+- **The stack's storage allows any origin (CORS `*`).** The bucket is private and a presigned URL is the only way in, so CORS guards nothing more. It lets the dev server (:3000) and the tests (:4175) share one storage. In production R2's CORS will list our origin.
+- **Compress Video's server path gets limits:** free 2 GB and 60 min (the same as its browser limit), paid 10 GB and 4 h. It stays off until an admin switches it on.
+- **CI's JS job starts the same gateway image for the server-build tests.**
+
+**Why:** `docs/12` → M4 ("Upload API (multipart presign)"), `docs/01` → Upload, `docs/06` → Endpoints, `docs/11` → Storage.
+**Reverse:** the routes are `apps/web/src/app/api/v1/uploads/**`; the logic is `apps/web/src/server/uploads.ts` and `storage.ts`.

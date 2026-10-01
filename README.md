@@ -69,13 +69,14 @@ pnpm build          # static export of apps/web into apps/web/out
 pnpm db:migrate     # apply migrations to DATABASE_URL
 ```
 
-The database and server-build tests need a throwaway Postgres 18 database (they write rows that can't be deleted), e.g. one more database in the stack's Postgres:
+The database and server-build tests need a throwaway Postgres 18 database (they write rows that can't be deleted), e.g. one more database in the stack's Postgres. The server-build tests also need the stack's storage; they use their own `etb-test` bucket:
 
 ```sh
+docker compose up -d postgres storage
 docker compose exec postgres createdb -U etb etb_test
 export TEST_DATABASE_URL=postgresql://etb:etb-local-only@localhost:5432/etb_test
 pnpm test                               # includes packages/db's integration tests
-pnpm --filter @etb/web e2e:server       # migrate, server build, Playwright: sign in, export, delete
+pnpm --filter @etb/web e2e:server       # migrate, server build, Playwright: accounts, admin, uploads
 ```
 
 CI runs the same on every pull request, plus a dependency audit, a smoke test of the production build and one of the Docker stack. Next.js sends anonymous telemetry unless told not to; Docker and CI turn it off, and `pnpm --filter @etb/web exec next telemetry disable` turns it off on your machine.

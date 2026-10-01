@@ -153,6 +153,10 @@ describe('webServerEnvSchema', () => {
     DATABASE_URL: 'postgresql://etb:x@localhost:5432/etb',
     BETTER_AUTH_SECRET: 'a'.repeat(32),
     SMTP_URL: 'smtp://localhost:1025',
+    S3_ENDPOINT: 'http://storage:7070',
+    S3_BUCKET: 'etb-local',
+    S3_ACCESS_KEY_ID: 'key-id',
+    S3_SECRET_ACCESS_KEY: 'key-secret',
   };
 
   it('takes the database, the auth secret and a way to send email', () => {
@@ -187,5 +191,16 @@ describe('webServerEnvSchema', () => {
       expect(staging.errors).toContain('MAIL_OUTBOX_DIR: is for local and test only; set SMTP_URL');
     }
     expect(parseEnv(webServerEnvSchema, { ...base, SMTP_URL: undefined }).ok).toBe(false);
+  });
+
+  it('needs storage, and takes a public storage address for browsers', () => {
+    const noStorage = parseEnv(webServerEnvSchema, { ...base, S3_ENDPOINT: undefined });
+    expect(noStorage).toEqual({ ok: false, errors: ['S3_ENDPOINT: required but not set'] });
+    const result = parseEnv(webServerEnvSchema, {
+      ...base,
+      S3_PUBLIC_ENDPOINT: 'http://localhost:7070',
+    });
+    expect(result.ok && result.env.S3_PUBLIC_ENDPOINT).toBe('http://localhost:7070');
+    expect(result.ok && result.env.S3_REGION).toBe('auto');
   });
 });

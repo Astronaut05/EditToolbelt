@@ -89,6 +89,12 @@ export const jobs = pgTable(
 );
 
 /** Multipart uploads waiting for a job; unconsumed ones go after an hour with their objects. */
+/**
+ * A file on its way to a server job (docs/01 → Upload): the browser puts its
+ * parts straight into storage under a random key; the worker probes it once
+ * it's complete. The object goes when a job has used it, or when the upload
+ * is abandoned (`expires_at`, swept by the worker).
+ */
 export const uploads = pgTable(
   'uploads',
   {
@@ -100,9 +106,28 @@ export const uploads = pgTable(
     bytes: bigint('bytes', { mode: 'number' }).notNull(),
     mimeClaimed: text('mime_claimed').notNull(),
     toolId: text('tool_id').notNull(),
+    /** Storage's multipart upload id while parts arrive; null once completed or aborted. */
+    multipartId: text('multipart_id'),
+    partSize: integer('part_size').notNull(),
+    partCount: integer('part_count').notNull(),
+    /** Incomplete: when to abort it. Complete: when to delete it if no job has used it. */
     expiresAt: tstz('expires_at').notNull(),
     completedAt: tstz('completed_at'),
+    /** The worker's probe (docs/11 → File intake): container, streams, duration, size. No filename. */
+    probe: jsonb('probe'),
+    probedAt: tstz('probed_at'),
+    /** Why the probe refused the file, as an API code (UNSUPPORTED_FORMAT, FILE_TOO_LARGE). */
+    probeError: text('probe_error'),
+    /** The object is gone from storage. */
+    deletedAt: tstz('deleted_at'),
     createdAt: createdAt(),
   },
-  (t) => [index('uploads_expires_idx').on(t.expiresAt)],
+  (t) => [
+    index('uploads_expires_idx').on(t.expiresAt),
+    index('uploads_to_probe_idx')
+      .on(t.completedAt)
+      .where(
+        sql`${t.probedAt} is null and ${t.deletedAt} is null and ${t.completedAt} is not null`,
+      ),
+  ],
 );

@@ -54,3 +54,12 @@ export function costOf(tool: Pick<ToolDef, 'id' | 'cost'>): CreditRule {
 export function limitsOf(tool: Pick<ToolDef, 'id' | 'limits'>): ToolDef['limits'] {
   return flags.get(tool.id)?.limits ?? tool.limits;
 }
+
+/**
+ * The server can run this tool now: a `server-cpu` or `server-gpu` tool, or a
+ * `hybrid` one whose server path an admin has switched on (docs/02 → Routing).
+ */
+export function hasServerPath(tool: Pick<ToolDef, 'id' | 'runtime'>): boolean {
+  if (tool.runtime === 'server-cpu' || tool.runtime === 'server-gpu') return true;
+  return tool.runtime === 'hybrid' && flags.get(tool.id)?.serverEnabled === true;
+}

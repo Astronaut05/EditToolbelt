@@ -16,7 +16,14 @@ export default defineTool({
   batch: false,
   accepts: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'],
   outputs: ['mp4', 'webm'],
-  limits: { client: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 } },
+  limits: {
+    client: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 },
+    // The server path (M4), used once an admin switches it on.
+    server: {
+      free: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 },
+      paid: { maxBytes: 10 * 1024 ** 3, maxDurationSec: 4 * 60 * 60 },
+    },
+  },
   cost: { kind: 'perMinute', credits: 1, minCredits: 2 },
   surfaces: ['web', 'mobile', 'api'],
   seo: {

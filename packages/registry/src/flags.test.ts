@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   conversions,
   getTool,
+  hasServerPath,
   hubOrder,
   isAvailable,
   isListed,
@@ -48,5 +49,18 @@ describe('runtime overrides (tool_flags)', () => {
     const order = hubOrder(toolsInCategory('video')).map((t) => t.id);
     const firstSoon = order.findIndex((id) => statusOf(getTool(id)) === 'soon');
     expect(order.indexOf('trim-video')).toBeGreaterThanOrEqual(firstSoon);
+  });
+});
+
+describe('hasServerPath', () => {
+  it('is on for server tools, and for hybrid tools only once switched on', () => {
+    expect(hasServerPath(getTool('vfr-to-cfr'))).toBe(true);
+    expect(hasServerPath(getTool('trim-video'))).toBe(false);
+    const compress = getTool('compress-video');
+    expect(hasServerPath(compress)).toBe(false);
+    setToolFlags(new Map([['compress-video', { serverEnabled: true }]]));
+    expect(hasServerPath(compress)).toBe(true);
+    setToolFlags(new Map([['trim-video', { serverEnabled: true }]]));
+    expect(hasServerPath(getTool('trim-video'))).toBe(false);
   });
 });

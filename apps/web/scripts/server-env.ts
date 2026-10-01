@@ -1,7 +1,8 @@
 /**
  * The env the server build's end-to-end tests run with: a throwaway database
- * (TEST_DATABASE_URL), a test-only auth secret, and sign-in emails written to
- * a folder the tests read. Shared by scripts/e2e-server.ts (build) and
+ * (TEST_DATABASE_URL), storage (TEST_S3_ENDPOINT, default the local stack's
+ * on :7070, with its own `etb-test` bucket), a test-only auth secret, and
+ * sign-in emails written to a folder the tests read. Shared by scripts/e2e-server.ts (build) and
  * playwright.server.config.ts (run), which must agree: SITE_URL is inlined
  * at build time.
  */
@@ -11,6 +12,15 @@ import { fileURLToPath } from 'node:url';
 export const SERVER_PORT = 4175;
 
 export const OUTBOX = join(fileURLToPath(new URL('..', import.meta.url)), 'test-results', 'outbox');
+
+/** The local stack's placeholder credentials; CI starts the same gateway with them. */
+export const TEST_STORAGE = {
+  S3_ENDPOINT: process.env.TEST_S3_ENDPOINT ?? 'http://127.0.0.1:7070',
+  S3_REGION: 'us-east-1',
+  S3_BUCKET: 'etb-test',
+  S3_ACCESS_KEY_ID: 'etb-local',
+  S3_SECRET_ACCESS_KEY: 'etb-local-secret',
+};
 
 export function serverTestEnv(): Record<string, string> {
   const database = process.env.TEST_DATABASE_URL;
@@ -29,5 +39,6 @@ export function serverTestEnv(): Record<string, string> {
     DATABASE_URL: database,
     BETTER_AUTH_SECRET: 'e2e-only-secret-never-used-anywhere-else-0123',
     MAIL_OUTBOX_DIR: OUTBOX,
+    ...TEST_STORAGE,
   };
 }

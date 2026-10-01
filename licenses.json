@@ -129,6 +129,19 @@
       "checked": "2026-09-30"
     },
     {
+      "label": "aws4fetch",
+      "section": "Platform and app",
+      "ecosystem": "npm",
+      "packages": ["aws4fetch"],
+      "use": "signs S3 requests and presigns upload and download URLs for object storage (server only; no dependencies)",
+      "license": "MIT",
+      "scope": "server",
+      "status": "approved",
+      "version": "1.0.20",
+      "source": "https://github.com/mhart/aws4fetch/blob/master/LICENSE",
+      "checked": "2026-09-30"
+    },
+    {
       "label": "pino",
       "section": "Platform and app",
       "ecosystem": "npm",
