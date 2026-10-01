@@ -248,7 +248,8 @@ export const CHECKS: Check[] = [
 ];
 
 export async function runChecks(env: Env): Promise<Outcome[]> {
-  const site = new URL(env.SITE_URL ?? 'http://localhost:3000').origin;
+  // An unset repository variable arrives as an empty string.
+  const site = new URL(env.SITE_URL?.trim() ? env.SITE_URL : 'http://localhost:3000').origin;
   const wanted = (env.OPS_CHECKS ?? '')
     .split(',')
     .map((name) => name.trim())
