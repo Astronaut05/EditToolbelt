@@ -30,6 +30,7 @@ export const TOOL_IDS = [
   'fade-audio',
   'gif-to-mp4',
   'image-converter',
+  'loop-video',
   'loudness-meter',
   'lut-preview',
   'merge-audio',

@@ -43,6 +43,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'fade-audio': dynamic(() => import('./fade-audio')),
   'gif-to-mp4': dynamic(() => import('./gif-to-mp4')),
   'image-converter': dynamic(() => import('./image-converter')),
+  'loop-video': dynamic(() => import('./loop-video')),
   'loudness-meter': dynamic(() => import('./loudness-meter')),
   'lut-preview': dynamic(() => import('./lut-preview')),
   'merge-audio': dynamic(() => import('./merge-audio')),

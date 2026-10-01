@@ -102,6 +102,10 @@ export const MEDIA_META = {
     }),
     estimate: (input) => ({ seconds: Math.max(2, input.size / 5_000_000) }),
   },
+  loopVideo: {
+    capabilities: () => ({ supported: true }),
+    estimate: (input) => ({ seconds: Math.max(1, input.size / 20_000_000) }),
+  },
   mergeVideos: {
     capabilities: () => ({ supported: true }),
     estimate: (input) => ({ seconds: Math.max(1, input.size / 30_000_000) }),

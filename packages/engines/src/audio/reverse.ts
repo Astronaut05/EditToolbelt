@@ -100,9 +100,14 @@ function backwards(blocks: Block[], piece: ReversePiece, channels: number): Floa
   });
 }
 
+const silence = (frames: number, channels: number) =>
+  Array.from({ length: channels }, () => new Float32Array(frames));
+
 /**
  * The track's frames in `pieces`' order: forward pieces block by block,
- * reversed ones a window at a time, turned round.
+ * reversed ones a window at a time, turned round. Every piece with an end is
+ * exactly that long, with silence where the track has no sound, so pieces
+ * laid end to end stay in step with a picture (V18, V19).
  */
 export async function* reversedFrames(
   track: InputAudioTrack,
@@ -118,7 +123,13 @@ export async function* reversedFrames(
       for await (const block of read(sink, piece, rate, channels, signal)) blocks.push(block);
       yield backwards(blocks, piece, channels);
     } else {
-      for await (const block of read(sink, piece, rate, channels, signal)) yield block.planes;
+      let next = piece.from;
+      for await (const block of read(sink, piece, rate, channels, signal)) {
+        if (block.at > next) yield silence(block.at - next, channels);
+        yield block.planes;
+        next = block.at + (block.planes[0]?.length ?? 0);
+      }
+      if (piece.to !== null && next < piece.to) yield silence(piece.to - next, channels);
     }
   }
 }
