@@ -374,7 +374,11 @@ test('Burn Subtitles uploads the subtitle file beside the video', async ({ page 
         const input = page.locator('input[type=file][data-hydrated]').first();
         if ((await input.count()) === 0) return false;
         await input.setInputFiles(CLIP);
-        return start.isVisible();
+        // The offer shows once the clip is read, which takes a moment longer in some browsers.
+        return start.waitFor({ timeout: 15_000 }).then(
+          () => true,
+          () => false,
+        );
       },
       { timeout: 90_000, intervals: [3000] },
     )
