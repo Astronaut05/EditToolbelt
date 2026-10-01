@@ -1,6 +1,6 @@
 'use client';
 
-import { Camera, ImageIcon, Plus, Upload } from 'lucide-react';
+import { Camera, FolderOpen, ImageIcon, Plus, Upload } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -36,6 +36,8 @@ export interface DropZoneProps {
   onFiles: (files: File[]) => void;
   onReject: (message: string) => void;
   onSample?: () => void;
+  /** Desktop: open a folder instead (U02 renames files where they are). */
+  onFolder?: () => void;
   /** Phone: offer the camera (images and video). */
   camera?: boolean;
   /** Keyboard and paste shortcuts are live (only while the drop zone is shown). */
@@ -195,6 +197,14 @@ export function DropZone(props: DropZoneProps) {
             {props.chooseLabel}
           </Button>
           {props.onSample && <Button onClick={props.onSample}>Try a sample</Button>}
+          {props.onFolder && (
+            <Button
+              onClick={props.onFolder}
+              icon={<FolderOpen aria-hidden="true" size={18} strokeWidth={1.75} />}
+            >
+              Open a folder
+            </Button>
+          )}
         </div>
         <p className="mt-5.5 font-mono text-12 uppercase tracking-meta text-text-muted">
           {props.formats}

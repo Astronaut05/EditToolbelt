@@ -117,3 +117,11 @@ export {
 } from './video/convert-video';
 export { bpmKeyEngine, Downmix, type BpmKeyOptions } from './audio/bpm-key';
 export { addTap, tapBpm } from '@etb/core';
+export {
+  batchRenameEngine,
+  renamePlan,
+  rulesFrom,
+  type NamedFile,
+  type NamesPlan,
+} from './files/batch-rename';
+export { takenDate } from './files/taken';

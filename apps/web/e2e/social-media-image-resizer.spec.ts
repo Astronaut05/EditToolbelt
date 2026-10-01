@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import type { Page } from '@playwright/test';
 
-import { choose, expect, test } from './fixtures';
+import { choose, expect, test, unzipStored } from './fixtures';
 
 // P13 Social Media Image Resizer (tools/photo.md → Tests): 6 presets from one
 // image come out at their exact sizes, and the focal point is respected.
@@ -46,24 +46,6 @@ async function image(page: Page, width: number, height: number, paint: Paint): P
     { w: width, h: height, p: paint },
   );
   return Buffer.from(base64, 'base64');
-}
-
-/** The entries of a stored (uncompressed) ZIP, in order. */
-function unzipStored(zip: Buffer): { name: string; data: Buffer }[] {
-  const entries: { name: string; data: Buffer }[] = [];
-  let at = 0;
-  while (zip.readUInt32LE(at) === 0x04034b50) {
-    const size = zip.readUInt32LE(at + 18);
-    const nameLength = zip.readUInt16LE(at + 26);
-    const extraLength = zip.readUInt16LE(at + 28);
-    const start = at + 30 + nameLength + extraLength;
-    entries.push({
-      name: zip.toString('utf8', at + 30, at + 30 + nameLength),
-      data: zip.subarray(start, start + size),
-    });
-    at = start + size;
-  }
-  return entries;
 }
 
 /** An image's size and the pixels at some points. */

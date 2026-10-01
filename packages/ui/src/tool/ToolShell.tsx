@@ -1,7 +1,7 @@
 'use client';
 
-import type { Engine } from '@etb/engines';
-import { ChevronRight, Download } from 'lucide-react';
+import type { Engine, NamesPlan } from '@etb/engines';
+import { ChevronRight, Download, Undo2 } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -33,6 +33,14 @@ import { BeforeAfter, MediaTag } from './BeforeAfter';
 import { CalculatorShell } from './CalculatorShell';
 import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
+import {
+  canRenameInPlace,
+  renameAll,
+  RenameInPlaceError,
+  undoRenames,
+  type MovableFile,
+  type Renamed,
+} from './in-place';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
 import { FileOrder, type OrderedFile } from './FileOrder';
@@ -80,6 +88,31 @@ function subscribeWide(onChange: () => void) {
   };
 }
 const Timeline = lazy(() => import('./Timeline').then((m) => ({ default: m.Timeline })));
+
+const noSubscribe = () => () => undefined;
+
+/** A file in a folder the user opened (U02): a handle that can be renamed, and its file. */
+interface FolderFile extends MovableFile {
+  getFile(): Promise<File>;
+}
+
+interface FolderHandle {
+  name: string;
+  values(): AsyncIterable<{ kind: string; name: string }>;
+}
+
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/** U02: why the files can't be renamed yet, if they can't. */
+function namesBlocked(plan: NamesPlan | null): string | undefined {
+  if (!plan) return 'Reading the files…';
+  if (plan.error) return plan.error;
+  const unusable = plan.names.filter((name) => name.blocks).length;
+  if (unusable > 0) {
+    return `${plural(unusable, 'new name')} can’t be used: see the list. Change the rules until none are flagged.`;
+  }
+  return undefined;
+}
 
 /** What the shell needs from the registry entry (serialisable, no Zod). */
 export interface ShellTool {
@@ -152,6 +185,7 @@ export function optionSummary(option: ShellOption, value: string): string {
   if (option.kind === 'color') return value.toUpperCase();
   if (option.kind === 'image') return value ? 'Chosen' : 'None';
   if (option.kind === 'file') return value ? fileOptionName(value) : 'None';
+  if (option.kind === 'text') return value || 'None';
   if (option.kind === 'checklist') {
     const picked = value.split(',').filter(Boolean);
     if (picked.length === 1) {
@@ -486,6 +520,16 @@ export interface ShellPreset {
   /** A server tool: why it runs on our servers, for the offer ("Precise frame timing needs ffmpeg"). */
   serverReason?: string;
   /**
+   * U02: the files keep their bytes and get new names. `plan` names every
+   * file from the settings; the list shows each new name and what's wrong
+   * with it, and a name that can't be used stops the run. With `inPlace`,
+   * desktop Chromium can open a folder and rename its files where they are.
+   */
+  names?: {
+    plan: (files: readonly File[], options: Record<string, string>) => Promise<NamesPlan>;
+    inPlace?: boolean;
+  };
+  /**
    * The timeline holds several ranges (V01, A02): the engine gets them all as
    * `ranges`, in order; `start` and `end` stay those of the selected one.
    */
@@ -735,6 +779,18 @@ export function ToolShell({
   }, []);
   const [batch, setBatch] = useState<BatchItem[]>([]);
   const [batchDone, setBatchDone] = useState(false);
+  /** U02: the new names for the files as they are now, and the folder they came from, if any. */
+  const [namesPlan, setNamesPlan] = useState<NamesPlan | null>(null);
+  const [folder, setFolder] = useState<{ name: string; handles: FolderFile[] } | null>(null);
+  const [renamed, setRenamed] = useState<Renamed[] | null>(null);
+  const [confirmRename, setConfirmRename] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const planRound = useRef(0);
+  const folderable = useSyncExternalStore(
+    noSubscribe,
+    () => Boolean(preset.names?.inPlace) && canRenameInPlace(),
+    () => false,
+  );
   const batchOutputs = useRef(new Map<string, { blob: Blob; name: string }>());
   const [sheet, setSheet] = useState<number | null>(null);
   const controller = useRef<AbortController | null>(null);
@@ -1065,6 +1121,10 @@ export function ToolShell({
       touched.current.clear();
       resetEditor();
       setRefining(false);
+      setNamesPlan(null);
+      setFolder(null);
+      setRenamed(null);
+      setRenameError(null);
       // Refine strokes and a focal point belong to the last image.
       const refineId = preset.editor?.refine;
       if (refineId) setOptions((current) => ({ ...current, [refineId]: '' }));
@@ -1166,6 +1226,7 @@ export function ToolShell({
           { ...engineOptions, ...options },
           {
             signal: abort.signal,
+            batch: { index, files },
             progress: (fraction) => {
               update({ progress: fraction });
             },
@@ -1173,7 +1234,7 @@ export function ToolShell({
         );
         batchOutputs.current.set(id, {
           blob: out.blob,
-          name: outputName(file.name, out.nameSuffix ?? preset.outputSuffix, out.ext),
+          name: out.name ?? outputName(file.name, out.nameSuffix ?? preset.outputSuffix, out.ext),
         });
         update({ status: 'done', resultSize: out.blob.size, note: out.notes?.join('. ') });
       } catch (error) {
@@ -1218,9 +1279,107 @@ export function ToolShell({
         unique = name.replace(/(\.[^.]+)?$/, `-${String(n)}$1`);
       entries[unique] = new Uint8Array(await blob.arrayBuffer());
     }
-    saveBlob(new Blob([zipSync(entries)], { type: 'application/zip' }), `${tool.id}.zip`);
+    // Renamed files (U02) are stored as they are: squeezing photos and clips again only takes time.
+    const zip = zipSync(entries, preset.names ? { level: 0 } : {});
+    saveBlob(new Blob([zip], { type: 'application/zip' }), `${tool.id}.zip`);
     track('tool_download', { files: String(batchOutputs.current.size) });
-  }, [saveBlob, tool.id, track]);
+  }, [preset.names, saveBlob, tool.id, track]);
+
+  // U02: the files are named again whenever they or the settings change; the newest answer wins.
+  const namer = preset.names;
+  const planFiles = state.kind === 'ready' ? state.files : undefined;
+  useEffect(() => {
+    if (!namer || !planFiles || renamed) return;
+    const round = (planRound.current += 1);
+    const timer = setTimeout(() => {
+      void namer.plan(planFiles, options).then(
+        (plan) => {
+          if (round === planRound.current) setNamesPlan(plan);
+        },
+        () => undefined,
+      );
+    }, 120);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [namer, planFiles, options, renamed]);
+
+  /** U02: a folder's files (not its subfolders or hidden files), to rename where they are. */
+  const openFolder = useCallback(async () => {
+    let dir: FolderHandle;
+    try {
+      dir = await (
+        window as unknown as {
+          showDirectoryPicker: (options: { mode: 'readwrite' }) => Promise<FolderHandle>;
+        }
+      ).showDirectoryPicker({ mode: 'readwrite' });
+    } catch {
+      return; // The picker was closed.
+    }
+    const handles: FolderFile[] = [];
+    for await (const entry of dir.values()) {
+      if (entry.kind === 'file' && !entry.name.startsWith('.')) {
+        handles.push(entry as unknown as FolderFile);
+      }
+    }
+    handles.sort((a, b) => byName.compare(a.name, b.name));
+    if (handles.length === 0) {
+      setState({
+        kind: 'error',
+        label: 'Empty folder',
+        title: 'No files in this folder',
+        body: 'Open a folder with files in it. Folders inside it are left as they are.',
+      });
+      return;
+    }
+    const files = await Promise.all(handles.map((handle) => handle.getFile()));
+    intake(files);
+    setFolder({ name: dir.name, handles });
+  }, [intake]);
+
+  /** U02: every file in the opened folder gets its new name, after the confirm. */
+  const renameInFolder = useCallback(async () => {
+    setConfirmRename(false);
+    if (!folder || !namesPlan) return;
+    const pairs = folder.handles.map((handle, i) => ({
+      handle,
+      to: namesPlan.names[i]?.to ?? handle.name,
+    }));
+    setRenameError(null);
+    setBatch((items) => items.map((item) => ({ ...item, status: 'running', progress: 0 })));
+    track('tool_run_started', { path: 'client', files: String(pairs.length) });
+    try {
+      const done = await renameAll(pairs, (fraction) => {
+        setBatch((items) => items.map((item) => ({ ...item, progress: fraction })));
+      });
+      setRenamed(done);
+      setBatch((items) => items.map((item) => ({ ...item, status: 'done', progress: undefined })));
+      setBatchDone(true);
+    } catch (error) {
+      setRenameError(
+        error instanceof RenameInPlaceError ? error.message : 'The files couldn’t be renamed.',
+      );
+      setBatch((items) =>
+        items.map((item) => ({ ...item, status: 'queued', progress: undefined })),
+      );
+      track('tool_run_failed', { error_code: 'engine', engine_path: 'client' });
+    }
+  }, [folder, namesPlan, track]);
+
+  /** U02: the opened folder's files get their old names back. */
+  const undoRename = useCallback(async () => {
+    if (!renamed) return;
+    try {
+      await undoRenames(renamed);
+      setRenamed(null);
+      setBatchDone(false);
+      setBatch((items) => items.map((item) => ({ ...item, status: 'queued' })));
+    } catch (error) {
+      setRenameError(
+        error instanceof Error ? error.message : 'The old names couldn’t be put back.',
+      );
+    }
+  }, [renamed]);
 
   const cancel = useCallback(() => {
     controller.current?.abort();
@@ -1230,6 +1389,10 @@ export function ToolShell({
     setQueue([]);
     setBatchDone(false);
     batchOutputs.current.clear();
+    setNamesPlan(null);
+    setFolder(null);
+    setRenamed(null);
+    setRenameError(null);
     resetEditor();
     setMedia(null);
     setThumbs([]);
@@ -1377,7 +1540,9 @@ export function ToolShell({
             ? preset.detect.busy
             : preset.detect && ranges.length === 0
               ? preset.detect.empty
-              : preset.blocked?.(options, state.files?.length ?? 1);
+              : preset.names && !renamed
+                ? namesBlocked(namesPlan)
+                : preset.blocked?.(options, state.files?.length ?? 1);
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
       {visibleOptions.map((option) => (
@@ -1450,7 +1615,29 @@ export function ToolShell({
   const result = state.kind === 'result';
   const actions = hasFile && (
     <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-border bg-bg px-4 pt-3 pb-6.5 lg:static lg:mt-6.5 lg:gap-3 lg:border-0 lg:bg-transparent lg:p-0">
-      {inBatch ? (
+      {inBatch && folder ? (
+        renamed ? (
+          <Button
+            variant="primary"
+            className="flex-1"
+            onClick={() => void undoRename()}
+            icon={<Undo2 aria-hidden="true" size={18} strokeWidth={2} />}
+          >
+            Undo rename
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            className="flex-1"
+            disabled={batchRunning || Boolean(blocked)}
+            onClick={() => {
+              setConfirmRename(true);
+            }}
+          >
+            {preset.runLabel ?? 'Start'} in “{folder.name}”
+          </Button>
+        )
+      ) : inBatch ? (
         batchDone ? (
           <Button
             variant="primary"
@@ -1470,7 +1657,7 @@ export function ToolShell({
               if (state.kind === 'ready' && state.files) void runBatch(state.files);
             }}
           >
-            {preset.runLabel ?? 'Start'} · {batch.length} files
+            {preset.runLabel ?? 'Start'} · {plural(batch.length, 'file')}
           </Button>
         )
       ) : state.kind === 'ready' && serverOffer ? (
@@ -1593,8 +1780,15 @@ export function ToolShell({
       range={range}
       setRange={setRange}
       multiRange={preset.ranges ? { ranges, active: activeRange, onChange: changeRanges } : null}
-      batch={batch}
-      onDownloadItem={downloadItem}
+      batch={
+        namesPlan
+          ? batch.map((item, i) => {
+              const named = namesPlan.names[i];
+              return named ? { ...item, ...named } : item;
+            })
+          : batch
+      }
+      onDownloadItem={folder ? undefined : downloadItem}
       combine={
         preset.combine
           ? {
@@ -1702,6 +1896,7 @@ export function ToolShell({
         });
       }}
       onSample={preset.sampleUrl ? () => void trySample() : undefined}
+      onFolder={folderable ? () => void openFolder() : undefined}
       active
     />
   );
@@ -1733,6 +1928,17 @@ export function ToolShell({
         {blocked && (
           <p role="status" className="mt-3.5 px-4 text-14 leading-body text-text-muted lg:px-0">
             {blocked}
+          </p>
+        )}
+        {renameError && (
+          <p role="alert" className="mt-3.5 px-4 text-14 leading-body lg:px-0">
+            {renameError}
+          </p>
+        )}
+        {renamed && folder && (
+          <p role="status" className="mt-3.5 px-4 text-14 leading-body text-text-muted lg:px-0">
+            {plural(renamed.length, 'file')} renamed in “{folder.name}”. Undo puts the old names
+            back while this page is open.
           </p>
         )}
         {state.kind === 'ready' && media?.warnings && media.warnings.length > 0 && (
@@ -1799,6 +2005,40 @@ export function ToolShell({
               }}
             >
               Not now
+            </Button>
+          </div>
+        </Dialog>
+      )}
+
+      {confirmRename && folder && (
+        <Dialog
+          open
+          onClose={() => {
+            setConfirmRename(false);
+          }}
+          title="Rename in the folder"
+        >
+          <p className="text-15.5 leading-body">
+            {plural(
+              namesPlan?.names.filter((name, i) => name.to !== folder.handles[i]?.name).length ?? 0,
+              'file',
+            )}{' '}
+            in “{folder.name}” get their new names.
+          </p>
+          <p className="mt-2 text-14 text-text-muted">
+            Nothing else in the folder changes. Undo puts the old names back while this page is
+            open.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button variant="primary" onClick={() => void renameInFolder()}>
+              Rename
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmRename(false);
+              }}
+            >
+              Cancel
             </Button>
           </div>
         </Dialog>
@@ -2000,7 +2240,7 @@ function Workspace({
   setRange: (range: TimelineRange) => void;
   multiRange: MultiRange | null;
   batch: BatchItem[];
-  onDownloadItem: (id: string) => void;
+  onDownloadItem?: (id: string) => void;
   combine: {
     items: OrderedFile[];
     onMove: (from: number, to: number) => void;

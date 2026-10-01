@@ -7,6 +7,7 @@ export const TOOL_IDS = [
   'aspect-ratio-calculator',
   'audio-channels',
   'audio-converter',
+  'batch-rename',
   'bitrate-calculator',
   'bpm-key-finder',
   'change-pitch',

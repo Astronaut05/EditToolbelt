@@ -109,3 +109,23 @@ export async function setRange(page: Page, start: string, end: string): Promise<
     await expect(outPoint).toHaveValue(shownTime(end), { timeout: 1000 });
   }).toPass({ timeout: 15_000 });
 }
+
+/** The entries of a stored (uncompressed) ZIP, in order: enough for the ZIPs the tools make. */
+export function unzipStored(zip: Buffer): { name: string; data: Buffer }[] {
+  const entries: { name: string; data: Buffer }[] = [];
+  let at = 0;
+  while (zip.readUInt32LE(at) === 0x04034b50) {
+    const method = zip.readUInt16LE(at + 8);
+    const size = zip.readUInt32LE(at + 18);
+    const nameLength = zip.readUInt16LE(at + 26);
+    const extraLength = zip.readUInt16LE(at + 28);
+    expect(method).toBe(0);
+    const start = at + 30 + nameLength + extraLength;
+    entries.push({
+      name: zip.toString('utf8', at + 30, at + 30 + nameLength),
+      data: zip.subarray(start, start + size),
+    });
+    at = start + size;
+  }
+  return entries;
+}

@@ -127,3 +127,12 @@ export {
   type MusicGain,
   type MusicPart,
 } from './audio/mix';
+export {
+  DATE_FORMATS,
+  DEFAULT_RULES,
+  planRenames,
+  RenameError,
+  splitName,
+  type RenameFile,
+  type RenameRules,
+} from './rename';

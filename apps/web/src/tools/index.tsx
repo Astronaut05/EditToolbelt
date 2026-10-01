@@ -20,6 +20,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'aspect-ratio-calculator': dynamic(() => import('./aspect-ratio-calculator')),
   'audio-channels': dynamic(() => import('./audio-channels')),
   'audio-converter': dynamic(() => import('./audio-converter')),
+  'batch-rename': dynamic(() => import('./batch-rename')),
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
   'bpm-key-finder': dynamic(() => import('./bpm-key-finder')),
   'change-pitch': dynamic(() => import('./change-pitch')),
