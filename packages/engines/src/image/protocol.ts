@@ -2,6 +2,7 @@
 import type { GeometryJob } from './geometry';
 import type { GridSpec } from './grid';
 import type { ImageFormat } from './sniff';
+import type { Focus, SocialFit } from './social';
 
 export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'bmp';
 
@@ -43,6 +44,25 @@ export interface ImageJob {
   geometry?: GeometryJob;
   /** P14: cut into tiles and answer a ZIP of them, named from `stem`. */
   tiles?: GridSpec & { stem: string };
+  /** P13: one file per size, or a ZIP of them for two or more. */
+  social?: SocialJob;
+}
+
+export interface SocialJob {
+  sizes: {
+    id: string;
+    /** "Instagram · Post, square", for the notes. */
+    label: string;
+    width: number;
+    height: number;
+    /** Stay under the platform's limit: lower the quality of JPG, WebP and AVIF if needed. */
+    maxBytes?: number;
+  }[];
+  fit: SocialFit;
+  focus: Focus;
+  /** Fit with colour: "#rrggbb". */
+  color: string;
+  stem: string;
 }
 
 export type WorkerMessage =
@@ -55,7 +75,7 @@ export type WorkerMessage =
       output: OutputFormat;
       notes: string[];
       quality?: number;
-      /** P14: the bytes are a ZIP of this many tiles. */
+      /** P13, P14: the bytes are a ZIP of this many images. */
       tiles?: number;
     }
   | { type: 'error'; message: string };

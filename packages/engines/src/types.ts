@@ -34,6 +34,8 @@ export interface EngineOutput {
   blob: Blob;
   /** Output file extension without the dot, e.g. "png". */
   ext: string;
+  /** The download name's suffix when it depends on the run (P13: "instagram-square-1080x1080"). */
+  nameSuffix?: string;
   width?: number;
   height?: number;
   durationSec?: number;

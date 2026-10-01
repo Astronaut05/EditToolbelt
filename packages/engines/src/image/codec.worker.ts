@@ -19,8 +19,15 @@ import {
   readWebpExif,
   webpWithExif,
 } from './exif';
-import { OUTPUT_EXT, type ImageJob, type OutputFormat, type WorkerMessage } from './protocol';
+import {
+  OUTPUT_EXT,
+  type ImageJob,
+  type OutputFormat,
+  type SocialJob,
+  type WorkerMessage,
+} from './protocol';
 import { FORMAT_LABELS, type ImageFormat } from './sniff';
+import { enlargement, rgbaOf, socialFrame } from './social';
 
 interface WorkerScope {
   postMessage(message: WorkerMessage, transfer?: Transferable[]): void;
@@ -99,6 +106,37 @@ async function encode(
     case 'bmp':
       return encodeBmp(image.data, image.width, image.height).buffer;
   }
+}
+
+/**
+ * The best quality that lands at or under `target` bytes (JPG, WebP, AVIF):
+ * a binary search on quality, at most 8 encodes (tools/photo.md → P05). At
+ * the floor (40, or the ceiling if that's lower) it answers what it has,
+ * even if that's still over.
+ */
+async function encodeUnder(
+  image: ImageData,
+  output: OutputFormat,
+  target: number,
+  onStep: (step: number, quality: number) => void = () => undefined,
+  ceiling = 95,
+): Promise<{ bytes: ArrayBuffer; quality: number }> {
+  const floor = Math.min(40, ceiling);
+  let low = floor;
+  let high = ceiling;
+  let best: { bytes: ArrayBuffer; quality: number } | null = null;
+  for (let step = 0; step < 8 && low <= high; step += 1) {
+    const q = Math.round((low + high) / 2);
+    const attempt = await encode(image, output, q, false);
+    onStep(step, q);
+    if (attempt.byteLength <= target) {
+      best = { bytes: attempt, quality: q };
+      low = q + 1;
+    } else {
+      high = q - 1;
+    }
+  }
+  return best ?? { bytes: await encode(image, output, floor, false), quality: floor };
 }
 
 function sourceExif(bytes: Uint8Array, format: ImageFormat): Uint8Array | null {
@@ -210,6 +248,102 @@ async function runTiles(
   };
 }
 
+const MB = (bytes: number) => `${String(Math.round(bytes / 100_000) / 10)} MB`;
+
+/**
+ * P13: each size made from the one decode, encoded under the platform's
+ * limit where it has one, with the metadata the person chose. One size is
+ * answered as that image; more as a ZIP (stored: images don't shrink).
+ */
+async function runSocial(
+  job: ImageJob & { social: SocialJob },
+  image: ImageData,
+  notes: string[],
+): Promise<Extract<WorkerMessage, { type: 'done' }>> {
+  const { sizes, fit, focus, stem } = job.social;
+  const exif = sourceExif(new Uint8Array(job.bytes), job.format);
+  const color = rgbaOf(job.social.color);
+  const entries: Record<string, [Uint8Array, { level: 0 }]> = {};
+  const sizeNotes: string[] = [];
+  const metaNotes: string[] = [];
+  let last: { bytes: ArrayBuffer; width: number; height: number; quality: number } | null = null;
+  for (const [index, size] of sizes.entries()) {
+    post({
+      type: 'progress',
+      fraction: 0.2 + (0.7 * index) / sizes.length,
+      stage: `${size.label}, ${String(index + 1)} of ${String(sizes.length)}`,
+    });
+    const target = { width: size.width, height: size.height };
+    const frame = socialFrame(image, target, { fit, focus, color });
+    let piece = new ImageData(new Uint8ClampedArray(frame.data), frame.width, frame.height);
+    if (job.output === 'jpeg' && hasAlpha(piece)) piece = flatten(piece, job.background);
+    const enlarged = enlargement(image, target, fit);
+    if (enlarged > 1.05) {
+      sizeNotes.push(
+        `${size.label}: enlarged ${enlarged.toFixed(1)}× from a smaller image, so it may look soft`,
+      );
+    }
+    let quality = job.quality;
+    let bytes = await encode(piece, job.output, quality, job.optimise ?? false);
+    // EXIF goes back in after the encode: leave room for it under the limit.
+    const limit = size.maxBytes && size.maxBytes - (exif?.byteLength ?? 0) - 1024;
+    if (limit && bytes.byteLength > limit) {
+      if (LOSSY.includes(job.output)) {
+        const under = await encodeUnder(piece, job.output, limit, undefined, quality - 1);
+        bytes = under.bytes;
+        quality = under.quality;
+        sizeNotes.push(
+          bytes.byteLength > limit
+            ? `${size.label}: still over the ${MB(size.maxBytes ?? 0)} limit at quality ${String(quality)}`
+            : `${size.label}: quality ${String(quality)} to stay under the ${MB(size.maxBytes ?? 0)} limit`,
+        );
+      } else {
+        sizeNotes.push(
+          `${size.label}: ${MB(bytes.byteLength)} is over the ${MB(size.maxBytes ?? 0)} limit. Choose JPG or WebP.`,
+        );
+      }
+    }
+    const done = withMetadata(bytes, piece, job, exif, index === 0 ? metaNotes : []);
+    last = { bytes: done.bytes, width: piece.width, height: piece.height, quality };
+    entries[
+      `${stem}-${size.id}-${String(size.width)}x${String(size.height)}.${OUTPUT_EXT[job.output]}`
+    ] = [new Uint8Array(done.bytes), { level: 0 }];
+  }
+  if (!last) throw new Error('No sizes picked');
+  notes.push(
+    fit === 'fill'
+      ? 'Filled and cropped around the focal point'
+      : fit === 'blur'
+        ? 'The whole image, on a blurred copy of itself'
+        : `The whole image, on ${job.social.color.toUpperCase()}`,
+    ...sizeNotes,
+    ...metaNotes,
+  );
+  if (sizes.length === 1) {
+    return {
+      type: 'done',
+      bytes: last.bytes,
+      width: last.width,
+      height: last.height,
+      output: job.output,
+      notes,
+      quality: LOSSY.includes(job.output) ? last.quality : undefined,
+    };
+  }
+  post({ type: 'progress', fraction: 0.95, stage: 'Packing the ZIP' });
+  const zip = zipSync(entries);
+  return {
+    type: 'done',
+    bytes: zip.slice().buffer,
+    width: last.width,
+    height: last.height,
+    output: job.output,
+    notes,
+    quality: LOSSY.includes(job.output) ? job.quality : undefined,
+    tiles: sizes.length,
+  };
+}
+
 async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done' }>> {
   const notes: string[] = [];
   post({ type: 'progress', fraction: 0.1, stage: 'Reading' });
@@ -227,6 +361,7 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
     notes.push(...done.notes);
   }
   if (job.tiles) return runTiles({ ...job, tiles: job.tiles }, image, notes);
+  if (job.social) return runSocial({ ...job, social: job.social }, image, notes);
 
   if ((job.output === 'jpeg' || job.output === 'bmp') && hasAlpha(image)) {
     if (job.output === 'jpeg') {
@@ -241,31 +376,15 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   let quality = job.quality;
   let bytes: ArrayBuffer;
   if (job.targetBytes && LOSSY.includes(job.output)) {
-    // Binary search on quality, at most 8 encodes (tools/photo.md → P05).
-    let low = 40;
-    let high = 95;
-    let best: { bytes: ArrayBuffer; quality: number } | null = null;
-    for (let step = 0; step < 8 && low <= high; step += 1) {
-      const q = Math.round((low + high) / 2);
-      const attempt = await encode(image, job.output, q, false);
+    const best = await encodeUnder(image, job.output, job.targetBytes, (step, q) => {
       post({
         type: 'progress',
         fraction: 0.3 + (0.6 * (step + 1)) / 8,
         stage: `Trying quality ${String(q)}`,
       });
-      if (attempt.byteLength <= job.targetBytes) {
-        best = { bytes: attempt, quality: q };
-        low = q + 1;
-      } else {
-        high = q - 1;
-      }
-    }
-    if (!best) {
-      const floor = await encode(image, job.output, 40, false);
-      best = { bytes: floor, quality: 40 };
-      if (floor.byteLength > job.targetBytes) {
-        notes.push('Still above the target at quality 40. Set a maximum size in px to go smaller.');
-      }
+    });
+    if (best.bytes.byteLength > job.targetBytes) {
+      notes.push('Still above the target at quality 40. Set a maximum size in px to go smaller.');
     }
     bytes = best.bytes;
     quality = best.quality;

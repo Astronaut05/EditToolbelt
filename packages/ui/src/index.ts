@@ -23,7 +23,12 @@ export { MonoLabel } from './primitives/MonoLabel';
 export { NumberedList } from './primitives/NumberedList';
 export { OptionFact, OptionRow, OptionsPanel } from './primitives/OptionsPanel';
 export { Dialog, Toast, Tooltip } from './primitives/overlays';
-export { PresetPicker, type Preset } from './primitives/PresetPicker';
+export {
+  PresetChecklist,
+  PresetPicker,
+  type Preset,
+  type PresetGroup,
+} from './primitives/PresetPicker';
 export { PrivacyBadge, type Noun } from './primitives/PrivacyBadge';
 export { SegmentedControl, type SegmentOption } from './primitives/SegmentedControl';
 export {

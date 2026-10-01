@@ -35,6 +35,26 @@ export function OptionRow({
   );
 }
 
+/** A settings row whose control needs the width: the label above it (a checklist). */
+export function OptionStack({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('border-b border-border pt-4 pb-5', className)}>
+      <span className="mb-3 block text-14 text-text-muted" aria-hidden="true">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
 /** Read-only fact in a settings row, in mono (e.g. the AI model). */
 export function OptionFact({ label, children }: { label: string; children: ReactNode }) {
   return (

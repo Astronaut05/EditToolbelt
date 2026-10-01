@@ -996,3 +996,29 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/photo.md` → P15 ("removal re-writes the container without re-encoding pixels where the format allows").
 **Reverse:** the rules are in `packages/engines/src/image/metadata.ts` and `tiff.ts`, with tests.
+
+## 2026-10-01 · Social Media Image Resizer (M8)
+
+**Decision:**
+- **The sizes** live in `packages/core/src/social-presets.ts`, each with a `verifiedOn` date (the spec's `verified_on`):
+  - 14 sizes on 7 platforms: the spec's list, plus Instagram 3:4 (1080 × 1440, whole in the profile grid since 2025) and LinkedIn's company page cover (1128 × 191).
+  - Facebook's cover is 851 × 315, the size Facebook itself recommends.
+  - All were checked on 2026-10-01 against current published size guides. The platforms' own help pages (Google, Meta) can't be reached from the build environment, so Astro should confirm them there at the first quarterly review.
+  - A size's `note` says what the platform covers or crops (Story text margins, YouTube's 1546 × 423 safe area on phones, profile photos over X and LinkedIn headers), and shows in the result notes.
+- **Upload limits are kept, not just shown:** YouTube thumbnail 2 MB, YouTube banner 6 MB, X post 5 MB.
+  - JPG, WebP and AVIF over a limit get the highest quality that fits (a binary search, as Compress does, never below 40), and the notes say so.
+  - A PNG over a limit is left as made, and the notes say to choose JPG or WebP.
+  - Room is left for the EXIF that goes back in after the encode.
+- **Fill, crop** takes the largest window of the size's shape around the focal point, as far as the edges allow. Fit keeps the whole image on a blurred copy of itself, or on a picked color.
+- **The blur** is made at a sixteenth of the size: three box blurs each way (close to a Gaussian), then scaled up. A 2560 px banner takes a fraction of a second and looks the same in every browser. Canvas `filter` isn't used, as Safari's support is recent.
+- **Resampling** uses the same Lanczos filter as Resize Image. A size bigger than the image is enlarged, with a note when it's more than 5%.
+- **One size downloads as the image,** named with the size (`photo_instagram-square-1080x1080.jpg`). Two or more download as a stored ZIP, each file named `photo-{size id}-{w}x{h}.ext`.
+- **Shell additions,** reusable by other tools:
+  - A `checklist` option kind: grouped checkboxes with the numbers beside them; on phones, a settings row summarising the picks.
+  - A `focus` preset: a focal-point picker with an outline per picked size. Click, tap or drag to move it; arrow keys move it 2% (Shift 10%), Home centres it.
+  - `EngineOutput.nameSuffix`: an engine can name the download after the run.
+  - A "Back to the settings" link on the result, to change the sizes or the point and run again.
+  - A new image resets the focal point to the centre.
+
+**Why:** `tools/photo.md` → P13 ("preset table lives in `packages/core/social-presets.ts` with a `verified_on` date per preset; review quarterly").
+**Reverse:** the sizes are one table, and the framing is in `packages/engines/src/image/social.ts`, with tests.
