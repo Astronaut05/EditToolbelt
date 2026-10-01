@@ -5,6 +5,7 @@ description = "EditToolbelt job worker: ffmpeg, DSP and ML processors (docs/01-a
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "boto3>=1.43",
+    "modal>=1.6",
     "psycopg[binary]>=3.3",
     "pydantic>=2.13",
     "pydantic-settings>=2.14",

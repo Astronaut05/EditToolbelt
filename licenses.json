@@ -168,6 +168,19 @@
       "checked": "2026-09-29"
     },
     {
+      "label": "Modal client (`modal`)",
+      "section": "Platform and app",
+      "ecosystem": "pypi",
+      "packages": ["modal"],
+      "use": "the worker calls the GPU functions on Modal; CI deploys the Modal app (ServerlessGpu, docs/01 → GPU backend)",
+      "license": "Apache-2.0",
+      "scope": "server",
+      "status": "approved",
+      "version": "1.6.0",
+      "source": "https://github.com/modal-labs/modal-client/blob/main/LICENSE",
+      "checked": "2026-10-01"
+    },
+    {
       "label": "next-intl",
       "section": "Platform and app",
       "ecosystem": "npm",
@@ -1197,5 +1210,18 @@
       "reason": "Commercial TypeType font licensed to Uzcosmos for Uzcosmos work only; embedding it in a website distributes it"
     }
   ],
-  "reviewedTransitive": []
+  "reviewedTransitive": [
+    {
+      "ecosystem": "pypi",
+      "package": "multidict",
+      "license": "Apache-2.0",
+      "reason": "aiohttp's dependency (via modal); aio-libs/multidict is Apache-2.0, its wheels carry no license metadata. Reviewed 2026-10-01."
+    },
+    {
+      "ecosystem": "pypi",
+      "package": "protobuf",
+      "license": "BSD-3-Clause",
+      "reason": "modal's dependency; Google's protobuf is BSD-3-Clause, its wheels carry no license metadata. Reviewed 2026-10-01."
+    }
+  ]
 }
