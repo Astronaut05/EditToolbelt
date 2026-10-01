@@ -1937,9 +1937,7 @@ function Workspace({
             )}
             <MediaTag className="left-3.5">Result</MediaTag>
           </div>
-        ) : (isImage(preset) || output.blob?.type.startsWith('image/')) &&
-          output.url &&
-          preset.result === 'output' ? (
+        ) : output.blob?.type.startsWith('image/') && output.url && preset.result === 'output' ? (
           <div className="absolute inset-0 flex items-center justify-center bg-surface p-8 pb-24">
             {/* eslint-disable-next-line @next/next/no-img-element -- local object URL */}
             <img
@@ -1949,7 +1947,8 @@ function Workspace({
             />
             <MediaTag className="left-3.5">Result</MediaTag>
           </div>
-        ) : isImage(preset) && input.url && output.url ? (
+        ) : isImage(preset) && input.url && output.url && output.blob?.type.startsWith('image/') ? (
+          // A ZIP of tiles (P14) or another non-image result falls through to its file card.
           <BeforeAfter
             className="absolute inset-0"
             compact

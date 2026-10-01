@@ -6,7 +6,10 @@
  */
 import { encodeBmp } from './bmp';
 import { decodeImage, ImageReadError } from './decode';
-import { applyGeometry, GeometryError } from './geometry';
+import { zipSync } from 'fflate';
+
+import { applyGeometry, cropPixels, GeometryError } from './geometry';
+import { GridError, gridTiles, tileName } from './grid';
 import {
   cleanExif,
   jpegWithExif,
@@ -116,6 +119,97 @@ const SAME_FORMAT: Partial<Record<ImageFormat, OutputFormat>> = {
   bmp: 'bmp',
 };
 
+/**
+ * Puts back the metadata the person chose: camera and copyright without GPS
+ * (the default), or nothing. Answers the bytes and whether there was GPS.
+ */
+function withMetadata(
+  bytes: ArrayBuffer,
+  image: ImageData,
+  job: ImageJob,
+  exif: Uint8Array | null,
+  notes: string[],
+): { bytes: ArrayBuffer; hadGps: boolean } {
+  if (!exif) return { bytes, hadGps: false };
+  if (job.metadata === 'none') {
+    notes.push('All metadata removed');
+    return { bytes, hadGps: false };
+  }
+  const cleaned = cleanExif(exif, { dropGps: true });
+  if (!cleaned) return { bytes, hadGps: false };
+  let withExif: Uint8Array | null = null;
+  const out = new Uint8Array(bytes);
+  if (job.output === 'jpeg') withExif = jpegWithExif(out, cleaned.tiff);
+  if (job.output === 'png') withExif = pngWithExif(out, cleaned.tiff);
+  if (job.output === 'webp')
+    withExif = webpWithExif(out, cleaned.tiff, {
+      width: image.width,
+      height: image.height,
+      alpha: hasAlpha(image),
+    });
+  if (withExif) {
+    notes.push(
+      cleaned.hadGps ? 'GPS location removed, camera details kept' : 'Camera details kept',
+    );
+    return { bytes: withExif.slice().buffer, hadGps: cleaned.hadGps };
+  }
+  notes.push(
+    `Camera details not kept: ${FORMAT_LABELS[job.format]} to ${OUTPUT_EXT[job.output].toUpperCase()} carries no EXIF here`,
+  );
+  return { bytes, hadGps: cleaned.hadGps };
+}
+
+/** P14: every tile cropped, encoded and given its metadata, in one ZIP (stored: images don't shrink). */
+async function runTiles(
+  job: ImageJob & { tiles: NonNullable<ImageJob['tiles']> },
+  image: ImageData,
+  notes: string[],
+): Promise<Extract<WorkerMessage, { type: 'done' }>> {
+  const tiles = gridTiles(image, job.tiles);
+  const exif = sourceExif(new Uint8Array(job.bytes), job.format);
+  const entries: Record<string, [Uint8Array, { level: 0 }]> = {};
+  const tileNotes: string[] = [];
+  for (const [index, tile] of tiles.entries()) {
+    post({
+      type: 'progress',
+      fraction: 0.3 + (0.6 * index) / tiles.length,
+      stage: `Tile ${String(index + 1)} of ${String(tiles.length)}`,
+    });
+    const cut = cropPixels(image, tile);
+    let piece = new ImageData(new Uint8ClampedArray(cut.data), cut.width, cut.height);
+    if (job.output === 'jpeg' && hasAlpha(piece)) piece = flatten(piece, job.background);
+    const encoded = await encode(piece, job.output, job.quality, job.optimise ?? false);
+    const done = withMetadata(encoded, piece, job, exif, index === 0 ? tileNotes : []);
+    entries[tileName(job.tiles.stem, tile, tiles.length, OUTPUT_EXT[job.output])] = [
+      new Uint8Array(done.bytes),
+      { level: 0 },
+    ];
+  }
+  post({ type: 'progress', fraction: 0.95, stage: 'Packing the ZIP' });
+  const first = tiles[0];
+  const sizes = new Set(tiles.map((t) => `${String(t.width)} × ${String(t.height)}`));
+  notes.push(
+    sizes.size === 1
+      ? `${String(tiles.length)} tiles of ${[...sizes][0] ?? ''} px`
+      : `${String(tiles.length)} tiles, ${[...sizes].join(' or ')} px`,
+    job.tiles.order === 'posting'
+      ? 'Numbered in posting order: post 1 first, and the grid reads right on a profile'
+      : 'Numbered left to right, top to bottom',
+    ...tileNotes,
+  );
+  const zip = zipSync(entries);
+  return {
+    type: 'done',
+    bytes: zip.slice().buffer,
+    width: first?.width ?? 0,
+    height: first?.height ?? 0,
+    output: job.output,
+    notes,
+    quality: LOSSY.includes(job.output) ? job.quality : undefined,
+    tiles: tiles.length,
+  };
+}
+
 async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done' }>> {
   const notes: string[] = [];
   post({ type: 'progress', fraction: 0.1, stage: 'Reading' });
@@ -132,6 +226,7 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
     image = new ImageData(done.image.data, done.image.width, done.image.height);
     notes.push(...done.notes);
   }
+  if (job.tiles) return runTiles({ ...job, tiles: job.tiles }, image, notes);
 
   if ((job.output === 'jpeg' || job.output === 'bmp') && hasAlpha(image)) {
     if (job.output === 'jpeg') {
@@ -180,37 +275,15 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   post({ type: 'progress', fraction: 0.92, stage: 'Finishing' });
 
   // Metadata: camera and copyright kept, GPS removed (the default), or nothing.
-  const source = new Uint8Array(job.bytes);
-  const exif = sourceExif(source, job.format);
-  let hadGps = false;
-  if (exif) {
-    if (job.metadata === 'none') {
-      notes.push('All metadata removed');
-    } else {
-      const cleaned = cleanExif(exif, { dropGps: true });
-      if (cleaned) {
-        hadGps = cleaned.hadGps;
-        let withExif: Uint8Array | null = null;
-        const out = new Uint8Array(bytes);
-        if (job.output === 'jpeg') withExif = jpegWithExif(out, cleaned.tiff);
-        if (job.output === 'png') withExif = pngWithExif(out, cleaned.tiff);
-        if (job.output === 'webp')
-          withExif = webpWithExif(out, cleaned.tiff, {
-            width: image.width,
-            height: image.height,
-            alpha: hasAlpha(image),
-          });
-        if (withExif) {
-          bytes = withExif.slice().buffer;
-          notes.push(hadGps ? 'GPS location removed, camera details kept' : 'Camera details kept');
-        } else {
-          notes.push(
-            `Camera details not kept: ${FORMAT_LABELS[job.format]} to ${OUTPUT_EXT[job.output].toUpperCase()} carries no EXIF here`,
-          );
-        }
-      }
-    }
-  }
+  const kept = withMetadata(
+    bytes,
+    image,
+    job,
+    sourceExif(new Uint8Array(job.bytes), job.format),
+    notes,
+  );
+  bytes = kept.bytes;
+  const hadGps = kept.hadGps;
 
   // Compress never hands back a bigger file of the same format (tools/photo.md → P05).
   const unchanged = scale === 1 && !job.geometry && SAME_FORMAT[job.format] === job.output;
@@ -244,7 +317,9 @@ scope.onmessage = (event) => {
       post({
         type: 'error',
         message:
-          error instanceof ImageReadError || error instanceof GeometryError
+          error instanceof ImageReadError ||
+          error instanceof GeometryError ||
+          error instanceof GridError
             ? error.message
             : `The image couldn’t be processed: ${error instanceof Error ? error.message : 'unknown error'}`,
       });
