@@ -35,6 +35,7 @@ from etb_worker.tasks import (
     format_digest,
     ledger_check,
     retention_purge,
+    tool_stats,
 )
 
 URL = os.environ.get("TEST_DATABASE_URL", "")
@@ -281,6 +282,73 @@ def test_the_digest_counts_one_tashkent_day(db: Conn) -> None:
     assert "Server jobs: 5 (2 failed, 40 %)" in text
     assert "Revenue: 9.00 USD (100 credits sold)" in text
     assert "@" not in text  # no emails, no personal data
+
+
+def test_tool_stats_sum_up_one_tashkent_day(db: Conn, outbox: Outbox) -> None:
+    day = date(2001, 1, 1) + timedelta(days=random.randrange(7000))  # noqa: S311
+    start, end = day_bounds(day)
+    user = new_user(db)
+    tool = f"test-stats-{uuid.uuid4().hex[:6]}"
+
+    def job(status: str, run_sec: float, created: datetime, **extra: Any) -> None:
+        began = created + timedelta(seconds=5)
+        db.execute(
+            "insert into jobs (tool_id, user_id, source, status, created_at, queued_at,"
+            " started_at, finished_at, credits_charged, gpu_seconds)"
+            " values (%s, %s, 'web', %s, %s, %s, %s, %s, %s, %s)",
+            (
+                tool,
+                user,
+                status,
+                created,
+                created,
+                began,
+                began + timedelta(seconds=run_sec),
+                extra.get("credits", 0),
+                extra.get("gpu"),
+            ),
+        )
+
+    noon = start + timedelta(hours=12)
+    for seconds in (10, 20, 30, 40):
+        job("succeeded", seconds, noon, credits=2)
+    job("failed", 100, noon)
+    job("succeeded", 50, noon, gpu=12.5, credits=5)
+    job("succeeded", 999, end + timedelta(minutes=1))  # the next day
+    tool_stats(db, TaskContext(notifier=outbox.notifier, now=end + timedelta(hours=8)))
+    rows = db.execute(
+        "select runtime::text, jobs_total, jobs_failed, p50_ms, p95_ms, gpu_seconds,"
+        " credits_charged from tool_stats_daily where day = %s and tool_id = %s order by 1",
+        (day, tool),
+    ).fetchall()
+    assert [dict(row) for row in rows] == [
+        {
+            "runtime": "server-cpu",
+            "jobs_total": 5,
+            "jobs_failed": 1,
+            "p50_ms": 30_000,
+            "p95_ms": 88_000,
+            "gpu_seconds": 0,
+            "credits_charged": 8,
+        },
+        {
+            "runtime": "server-gpu",
+            "jobs_total": 1,
+            "jobs_failed": 0,
+            "p50_ms": 50_000,
+            "p95_ms": 50_000,
+            "gpu_seconds": 12.5,
+            "credits_charged": 5,
+        },
+    ]
+    # Running it again rewrites the day rather than adding to it.
+    tool_stats(db, TaskContext(notifier=outbox.notifier, now=end + timedelta(hours=8)))
+    again = db.execute(
+        "select sum(jobs_total) as n from tool_stats_daily where day = %s and tool_id = %s",
+        (day, tool),
+    ).fetchone()
+    assert again is not None
+    assert again["n"] == 6
 
 
 def test_the_scheduler_runs_each_daily_job_once(settings: Settings, db: Conn) -> None:

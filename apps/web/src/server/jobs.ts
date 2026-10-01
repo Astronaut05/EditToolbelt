@@ -30,6 +30,7 @@ import {
   sql,
   uploads,
   users,
+  type Queryable,
 } from '@etb/db';
 import { costOf, hasServerPath, isAvailable, limitsOf, priceOf, tools } from '@etb/registry';
 import { parseServerOptions } from '@etb/registry/options';
@@ -56,8 +57,19 @@ const OUTPUT_TTL_MS = 60 * 60 * 1000;
 
 interface Probe {
   duration_ms?: number;
-  video?: { width?: number; height?: number } | null;
+  video?: { width?: number; height?: number; fps?: number; vfr?: boolean | null } | null;
 }
+
+/**
+ * A tool's own reason not to run a file, read from the probe before any job
+ * exists: nothing to fix means nothing to pay.
+ */
+const PRECHECKS: Record<string, (probe: Probe) => string | null> = {
+  'vfr-to-cfr': (probe) =>
+    probe.video?.vfr === false
+      ? `This video already has a constant frame rate${probe.video.fps ? ` (${probe.video.fps.toFixed(2)} fps)` : ''}, so it stays in sync as it is. Nothing to fix, and nothing was charged.`
+      : null,
+};
 
 export interface JobRequest {
   toolId: string;
@@ -225,6 +237,8 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   const probe = (probed.probe ?? {}) as Probe;
   const tier = await tierOf(user.id);
   checkLimits(tool, tier, probe);
+  const reason = PRECHECKS[tool.id]?.(probe);
+  if (reason) throw new ApiError(422, 'NOTHING_TO_DO', 'Nothing to fix', reason);
   const parsed = parseServerOptions(tool.id, request.options);
   if (!parsed.ok) throw new ApiError(400, 'BAD_REQUEST', 'Invalid options', parsed.error);
   const megapixels = ((probe.video?.width ?? 0) * (probe.video?.height ?? 0)) / 1e6;
@@ -468,9 +482,16 @@ export async function jobView(job: Job) {
   };
 }
 
-/** Stops a queued or running job; its credits and its free daily slot come back. */
-export async function cancelJob(user: CurrentUser, id: string): Promise<Job> {
-  const job = await ownJob(user, id);
+/**
+ * Stops a queued or running job and gives back what it took: its credits,
+ * and so its free daily slot. A job that never started loses its input now;
+ * a running one's worker notices within 5 s and deletes it. `also` runs in
+ * the same transaction (the admin's audit row). Null if it had already ended.
+ */
+export async function stopJob(
+  job: Job,
+  also?: (tx: Queryable, row: Job) => Promise<void>,
+): Promise<Job | null> {
   const cancelled = await db().transaction(async (tx) => {
     const [row] = await tx
       .update(jobs)
@@ -484,12 +505,12 @@ export async function cancelJob(user: CurrentUser, id: string): Promise<Job> {
       .returning();
     if (!row) return null;
     if (row.creditsQuoted > 0) {
-      await applyCredit(tx, user.id, 'release', row.creditsQuoted, { jobId: row.id });
+      await applyCredit(tx, row.userId, 'release', row.creditsQuoted, { jobId: row.id });
     }
+    await also?.(tx, row);
     return row;
   });
-  if (!cancelled) return job;
-  // A job that never started still has its input; a running one's worker deletes it.
+  if (!cancelled) return null;
   if (job.status === 'queued' && job.inputKey) {
     try {
       await deleteObject(job.inputKey);
@@ -506,6 +527,12 @@ export async function cancelJob(user: CurrentUser, id: string): Promise<Job> {
   }
   log.info({ job_id: job.id, tool_id: job.toolId }, 'job.cancelled');
   return cancelled;
+}
+
+/** The caller cancels their own job; cancelling an ended one answers it as it is. */
+export async function cancelJob(user: CurrentUser, id: string): Promise<Job> {
+  const job = await ownJob(user, id);
+  return (await stopJob(job)) ?? job;
 }
 
 /** The caller's recent jobs, newest first, 20 a page; `cursor` is the last id of the previous page. */

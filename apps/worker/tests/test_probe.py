@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from etb_worker.probe import ProbeRefused, probe_json, summarize
+from etb_worker.probe import ProbeRefused, probe_json, summarize, variable_frame_rate
 
 VIDEO = {
     "codec_type": "video",
@@ -46,6 +46,7 @@ def test_summarizes_container_streams_and_duration() -> None:
             "width": 1920,
             "height": 1080,
             "fps": 30.0,
+            "vfr": None,
             "maybe_vfr": False,
             "pix_fmt": "yuv420p",
             "rotation": 0,
@@ -58,6 +59,32 @@ def test_flags_a_likely_variable_frame_rate() -> None:
     vfr = {**VIDEO, "r_frame_rate": "30/1", "avg_frame_rate": "2950/100"}
     record = summarize({"format": {"format_name": "mov,mp4"}, "streams": [vfr]}, "video/quicktime")
     assert record["video"]["maybe_vfr"] is True
+    assert record["video"]["vfr"] is None
+
+
+def test_the_frames_own_clock_decides_variable_frame_rate() -> None:
+    steady = [n / 30 for n in range(300)]
+    assert variable_frame_rate(steady) is False
+    # 29.97 fps on a 600 timescale: gaps of 20 and 21 ticks are still constant.
+    ticks = [round(n * 600 / 29.97) / 600 for n in range(300)]
+    assert variable_frame_rate(ticks) is False
+    # A phone's clock: every fifth gap a third longer.
+    phone, t = [], 0.0
+    for n in range(300):
+        phone.append(t)
+        t += 0.0444 if n % 5 == 0 else 0.0333
+    assert variable_frame_rate(phone) is True
+    assert variable_frame_rate([0.0, 0.1]) is None
+    # It overrides the header's hint either way.
+    record = summarize(
+        {
+            "format": {"format_name": "mov,mp4"},
+            "streams": [{**VIDEO, "r_frame_rate": "30/1", "avg_frame_rate": "2950/100"}],
+            "frame_times": steady,
+        },
+        "video/mp4",
+    )
+    assert (record["video"]["vfr"], record["video"]["maybe_vfr"]) == (False, False)
 
 
 def test_refuses_content_that_is_not_the_claimed_type() -> None:
@@ -81,6 +108,7 @@ def test_refuses_files_without_streams_huge_frames_and_endless_media() -> None:
 def test_probes_real_files_and_refuses_broken_ones(media: dict[str, Any]) -> None:
     record = summarize(probe_json(media["mp4"]), "video/mp4")
     assert record["video"]["width"] == 160
+    assert record["video"]["vfr"] is False
     assert record["audio"]["codec"] == "aac"
     assert 1900 <= record["duration_ms"] <= 2200
     with pytest.raises(ProbeRefused):

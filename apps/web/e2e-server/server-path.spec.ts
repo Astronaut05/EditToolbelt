@@ -9,7 +9,18 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { applyCredit, and, desc, eq, isNotNull, jobs, toolFlags, uploads, users } from '@etb/db';
+import {
+  applyCredit,
+  and,
+  count,
+  desc,
+  eq,
+  isNotNull,
+  jobs,
+  toolFlags,
+  uploads,
+  users,
+} from '@etb/db';
 import { expect, test, type Page } from '@playwright/test';
 import { AwsClient } from 'aws4fetch';
 
@@ -17,7 +28,10 @@ import { TEST_STORAGE } from '../scripts/server-env.ts';
 import { closeTestDb, newEmail, signIn, testDb } from './helpers';
 
 const db = testDb();
-const CLIP = fileURLToPath(new URL('../../../fixtures/video/clip-h264-aac.mp4', import.meta.url));
+const fixture = (name: string) =>
+  fileURLToPath(new URL(`../../../fixtures/video/${name}`, import.meta.url));
+const CLIP = fixture('clip-h264-aac.mp4');
+const VFR_CLIP = fixture('clip-vfr.mp4');
 
 const storage = new AwsClient({
   accessKeyId: TEST_STORAGE.S3_ACCESS_KEY_ID,
@@ -27,13 +41,19 @@ const storage = new AwsClient({
 });
 const objectUrl = (key: string) => `${TEST_STORAGE.S3_ENDPOINT}/${TEST_STORAGE.S3_BUCKET}/${key}`;
 
-test.describe.configure({ mode: 'serial' });
+// The first test waits for the page to pick up the server path (up to a minute).
+test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
 test.beforeAll(async () => {
   await db
     .insert(toolFlags)
     .values({ toolId: 'compress-video', serverEnabled: true })
     .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
+  // A server tool waits for an admin to set its status (it's `soon` in the registry).
+  await db
+    .insert(toolFlags)
+    .values({ toolId: 'vfr-to-cfr', status: 'beta' })
+    .onConflictDoUpdate({ target: toolFlags.toolId, set: { status: 'beta' } });
 });
 
 // The switches stay on (see jobs.spec.ts): the API's routes would see them go off late.
@@ -68,7 +88,7 @@ async function userId(email: string): Promise<string> {
 }
 
 /** The worker's probe: waits for the page's upload to complete, then records it. */
-async function probeUpload(owner: string, durationMs: number) {
+async function probeUpload(owner: string, durationMs: number, video: Record<string, unknown> = {}) {
   let id = '';
   await expect
     .poll(
@@ -91,7 +111,7 @@ async function probeUpload(owner: string, durationMs: number) {
       probe: {
         container: 'mp4',
         duration_ms: durationMs,
-        video: { codec: 'h264', width: 256, height: 144, fps: 30 },
+        video: { codec: 'h264', width: 256, height: 144, fps: 30, ...video },
         audio: { codec: 'aac', channels: 2, sample_rate: 48000, bit_rate: 128000 },
       },
       probedAt: new Date(),
@@ -247,4 +267,94 @@ test('a price that differs from the offer is asked again; declining uploads noth
   await expect(page.getByRole('alert').filter({ hasText: 'Couldn' })).toContainText(
     'It took too long and was stopped. Credits returned.',
   );
+});
+
+/** Opens a server tool once its status is set (the page catches up within 30 s) and drops a file. */
+async function dropOnServerTool(page: Page, path: string, file: string) {
+  const start = page.getByRole('button', { name: 'Convert on our servers', exact: true });
+  await expect
+    .poll(
+      async () => {
+        await page.goto(path);
+        const input = page.locator('input[type=file][data-hydrated]').first();
+        if ((await input.count()) === 0) return false;
+        await input.setInputFiles(file);
+        await expect(page.getByText('Precise frame timing needs ffmpeg').first()).toBeAttached();
+        return start.isVisible();
+      },
+      { timeout: 90_000, intervals: [3000] },
+    )
+    .toBe(true);
+  return start;
+}
+
+test('VFR to CFR runs only on our servers and fixes a phone clip', async ({ page }) => {
+  const email = newEmail();
+  await signIn(page, email);
+  const owner = await userId(email);
+  const start = await dropOnServerTool(page, '/vfr-to-cfr', VFR_CLIP);
+  // No browser path: no Convert button of its own, no "instead" link.
+  await expect(page.getByRole('button', { name: 'Convert', exact: true })).toHaveCount(0);
+  await expect(offerLink(page)).toHaveCount(0);
+  await expect(
+    page
+      .getByText('Free: uses 1 of your free server jobs today (3 left).')
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await page.getByRole('combobox', { name: 'Frame rate' }).selectOption('25');
+  await start.click();
+
+  await probeUpload(owner, 4083, { fps: 29.39, vfr: true, maybe_vfr: true });
+  const job = await jobOf(owner);
+  expect(job).toMatchObject({ toolId: 'vfr-to-cfr', funding: 'daily', timeoutSec: 7200 });
+  expect(job.options).toEqual({ fps: '25', quality: 'best', audio: 'keep' });
+
+  const output = readFileSync(VFR_CLIP);
+  const outputKey = `out/${randomUUID()}`;
+  await storage.fetch(objectUrl(outputKey), { method: 'PUT', body: output });
+  await db
+    .update(jobs)
+    .set({
+      status: 'succeeded',
+      progress: 100,
+      outputKey,
+      outputMeta: {
+        bytes: output.length,
+        content_type: 'video/mp4',
+        ext: 'mp4',
+        notes: ['Constant 25 fps'],
+      },
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    })
+    .where(eq(jobs.id, job.id));
+  const download = page.getByRole('button', { name: /^Download MP4/ });
+  await expect(download).toBeEnabled({ timeout: 20_000 });
+  await expect(page.getByText('Constant 25 fps').first()).toBeAttached();
+  const saved = page.waitForEvent('download');
+  await download.click();
+  expect((await saved).suggestedFilename()).toBe('clip-vfr_cfr.mp4');
+  await storage.fetch(objectUrl(outputKey), { method: 'DELETE' });
+});
+
+test('a clip that is already constant is checked, and nothing is charged', async ({ page }) => {
+  const email = newEmail();
+  await signIn(page, email);
+  const owner = await userId(email);
+  const start = await dropOnServerTool(page, '/vfr-to-cfr', CLIP);
+  await expect(page.getByText(/It looks constant already \(30 fps\)/).first()).toBeAttached();
+  await start.click();
+  const upload = await probeUpload(owner, 30_000, { vfr: false, maybe_vfr: false });
+  await expect(page.getByRole('alert').filter({ hasText: 'Nothing to fix' })).toContainText(
+    'This video already has a constant frame rate (30.00 fps)',
+  );
+  const [made] = await db.select({ n: count() }).from(jobs).where(eq(jobs.userId, owner));
+  expect(made?.n).toBe(0);
+  // The upload goes at once; it was never needed.
+  await expect
+    .poll(async () => {
+      const [row] = await db.select().from(uploads).where(eq(uploads.id, upload));
+      return row?.deletedAt ?? null;
+    })
+    .not.toBeNull();
 });

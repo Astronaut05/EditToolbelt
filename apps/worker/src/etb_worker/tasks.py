@@ -1,4 +1,5 @@
-"""Once-a-day jobs: the ledger check, the account scrub, retention purges and the digest.
+"""Once-a-day jobs: the ledger check, the account scrub, retention purges,
+yesterday's job stats and the digest.
 
 Each writes its result to ``system_checks`` (the admin's System page) and
 runs inside the scheduler's lock, so only one worker does it.
@@ -221,3 +222,43 @@ def lifecycle_rules(conn: Conn, ctx: TaskContext) -> None:
         return
     for alert in lifecycle_check(conn, ctx.storage):
         raise_alert(conn, alert, ctx.notifier)
+
+
+def tool_stats(conn: Conn, ctx: TaskContext) -> None:
+    """Yesterday's server jobs by tool into ``tool_stats_daily`` (docs/04, docs/07 -> Dashboard).
+
+    A Tashkent day, like the digest. Run time is started to finished, of jobs
+    that ran; a job that used a GPU counts as server-gpu. Running it again
+    rewrites the day, so a retry after a failure is harmless.
+    """
+    day = local(ctx.now).date() - timedelta(days=1)
+    start, end = day_bounds(day)
+    rows = conn.execute(
+        """
+        insert into tool_stats_daily
+          (day, tool_id, runtime, jobs_total, jobs_failed, p50_ms, p95_ms,
+           gpu_seconds, credits_charged)
+        select %(day)s, tool_id,
+               (case when coalesce(gpu_seconds, 0) > 0 then 'server-gpu' else 'server-cpu' end)
+                 ::tool_runtime,
+               count(*), count(*) filter (where status in ('failed', 'expired')),
+               percentile_cont(0.5) within group (order by run_ms)::int,
+               percentile_cont(0.95) within group (order by run_ms)::int,
+               coalesce(sum(gpu_seconds), 0), coalesce(sum(credits_charged), 0)
+        from (
+          select *, extract(epoch from finished_at - started_at) * 1000 as run_ms
+          from jobs
+          where created_at >= %(start)s and created_at < %(end)s
+            and status in ('succeeded', 'failed', 'expired', 'cancelled')
+        ) finished
+        group by 1, 2, 3
+        on conflict (day, tool_id, runtime) do update set
+          jobs_total = excluded.jobs_total, jobs_failed = excluded.jobs_failed,
+          p50_ms = excluded.p50_ms, p95_ms = excluded.p95_ms,
+          gpu_seconds = excluded.gpu_seconds, credits_charged = excluded.credits_charged
+        returning tool_id
+        """,
+        {"day": day, "start": start, "end": end},
+    ).fetchall()
+    record_check(conn, "tool_stats", ok=True, detail={"day": day.isoformat(), "tools": len(rows)})
+    get_logger().info("task.tool_stats", day=day.isoformat(), tools=len(rows))

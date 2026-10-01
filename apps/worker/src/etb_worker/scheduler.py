@@ -37,6 +37,7 @@ from etb_worker.tasks import (
     ledger_check,
     lifecycle_rules,
     retention_purge,
+    tool_stats,
 )
 
 TICK_SEC = 30
@@ -54,6 +55,7 @@ DAILY: dict[str, tuple[time, Task]] = {
     "account_scrub": (NIGHTLY, account_scrub),
     "retention_purge": (NIGHTLY, retention_purge),
     "lifecycle_rules": (NIGHTLY, lifecycle_rules),
+    "tool_stats": (NIGHTLY, tool_stats),
     "daily_digest": (DIGEST_AT, daily_digest),
 }
 

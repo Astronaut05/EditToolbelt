@@ -9,10 +9,13 @@ import {
   adminAuditLog,
   alerts,
   and,
+  applyCredit,
   creditTransactions,
   eq,
+  jobs,
   systemChecks,
   toolFlags,
+  uploads,
   users,
 } from '@etb/db';
 import { expect, test, type Page } from '@playwright/test';
@@ -171,6 +174,85 @@ test('granting credits writes the ledger and the audit log', async ({ page }) =>
   await expect(page.getByRole('cell', { name: reason })).toBeVisible();
 });
 
+test('an admin finds a job, cancels it with its credits back, and retries one', async ({
+  page,
+}) => {
+  const admin = await becomeAdmin(page);
+  const target = newEmail();
+  const [user] = await db.insert(users).values({ email: target }).returning();
+  if (!user) throw new Error('no user');
+  await applyCredit(db, user.id, 'welcome_grant', 10);
+  const [queued] = await db
+    .insert(jobs)
+    .values({
+      toolId: 'compress-video',
+      userId: user.id,
+      source: 'web',
+      funding: 'credits',
+      creditsQuoted: 4,
+      options: { mode: 'size', targetMb: 25 },
+      inputMeta: { duration_ms: 240_000 },
+    })
+    .returning();
+  if (!queued) throw new Error('no job');
+  await applyCredit(db, user.id, 'reserve', -4, { jobId: queued.id });
+
+  await page.goto(`/admin/jobs?user=${encodeURIComponent(target)}`);
+  await expect(page.getByRole('region', { name: 'Jobs' }).getByRole('row')).toHaveCount(2);
+  await expect(page.getByRole('cell', { name: '4 credits' })).toBeVisible();
+  await page.getByRole('region', { name: 'Jobs' }).getByRole('link').first().click();
+  await expect(page.getByRole('heading', { name: `Job ${queued.id.slice(0, 8)}` })).toBeVisible();
+  await expect(page.getByText('"targetMb": 25')).toBeVisible();
+  await page.getByLabel('Reason (goes into the audit log)').fill('Stuck, support ticket');
+  await page.getByRole('button', { name: 'Cancel and give the credits back' }).click();
+  await expect(page.getByRole('main').getByRole('status')).toContainText('Cancelled');
+  const [after] = await db.select().from(users).where(eq(users.id, user.id));
+  expect(after?.creditBalance).toBe(10);
+  const [cancel] = await db
+    .select()
+    .from(adminAuditLog)
+    .where(and(eq(adminAuditLog.targetId, queued.id), eq(adminAuditLog.adminId, admin.id)));
+  expect(cancel).toMatchObject({ action: 'job.cancel', reason: 'Stuck, support ticket' });
+
+  // A failed job whose input is still there can run again, on us.
+  const key = `in/${crypto.randomUUID()}`;
+  await db.insert(uploads).values({
+    userId: user.id,
+    storageKey: key,
+    bytes: 10,
+    mimeClaimed: 'video/mp4',
+    toolId: 'compress-video',
+    partSize: 8 * 1024 * 1024,
+    partCount: 1,
+    expiresAt: new Date(Date.now() + 3_600_000),
+    completedAt: new Date(),
+  });
+  const [failed] = await db
+    .insert(jobs)
+    .values({
+      toolId: 'compress-video',
+      userId: user.id,
+      source: 'web',
+      status: 'failed',
+      errorCode: 'WORKER_LOST',
+      attempts: 3,
+      inputKey: key,
+      funding: 'daily',
+      finishedAt: new Date(),
+    })
+    .returning();
+  if (!failed) throw new Error('no job');
+  await page.goto(`/admin/jobs/${failed.id}`);
+  await expect(page.getByText('WORKER_LOST')).toBeVisible();
+  await page.getByLabel('Reason (goes into the audit log)').fill('Worker crash, rerun');
+  await page.getByRole('button', { name: 'Run it again' }).click();
+  await expect(page.getByRole('main').getByRole('status')).toContainText('Back in the queue');
+  const [rerun] = await db.select().from(jobs).where(eq(jobs.id, failed.id));
+  expect(rerun).toMatchObject({ status: 'queued', attempts: 0, errorCode: null, funding: 'none' });
+  // Leave nothing queued for other tests' workers.
+  await db.update(jobs).set({ status: 'cancelled' }).where(eq(jobs.id, failed.id));
+});
+
 test('the signed-in pages pass axe, light and dark', async ({ page }) => {
   await becomeAdmin(page);
   // A table wider than the screen, so axe also checks one that scrolls sideways.
@@ -179,13 +261,28 @@ test('the signed-in pages pass axe, light and dark', async ({ page }) => {
     .values({ name: 'e2e_wide_table', ok: true, detail: { note: 'x'.repeat(400) } })
     .onConflictDoNothing();
   const [user] = await db.insert(users).values({ email: newEmail() }).returning();
+  if (!user) throw new Error('no user');
+  const [job] = await db
+    .insert(jobs)
+    .values({
+      toolId: 'compress-video',
+      userId: user.id,
+      source: 'web',
+      status: 'failed',
+      errorCode: 'TIMEOUT',
+      options: { mode: 'quality', quality: 'high' },
+      finishedAt: new Date(),
+    })
+    .returning();
   const paths = [
     '/account',
     '/admin',
     '/admin/tools',
     '/admin/tools/trim-video',
+    '/admin/jobs',
+    `/admin/jobs/${job?.id ?? ''}`,
     '/admin/users',
-    `/admin/users/${user?.id ?? ''}`,
+    `/admin/users/${user.id}`,
     '/admin/audit',
     '/admin/system',
   ];

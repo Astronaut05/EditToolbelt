@@ -41,13 +41,14 @@ export function shellTool(tool: ToolDef): ShellTool {
 }
 
 /**
- * A hybrid tool's server path, once an admin has switched it on. Only the
- * server build knows (it reads the switch from the database); the static
- * export never offers it.
+ * A tool's server path: a server tool's always, a hybrid tool's once an
+ * admin has switched it on. Only the server build has one (it reads the
+ * switch from the database); the static export never offers it.
  */
 function serverInfo(tool: ToolDef): ShellTool['server'] {
   const server = limitsOf(tool)?.server;
-  if (tool.runtime !== 'hybrid' || !hasServerPath(tool) || !server) return undefined;
+  if (process.env.ETB_TARGET !== 'server' || tool.runtime === 'client') return undefined;
+  if (!hasServerPath(tool) || !server) return undefined;
   const rule = costOf(tool);
   return {
     rule,

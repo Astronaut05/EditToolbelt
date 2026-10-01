@@ -11,8 +11,10 @@ the tool's own limits against the probe when it quotes a job.
 
 from __future__ import annotations
 
+import itertools
 import json
 import shutil
+import statistics
 import tempfile
 from collections.abc import Callable
 from fractions import Fraction
@@ -44,6 +46,9 @@ CONTAINERS: dict[str, set[str]] = {
 }
 
 MAX_PIXELS = 100_000_000  # a decoded frame, docs/11 -> decompression bombs
+#: Frame times read for the variable-frame-rate check: the first minute is enough.
+FRAME_TIMES_SPAN = "%+60"
+MAX_FRAME_TIMES = 7200
 MAX_DURATION_MS = 24 * 60 * 60 * 1000
 PROBE_LIMITS = Limits(timeout_sec=60, memory_bytes=2 * 1024**3)
 
@@ -95,13 +100,17 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
             raise ProbeRefused("FILE_TOO_LARGE", f"{width}x{height} is over 100 MP")
         real = _rate(video.get("r_frame_rate"))
         average = _rate(video.get("avg_frame_rate"))
+        # The frames' own clock says for sure; different "real" and average
+        # rates in the header are the usual sign when it can't be read.
+        vfr = variable_frame_rate(raw.get("frame_times") or [])
+        header_hint = bool(real and average and abs(real - average) > 0.01 * real)
         record["video"] = {
             "codec": video.get("codec_name"),
             "width": width,
             "height": height,
             "fps": average or real,
-            # Different "real" and average rates are the usual sign of variable frame rate.
-            "maybe_vfr": bool(real and average and abs(real - average) > 0.01 * real),
+            "vfr": vfr,
+            "maybe_vfr": header_hint if vfr is None else vfr,
             "pix_fmt": video.get("pix_fmt"),
             "rotation": _rotation(video),
         }
@@ -114,6 +123,23 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
             "bit_rate": _int_or_none(audio.get("bit_rate")),
         }
     return record
+
+
+def variable_frame_rate(times: list[float]) -> bool | None:
+    """Whether the frames come on an irregular clock; None with too few to tell.
+
+    A frame gap more than 25 % off the usual one is irregular (timebase
+    rounding stays far under that); a few of them in a hundred is a
+    variable frame rate, as phones and screen recorders make.
+    """
+    ordered = sorted(times)
+    gaps = [later - earlier for earlier, later in itertools.pairwise(ordered)]
+    gaps = [gap for gap in gaps if gap > 0]
+    if len(gaps) < 10:
+        return None
+    usual = statistics.median(gaps)
+    irregular = sum(1 for gap in gaps if abs(gap - usual) > 0.25 * usual)
+    return irregular >= max(2, len(gaps) // 100)
 
 
 def _int_or_none(value: object) -> int | None:
@@ -146,7 +172,34 @@ def probe_json(path: Path) -> dict[str, Any]:
         raise ProbeRefused("UNSUPPORTED_FORMAT", "ffprobe gave no answer") from None
     if not isinstance(data, dict):
         raise ProbeRefused("UNSUPPORTED_FORMAT", "ffprobe gave no answer")
+    streams = data.get("streams") or []
+    if any(stream.get("codec_type") == "video" for stream in streams):
+        data["frame_times"] = frame_times(path)
     return data
+
+
+def frame_times(path: Path) -> list[float]:
+    """The first minute's video packet times, for the variable-frame-rate check."""
+    lines: list[str] = []
+    try:
+        run(
+            ffprobe(
+                *("-select_streams", "v:0", "-read_intervals", FRAME_TIMES_SPAN),
+                *("-show_entries", "packet=pts_time", "-of", "csv=p=0", "-i", path.name),
+            ),
+            cwd=path.parent,
+            limits=PROBE_LIMITS,
+            on_line=lines.append,
+        )
+    except ToolError:
+        return []  # the header's hint stands in
+    times: list[float] = []
+    for line in lines[:MAX_FRAME_TIMES]:
+        try:
+            times.append(float(line.strip().rstrip(",")))
+        except ValueError:
+            continue
+    return times
 
 
 def probe_next(

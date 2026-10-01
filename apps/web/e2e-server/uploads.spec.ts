@@ -39,8 +39,8 @@ test.beforeAll(async () => {
     .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
 });
 
+// The switch stays on (see jobs.spec.ts).
 test.afterAll(async () => {
-  await db.delete(toolFlags).where(eq(toolFlags.toolId, 'compress-video'));
   await closeTestDb();
 });
 

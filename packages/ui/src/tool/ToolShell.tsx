@@ -338,6 +338,8 @@ export interface ShellPreset {
   probe?: (file: File) => Promise<ProbeInfo>;
   /** The first selection on the timeline, from the clip's length (GIF: the first 5 s). */
   initialRange?: (durationSec: number) => TimelineRange;
+  /** A server tool: why it runs on our servers, for the offer ("Precise frame timing needs ffmpeg"). */
+  serverReason?: string;
   /**
    * The timeline holds several ranges (V01, A02): the engine gets them all as
    * `ranges`, in order; `start` and `end` stay those of the selected one.
@@ -363,6 +365,8 @@ export interface ProbeInfo {
   summary?: string;
   /** Worth knowing before starting: variable frame rate, HDR. */
   warnings?: string[];
+  /** Whether the frames come on a steady clock (V15 checks before sending anything). */
+  frameRate?: 'constant' | 'variable';
   /** Frames across the clip for the timeline strip (object URLs). */
   thumbnails?: (count: number) => Promise<string[]>;
   /** The audio's peaks (0-1) in `buckets` equal slices, for the waveform. */
@@ -430,7 +434,8 @@ export type ShellState =
 export interface ToolShellProps {
   tool: ShellTool;
   preset: ShellPreset;
-  engine: Engine;
+  /** The browser engine; a server tool (runtime server-cpu or server-gpu) has none. */
+  engine?: Engine;
   /** Engine options passed through (the dummy engine's duration and stages). */
   engineOptions?: Record<string, unknown>;
   /** Start in a given state: design screens and tests. */
@@ -552,6 +557,7 @@ export function ToolShell({
 
   const run = useCallback(
     async (input: InputInfo, file: File, values: Record<string, string> = options) => {
+      if (!engine) return;
       controller.current?.abort();
       const abort = new AbortController();
       controller.current = abort;
@@ -845,11 +851,15 @@ export function ToolShell({
       const url = URL.createObjectURL(file);
       urls.current.push(url);
       const input: InputInfo = { name: file.name, size: file.size, url };
-      // Bigger than the browser takes: our servers, if this tool has them (the drop zone let it in).
-      const offer =
-        server && file.size > preset.maxBytes
-          ? `This is a ${formatBytes(file.size)} file; the browser limit for this tool is ${formatBytes(preset.maxBytes)}. Our servers can take it.`
-          : null;
+      // A server tool always runs there; a hybrid one when the file is bigger
+      // than the browser takes (the drop zone let it in for the server).
+      const offer = !server
+        ? null
+        : !engine
+          ? (preset.serverReason ?? 'This tool runs on our servers.')
+          : file.size > preset.maxBytes
+            ? `This is a ${formatBytes(file.size)} file; the browser limit for this tool is ${formatBytes(preset.maxBytes)}. Our servers can take it.`
+            : null;
       setServerReason(null);
       track('tool_file_added', {
         mime: file.type.split('/')[0] || 'unknown',
@@ -878,7 +888,7 @@ export function ToolShell({
       if (preset.autoRun && !offer) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [inspect, preset, resetEditor, run, server, tool.ui, track],
+    [engine, inspect, preset, resetEditor, run, server, tool.ui, track],
   );
 
   // A result handed over from another tool arrives as if it were dropped here.
@@ -902,6 +912,7 @@ export function ToolShell({
   }
 
   async function runBatch(files: File[]) {
+    if (!engine) return;
     const abort = new AbortController();
     controller.current = abort;
     track('tool_run_started', { path: 'client', files: String(files.length) });
