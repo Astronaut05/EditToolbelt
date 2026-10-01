@@ -220,6 +220,10 @@ def frame_times(path: Path) -> list[float]:
     return times
 
 
+# What storage answers for an object that isn't there.
+MISSING = frozenset({"404", "NoSuchKey"})
+
+
 def probe_next(
     conn: Conn,
     storage: Storage,
@@ -257,8 +261,16 @@ def probe_next(
             )
             log.info("upload.refused", upload_id=str(row["id"]), error_code=refused.code)
         except StorageError as error:
-            # Leave it unprobed; the next pass tries again.
-            log.warning("upload.probe_failed", upload_id=str(row["id"]), error_code=error.code)
+            if error.code not in MISSING:
+                # Storage is down: leave it unprobed, and let the slot wait before trying again.
+                raise
+            # The file is gone (the upload was cancelled, or swept): it can never be probed,
+            # and left unprobed it would hold up every upload behind it.
+            conn.execute(
+                "update uploads set probe_error = 'MISSING', probed_at = now() where id = %s",
+                (row["id"],),
+            )
+            log.warning("upload.missing", upload_id=str(row["id"]))
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
     return True

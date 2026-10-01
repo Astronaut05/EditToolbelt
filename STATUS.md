@@ -65,6 +65,7 @@
 - M6, part 2: the panel's connect flow. The panel asks `POST /api/v1/auth/device` for a code, shows `BCDF-GHJK` and opens `/connect`; the person signs in, sees what it asks for and approves; the panel's poll of `POST /api/v1/auth/device/token` then answers its API key, once (#49).
 - M6, part 3: the API described once. Zod schemas for every body in `@etb/core/api`; the routes read requests with them; `GET /api/v1/openapi.json` (OpenAPI 3.1) and `/developers` (keys, a curl walkthrough of a whole job, every endpoint) are generated from them. New: `GET /api/v1/tools/:id` with the options' JSON Schema, `GET /api/v1/me/credits` (#50).
 - M6, part 4: `@etb/api-client`, the typed client, now behind the website's server path; `/examples/run-tool.mjs` (Node 20, no packages) runs any server tool with only an API key: parts in parallel, the price, progress, the download (#51).
+- Fix: an upload whose file is gone (cancelled or swept) no longer stalls the worker's probe. It used to be retried at once, forever, holding up every upload behind it; now it's refused once, and the API asks for the file again. A storage outage waits 5 s between tries (#52).
 
 ## Next
 

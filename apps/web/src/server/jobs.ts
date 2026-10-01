@@ -141,6 +141,9 @@ async function checkUnused(upload: Upload, tx = db()): Promise<void> {
 
 /** A probed upload's record, or the problem answer for a file the probe refused. */
 function probeOf(upload: Upload): Probe {
+  if (upload.probeError === 'MISSING') {
+    throw new ApiError(409, 'UPLOAD_INCOMPLETE', 'The upload is gone', 'Upload the file again.');
+  }
   if (upload.probeError) {
     const code = upload.probeError === 'FILE_TOO_LARGE' ? 'FILE_TOO_LARGE' : 'UNSUPPORTED_FORMAT';
     throw new ApiError(422, code, 'We can’t process this file', probeErrorText(upload.probeError));
