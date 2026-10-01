@@ -22,6 +22,7 @@ const projects = [
 
 export default defineConfig({
   testDir: 'e2e-server',
+  globalSetup: './e2e-server/global-setup.ts',
   // One worker: every test (all three browsers) shares one database, and the
   // admin tests switch tools off and on for the whole site.
   workers: 1,
