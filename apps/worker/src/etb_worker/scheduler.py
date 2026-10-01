@@ -142,11 +142,13 @@ class Scheduler:
             raise_alert(conn, alert, self.notifier)
 
     def _drop_input(self, conn: Conn, job: jobqueue.Job) -> None:
-        """A job that ended outside a worker (reaped, expired): its input goes now."""
-        if self.storage is None or not job.get("input_key"):
+        """A job that ended outside a worker (reaped, expired): its inputs go now."""
+        keys = jobqueue.input_keys(job)
+        if self.storage is None or not keys:
             return
         try:
-            self.storage.delete(str(job["input_key"]))
+            for key in keys:
+                self.storage.delete(key)
         except StorageError as error:
             get_logger().warning("retention.input_not_deleted", error_code=error.code)
             return

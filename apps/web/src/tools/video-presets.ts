@@ -22,14 +22,18 @@ export const VIDEO_INTAKE: Pick<
   formatsShort: 'MP4, MOV, WebM, MKV',
 };
 
-/** What to know before starting, in plain words. */
+/**
+ * What to know before starting, in plain words. A server tool (`server`)
+ * skips what is only about working in this browser.
+ */
 export function mediaWarnings(
   info: MediaInfo,
   codecLabel: (codec: string | null | undefined) => string,
+  server = false,
 ): string[] {
   const warnings: string[] = [];
   const video = info.video;
-  if (video && !video.canDecode) {
+  if (video && !video.canDecode && !server) {
     warnings.push(
       `This browser can’t play ${codecLabel(video.codec)} video, so there’s no preview and nothing can be re-encoded here. Try Chrome, Edge or Safari.`,
     );
@@ -39,10 +43,14 @@ export function mediaWarnings(
       'Variable frame rate: phones and screen recorders make these. Cuts can land a frame off, and editing apps may drift out of sync.',
     );
   }
-  if (video?.hdr) {
+  if (video?.hdr && !server) {
     warnings.push('HDR video: re-encoding here makes it SDR, so colors can look flatter.');
   }
-  if (info.durationSec > VIDEO_LIMITS.phoneSeconds && /Mobi|Android/.test(navigator.userAgent)) {
+  if (
+    !server &&
+    info.durationSec > VIDEO_LIMITS.phoneSeconds &&
+    /Mobi|Android/.test(navigator.userAgent)
+  ) {
     warnings.push(
       'Long video on a phone: it may run slowly or run out of memory. 10 min or less works best.',
     );
@@ -50,8 +58,15 @@ export function mediaWarnings(
   return warnings;
 }
 
-/** Reads a video as it arrives: length, frame rate, codecs, and frames for the timeline. */
-export async function probeVideo(file: File, audioTracks = false): Promise<ProbeInfo> {
+/**
+ * Reads a video as it arrives: length, frame rate, codecs, and frames for the
+ * timeline. `server`: for a tool that runs on our servers only.
+ */
+export async function probeVideo(
+  file: File,
+  audioTracks = false,
+  server = false,
+): Promise<ProbeInfo> {
   // Mediabunny loads with the first file, not with the page.
   const { codecLabel, describeMedia, probeMedia, thumbnails } = await import('@etb/engines/media');
   const info = await probeMedia(file);
@@ -64,7 +79,7 @@ export async function probeVideo(file: File, audioTracks = false): Promise<Probe
     width: info.video?.width,
     height: info.video?.height,
     summary: describeMedia(info),
-    warnings: mediaWarnings(info, codecLabel),
+    warnings: mediaWarnings(info, codecLabel, server),
     frameRate: info.video ? (info.video.variableFrameRate ? 'variable' : 'constant') : undefined,
     thumbnails: (count) => thumbnails(file, count),
     choices: {

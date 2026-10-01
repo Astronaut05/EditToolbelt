@@ -24,8 +24,27 @@ describe('parseServerOptions', () => {
   });
 
   it('takes nothing for tools without options', () => {
-    expect(parseServerOptions('burn-subtitles', undefined)).toEqual({ ok: true, options: {} });
-    expect(parseServerOptions('burn-subtitles', { any: 1 }).ok).toBe(false);
+    expect(parseServerOptions('upscale-video', undefined)).toEqual({ ok: true, options: {} });
+    expect(parseServerOptions('upscale-video', { any: 1 }).ok).toBe(false);
+  });
+
+  it('needs the subtitle file’s upload for Burn Subtitles, and fills in the style', () => {
+    const id = '0190f0c8-3f4a-7b6c-9d8e-0a1b2c3d4e5f';
+    expect(parseServerOptions('burn-subtitles', { subtitles: id })).toEqual({
+      ok: true,
+      options: {
+        subtitles: id,
+        font: 'sans',
+        size: 'medium',
+        color: '#ffffff',
+        outline: 'thin',
+        box: false,
+        position: 'bottom',
+        width: 'full',
+      },
+    });
+    expect(parseServerOptions('burn-subtitles', {}).ok).toBe(false);
+    expect(parseServerOptions('burn-subtitles', { subtitles: id, color: 'red' }).ok).toBe(false);
   });
 
   it('defaults VFR to CFR to the nearest rate, visually lossless, with the sound', () => {

@@ -15,6 +15,7 @@ import {
   count,
   desc,
   eq,
+  inArray,
   isNotNull,
   jobs,
   toolFlags,
@@ -50,10 +51,12 @@ test.beforeAll(async () => {
     .values({ toolId: 'compress-video', serverEnabled: true })
     .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
   // A server tool waits for an admin to set its status (it's `soon` in the registry).
-  await db
-    .insert(toolFlags)
-    .values({ toolId: 'vfr-to-cfr', status: 'beta' })
-    .onConflictDoUpdate({ target: toolFlags.toolId, set: { status: 'beta' } });
+  for (const toolId of ['vfr-to-cfr', 'burn-subtitles']) {
+    await db
+      .insert(toolFlags)
+      .values({ toolId, status: 'beta' })
+      .onConflictDoUpdate({ target: toolFlags.toolId, set: { status: 'beta' } });
+  }
 });
 
 // The switches stay on (see jobs.spec.ts): the API's routes would see them go off late.
@@ -357,4 +360,78 @@ test('a clip that is already constant is checked, and nothing is charged', async
       return row?.deletedAt ?? null;
     })
     .not.toBeNull();
+});
+
+test('Burn Subtitles uploads the subtitle file beside the video', async ({ page }) => {
+  const email = newEmail();
+  await signIn(page, email);
+  const owner = await userId(email);
+  const start = page.getByRole('button', { name: 'Burn on our servers', exact: true });
+  await expect
+    .poll(
+      async () => {
+        await page.goto('/burn-subtitles');
+        const input = page.locator('input[type=file][data-hydrated]').first();
+        if ((await input.count()) === 0) return false;
+        await input.setInputFiles(CLIP);
+        return start.isVisible();
+      },
+      { timeout: 90_000, intervals: [3000] },
+    )
+    .toBe(true);
+  // Not before the subtitle file is in.
+  await expect(start).toBeDisabled();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Choose the subtitle file' }),
+  ).toBeVisible();
+  await page
+    .getByRole('region', { name: 'Settings' })
+    .locator('input[type=file][accept=".srt,.vtt,.ass,.ssa"]')
+    .setInputFiles({
+      name: 'clip.srt',
+      mimeType: '',
+      buffer: Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHello\n'),
+    });
+  await expect(page.getByText('clip.srt').first()).toBeVisible();
+  await page.getByRole('radio', { name: 'Top' }).click();
+  await start.click();
+
+  // The worker's probe, for both files once both are in.
+  let ids: string[] = [];
+  await expect
+    .poll(
+      async () => {
+        const rows = await db
+          .select()
+          .from(uploads)
+          .where(and(eq(uploads.userId, owner), isNotNull(uploads.completedAt)));
+        ids = rows.filter((row) => !row.probedAt).map((row) => row.id);
+        return rows.length;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(2);
+  for (const row of await db.select().from(uploads).where(inArray(uploads.id, ids))) {
+    await db
+      .update(uploads)
+      .set({
+        probe:
+          row.mimeClaimed === 'application/x-subrip'
+            ? { container: 'srt', subtitle: { codec: 'subrip' }, video: null, audio: null }
+            : { container: 'mp4', duration_ms: 30_000, video: { width: 256, height: 144 } },
+        probedAt: new Date(),
+      })
+      .where(eq(uploads.id, row.id));
+  }
+  const job = await jobOf(owner);
+  expect(job.toolId).toBe('burn-subtitles');
+  expect(job.extraInputKeys).toHaveLength(1);
+  expect(job.options).toMatchObject({ position: 'top', font: 'sans', box: false });
+  const [subtitles] = await db
+    .select()
+    .from(uploads)
+    .where(eq(uploads.storageKey, job.extraInputKeys[0] ?? ''));
+  expect(subtitles).toMatchObject({ mimeClaimed: 'application/x-subrip', bytes: 38 });
+  expect(job.options).toMatchObject({ subtitles: subtitles?.id });
+  await db.update(jobs).set({ status: 'cancelled' }).where(eq(jobs.id, job.id));
 });

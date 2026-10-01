@@ -33,7 +33,7 @@ import {
   type Queryable,
 } from '@etb/db';
 import { costOf, hasServerPath, isAvailable, limitsOf, priceOf, tools } from '@etb/registry';
-import { parseServerOptions } from '@etb/registry/options';
+import { parseServerOptions, uploadOptions } from '@etb/registry/options';
 import type { ToolDef } from '@etb/registry/schema';
 
 import { log } from '../lib/log';
@@ -42,7 +42,7 @@ import { db } from './db';
 import { refreshToolFlags } from './flags';
 import { ApiError } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
-import { ownUpload, tierOf, type Tier, type Upload } from './uploads';
+import { ownUpload, SUBTITLE_TYPES, tierOf, type Tier, type Upload } from './uploads';
 
 export type Job = typeof jobs.$inferSelect;
 export type Funding = 'daily' | 'credits' | 'none';
@@ -129,8 +129,22 @@ async function checkUnused(upload: Upload, tx = db()): Promise<void> {
   const [used] = await tx
     .select({ n: count() })
     .from(jobs)
-    .where(eq(jobs.inputKey, upload.storageKey));
+    .where(
+      or(
+        eq(jobs.inputKey, upload.storageKey),
+        sql`${upload.storageKey} = any(${jobs.extraInputKeys})`,
+      ),
+    );
   if ((used?.n ?? 0) > 0) throw new ApiError(409, 'CONFLICT', 'This upload already has a job');
+}
+
+/** A probed upload's record, or the problem answer for a file the probe refused. */
+function probeOf(upload: Upload): Probe {
+  if (upload.probeError) {
+    const code = upload.probeError === 'FILE_TOO_LARGE' ? 'FILE_TOO_LARGE' : 'UNSUPPORTED_FORMAT';
+    throw new ApiError(422, code, 'We can’t process this file', probeErrorText(upload.probeError));
+  }
+  return upload.probe ?? {};
 }
 
 async function waitForProbe(upload: Upload): Promise<Upload | null> {
@@ -217,8 +231,35 @@ interface Prepared {
   tier: Tier;
   upload: Upload;
   probe: Probe;
+  /** The other files the tool takes (Burn Subtitles: the subtitles), in order. */
+  extras: { upload: Upload; probe: Probe }[];
   credits: number;
   options: Record<string, unknown>;
+}
+
+/**
+ * The uploads a tool's options name (`uploadOptions` in the registry): the
+ * caller's own, made for this tool, a subtitle file, unused, and probed.
+ * Null while one is still being probed.
+ */
+async function extraUploads(
+  user: CurrentUser,
+  tool: ToolDef,
+  options: Record<string, unknown>,
+): Promise<Prepared['extras'] | null> {
+  const extras: Prepared['extras'] = [];
+  for (const name of uploadOptions[tool.id as keyof typeof uploadOptions] ?? []) {
+    const extra = await ownUpload(user, String(options[name]));
+    checkUpload(extra, tool);
+    if (!SUBTITLE_TYPES.has(extra.mimeClaimed)) {
+      throw new ApiError(400, 'BAD_REQUEST', 'Not a subtitle file', `${name}: SRT, VTT or ASS.`);
+    }
+    await checkUnused(extra);
+    const probed = await waitForProbe(extra);
+    if (!probed) return null;
+    extras.push({ upload: probed, probe: probeOf(probed) });
+  }
+  return extras;
 }
 
 /** Everything a quote and a job both need; null while the worker is still probing. */
@@ -227,23 +268,29 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   const tool = serverTool(request.toolId);
   const upload = await ownUpload(user, request.uploadId);
   checkUpload(upload, tool);
+  if (SUBTITLE_TYPES.has(upload.mimeClaimed)) {
+    throw new ApiError(
+      400,
+      'BAD_REQUEST',
+      'The video goes first',
+      'Send the subtitle file as an option.',
+    );
+  }
   await checkUnused(upload);
+  const parsed = parseServerOptions(tool.id, request.options);
+  if (!parsed.ok) throw new ApiError(400, 'BAD_REQUEST', 'Invalid options', parsed.error);
   const probed = await waitForProbe(upload);
   if (!probed) return null;
-  if (probed.probeError) {
-    const code = probed.probeError === 'FILE_TOO_LARGE' ? 'FILE_TOO_LARGE' : 'UNSUPPORTED_FORMAT';
-    throw new ApiError(422, code, 'We can’t process this file', probeErrorText(probed.probeError));
-  }
-  const probe = (probed.probe ?? {}) as Probe;
+  const probe = probeOf(probed);
   const tier = await tierOf(user.id);
   checkLimits(tool, tier, probe);
   const reason = PRECHECKS[tool.id]?.(probe);
   if (reason) throw new ApiError(422, 'NOTHING_TO_DO', 'Nothing to fix', reason);
-  const parsed = parseServerOptions(tool.id, request.options);
-  if (!parsed.ok) throw new ApiError(400, 'BAD_REQUEST', 'Invalid options', parsed.error);
+  const extras = await extraUploads(user, tool, parsed.options);
+  if (!extras) return null;
   const megapixels = ((probe.video?.width ?? 0) * (probe.video?.height ?? 0)) / 1e6;
   const credits = priceOf(costOf(tool), { durationMs: probe.duration_ms ?? 0, megapixels });
-  return { tool, tier, upload: probed, probe, credits, options: parsed.options };
+  return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options };
 }
 
 function probeErrorText(code: string): string {
@@ -309,6 +356,7 @@ export async function createJob(
       if (existing) return { job: existing, created: false };
     }
     await checkUnused(prepared.upload, tx);
+    for (const extra of prepared.extras) await checkUnused(extra.upload, tx);
     const [active] = await tx
       .select({ n: count() })
       .from(jobs)
@@ -344,8 +392,11 @@ export async function createJob(
         // Paid credits go before free jobs (docs/01 → Queue).
         priority: paying.funding === 'credits' ? 1 : 0,
         options: prepared.options,
-        inputMeta: prepared.probe,
+        inputMeta: prepared.extras.length
+          ? { ...prepared.probe, extras: prepared.extras.map((extra) => extra.probe) }
+          : prepared.probe,
         inputKey: prepared.upload.storageKey,
+        extraInputKeys: prepared.extras.map((extra) => extra.upload.storageKey),
         funding: paying.funding,
         creditsQuoted: paying.funding === 'credits' ? prepared.credits : 0,
         timeoutSec: limits?.timeoutSec ?? 900,
@@ -511,14 +562,18 @@ export async function stopJob(
     return row;
   });
   if (!cancelled) return null;
-  if (job.status === 'queued' && job.inputKey) {
+  const keys = [...(job.inputKey ? [job.inputKey] : []), ...job.extraInputKeys];
+  if (job.status === 'queued' && keys.length > 0) {
     try {
-      await deleteObject(job.inputKey);
-      await db().update(jobs).set({ inputKey: null }).where(eq(jobs.id, job.id));
+      for (const key of keys) await deleteObject(key);
+      await db()
+        .update(jobs)
+        .set({ inputKey: null, extraInputKeys: [] })
+        .where(eq(jobs.id, job.id));
       await db()
         .update(uploads)
         .set({ deletedAt: new Date() })
-        .where(eq(uploads.storageKey, job.inputKey));
+        .where(inArray(uploads.storageKey, keys));
     } catch (error) {
       // The sweeper removes it within the hour.
       if (!(error instanceof StorageError)) throw error;

@@ -72,7 +72,8 @@ def sweep(
         where u.completed_at is not null and u.deleted_at is null and u.expires_at < now()
           and not exists (
             select 1 from jobs j
-            where j.input_key = u.storage_key and j.status in ('queued', 'running')
+            where (j.input_key = u.storage_key or u.storage_key = any(j.extra_input_keys))
+              and j.status in ('queued', 'running')
           )
         """
     ).fetchall()

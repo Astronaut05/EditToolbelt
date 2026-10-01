@@ -45,10 +45,34 @@ const vfrToCfr = z.strictObject({
   audio: z.enum(['keep', 'remove']).default('keep'),
 });
 
+/** V16: the subtitle file (an upload of its own) and how SRT and VTT look; ASS keeps its styles. */
+const burnSubtitles = z.strictObject({
+  /** The subtitle file's upload id (POST /uploads with an SRT, VTT or ASS type). */
+  subtitles: z.uuid(),
+  font: z.enum(['sans', 'serif', 'mono']).default('sans'),
+  size: z.enum(['small', 'medium', 'large']).default('medium'),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default('#ffffff'),
+  outline: z.enum(['none', 'thin', 'thick']).default('thin'),
+  /** A half-clear black box behind the text instead of an outline. */
+  box: z.boolean().default(false),
+  position: z.enum(['bottom', 'top']).default('bottom'),
+  /** How far the lines may run: nearly edge to edge, or narrower. */
+  width: z.enum(['full', 'narrow']).default('full'),
+});
+
 export const serverOptions = {
   'compress-video': compressVideo,
   'vfr-to-cfr': vfrToCfr,
+  'burn-subtitles': burnSubtitles,
 } satisfies Record<string, z.ZodType>;
+
+/** Options that name another upload, by tool: the job takes those files too, in this order. */
+export const uploadOptions: Partial<Record<keyof typeof serverOptions, readonly string[]>> = {
+  'burn-subtitles': ['subtitles'],
+};
 
 export type ServerToolId = keyof typeof serverOptions;
 export type ServerOptions<T extends ServerToolId> = z.output<(typeof serverOptions)[T]>;

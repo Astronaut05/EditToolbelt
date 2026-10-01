@@ -26,8 +26,9 @@ ENV PATH=/opt/venv/bin:$PATH \
 
 # ffmpeg and ffprobe for the processors: Debian's build (GPL, never
 # --enable-nonfree; docs/13-licenses.md), updated with every image rebuild.
+# Noto (OFL) for Burn Subtitles: Latin, Cyrillic and Greek, sans, serif and mono.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ffmpeg \
+    && apt-get install --yes --no-install-recommends ffmpeg fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root (docs/11-security.md → ffmpeg and native tools on the server).

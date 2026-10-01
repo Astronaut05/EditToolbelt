@@ -50,6 +50,13 @@
       "when": 1790811501812,
       "tag": "0006_job_funding",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790815447271,
+      "tag": "0007_job_extra_inputs",
+      "breakpoints": true
     }
   ]
 }

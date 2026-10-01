@@ -184,13 +184,21 @@ def expire(conn: Conn) -> list[Job]:
     return expired
 
 
+def input_keys(job: Job) -> list[str]:
+    """Every input a job holds in storage: the main one, then any extras (subtitles)."""
+    keys = [str(job["input_key"])] if job.get("input_key") else []
+    return keys + [str(key) for key in job.get("extra_input_keys") or []]
+
+
 def input_gone(conn: Conn, job: Job) -> None:
-    """Records that the job's input object is deleted (the job row and the upload row)."""
-    key = job.get("input_key")
-    if not key:
+    """Records that the job's inputs are deleted (the job row and the upload rows)."""
+    keys = input_keys(job)
+    if not keys:
         return
-    conn.execute("update jobs set input_key = null where id = %s", (job["id"],))
     conn.execute(
-        "update uploads set deleted_at = now() where storage_key = %s and deleted_at is null",
-        (key,),
+        "update jobs set input_key = null, extra_input_keys = '{}' where id = %s", (job["id"],)
+    )
+    conn.execute(
+        "update uploads set deleted_at = now() where storage_key = any(%s) and deleted_at is null",
+        (keys,),
     )
