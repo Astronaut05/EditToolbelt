@@ -27,6 +27,7 @@ export const TOOL_IDS = [
   'loudness-meter',
   'lut-preview',
   'merge-audio',
+  'merge-videos',
   'mute-video',
   'normalize-audio',
   'qr-code-generator',

@@ -9,6 +9,7 @@ export { extractAudioEngine } from './video/extract-audio';
 export { framesEngine } from './video/frames';
 export { gifToVideoEngine } from './video/gif-to-video';
 export { videoInfoEngine } from './video/info';
+export { mergeVideosEngine } from './video/merge-videos';
 export { muteVideoEngine } from './video/mute';
 export { reframeEngine } from './video/reframe';
 export { replaceAudioEngine } from './video/replace-audio';
