@@ -47,6 +47,8 @@ export interface ImageJob {
   /** Turn, flip, crop, resize (P02 Crop, P03 Resize). */
   /** P09: marks drawn on the decoded image, in its own pixels, before any geometry. */
   marks?: Mark[];
+  /** P10: text drawn on the page at the image's size, laid over it after the marks. */
+  overlay?: ImageBitmap;
   geometry?: GeometryJob;
   /** P14: cut into tiles and answer a ZIP of them, named from `stem`. */
   tiles?: GridSpec & { stem: string };

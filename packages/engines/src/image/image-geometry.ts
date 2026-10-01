@@ -5,6 +5,7 @@
  */
 import type { Engine, EngineOutput } from '../types';
 import type { Mark } from './annotate';
+import { renderTextOverlay, type TextLayer } from './text-layer';
 import type { Filter, Fit, GeometryJob, Rect, ResizeBy, ResizeSpec } from './geometry';
 import {
   baseJob,
@@ -52,6 +53,9 @@ export interface ImageGeometryOptions extends Pick<
   filter?: string;
   /** P09: marks from the editor, in the image's own pixels, drawn before the geometry. */
   marks?: Mark[];
+  /** P10: text layers from the editor, and the image's size as the editor saw it (orientation applied). */
+  texts?: TextLayer[];
+  natural?: { width: number; height: number };
 }
 
 /** A crop ratio from the options: width / height, or null for Free. */
@@ -127,7 +131,17 @@ export const imageGeometryEngine: Engine<ImageGeometryOptions> = {
     const bytes = await input.arrayBuffer();
     const format = checkImage(new Uint8Array(bytes), input.size);
     const done = await runImageJob(
-      { ...baseJob(bytes, format, opts), geometry: geometryJob(opts), marks: opts.marks },
+      {
+        ...baseJob(bytes, format, opts),
+        geometry: geometryJob(opts),
+        marks: opts.marks,
+        // Text is laid out here, where the page's fonts are, at full size, and laid over in the worker.
+        ...(opts.texts &&
+          opts.texts.length > 0 &&
+          opts.natural && {
+            overlay: await renderTextOverlay(opts.texts, opts.natural.width, opts.natural.height),
+          }),
+      },
       ctx.signal,
       (fraction, stage) => {
         ctx.progress(fraction, stage);

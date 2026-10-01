@@ -4,6 +4,7 @@
  * The map in ./index.tsx is typed against this list, so the two can't drift.
  */
 export const TOOL_IDS = [
+  'add-text-to-image',
   'aspect-ratio-calculator',
   'audio-channels',
   'audio-converter',

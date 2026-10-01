@@ -17,6 +17,7 @@ type View = ComponentType<{ tool: ShellTool; to?: string }>;
  * (checked in lib/tool.test.ts).
  */
 const VIEWS: Readonly<Record<ToolId, View>> = {
+  'add-text-to-image': dynamic(() => import('./add-text-to-image')),
   'aspect-ratio-calculator': dynamic(() => import('./aspect-ratio-calculator')),
   'audio-channels': dynamic(() => import('./audio-channels')),
   'audio-converter': dynamic(() => import('./audio-converter')),

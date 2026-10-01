@@ -257,6 +257,19 @@
       "checked": "2026-09-30"
     },
     {
+      "label": "Fontsource packages for Montserrat, Oswald and Noto Serif",
+      "section": "Platform and app",
+      "ecosystem": "npm",
+      "packages": ["@fontsource/montserrat", "@fontsource/oswald", "@fontsource/noto-serif"],
+      "use": "font files for text on images (P10), 400 and 700, Latin, Latin Extended, Cyrillic and Cyrillic Extended; copied into the build and loaded only when picked. Chosen because each has Uzbek Latin oʻ gʻ (U+02BB) and Uzbek Cyrillic қ ғ ҳ ў",
+      "license": "OFL-1.1",
+      "scope": "browser",
+      "status": "approved",
+      "version": "5.3.0 / 5.3.0 / 5.3.0",
+      "source": "https://github.com/fontsource/font-files/tree/main/fonts/google",
+      "checked": "2026-10-01"
+    },
+    {
       "label": "PostCSS",
       "section": "Platform and app",
       "ecosystem": "npm",

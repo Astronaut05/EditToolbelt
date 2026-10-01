@@ -31,6 +31,8 @@ import { cn } from '../cn';
 import { Slider } from '../primitives/fields';
 import { boxLabel, dragHandle, moveBox, turnEdit, type Edit, type Handle } from './crop';
 import { DrawBar, DrawLayer, defaultSize, type DrawStyle } from './DrawLayer';
+import { TextBar } from './TextBar';
+import { newTextLayer, TextLayers } from './TextLayers';
 import type { EditorState } from './useEditor';
 
 export type EditorMode =
@@ -148,6 +150,9 @@ export function CanvasEditor({
     penChoice ??
     (natural ? { tool: 'arrow', color: '#e53935', size: defaultSize(natural), opacity: 1 } : null);
   const marks = edit.marks ?? [];
+  const texts = edit.texts ?? [];
+  /** P10: the text layer being edited. */
+  const [selectedText, setSelectedText] = useState<string | null>(null);
 
   const turned = natural ? turnedSize(natural, edit.turns) : null;
   const fit =
@@ -376,6 +381,21 @@ export function CanvasEditor({
           }}
         />
       )}
+      {mode === 'text' && natural && (
+        <TextBar
+          layers={texts}
+          selected={selectedText}
+          onSelect={setSelectedText}
+          onLayers={(next, transient) => {
+            onEdit({ ...edit, texts: next }, transient);
+          }}
+          onAdd={() => {
+            const added = newTextLayer(natural);
+            onEdit({ ...edit, texts: [...texts, added] });
+            setSelectedText(added.id);
+          }}
+        />
+      )}
       <div ref={frameRef} className="relative min-h-0 flex-1 overflow-hidden">
         {/* Loads the image to learn its size; the stage shows it once known. */}
         {!natural && (
@@ -437,6 +457,29 @@ export function CanvasEditor({
                   style={pen}
                   onMarks={(next, transient) => {
                     onEdit({ ...edit, marks: next }, transient);
+                  }}
+                />
+              </div>
+            )}
+            {(mode === 'text' || texts.length > 0) && (
+              // Text sits on the image and turns with it; only text mode takes the pointer.
+              <div
+                className={cn('absolute', mode !== 'text' && 'pointer-events-none')}
+                style={{
+                  left: (stage.width - imageSize.width) / 2,
+                  top: (stage.height - imageSize.height) / 2,
+                  width: imageSize.width,
+                  height: imageSize.height,
+                  transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
+                }}
+              >
+                <TextLayers
+                  natural={natural}
+                  layers={texts}
+                  selected={mode === 'text' ? selectedText : null}
+                  onSelect={setSelectedText}
+                  onLayers={(next, transient) => {
+                    onEdit({ ...edit, texts: next }, transient);
                   }}
                 />
               </div>

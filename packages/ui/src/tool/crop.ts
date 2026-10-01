@@ -3,7 +3,15 @@
  * of the turned image: dragging, handles, typed sizes, ratio locks, turns.
  * Pure, so it is unit tested without a browser.
  */
-import { centredRatio, clampRect, turnedSize, type Mark, type Rect, type Size } from '@etb/engines';
+import {
+  centredRatio,
+  clampRect,
+  turnedSize,
+  type Mark,
+  type Rect,
+  type Size,
+  type TextLayer,
+} from '@etb/engines';
 
 export type Handle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
@@ -20,6 +28,8 @@ export interface Edit {
   crop: Rect | null;
   /** P09: drawn marks, in the image's own pixels (before turns), drawn first. */
   marks?: Mark[];
+  /** P10: text layers, in the image's own pixels (before turns), drawn after the marks. */
+  texts?: TextLayer[];
 }
 
 export const NO_EDIT: Edit = { turns: 0, flip: false, flipV: false, angle: 0, crop: null };

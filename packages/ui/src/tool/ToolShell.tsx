@@ -855,6 +855,9 @@ export function ToolShell({
               flipV: edit.flipV,
               angle: edit.angle,
               ...(edit.marks && edit.marks.length > 0 && { marks: edit.marks }),
+              ...(edit.texts &&
+                edit.texts.length > 0 &&
+                editor.natural && { texts: edit.texts, natural: editor.natural }),
             }),
             ...(preset.combine && { files: queue.map((q) => q.file) }),
             ...(tool.ui === 'timeline' && {
@@ -932,6 +935,7 @@ export function ToolShell({
       cropping,
       editing,
       editor.edit,
+      editor.natural,
       engine,
       engineOptions,
       options,

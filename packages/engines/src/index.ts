@@ -135,3 +135,18 @@ export {
   type MarkTool,
   type Point,
 } from './image/annotate';
+export {
+  addUserFont,
+  cssFont,
+  drawTextLayer,
+  drawTextLayers,
+  hitsLayer,
+  layerFrame,
+  loadTextFont,
+  measureText,
+  snapCentre,
+  type TextAlign,
+  type TextBlock,
+  type TextLayer,
+} from './image/text-layer';
+export { TEXT_FONTS } from './image/text-fonts';

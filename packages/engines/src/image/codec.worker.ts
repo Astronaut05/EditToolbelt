@@ -359,6 +359,16 @@ function drawn(image: ImageData, marks: NonNullable<ImageJob['marks']>, scale: n
   return ctx.getImageData(0, 0, image.width, image.height);
 }
 
+/** The image with an overlay (P10's text) drawn over it, stretched to its size if the decode was scaled. */
+function laidOver(image: ImageData, overlay: ImageBitmap): ImageData {
+  const canvas = new OffscreenCanvas(image.width, image.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No 2D canvas in this browser');
+  ctx.putImageData(image, 0, 0);
+  ctx.drawImage(overlay, 0, 0, image.width, image.height);
+  return ctx.getImageData(0, 0, image.width, image.height);
+}
+
 async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done' }>> {
   const notes: string[] = [];
   post({ type: 'progress', fraction: 0.1, stage: 'Reading' });
@@ -373,6 +383,10 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
     post({ type: 'progress', fraction: 0.15, stage: 'Drawing' });
     image = drawn(image, job.marks, scale);
     notes.push(`${String(job.marks.length)} ${job.marks.length === 1 ? 'mark' : 'marks'} drawn`);
+  }
+  if (job.overlay) {
+    image = laidOver(image, job.overlay);
+    job.overlay.close();
   }
   if (job.geometry) {
     post({ type: 'progress', fraction: 0.2, stage: job.geometry.resize ? 'Resizing' : 'Cropping' });
