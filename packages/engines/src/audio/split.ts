@@ -117,7 +117,6 @@ export const splitAudioEngine: Engine<SplitAudioOptions> = {
     return {
       blob: new Blob([zip], { type: 'application/zip' }),
       ext: 'zip',
-      name: `${stem}_parts.zip`,
       path,
       notes: [
         `${String(parts.length)} parts, ${first && last ? `${clock(first.start)} to ${clock(last.end)}` : ''}, named ${stem}_${'1'.padStart(width, '0')}.${ext} and on`,

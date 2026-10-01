@@ -19,6 +19,7 @@ export { FORMAT_LABELS as IMAGE_FORMAT_LABELS, sniffImage, type ImageFormat } fr
 export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';
 export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './image/image-geometry';
 export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
+export { imagesToPdfEngine, type ImagesToPdfOptions } from './image/images-to-pdf';
 export { socialResizeEngine, type SocialResizeOptions } from './image/social-resize';
 export { lutPreviewEngine, type LutPreviewOptions } from './image/lut-preview';
 export { watermarkEngine, type WatermarkOptions } from './image/watermark';

@@ -143,3 +143,4 @@ export {
   type RenameFile,
   type RenameRules,
 } from './rename';
+export * as pdf from './image/pdf';

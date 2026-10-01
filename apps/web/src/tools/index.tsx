@@ -44,6 +44,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'gif-to-mp4': dynamic(() => import('./gif-to-mp4')),
   'gradient-generator': dynamic(() => import('./gradient-generator')),
   'image-converter': dynamic(() => import('./image-converter')),
+  'images-to-pdf': dynamic(() => import('./images-to-pdf')),
   'loop-video': dynamic(() => import('./loop-video')),
   'loudness-meter': dynamic(() => import('./loudness-meter')),
   'lut-converter': dynamic(() => import('./lut-converter')),
