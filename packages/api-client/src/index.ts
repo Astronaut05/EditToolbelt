@@ -80,6 +80,15 @@ export interface UploadProgress {
   total: number;
 }
 
+/**
+ * What `uploadFile` reads from: a Blob, or anything that hands out pieces of
+ * a file (the Premiere panel reads the clip from disk a part at a time).
+ */
+export interface ByteSource {
+  size: number;
+  slice(start: number, end: number): Blob | Promise<Blob>;
+}
+
 export interface UploadOptions {
   signal?: AbortSignal;
   onProgress?: (progress: UploadProgress) => void;
@@ -189,7 +198,7 @@ export function createClient(options: ClientOptions = {}) {
      * the upload if it fails. Answers the upload id.
      */
     async uploadFile(
-      file: Blob,
+      file: Blob | ByteSource,
       toolId: string,
       mime: string,
       opts: UploadOptions = {},
@@ -221,7 +230,7 @@ export function createClient(options: ClientOptions = {}) {
 
       const sendPart = async (n: number): Promise<void> => {
         const start = (n - 1) * created.part_size;
-        const body = file.slice(start, Math.min(file.size, start + created.part_size));
+        const body = await file.slice(start, Math.min(file.size, start + created.part_size));
         for (let attempt = 1; ; attempt += 1) {
           try {
             const response = await doFetch(await urlFor(n), { method: 'PUT', body, signal });

@@ -57,6 +57,25 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
 
+  apps/panel:
+    dependencies:
+      '@etb/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@etb/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@etb/engines':
+        specifier: workspace:*
+        version: link:../../packages/engines
+    devDependencies:
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
+
   apps/web:
     dependencies:
       '@etb/api-client':

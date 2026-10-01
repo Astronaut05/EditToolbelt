@@ -1,0 +1,24 @@
+{
+  "name": "@etb/panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "package": "node scripts/build.ts --ccx",
+    "serve": "node scripts/serve.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts",
+    "test": "vitest run",
+    "e2e": "node scripts/build.ts && playwright test"
+  },
+  "dependencies": {
+    "@etb/api-client": "workspace:*",
+    "@etb/core": "workspace:*",
+    "@etb/engines": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3"
+  }
+}

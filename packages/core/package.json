@@ -15,7 +15,9 @@
     "./api": "./src/api/index.ts",
     "./rename": "./src/rename.ts",
     "./vectorize": "./src/image/vectorize.ts",
-    "./subtitles": "./src/subtitles/index.ts"
+    "./subtitles": "./src/subtitles/index.ts",
+    "./calc/*": "./src/calc/*.ts",
+    "./color/*": "./src/color/*.ts"
   },
   "scripts": {
     "lint": "eslint .",
