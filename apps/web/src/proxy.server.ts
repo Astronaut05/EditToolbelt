@@ -4,7 +4,7 @@
  * rendered per request get a fresh nonce (Next reads it from the request's
  * CSP header and puts it on its scripts) plus the theme script's hash;
  * prerendered pages get the
- * 'unsafe-inline' fallback (src/lib/csp.ts). Never cached: /account, /sign-in, /admin.
+ * 'unsafe-inline' fallback (src/lib/csp.ts). Never cached: /account, /sign-in, /admin, /connect.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -14,7 +14,7 @@ import { buildCsp, originOf } from './lib/csp';
 import { headerRules } from './lib/headers';
 
 /** Rendered per request, for one signed-in person: nonce CSP, no caching. */
-const PERSONAL = ['/account', '/sign-in', '/admin'];
+const PERSONAL = ['/account', '/sign-in', '/admin', '/connect'];
 
 /** Models, analytics, and storage: browsers upload parts to it and download results from it. */
 const connect = [

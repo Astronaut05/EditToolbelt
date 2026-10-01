@@ -857,3 +857,20 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/06` → Auth ("Keys are stored hashed; revocable; `last_used_at` updated at most once per minute") and → Basics → CORS ("API-key auth allowed from any origin").
 **Reverse:** to close cross-origin use, drop the CORS headers in `route()`. To turn keys off, have `requireCaller` refuse the `Authorization` header.
+
+## 2026-10-01 · The panel's connect flow (M6)
+
+**Decision:**
+- **RFC 8628's device grant, with our error format.** The polling states are problem+json codes (`AUTHORIZATION_PENDING`, `SLOW_DOWN`, `ACCESS_DENIED`, `EXPIRED_TOKEN`), not OAuth's `{ error }`, so the panel handles one error shape everywhere (`docs/06` → Basics).
+- **The short code is 8 of 20 consonants** (`BCDFGHJKLMNPQRSTVWXZ`, about 35 bits), shown `BCDF-GHJK`. No vowels means no words; case, spaces and the dash don't matter when typed. It lives 10 minutes.
+- **The device code is 32 random bytes,** stored as a SHA-256 only.
+- **The key is made when the panel collects it,** not when the person approves. So no key is ever stored in the clear, not even between approval and the panel's next poll. Collecting spends the code.
+- **`/connect` is server-build only and needs sign-in.** Signed out, the panel's link goes through sign-in and back to the code. The page:
+  - Names the requesting app as it calls itself, the account it would join, and the key's scopes.
+  - Says to go on only if you just started connecting yourself.
+  - Refuses to approve when the account already has 10 keys.
+- **The panel's key** is named after the app ("Premiere panel" by default; any name up to 60 characters) and has the three panel scopes. It's revoked like any key, in Account → API keys.
+- **Codes are deleted a day after they expire** by the worker's nightly purge, and with the rest of an account's sign-in data by the 30-day scrub.
+
+**Why:** `docs/06` → Auth ("panel calls `POST /auth/device` → shows a short code + opens `/connect` …").
+**Reverse:** without a panel, nothing calls these endpoints. To close them, have `POST /api/v1/auth/device` answer 404.

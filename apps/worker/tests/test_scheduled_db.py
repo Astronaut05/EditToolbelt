@@ -166,6 +166,12 @@ def test_deleted_accounts_become_tombstones_after_30_days(db: Conn, outbox: Outb
             " values (%s, 'k', 'etb_x', %s, '{jobs}')",
             (user, uuid.uuid4().hex),
         )
+        db.execute(
+            "insert into device_codes"
+            " (device_hash, user_code, client_name, scopes, status, user_id, expires_at)"
+            " values (%s, %s, 'Premiere panel', '{jobs:read}', 'approved', %s, now())",
+            (uuid.uuid4().hex, uuid.uuid4().hex[:8], user),
+        )
 
     account_scrub(db, ctx(outbox))
 
@@ -177,7 +183,7 @@ def test_deleted_accounts_become_tombstones_after_30_days(db: Conn, outbox: Outb
     kept = one(db, "select * from users where id = %s", recent)
     assert kept["email"] is not None
     assert kept["display_name"] == "Recent"
-    for table in ("sessions", "accounts", "two_factors", "api_keys"):
+    for table in ("sessions", "accounts", "two_factors", "device_codes", "api_keys"):
         counts = {
             user: one(db, f"select count(*)::int as n from {table} where user_id = %s", user)["n"]  # noqa: S608
             for user in (old, recent)
@@ -202,6 +208,23 @@ def test_welcome_claims_are_purged_after_12_months(db: Conn, outbox: Outbox) -> 
     assert [row["email_hmac"] for row in left] == [fresh]
     check = one(db, "select detail from system_checks where name = 'retention_purge'")
     assert check["detail"]["welcome_grant_claims"] >= 1
+
+
+def test_connect_codes_are_purged_a_day_after_they_expire(db: Conn, outbox: Outbox) -> None:
+    stale, fresh = uuid.uuid4().hex, uuid.uuid4().hex
+    db.execute(
+        "insert into device_codes (device_hash, user_code, client_name, scopes, expires_at) values"
+        " (%s, %s, 'p', '{}', now() - interval '25 hours'),"
+        " (%s, %s, 'p', '{}', now() - interval '23 hours')",
+        (stale, stale[:8], fresh, fresh[:8]),
+    )
+    retention_purge(db, ctx(outbox))
+    left = db.execute(
+        "select device_hash from device_codes where device_hash = any(%s)", ([stale, fresh],)
+    ).fetchall()
+    assert [row["device_hash"] for row in left] == [fresh]
+    check = one(db, "select detail from system_checks where name = 'retention_purge'")
+    assert check["detail"]["device_codes"] >= 1
 
 
 def add_jobs(db: Conn, user: str, tool: str, statuses: list[str], **times: Any) -> None:

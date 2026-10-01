@@ -54,14 +54,14 @@ def ledger_check(conn: Conn, ctx: TaskContext) -> None:
 
 
 # Better Auth's tables and API keys go entirely; the user row stays as a tombstone.
-_SCRUB_TABLES = ("sessions", "accounts", "two_factors", "api_keys")
+_SCRUB_TABLES = ("sessions", "accounts", "two_factors", "device_codes", "api_keys")
 
 
 def account_scrub(conn: Conn, _ctx: TaskContext) -> None:
     """Deleted accounts past the 30-day grace become tombstones (docs/04 -> Account deletion).
 
-    Email, display name and locale are nulled; sessions, sign-in methods, TOTP
-    and API keys are hard-deleted. The row's random id stays, so the ledger
+    Email, display name and locale are nulled; sessions, sign-in methods, TOTP,
+    panel connect codes and API keys are hard-deleted. The row's random id stays, so the ledger
     and purchases keep valid references with no UPDATE on the ledger.
     """
     with conn.transaction():
@@ -104,13 +104,14 @@ _PURGES: tuple[tuple[str, str], ...] = (
     ),
     ("verifications", "delete from verifications where expires_at < now() - interval '1 day'"),
     ("sessions", "delete from sessions where expires_at < now()"),
+    ("device_codes", "delete from device_codes where expires_at < now() - interval '1 day'"),
     ("heartbeats", "delete from service_heartbeats where seen_at < now() - interval '1 day'"),
     ("alerts", "delete from alerts where created_at < now() - interval '90 days'"),
 )
 
 
 def retention_purge(conn: Conn, _ctx: TaskContext) -> None:
-    """Welcome-grant claims after 12 months, expired sign-in links and sessions, old alerts."""
+    """Old welcome-grant claims and alerts; expired sign-in links, sessions and connect codes."""
     counts: dict[str, int] = {}
     with conn.transaction():
         for what, statement in _PURGES:
