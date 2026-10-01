@@ -19,4 +19,5 @@ export { bpmKeyEngine } from './audio/bpm-key';
 export { channelsEngine, fadeEngine, probeChannels } from './audio/edit';
 export { loudnessMeterEngine, normalizeEngine } from './audio/loudness';
 export { probeAudio } from './audio/probe';
+export { detectSilences, removeSilenceEngine } from './audio/silence';
 export { audioPeaks, trimAudioEngine } from './audio/trim';

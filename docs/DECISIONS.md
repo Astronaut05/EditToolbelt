@@ -1108,3 +1108,20 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/video.md` → V10.
 **Reverse:** `packages/engines/src/video/frames.ts`; `frameTimes` and `stamp` are pure, with tests.
+
+## 2026-10-01 · Remove Silence (M8)
+
+**Decision:**
+- **Silence is read from the level every 10 ms:** the loudest channel's RMS in dBFS. A silence is a run below the threshold lasting at least the minimum length (0.5 s by default).
+- **Auto threshold:** the noise floor is the level the quietest tenth of the recording sits at; the threshold is 10 dB above it, kept between −60 and −30 dBFS. It fits room tone, a quiet studio and digital silence alike; a set dBFS is there for the rest.
+- **What is cut:**
+  - Remove keeps 0.1 s of quiet beside the sound on each side (a breath, a word's tail), changeable from 0 to 1 s.
+  - Shorten leaves a pause of a set length (0.3 s by default), half each side.
+  - A silence at the very start or end is cut to the edge.
+- **The silences are the timeline's ranges.** They are found as the file loads and again 0.3 s after a setting changes, without decoding again (the levels are kept per file). Each can be moved, removed or added like any range, which is the spec's "toggle each".
+- **The cut is Trim Audio's remove,** with its 10 ms crossfade at each join, so the file is exactly as much shorter as the cuts add up to.
+- **The cut list is CSV:** number, start and end as hh:mm:ss.mmm, length, start and end in seconds. Premiere XML is Wave 3, as the spec says.
+- **The tool shell gained `preset.detect`:** ranges found in the file, found again when one of its options changes, with the run held while searching or when none are found.
+
+**Why:** `tools/audio.md` → A11.
+**Reverse:** `packages/core/src/audio/silence.ts` is pure, with tests; the engine is `packages/engines/src/audio/silence.ts`.

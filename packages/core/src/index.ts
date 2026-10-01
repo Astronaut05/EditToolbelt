@@ -88,3 +88,12 @@ export {
   type ChannelAction,
   type ChannelVerdict,
 } from './audio/channels';
+export {
+  autoThreshold,
+  cutsCsv,
+  findSilences,
+  LEVEL_STEP,
+  LevelScan,
+  silenceCuts,
+  type CutOptions,
+} from './audio/silence';

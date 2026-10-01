@@ -29,6 +29,7 @@ export const TOOL_IDS = [
   'normalize-audio',
   'qr-code-generator',
   'remove-background',
+  'remove-silence',
   'resize-image',
   'resize-video',
   'rotate-image',

@@ -437,6 +437,18 @@ export interface ShellPreset {
   probe?: (file: File) => Promise<ProbeInfo>;
   /** The first selection on the timeline, from the clip's length (GIF: the first 5 s). */
   initialRange?: (durationSec: number) => TimelineRange;
+  /**
+   * A11: the timeline's ranges are found in the file (the silences to cut),
+   * and found again when an option in `deps` changes. Each can be moved or
+   * dropped like any range. While searching the run waits and says `busy`;
+   * with none found, it says `empty`.
+   */
+  detect?: {
+    deps: string[];
+    run: (file: File, options: Record<string, string>) => Promise<TimelineRange[]>;
+    busy: string;
+    empty: string;
+  };
   /** A server tool: why it runs on our servers, for the offer ("Precise frame timing needs ffmpeg"). */
   serverReason?: string;
   /**
@@ -602,7 +614,33 @@ export function ToolShell({
     initialOptions ?? defaults(preset.options),
   );
   const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
+
   const [activeRange, setActiveRange] = useState(0);
+  /** A11: the ranges are being found in the file. */
+  const [detecting, setDetecting] = useState(false);
+  /** Which search is the latest, and the timer that waits for typing to stop. */
+  const detectRound = useRef(0);
+  const detectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const detectRanges = useCallback(
+    async (file: File, values: Record<string, string>) => {
+      const detect = preset.detect;
+      if (!detect) return;
+      const round = (detectRound.current += 1);
+      setDetecting(true);
+      try {
+        const found = await detect.run(file, values);
+        if (round !== detectRound.current) return;
+        setRanges(found);
+        setActiveRange(0);
+      } catch {
+        // Nothing to cut, then: the run waits and says why.
+        if (round === detectRound.current) setRanges([]);
+      } finally {
+        if (round === detectRound.current) setDetecting(false);
+      }
+    },
+    [preset.detect],
+  );
   const range = useMemo(
     () => ranges[activeRange] ?? ranges[0] ?? { start: 0, end: 12 },
     [ranges, activeRange],
@@ -916,6 +954,7 @@ export function ToolShell({
       if (suggested) setOptions((current) => ({ ...current, ...suggested }));
       setRanges([preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }]);
       setActiveRange(0);
+      if (preset.detect) void detectRanges(file, { ...options, ...suggested });
       const probed = { ...input, durationSec: info.durationSec };
       setServerReason(offer);
       setState({ kind: 'ready', input: probed, files });
@@ -933,7 +972,7 @@ export function ToolShell({
         .then(setPeaks)
         .catch(() => undefined);
     },
-    [preset, run, server],
+    [preset, run, server, options, detectRanges],
   );
 
   const intake = useCallback(
@@ -1113,6 +1152,15 @@ export function ToolShell({
     const next = { ...options, [id]: value };
     setOptions(next);
     if (ratioOf) editor.applyRatio(ratioOf(next));
+    // A11: what's found depends on these options; look again once typing stops.
+    const readyFile = state.kind === 'ready' ? state.files?.[0] : undefined;
+    if (preset.detect?.deps.includes(id) && readyFile) {
+      if (detectTimer.current) clearTimeout(detectTimer.current);
+      setDetecting(true);
+      detectTimer.current = setTimeout(() => {
+        void detectRanges(readyFile, next);
+      }, 300);
+    }
     if (preset.autoRun && state.kind === 'result' && state.file) {
       void run(state.input, state.file, next);
     }
@@ -1208,7 +1256,13 @@ export function ToolShell({
   // An analyzer changes nothing: its notes are the verdict.
   const notesTitle = tool.ui === 'analyzer' ? 'Verdict' : undefined;
   const blocked =
-    state.kind === 'ready' ? preset.blocked?.(options, state.files?.length ?? 1) : undefined;
+    state.kind !== 'ready'
+      ? undefined
+      : preset.detect && detecting
+        ? preset.detect.busy
+        : preset.detect && ranges.length === 0
+          ? preset.detect.empty
+          : preset.blocked?.(options, state.files?.length ?? 1);
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
       {visibleOptions.map((option) => (
