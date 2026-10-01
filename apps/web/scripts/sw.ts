@@ -8,6 +8,10 @@
  * - /_next/static/*: cache first (content-hashed, immutable).
  * - Models and WASM (/models/* or the MODELS_BASE_URL origin): cache first in
  *   a separate, unversioned cache, so a 115 MB model downloads once.
+ * - Android's share sheet (the manifest's share_target) POSTs files to
+ *   /share. The worker holds them in the `etb-shared` cache, on this device
+ *   only, and sends the browser to /share, which reads them, deletes them at
+ *   once and hands them to the tool picked (docs/01 → Mobile).
  * Old versions' caches are deleted on activate; the models cache is kept.
  */
 import { createHash } from 'node:crypto';
@@ -34,6 +38,9 @@ export function serviceWorker({
 const VERSION = ${JSON.stringify(version)};
 const SHELL = 'etb-shell-' + VERSION;
 const MODELS = 'etb-models';
+const SHARED = 'etb-shared';
+/** At most this many shared files are kept for the /share page. */
+const SHARE_LIMIT = 50;
 const MODELS_ORIGIN = ${JSON.stringify(modelsOrigin)};
 const PRECACHE = ${JSON.stringify(list)};
 
@@ -77,10 +84,46 @@ async function networkFirst(request) {
   }
 }
 
+/** Files shared from another app: kept until /share reads them, then the page takes over. */
+async function receiveShare(request) {
+  let files = [];
+  try {
+    const form = await request.formData();
+    files = form.getAll('files').filter((item) => typeof item === 'object' && item !== null);
+  } catch (error) {
+    files = [];
+  }
+  const cache = await caches.open(SHARED);
+  for (const key of await cache.keys()) await cache.delete(key);
+  const kept = files.slice(0, SHARE_LIMIT);
+  await Promise.all(
+    kept.map((file, index) =>
+      cache.put(
+        '/share/file/' + index,
+        new Response(file, {
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+            'X-File-Name': encodeURIComponent(file.name || 'shared-file'),
+            'X-Shared-At': String(Date.now()),
+          },
+        }),
+      ),
+    ),
+  );
+  return Response.redirect(
+    self.location.origin + '/share?files=' + kept.length + (files.length > kept.length ? '&more=1' : ''),
+    303,
+  );
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
-  if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  if (request.method === 'POST' && url.origin === self.location.origin && url.pathname === '/share') {
+    event.respondWith(receiveShare(request));
+    return;
+  }
+  if (request.method !== 'GET') return;
   if (url.origin !== self.location.origin) {
     if (MODELS_ORIGIN && url.origin === MODELS_ORIGIN) event.respondWith(cacheFirst(request, MODELS));
     return;

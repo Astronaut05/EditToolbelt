@@ -16,6 +16,21 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#0A0A0A',
     theme_color: '#0A0A0A',
     categories: ['photo', 'productivity', 'utilities'],
+    // Android's share sheet: "Share → EditToolbelt" from the gallery or files (docs/01 → Mobile).
+    // The service worker takes the POST (scripts/sw.ts); there's no server behind it.
+    share_target: {
+      action: '/share',
+      method: 'POST',
+      enctype: 'multipart/form-data',
+      params: {
+        files: [
+          {
+            name: 'files',
+            accept: ['image/*', 'video/*', 'audio/*', '.srt', '.vtt', '.ass', '.ssa', '.sbv'],
+          },
+        ],
+      },
+    },
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

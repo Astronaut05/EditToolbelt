@@ -48,6 +48,7 @@ export { ThemeToggle } from './primitives/ThemeToggle';
 export { Wordmark } from './primitives/Wordmark';
 
 export { Footer } from './layout/Footer';
+export { accepts, handOff } from './tool/handoff';
 export { ACCOUNT_PATH, Header, SIGN_IN_PATH } from './layout/Header';
 export { MobileMenu, type NavItem } from './layout/MobileMenu';
 export { OPEN_SEARCH_EVENT, SearchButton, SearchOverlay } from './layout/SearchOverlay';

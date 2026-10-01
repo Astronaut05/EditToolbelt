@@ -88,19 +88,24 @@
 - M8: Add Text to Image (beta). Text layers with five bundled fonts that write Uzbek Latin and Cyrillic (Onest, Montserrat, Oswald, Noto Serif, IBM Plex Mono) or a font file of your own, size, bold, colour, alignment, outline, shadow, a box and rotation. Drag a layer into place; it snaps to the middle lines. The same code and fonts lay out the preview and the saved image, so the text lands where it showed (#72).
 - M8: Blur & Pixelate Image (beta). Blur, pixelate or cover areas with a solid colour: drag a box, an ellipse or a brush stroke, or press Find faces. A small face detector (YuNet, MIT, 0.2 MB) runs in the browser; each face it finds is hidden, and a tap leaves one as it was. The strength is in px; the same code makes the preview and the saved image (#73).
 - M8: Photo Editor (beta). One editor with every mode in a rail on the left (a bar along the bottom on phones): Crop, Straighten, Rotate, Flip, Adjust (exposure, brightness, contrast, saturation, warmth), Draw, Text and Blur. Undo and redo across all of them. The settings set the crop ratio, the size, the format and the quality. The preview runs the export's own code, and text or markers added after a turn or flip stay upright (#74).
+- M8: Mobile. Share a photo, video or audio file to EditToolbelt from Android's share sheet, and it opens in the tool you pick; the files stay on the device and are cleared once read. An "Install the app" button in the footer when the browser offers it (a how-to line on iPhone), and a "works best on a computer" note on phones for Batch Rename (#75).
 
 ## Next
 
-1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
-2. M6 sign-off once parts 1 to 4 merge.
-3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
-4. M5 (credits, payments, GPU tools) after Go public.
+1. Checkpoints 1, 2 and 3, and the M3, M4 and M6 sign-offs: sent.
+2. M8: every browser tool of Wave 2 is built, and so are the mobile parts (share target, install button, desktop notes). Left: Noise Reduction (blocked, below) and the GPU tools (with M5). Then the M8 sign-off. M7 (the Premiere panel) follows M5's GPU tools.
+3. M5 (credits, payments, GPU tools) after Go public.
 
 ## Blocked
 
 - HEIC opens only in Safari until open question 10 (HEVC patents) is answered; `/convert/heic-to-jpg` and `/convert/heic-to-png` wait for it. Everything else continues.
 - Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark (IoU on 5 photos with reference masks, desktop and 2 phones) needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
 - Housekeeping only: `docs/design-handover` can't be deleted from this session (HTTP 403); see `docs/DECISIONS.md`.
+- A10 Noise Reduction (a CPU server tool): no model runtime that is both clearly licensed and buildable here.
+  - DeepFilterNet's library has no Python 3.12 build (its last release, 0.5.6, is from 2023), and its enhancer needs PyTorch.
+  - The ready-made RNNoise model files (GregorR/rnnoise-models) carry no licence, so rule 6 keeps them out.
+  - Xiph's own RNNoise (BSD-3-Clause, code and model) would do, but its source and model downloads are blocked from this build environment, so it can't be built and tested here.
+  - Options for Astro: (a) build Xiph RNNoise into the worker image, on a machine that can reach GitHub and xiph.org; (b) port DeepFilterNet3's ONNX model with our own feature code (larger work); (c) ship a DSP chain without AI (ffmpeg's `afftdn`, a hum notch and `deesser`) and drop "with AI" from the copy. The tool stays `soon` until then.
 - M4's `LocalGpu` backend (upscale, stems and transcription on the 1080 Ti): this build environment has no GPU and can't download models (huggingface.co is blocked). The queue, the processor interface and `gpu_seconds` are ready for it; the GPU image (pinned Pascal build), the models and the three tools are built where the GPU is: on Astro's PC, during the stress test, or with M5's backend.
 
 ## Run it

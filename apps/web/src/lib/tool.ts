@@ -37,6 +37,7 @@ export function shellTool(tool: ToolDef): ShellTool {
     })),
     howTo: tool.seo.howTo,
     ...(serverInfo(tool) && { server: serverInfo(tool) }),
+    ...(tool.desktopBest && { desktopBest: true }),
   };
 }
 

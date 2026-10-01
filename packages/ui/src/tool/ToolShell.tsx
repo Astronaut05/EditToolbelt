@@ -1,7 +1,7 @@
 'use client';
 
 import { activeAreas, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
-import { ChevronRight, Download, Undo2 } from 'lucide-react';
+import { ChevronRight, Download, Monitor, Undo2 } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -129,6 +129,8 @@ export interface ShellTool {
   howTo?: string[];
   /** Set when the tool's server path is on (the server build reads it from the database). */
   server?: ServerInfo;
+  /** Small screens get a note that it works best on a computer (docs/01 → Mobile). */
+  desktopBest?: boolean;
 }
 
 export interface ShellOption {
@@ -1206,11 +1208,11 @@ export function ToolShell({
   useEffect(() => {
     if (handedOver.current) return;
     handedOver.current = true;
-    const file = takeHandoff(tool.id);
+    const files = takeHandoff(tool.id);
     // Arrives like a drop: an event from outside the render, not derived state.
-    if (file)
+    if (files)
       queueMicrotask(() => {
-        intake([file]);
+        intake(files);
       });
   }, [intake, tool.id]);
 
@@ -1523,6 +1525,12 @@ export function ToolShell({
         short
       />
       <PrivacyBadge runtime={tool.runtime} noun={preset.noun} className="mt-4 hidden lg:flex" />
+      {tool.desktopBest && (
+        <p className="mt-2 flex items-center gap-2 px-4 text-14 text-text-muted lg:hidden">
+          <Monitor size={16} strokeWidth={1.75} aria-hidden="true" className="flex-none" />
+          Works best on a computer, and works here too.
+        </p>
+      )}
     </div>
   );
 
