@@ -1,6 +1,7 @@
 'use client';
 
-import { activeAreas, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
+import type { CheckRules, Cue } from '@etb/core/subtitles';
+import { activeAreas, cuesFromJson, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
 import { ChevronRight, Download, Monitor, Undo2 } from 'lucide-react';
 import {
   lazy,
@@ -72,6 +73,9 @@ const CanvasEditor = lazy(() =>
   import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
 );
 const ColorPicker = lazy(() => import('./ColorPicker').then((m) => ({ default: m.ColorPicker })));
+const SubtitleEditor = lazy(() =>
+  import('./SubtitleEditor').then((m) => ({ default: m.SubtitleEditor })),
+);
 const FocusPicker = lazy(() => import('./FocusPicker').then((m) => ({ default: m.FocusPicker })));
 const LineGraph = lazy(() => import('./LineGraph').then((m) => ({ default: m.LineGraph })));
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
@@ -550,6 +554,17 @@ export interface ShellPreset {
   /** A server tool: why it runs on our servers, for the offer ("Precise frame timing needs ffmpeg"). */
   serverReason?: string;
   /**
+   * T03: the workspace is the subtitle editor. The cues live in the `cues`
+   * option as JSON (the probe fills it from the file, the engine writes it
+   * out); `media` is the file option holding the video or audio to play
+   * along; `rules` are the checks' limits from the settings.
+   */
+  subtitles?: {
+    cues: string;
+    media: string;
+    rules: (options: Record<string, string>) => CheckRules;
+  };
+  /**
    * U02: the files keep their bytes and get new names. `plan` names every
    * file from the settings; the list shows each new name and what's wrong
    * with it, and a name that can't be used stops the run. With `inPlace`,
@@ -747,6 +762,9 @@ export function ToolShell({
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
+  /** T03: the cues the subtitle editor shows, parsed once per change. */
+  const cuesJson = preset.subtitles ? options[preset.subtitles.cues] : undefined;
+  const subtitleCues = useMemo(() => cuesFromJson(cuesJson), [cuesJson]);
   const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
 
   const [activeRange, setActiveRange] = useState(0);
@@ -1935,6 +1953,18 @@ export function ToolShell({
       media={media}
       thumbs={thumbs}
       peaks={peaks}
+      subtitles={
+        preset.subtitles
+          ? {
+              cues: subtitleCues,
+              media: fileOptionFile(options[preset.subtitles.media] ?? ''),
+              rules: preset.subtitles.rules(options),
+              onChange: (next) => {
+                if (preset.subtitles) changeOption(preset.subtitles.cues, JSON.stringify(next));
+              },
+            }
+          : null
+      }
       picker={
         preset.picker
           ? {
@@ -2360,6 +2390,7 @@ function Workspace({
   thumbs,
   peaks,
   picker,
+  subtitles,
   focus,
   refine,
 }: {
@@ -2392,6 +2423,12 @@ function Workspace({
     history: string | undefined;
     onPick: (hexes: string[]) => void;
   } | null;
+  subtitles: {
+    cues: Cue[];
+    media: File | undefined;
+    rules: CheckRules;
+    onChange: (cues: Cue[]) => void;
+  } | null;
   focus: {
     value: string | undefined;
     frames: FocusFrame[];
@@ -2414,6 +2451,14 @@ function Workspace({
     return (
       <Suspense fallback={null}>
         <ColorPicker src={state.input.url} {...picker} />
+      </Suspense>
+    );
+  }
+
+  if (subtitles) {
+    return (
+      <Suspense fallback={null}>
+        <SubtitleEditor {...subtitles} />
       </Suspense>
     );
   }

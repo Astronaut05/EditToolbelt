@@ -73,6 +73,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'split-image': dynamic(() => import('./split-image')),
   'storage-calculator': dynamic(() => import('./storage-calculator')),
   'subtitle-converter': dynamic(() => import('./subtitle-converter')),
+  'subtitle-editor': dynamic(() => import('./subtitle-editor')),
   'subtitle-shift': dynamic(() => import('./subtitle-shift')),
   'timecode-calculator': dynamic(() => import('./timecode-calculator')),
   'trim-audio': dynamic(() => import('./trim-audio')),

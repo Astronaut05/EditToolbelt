@@ -100,12 +100,13 @@
 - Wave 3: Collage Maker (beta). 2 to 9 photos in a grid, one big photo beside or above the rest, columns or rows; each cropped to fill its box, with the spacing, corner radius and background set; square, 4:5, 9:16, 16:9 or A4, saved as JPG, PNG or WebP.
 - Wave 3: Image to SVG (beta). Logos and illustrations traced in the browser by our own tracer: 2 to 16 colours or black and white, three levels of detail, smooth, sharp or pixel-exact edges; neighbouring shapes share their borders, so no hairline gaps; nothing but filled paths in the file.
 - Wave 3: Audio to Video (beta). An audiogram from up to 10 minutes of audio: spectrum bars or a waveform line over a colour or a picture, a title, and captions from an SRT or VTT file; 9:16, 1:1 or 16:9 at 30 fps, drawn and encoded in the browser as MP4 (or WebM where MP4 can't be written).
+- Wave 3: Subtitle Editor (beta). SRT, VTT, ASS or SBV on a timeline under the video or audio it belongs to: drag cues or their edges (or use the arrow keys), type in the cue list, split at the playhead, merge, add, delete, undo and redo, find and replace; checks for line length, lines, reading speed, duration, gaps and overlaps, each with a fix; saved as SRT, VTT, ASS or SBV.
 
 ## Next
 
 1. Checkpoints 1, 2 and 3, and the M3, M4 and M6 sign-offs: sent.
 2. M8: every browser tool of Wave 2 is built, and so are the mobile parts (share target, install button, desktop notes). Left: Noise Reduction (blocked, below) and the GPU tools (with M5). Then the M8 sign-off. M7 (the Premiere panel) follows M5's GPU tools.
-3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum, Reverse Audio, Reverse Video, Loop Video, Split Audio, Gradient Generator, LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video. Next: Subtitle Editor.
+3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum, Reverse Audio, Reverse Video, Loop Video, Split Audio, Gradient Generator, LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor: every browser tool of Wave 3. Left in Wave 3: the server and GPU tools, with M5.
 4. M5 (credits, payments, GPU tools) after Go public.
 
 ## Blocked

@@ -14,7 +14,8 @@
     "./upload": "./src/upload.ts",
     "./api": "./src/api/index.ts",
     "./rename": "./src/rename.ts",
-    "./vectorize": "./src/image/vectorize.ts"
+    "./vectorize": "./src/image/vectorize.ts",
+    "./subtitles": "./src/subtitles/index.ts"
   },
   "scripts": {
     "lint": "eslint .",

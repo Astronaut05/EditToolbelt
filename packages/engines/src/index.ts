@@ -6,7 +6,14 @@
  */
 export type { Capabilities, Engine, EngineOutput, InputMeta, RunContext } from './types';
 export { dummyEngine, EngineAbortError, type DummyOptions } from './dummy';
-export { subtitleEngine, type SubtitleEngineOptions } from './subtitles';
+export {
+  cuesFromJson,
+  readSubtitleFile,
+  subtitleEditEngine,
+  subtitleEngine,
+  type SubtitleEditOptions,
+  type SubtitleEngineOptions,
+} from './subtitles';
 export { lutConvertEngine, type LutConvertOptions } from './lut-convert';
 export {
   checkImage,

@@ -60,6 +60,7 @@ export const TOOL_IDS = [
   'split-image',
   'storage-calculator',
   'subtitle-converter',
+  'subtitle-editor',
   'subtitle-shift',
   'timecode-calculator',
   'trim-audio',
