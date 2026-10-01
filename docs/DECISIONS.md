@@ -1148,3 +1148,28 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/video.md` → V14 ("duck under speech" is a Wave 3 idea, left out as the spec says).
 **Reverse:** `packages/engines/src/video/replace-audio.ts`; `musicParts`, `musicGain` and `Resampler` are pure, with tests.
+
+## 2026-10-01 · Merge Audio (M8)
+
+**Decision:**
+- **Several files into one is a shell mode (`preset.combine`),** not a batch:
+  - The files are listed in order (`FileOrder`), each with what it holds and its length.
+  - Arrow buttons move a file up or down; focus stays on it, so the keyboard can reorder a whole list. There's also Remove, and Add files.
+  - The run waits for 2 files, or while one can't be read. Up to 20.
+  - Merge Videos (V12) will use the same mode.
+- **One join for all joins:** back to back, a crossfade, or a gap, each 0.5 to 5 s. A different gap or crossfade per join is left for later: one setting covers the common cases and keeps the phone layout to two rows.
+- **Crossfades are equal-power** (cosine out, sine in), so the level holds through the join. Each one shortens the result by its length. A crossfade can be at most half the shortest file, so no more than two files ever overlap.
+- **Mix:**
+  - All tracks at the same level, from the start; the result is as long as the longest.
+  - A first pass measures the mix. If its peak would go over −1 dBFS, the whole mix is lowered just enough, and the notes say by how much.
+  - A level per track is left for later. The spec's "no clipping in mix (auto-gain)" is what this does.
+- **Normalize** is off by default, or −14, −16 or −23 LUFS with a −1 dBTP ceiling. It uses Normalize Loudness's own measure and plan (a true-peak limiter when the gain needs one); the notes give the result's measured loudness.
+- **One rate:**
+  - Files that share a sample rate keep it, so WAV and FLAC joins stay bit-exact outside the crossfades.
+  - Otherwise every file is brought to 48 kHz by the core `Resampler`. Opus always gets 48 kHz.
+  - The result is stereo if any file is.
+- **Format:** Keep (the first file's), MP3, WAV or FLAC. Lossy formats are written at 192 kbps stereo or 128 kbps mono.
+- **Housekeeping:** the "keep the format" table, which three engines each had a copy of, is now one export (`KEEP_FORMAT`). Decoding to a stream at a rate (`audio/stream.ts`) is shared with Add or Replace Audio.
+
+**Why:** `tools/audio.md` → A04.
+**Reverse:** the placement maths is `packages/core/src/audio/merge.ts` (pure, with tests); the engine is `packages/engines/src/audio/merge.ts`; the list is `packages/ui/src/tool/FileOrder.tsx`.

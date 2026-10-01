@@ -38,6 +38,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'gif-to-mp4': dynamic(() => import('./gif-to-mp4')),
   'image-converter': dynamic(() => import('./image-converter')),
   'loudness-meter': dynamic(() => import('./loudness-meter')),
+  'merge-audio': dynamic(() => import('./merge-audio')),
   'mute-video': dynamic(() => import('./mute-video')),
   'normalize-audio': dynamic(() => import('./normalize-audio')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),

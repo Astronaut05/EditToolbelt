@@ -99,6 +99,14 @@ export {
 } from './audio/silence';
 export { Resampler } from './audio/resample';
 export {
+  placedGain,
+  placedLength,
+  placeJoined,
+  placeMixed,
+  type JoinKind,
+  type Placement,
+} from './audio/merge';
+export {
   dbGain,
   LOOP_FADE,
   MAX_LOOPS,

@@ -20,7 +20,12 @@ import { AudioSample, AudioSampleSink, Quality, type AudioCodec } from 'mediabun
 import { EngineAbortError } from '../dummy';
 import type { Engine, EngineOutput } from '../types';
 import { encodeAudio } from '../video/encode-audio';
-import { AUDIO_TARGETS, ensureEncoder, type AudioFormat } from '../video/extract-audio';
+import {
+  AUDIO_TARGETS,
+  type AudioFormat,
+  ensureEncoder,
+  KEEP_FORMAT,
+} from '../video/extract-audio';
 import { codecLabel, MediaInputError, openInput } from '../video/media';
 import { AUDIO_LIMITS, MEDIA_META } from '../media-meta';
 
@@ -231,17 +236,6 @@ export interface NormalizeOptions {
   format?: string;
 }
 
-/** The output for a source codec when the format is kept. */
-const KEEP: Partial<Record<AudioCodec, AudioFormat>> = {
-  mp3: 'mp3',
-  aac: 'm4a',
-  opus: 'ogg',
-  flac: 'flac',
-  'pcm-s16': 'wav',
-  'pcm-s24': 'wav',
-  'pcm-f32': 'wav',
-};
-
 export function targetOf(opts: NormalizeOptions): number {
   const value = Number(opts.target === 'custom' ? opts.custom : opts.target);
   if (!Number.isFinite(value) || value > -5 || value < -40) {
@@ -277,7 +271,7 @@ export const normalizeEngine: Engine<NormalizeOptions> = {
       throw error;
     }
     const sourceCodec = first.codec;
-    const keep = sourceCodec ? KEEP[sourceCodec] : undefined;
+    const keep = sourceCodec ? KEEP_FORMAT[sourceCodec] : undefined;
     const format: AudioFormat =
       opts.format && opts.format in AUDIO_TARGETS ? (opts.format as AudioFormat) : (keep ?? 'wav');
     const out = AUDIO_TARGETS[format];
