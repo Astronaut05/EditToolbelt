@@ -270,7 +270,11 @@ async function checkCloudflareR2(env: Env, site: string): Promise<string> {
     ...lifecycleProblems(lifecycle.rules ?? []),
     ...corsProblems(cors.rules ?? [], site),
   ];
-  expect(problems.length === 0, problems.join('; '));
+  // Bucket settings aren't secrets: show what the API answered when it doesn't fit.
+  expect(
+    problems.length === 0,
+    `${problems.join('; ')}. Lifecycle as the API answers it: ${JSON.stringify(lifecycle)}`,
+  );
   return 'EU jurisdiction; every object expires and every multipart upload aborts within 1 day; CORS rule for the site';
 }
 
