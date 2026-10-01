@@ -43,6 +43,8 @@ export const TOOL_IDS = [
   'replace-audio',
   'resize-image',
   'resize-video',
+  'reverse-audio',
+  'reverse-video',
   'rotate-image',
   'rotate-video',
   'shutter-angle-calculator',

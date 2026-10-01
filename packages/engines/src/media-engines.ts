@@ -23,6 +23,8 @@ export { channelsEngine, fadeEngine, probeChannels } from './audio/edit';
 export { loudnessMeterEngine, normalizeEngine } from './audio/loudness';
 export { mergeAudioEngine } from './audio/merge';
 export { pitchEngine } from './audio/pitch';
+export { reverseAudioEngine } from './audio/reverse';
+export { reverseVideoEngine } from './video/reverse-video';
 export { probeAudio } from './audio/probe';
 export { detectSilences, removeSilenceEngine } from './audio/silence';
 export { audioPeaks, trimAudioEngine } from './audio/trim';

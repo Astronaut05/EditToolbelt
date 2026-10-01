@@ -91,12 +91,13 @@
 - M8: Mobile. Share a photo, video or audio file to EditToolbelt from Android's share sheet, and it opens in the tool you pick; the files stay on the device and are cleared once read. An "Install the app" button in the footer when the browser offers it (a how-to line on iPhone), and a "works best on a computer" note on phones for Batch Rename (#75).
 - Wave 3: Shutter Angle Calculator and Recording Storage Calculator (beta). Angle to speed and back at any frame rate, with flicker-safe speeds for 50 and 60 Hz lighting. Hours that fit on a card or drive at a codec's bitrate, or the space a shoot needs, from typical camera bitrates you can override (#76).
 - Wave 3: File Checksum (beta). MD5, SHA-1 and SHA-256 of any file, streamed so a 30 GB clip works; checked against a pasted hash or a SHA256SUMS list; copies compared; the list exported as SHA256SUMS or CSV.
+- Wave 3: Reverse Audio and Reverse Video (beta). The whole file or a selection of audio played backwards; a clip backwards with its sound reversed or left out. Both read the file from its end a window at a time, so memory doesn't grow with its length.
 
 ## Next
 
 1. Checkpoints 1, 2 and 3, and the M3, M4 and M6 sign-offs: sent.
 2. M8: every browser tool of Wave 2 is built, and so are the mobile parts (share target, install button, desktop notes). Left: Noise Reduction (blocked, below) and the GPU tools (with M5). Then the M8 sign-off. M7 (the Premiere panel) follows M5's GPU tools.
-3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum. Next: Reverse Audio and Reverse Video, Loop Video, Split Audio, Gradient Generator, LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor.
+3. Wave 3's browser tools, a small group per PR, while the M8 PRs merge. Built: Shutter Angle, Recording Storage, File Checksum, Reverse Audio, Reverse Video. Next: Loop Video, Split Audio, Gradient Generator, LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor.
 4. M5 (credits, payments, GPU tools) after Go public.
 
 ## Blocked
