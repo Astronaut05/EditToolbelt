@@ -89,6 +89,7 @@
 - M8: Blur & Pixelate Image (beta). Blur, pixelate or cover areas with a solid colour: drag a box, an ellipse or a brush stroke, or press Find faces. A small face detector (YuNet, MIT, 0.2 MB) runs in the browser; each face it finds is hidden, and a tap leaves one as it was. The strength is in px; the same code makes the preview and the saved image (#73).
 - M8: Photo Editor (beta). One editor with every mode in a rail on the left (a bar along the bottom on phones): Crop, Straighten, Rotate, Flip, Adjust (exposure, brightness, contrast, saturation, warmth), Draw, Text and Blur. Undo and redo across all of them. The settings set the crop ratio, the size, the format and the quality. The preview runs the export's own code, and text or markers added after a turn or flip stay upright (#74).
 - M8: Mobile. Share a photo, video or audio file to EditToolbelt from Android's share sheet, and it opens in the tool you pick; the files stay on the device and are cleared once read. An "Install the app" button in the footer when the browser offers it (a how-to line on iPhone), and a "works best on a computer" note on phones for Batch Rename (#75).
+- Wave 3: Shutter Angle Calculator and Recording Storage Calculator (beta). Angle to speed and back at any frame rate, with flicker-safe speeds for 50 and 60 Hz lighting. Hours that fit on a card or drive at a codec's bitrate, or the space a shoot needs, from typical camera bitrates you can override (#76).
 
 ## Next
 
