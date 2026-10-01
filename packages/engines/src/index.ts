@@ -40,6 +40,7 @@ export {
 export { VIDEO_LIMITS } from './video/limits';
 export { trimEngine, type TrimOptions } from './video/trim';
 export { muteGain, muteVideoEngine, silence, type MuteOptions } from './video/mute';
+export type { ReplaceAudioOptions } from './video/replace-audio';
 export {
   videoInfoEngine,
   videoReport,

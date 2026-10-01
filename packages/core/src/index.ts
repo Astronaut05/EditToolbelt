@@ -97,3 +97,14 @@ export {
   silenceCuts,
   type CutOptions,
 } from './audio/silence';
+export { Resampler } from './audio/resample';
+export {
+  dbGain,
+  LOOP_FADE,
+  MAX_LOOPS,
+  musicEnd,
+  musicGain,
+  musicParts,
+  type MusicGain,
+  type MusicPart,
+} from './audio/mix';

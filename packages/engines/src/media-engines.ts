@@ -11,6 +11,7 @@ export { gifToVideoEngine } from './video/gif-to-video';
 export { videoInfoEngine } from './video/info';
 export { muteVideoEngine } from './video/mute';
 export { reframeEngine } from './video/reframe';
+export { replaceAudioEngine } from './video/replace-audio';
 export { rotateEngine } from './video/rotate';
 export { trimEngine } from './video/trim';
 export { videoToGifEngine } from './video/video-to-gif';

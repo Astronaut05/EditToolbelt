@@ -30,6 +30,7 @@ export const TOOL_IDS = [
   'qr-code-generator',
   'remove-background',
   'remove-silence',
+  'replace-audio',
   'resize-image',
   'resize-video',
   'rotate-image',

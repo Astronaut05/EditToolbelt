@@ -1125,3 +1125,26 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/audio.md` → A11.
 **Reverse:** `packages/core/src/audio/silence.ts` is pure, with tests; the engine is `packages/engines/src/audio/silence.ts`.
+
+## 2026-10-01 · Add or Replace Audio in Video (M8)
+
+**Decision:**
+- **The picture is copied packet for packet,** never re-encoded; only the sound is new. That keeps it fast, lossless and possible on any video the browser can read, even one it can't decode.
+- **The new sound:**
+  - AAC in MP4 and MOV, Opus in WebM and MKV, at 48 kHz.
+  - 192 kbps stereo, or 128 kbps when both sources are mono.
+  - A browser that can't encode AAC (Playwright's Chromium among them) is told so for MP4 and MOV, rather than given an Opus track some players skip.
+- **Replace or Mix:**
+  - Replace: the music alone, at 0 dB by default.
+  - Mix: the music under the video's own sound, at −15 dB under 0 dB by default (a common start for music under speech).
+  - Levels from 0 to −24 dB. A mix that goes over 0 dBFS is clipped there, and the notes say so.
+- **Fitting the music to the video:**
+  - Music starts at a point in it (`Start the music at`).
+  - It is cut at the video's end. If it's shorter, it loops from its start (default), with a 10 ms dip at each repeat so there's no click, or plays once.
+  - A sound so short it would repeat over 1000 times is refused, with a hint to play it once.
+  - Fade in (none by default) from the video's start, and fade out (2 s by default) to where the music stops.
+- **Different sample rates:** both sources are brought to 48 kHz by `Resampler` in `@etb/core`. It is a streamed Kaiser-windowed sinc (β = 8, 16 zero crossings), cut off at 95% of the lower rate's Nyquist. It keeps a steady level exactly and rejects aliasing by more than 60 dB, at about 0.9 s per minute of stereo. Merge Audio will use it too.
+- **Mono and surround:** the output is stereo when either source is. Mono goes to both sides; past stereo, the front left and right are used.
+
+**Why:** `tools/video.md` → V14 ("duck under speech" is a Wave 3 idea, left out as the spec says).
+**Reverse:** `packages/engines/src/video/replace-audio.ts`; `musicParts`, `musicGain` and `Resampler` are pure, with tests.
