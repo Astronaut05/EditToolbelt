@@ -39,7 +39,14 @@ const nextConfig: NextConfig = {
   ...(target === 'server' && { typescript: { ignoreBuildErrors: true } }),
   reactStrictMode: true,
   // Internal packages ship TypeScript source.
-  transpilePackages: ['@etb/core', '@etb/db', '@etb/engines', '@etb/registry', '@etb/ui'],
+  transpilePackages: [
+    '@etb/config',
+    '@etb/core',
+    '@etb/db',
+    '@etb/engines',
+    '@etb/registry',
+    '@etb/ui',
+  ],
   serverExternalPackages: ['pg', 'nodemailer'],
   experimental: {
     optimizePackageImports: ['@etb/ui', 'lucide-react'],

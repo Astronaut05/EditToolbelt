@@ -720,3 +720,36 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `docs/12` → M4 ("claim/heartbeat/reaper, processor interface, ffmpeg sandboxing per 11"; "Retention: immediate input deletion, 60-min output sweeper (also aborts stale multipart uploads)… lifecycle check… reports not supported locally"; done-when: "input is gone from storage immediately after, output gone within the hour; killing a worker mid-job requeues it; malformed-file fixtures fail cleanly"), `docs/01` → Queue, Workers, Retention, `docs/11`.
 **Reverse:** `WORKER_SLOTS=0` isn't allowed; to stop job processing, stop the worker. The sweep interval and TTLs are constants at the top of `retention.py` and `jobqueue.py`.
+
+## 2026-09-30 · Server jobs over the API: quotes, what pays, and the per-account limits (M4)
+
+**Decision:**
+- **Every check that decides whether and how a job runs is on the server, from the worker's probe** (`apps/web/src/server/jobs.ts`):
+  - The tool must be live with its server path on.
+  - The upload must be the caller's, complete, probed without a refusal, made for this tool, and not used by another job.
+  - The caller's tier limits (duration, pixels) apply.
+  - The options pass the tool's Zod schema (`@etb/registry/options`; unknown keys refused, defaults filled in).
+  - The price comes from the registry's rule and the probe (`priceOf`).
+- **A quote waits up to 8 s for the probe**, then answers `202 { status: "probing" }` with `Retry-After: 1`. A probe refusal is a `422` with the probe's code.
+- **`POST /jobs` repeats every check, and refuses a changed price** with `409 CONFLICT` and the new `credits`, so the user confirms again.
+  - An `Idempotency-Key` (8 to 128 printable characters) returns the same job on a repeat.
+  - Each upload feeds one job.
+  - Creates for one account run one at a time (a transaction-scoped advisory lock), so a double click can't beat the limits.
+- **What pays is recorded on the job, in a new `funding` column** (migration 0006):
+  - `none` for a price of 0.
+  - `daily` for one of the 3 free jobs a day a never-paid account gets (`config/business.ts`).
+  - `credits` otherwise: the price is reserved with `applyCredit` in the transaction that creates the job.
+  - Paid-credit jobs queue at priority 1, free ones at 0.
+- **"Small job" (`docs/05` → Free allowance) means within the tool's free-tier server limits.** Those are what a never-paid account can send at all, so every job it runs is small. Once today's free jobs are used, a never-paid account pays in credits (the welcome grant arrives in M5) and gets `429 QUOTA_EXCEEDED` without them. A paid account without enough credits gets `402 INSUFFICIENT_CREDITS`.
+- **The allowance is counted from job rows** (`funding = 'daily'`, created today UTC, not failed, cancelled or expired), not from the `free_quota` table in `docs/04`.
+  - A counter would have to be given back on every failure, cancel and expiry, by the worker and by the web. Counting rows gives the slot back by itself and can't drift.
+  - `free_quota` stays in the schema, unused. Free previews (Wave 2) will count as daily jobs too.
+  - The day is UTC, like every other date the API shows.
+- **Per-account concurrency:** at most 2 jobs queued or running (4 once paid), `429 RATE_LIMITED`. Checked under the same lock.
+- **Cancel** stops a queued or running job and releases its credits in the same transaction. A queued job's input is deleted at once; a running job's worker notices within 5 s and deletes it.
+- **Progress:** `GET /jobs/:id/events` is server-sent events. It polls the job row every second and sends `progress` on any change, `done` with the whole job at the end, and a comment every 20 s. A stream closes after 15 min; EventSource reconnects. `Cache-Control: no-transform` keeps compression from holding events back.
+- **Results:** `GET /jobs/:id` presigns a 10-minute download URL named `<tool id>.<ext>` on each call, with `expires_at` 60 min after the job finished (when the sweeper deletes it). A failed job says what went wrong in plain words and whether credits came back.
+- `estimate_seconds` is `null` until tools have measured runtimes (M4, part 4).
+
+**Why:** `docs/12` → M4 ("Credits reserve → capture/release wired … free-tier daily allowance … per-user concurrency caps"), `docs/06` → Endpoints and Job lifecycle, `docs/05` → Free allowance and Abuse.
+**Reverse:** to use `free_quota`, write it in `createJob`'s transaction and give it back wherever a job fails, is cancelled or expires (web and worker). The limits are in `config/business.ts`.

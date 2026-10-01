@@ -23,6 +23,9 @@ export default defineTool({
       free: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 },
       paid: { maxBytes: 10 * 1024 ** 3, maxDurationSec: 4 * 60 * 60 },
     },
+    // Two-pass ffmpeg; a 4 h video at 1080p takes well under 2 h on one core.
+    timeoutSec: 2 * 60 * 60,
+    maxConcurrent: 2,
   },
   cost: { kind: 'perMinute', credits: 1, minCredits: 2 },
   surfaces: ['web', 'mobile', 'api'],

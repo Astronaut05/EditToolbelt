@@ -5,6 +5,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  check,
   index,
   integer,
   jsonb,
@@ -52,6 +53,12 @@ export const jobs = pgTable(
     inputKey: text('input_key'),
     outputKey: text('output_key'),
     outputMeta: jsonb('output_meta'),
+    /**
+     * What pays for it: `daily` a free daily job (docs/05 → Free allowance),
+     * `credits` the reserved credits, `none` a free tool. A failed, cancelled
+     * or expired daily job gives its slot back: the allowance counts jobs.
+     */
+    funding: text('funding').notNull().default('none'),
     creditsQuoted: integer('credits_quoted').notNull().default(0),
     creditsCharged: integer('credits_charged').notNull().default(0),
     progress: smallint('progress').notNull().default(0),
@@ -81,6 +88,7 @@ export const jobs = pgTable(
     index('jobs_queue_idx')
       .on(t.status, t.priority.desc(), t.createdAt)
       .where(sql`${t.status} = 'queued'`),
+    check('jobs_funding', sql`${t.funding} in ('daily', 'credits', 'none')`),
     index('jobs_running_idx')
       .on(t.heartbeatAt)
       .where(sql`${t.status} = 'running'`),

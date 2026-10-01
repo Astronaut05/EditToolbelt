@@ -25,6 +25,7 @@ export {
   type ToolFlag,
 } from './flags';
 export { ISOLATED_PATHS, needsFullPageLoad } from './isolated';
+export { priceOf, type PriceInput } from './pricing';
 export { PAIR_COPY, type PairCopy } from './pairs';
 export { redirects, type Redirect } from './redirects';
 export { tools };

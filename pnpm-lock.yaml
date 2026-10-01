@@ -59,6 +59,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@etb/config':
+        specifier: workspace:*
+        version: link:../../config
       '@etb/core':
         specifier: workspace:*
         version: link:../../packages/core

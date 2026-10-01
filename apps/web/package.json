@@ -19,6 +19,7 @@
     "start:server": "ETB_TARGET=server next start"
   },
   "dependencies": {
+    "@etb/config": "workspace:*",
     "@etb/core": "workspace:*",
     "@etb/db": "workspace:*",
     "@etb/engines": "workspace:*",
