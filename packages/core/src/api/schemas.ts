@@ -87,8 +87,8 @@ export const Upload = z
     part_count: z.number().int(),
     /** The first 20 parts' URLs; PUT each part's exact bytes to its URL. */
     parts: z.array(PartUrl),
-    parts_url: z.string(),
-    complete_url: z.string(),
+    parts_url: z.url().describe('Absolute URL of `POST /uploads/{id}/parts`, for more part URLs.'),
+    complete_url: z.url().describe('Absolute URL of `POST /uploads/{id}/complete`.'),
     expires_at: time,
   })
   .register(api, { id: 'Upload' });

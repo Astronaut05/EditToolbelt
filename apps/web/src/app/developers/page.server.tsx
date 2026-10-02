@@ -57,9 +57,13 @@ export default async function DevelopersPage() {
             Account → API keys
           </a>{' '}
           and send it with every request as <Mono>Authorization: Bearer etb_live_…</Mono>. It acts
-          as your account: it spends your free daily jobs and your credits. Keep it secret. Every
-          answer allows any origin, so a key works from a web page too, but anyone who can read that
-          page can then use it.
+          as your account: it spends your free daily jobs and your credits. Keep it secret.
+        </p>
+        <p>
+          The API answers any origin, but a file’s parts go straight to storage, which takes them
+          only from this site, the Premiere panel and scripts that don’t run in a browser. So a
+          script or a server can do everything; a page on another site can call the API with a key
+          but can’t upload files. And anyone who can read that page could take the key.
         </p>
         <p>Each key can do only what you ticked when you made it:</p>
         <ul>
@@ -93,13 +97,18 @@ UPLOAD=$(jq -r .upload_id upload.json)`}</Code>
   -d "{\\"parts\\":[{\\"n\\":1,\\"etag\\":$ETAG}]}"`}</Code>
         <p>
           4. Ask for a price. Until the check is done the answer is{' '}
-          <Mono>{'{"status":"probing"}'}</Mono> (202): ask again after a second. The quote says what
-          pays (<Mono>daily</Mono>: one of your free jobs today, or <Mono>credits</Mono>) and
-          whether it can start.
+          <Mono>{'{"status":"probing"}'}</Mono> (202), so the loop asks again every second. The
+          quote says what pays (<Mono>daily</Mono>: one of your free jobs today, or{' '}
+          <Mono>credits</Mono>) and whether it can start.
         </p>
         <Code label="Get a quote">{`OPTIONS='{"mode":"size","targetMb":25}'
-curl -s -X POST "$API/jobs/quote" -H "$H" -H 'Content-Type: application/json' \\
-  -d "{\\"tool_id\\":\\"compress-video\\",\\"upload_id\\":\\"$UPLOAD\\",\\"options\\":$OPTIONS}" > quote.json`}</Code>
+while :; do
+  curl -s -X POST "$API/jobs/quote" -H "$H" -H 'Content-Type: application/json' \\
+    -d "{\\"tool_id\\":\\"compress-video\\",\\"upload_id\\":\\"$UPLOAD\\",\\"options\\":$OPTIONS}" > quote.json
+  jq -e '.status == "probing"' quote.json > /dev/null || break
+  sleep 1
+done
+jq '{credits, funding, can_start}' quote.json`}</Code>
         <p id="idempotency">
           5. Start the job at that price. The <Mono>Idempotency-Key</Mono> makes a retry safe: the
           same key with the same body answers the same job (200 instead of 201). A key is for one

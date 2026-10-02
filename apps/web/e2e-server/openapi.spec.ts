@@ -174,6 +174,13 @@ test('answers match the schemas, and their statuses the document', async ({ requ
   expect(upload.status()).toBe(201);
   const started = await expectShape(upload, Upload);
   expect(started.parts).toHaveLength(started.part_count);
+  // Absolute, whatever base a client joins paths to.
+  expect(started.complete_url).toBe(
+    new URL(`/api/v1/uploads/${started.upload_id}/complete`, upload.url()).href,
+  );
+  expect(started.parts_url).toBe(
+    new URL(`/api/v1/uploads/${started.upload_id}/parts`, upload.url()).href,
+  );
   await expectShape(await call('get', '/api/v1/jobs', { headers }), JobList);
 
   // Not finished yet, so no price; then given up.

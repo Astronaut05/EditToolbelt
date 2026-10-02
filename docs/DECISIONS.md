@@ -1282,3 +1282,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6 found the document disagreeing with the routes (204 vs 200, the missing 202, 200, 409 and 429s).
 **Reverse:** nothing to undo; to loosen the contract test, drop `expectDocumented`.
+
+## 2026-10-02 · Absolute upload URLs, and what /developers says about browsers (M6 fix)
+
+**Decision:**
+- **`parts_url` and `complete_url` are absolute, from SITE_URL.** They were paths from the site's root (`/api/v1/uploads/…`), which a client that joins paths to its `/api/v1` base would double. Absolute URLs work whatever the client does; the schema says `url`.
+- **`/developers` and `docs/06` no longer say a key works from any web page.** The API answers any origin, but parts go straight to storage, and the bucket's CORS allows only the site, so a page on another origin can call the API but can't upload. Scripts, servers and the panel aren't browsers and can. The bucket's CORS stays as it is: opening it to every origin would only help keys sitting in web pages.
+- **The curl walkthrough's quote step loops while the answer is 202**, as the text says to.
+- **`run-tool.mjs` knows image and audio types too** (JPEG, PNG, WebP, GIF, AVIF, BMP, TIFF, HEIC/HEIF; MP3, WAV, FLAC, M4A, AAC, OGG/Opus, WebM audio, AIFF; and AVI, MPEG, MPEG-TS, 3GP, OGV, WMV, MXF beside the video ones), and prints the balance only when the key may see it.
+
+**Why:** a review of M6 (smaller items).
+**Reverse:** the URLs are built in `createUpload` (`server/uploads.ts`); the types are one table in the script.

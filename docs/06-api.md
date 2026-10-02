@@ -13,6 +13,7 @@ One API for everything: the website's own tool pages, the Premiere panel, the mo
   Done as: every call counts against a general budget of 600 a minute per key (or per account for the website), or 300 a minute per address for anonymous calls and refused keys or sessions; routes add their own, stricter limits. Each answer, errors included, carries the headers of the limit it is closest to, and a 429 adds `Retry-After`.
 - CORS: our own origins only for cookie auth; API-key auth allowed from any origin (keys are secret, so browser use is the developer's own risk — docs say so).
   Done as: every answer carries `Access-Control-Allow-Origin: *` and never `Allow-Credentials`, so a browser won't give another site an answer made with our cookie (which is SameSite=Lax anyway); a cookie write must come from our origin.
+  The storage bucket's CORS allows only the site, so a page on another origin can call the API with a key but can't PUT upload parts: uploads work from the site, the panel and scripts that don't run in a browser. `/developers` says so.
 
 ## Auth
 
@@ -36,7 +37,7 @@ Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, st
 |---|---|
 | `GET /tools` | Registry view: id, name, category, status, runtime, surfaces, accepts, limits for caller's tier, cost rule, and `server` (our servers run it now). Filter `?surface=panel`. |
 | `GET /tools/:id` | One tool, including option schema (JSON Schema from Zod) so clients can render forms. |
-| `POST /uploads` | `{ tool_id, bytes, mime }` → `{ upload_id, parts: [{ n, url }], part_size, complete_url }`. Validates size/type for tier. |
+| `POST /uploads` | `{ tool_id, bytes, mime }` → `{ upload_id, parts: [{ n, url }], part_size, part_count, parts_url, complete_url, expires_at }`. Validates size/type for tier. `parts_url` and `complete_url` are absolute (from `SITE_URL`). |
 | `POST /uploads/:id/parts` | `{ from, count }` → fresh presigned URLs for the next parts. Part URLs expire in 15 min, so large uploads fetch them in batches. |
 | `POST /uploads/:id/complete` | `{ parts: [{ n, etag }] }` → completes multipart. |
 | `DELETE /uploads/:id` | Give up on an upload: its parts or file are deleted now → `200 { status: "cancelled" }` (twice answers the same). |
