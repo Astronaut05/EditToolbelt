@@ -9,7 +9,7 @@
  */
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4174;
+const PORT = Number(process.env.PW_PORT ?? 4174);
 const only = process.env.PW_BROWSERS?.split(',');
 const chromium = process.env.PW_CHROMIUM
   ? { launchOptions: { executablePath: process.env.PW_CHROMIUM } }
