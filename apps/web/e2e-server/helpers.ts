@@ -119,11 +119,20 @@ export async function becomeAdmin(page: Page): Promise<{ id: string; key: string
  * have finished. Fields and buttons fade their colours over a few hundred
  * ms; axe run straight after the switch can measure a colour halfway, as
  * light text on a still-light field, and report a contrast failure that no
- * one ever sees.
+ * one ever sees. Looping animations are left alone.
  */
 export async function setScheme(page: Page, scheme: 'light' | 'dark'): Promise<void> {
   await page.emulateMedia({ colorScheme: scheme });
+  // Only the animations that end: a running loop, such as a progress bar's
+  // pulse while it waits, never finishes.
   await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => null))),
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) =>
+          Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)),
+        )
+        .map((animation) => animation.finished.catch(() => null)),
+    ),
   );
 }
