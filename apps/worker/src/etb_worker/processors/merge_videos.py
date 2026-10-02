@@ -37,6 +37,7 @@ import json
 import math
 from array import array
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
 from etb_worker.gpu.remote import length_label
@@ -159,6 +160,8 @@ class Clip:
     start: float = 0.0
     #: Where the picture ends: the end of its last frame, in the clip's own time.
     end: float = 0.0
+    #: Where the picture begins: its first frame, in the clip's own time.
+    picture_from: float = 0.0
     #: The sound's packets in file order, for a copy: start and length, seconds.
     sound_at: array[float] = field(default_factory=lambda: array("d"))
     sound_for: array[float] = field(default_factory=lambda: array("d"))
@@ -229,11 +232,28 @@ def _streams(ctx: JobContext, name: str) -> dict[str, Any]:
     return data
 
 
-def read_clip(ctx: JobContext, name: str, number: int) -> Clip:
-    """A clip's streams, where its picture ends, and its sound's packets."""
+#: How far past its priced length a clip's packets are listed. A packet that ends past that
+#: length means the clip holds more than it was priced for: it is cut there (``cap``).
+SCAN_SLACK_SEC = 2.0
+#: The most sound packets one clip may list: their times are kept in the worker's own memory
+#: (16 bytes each), outside the sandbox. 4 h of 96 kHz AAC is about 1.4 million.
+MAX_SOUND_PACKETS = 4_000_000
+
+
+def _picture(stream: dict[str, Any]) -> bool:
+    """A video stream that is the picture, not cover art (as the probe reads it)."""
+    return stream.get("codec_type") == "video" and not (stream.get("disposition") or {}).get(
+        "attached_pic"
+    )
+
+
+def read_clip(ctx: JobContext, name: str, number: int, priced: float | None = None) -> Clip:
+    """A clip's streams, where its picture ends, and its sound's packets, read as far as
+    ``priced`` (its priced length) and a little more: a clip with packets past that is
+    ``cut``, re-encoded and read only that far."""
     data = _streams(ctx, name)
     streams = data.get("streams") or []
-    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    video = next((s for s in streams if _picture(s)), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
     if video is None:
         raise JobFailed("NO_VIDEO", f"Clip {number} has no picture in it, only sound.")
@@ -241,43 +261,72 @@ def read_clip(ctx: JobContext, name: str, number: int) -> Clip:
         name, number, video, audio, start=float((data.get("format") or {}).get("start_time") or 0)
     )
     video_index = int(video.get("index", 0))
-    audio_index = int(audio.get("index", -1)) if audio else -1
-    last_at, last_for, end = -1e18, 0.0, 0.0
+    last_at, last_for, end, first_at = -1e18, 0.0, 0.0, 1e18
+    reach = -1e18  # where the sound's last listed packet ends
 
-    def on_line(line: str) -> None:
-        nonlocal last_at, last_for, end
+    def packet(line: str) -> tuple[float, float] | None:
         parts = line.split(",")
         if len(parts) < 3 or not parts[0].isdigit():
-            return
+            return None
         try:
             at = float(parts[1])
         except ValueError:
-            return  # no time on this packet
+            return None  # no time on this packet
         try:
-            length = float(parts[2])
+            return at, float(parts[2])
         except ValueError:
-            length = 0.0
-        index = int(parts[0])
-        if index == video_index:
-            end = max(end, at + length)
-            if at > last_at:
-                last_at, last_for = at, length
-        elif index == audio_index:
-            clip.sound_at.append(at)
-            clip.sound_for.append(length)
+            return at, 0.0
 
+    def on_picture(line: str) -> None:
+        nonlocal last_at, last_for, end, first_at
+        found = packet(line)
+        if found is None:
+            return
+        at, length = found
+        end = max(end, at + length)
+        first_at = min(first_at, at)
+        if at > last_at:
+            last_at, last_for = at, length
+
+    def on_sound(line: str) -> None:
+        nonlocal reach
+        found = packet(line)
+        if found is None or len(clip.sound_at) >= MAX_SOUND_PACKETS:
+            return
+        clip.sound_at.append(found[0])
+        clip.sound_for.append(found[1])
+        reach = max(reach, found[0] + found[1])
+
+    # Each stream is listed on its own: a muxer may write one well ahead of the other, and
+    # a list of both would stop at the first packet past the end, wherever its stream was.
+    span = [] if priced is None else ["-read_intervals", f"%+{priced + SCAN_SLACK_SEC:.3f}"]
+    entries = ["-show_entries", "packet=stream_index,pts_time,duration_time", "-of", "csv=p=0"]
     ctx.run(
-        ffprobe(
-            *("-show_entries", "packet=stream_index,pts_time,duration_time"),
-            *("-of", "csv=p=0", "-i", name),
-        ),
-        on_line=on_line,
+        ffprobe("-select_streams", str(video_index), *span, *entries, "-i", name),
+        on_line=on_picture,
     )
+    if audio is not None:
+        ctx.run(
+            ffprobe(
+                "-select_streams", str(int(audio.get("index", 0))), *span, *entries, "-i", name
+            ),
+            on_line=on_sound,
+        )
     if last_at < -1e17:
         raise JobFailed("DECODE_FAILED", f"Clip {number}'s picture couldn't be read.")
+    if len(clip.sound_at) >= MAX_SOUND_PACKETS:
+        raise JobFailed(
+            "DECODE_FAILED",
+            f"Clip {number}'s sound comes in too many small pieces to join. Export it again, "
+            "then upload that.",
+        )
+    if priced is not None and reach - clip.start > priced:
+        # Sound past the priced length: a copy would carry packets never listed.
+        clip.cut = True
     # Matroska often leaves the last frame's length out: it lasts one frame.
     fps = clip.fps or 30.0
     clip.end = last_at + 1 / fps if last_for < 0.5 / fps else end
+    clip.picture_from = first_at
     return clip
 
 
@@ -355,6 +404,14 @@ def drop_expression(clips: list[Clip]) -> str | None:
     return "+".join(f"between(n\\,{lo}\\,{hi})" for lo, hi in ranges)
 
 
+def copy_length(clips: list[Clip]) -> float:
+    """A copy's picture, first frame to last: the list places each clip's own time 0 where
+    the last picture ended (``concat_list``), and the first clip's lead-in isn't picture."""
+    placed = sum(clip.end + nxt.start - clip.start for clip, nxt in pairwise(clips))
+    last, first = clips[-1], clips[0]
+    return placed + last.end - last.start - (first.picture_from - first.start)
+
+
 def concat_list(clips: list[Clip]) -> str:
     """The concat demuxer's list (ours, never the user's): each clip starts where the last
     one's picture ended, its own start lined up as the browser lines it up."""
@@ -412,7 +469,8 @@ def target(clips: list[Clip], options: dict[str, Any]) -> Target:
     chosen = str(options.get("fps") or "first")
     fps = float(chosen) if chosen.replace(".", "", 1).isdigit() else standard_fps(clips[0].fps)
     rate = RATES.get(fps, f"{fps:g}")
-    frames = [max(1, half_up(clip.end * fps)) for clip in clips]
+    # ffmpeg reads each clip from its own start (as 0), so it takes its length, not its end.
+    frames = [max(1, half_up((clip.end - clip.start) * fps)) for clip in clips]
     crossfade = (
         float(options.get("transitionLength") or 0)
         if options.get("transition") == "crossfade"
@@ -433,7 +491,7 @@ def filter_graph(clips: list[Clip], t: Target, with_sound: bool) -> str:
     parts: list[str] = []
     for i, (clip, frames) in enumerate(zip(clips, t.frames, strict=True)):
         parts.append(
-            f"[{i}:v:0]scale={t.width}:{t.height}:force_original_aspect_ratio=decrease"
+            f"[{i}:V:0]scale={t.width}:{t.height}:force_original_aspect_ratio=decrease"
             ":force_divisible_by=2:flags=lanczos,"
             f"pad={t.width}:{t.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=yuv420p,"
             # The last frame holds, so the clock has a frame for every slot to the clip's end.
@@ -504,7 +562,7 @@ class MergeVideos:
         ctx.progress(0, "analysing")
         clips = []
         for number, (name, seconds) in enumerate(zip(names, priced, strict=True), start=1):
-            clip = read_clip(ctx, name, number)
+            clip = read_clip(ctx, name, number, seconds)
             cap(clip, seconds)
             clips.append(clip)
             ctx.progress(round(number / len(names) * 4), "analysing")
@@ -543,7 +601,7 @@ class MergeVideos:
         muxer, ext, content_type = FAMILIES[family]
         (ctx.workdir / "clips.ffconcat").write_text(concat_list(clips))
         drops = drop_expression(clips) if clips[0].audio else None
-        length = sum(clip.end for clip in clips)
+        length = copy_length(clips)
         out = ctx.workdir / f"out.{ext}"
         sound = ["-map", "0:a:0"] if clips[0].audio else []
         report = ffmpeg_progress(round(length * 1000), ctx.progress, "joining", 5, 98)
@@ -551,7 +609,7 @@ class MergeVideos:
             ffmpeg(
                 # The packets' own times, placed by the list: nothing shifted or re-stamped.
                 *("-copyts", "-f", "concat", "-safe", "1", "-auto_convert", "0"),
-                *("-i", "clips.ffconcat", "-map", "0:v:0", *sound, "-c", "copy"),
+                *("-i", "clips.ffconcat", "-map", "0:V:0", *sound, "-c", "copy"),
                 *(["-bsf:a", f"noise=drop={drops}"] if drops else []),
                 *("-map_metadata", "-1", "-map_chapters", "-1"),
                 *(["-movflags", "+faststart"] if family in ("mp4", "mov") else []),

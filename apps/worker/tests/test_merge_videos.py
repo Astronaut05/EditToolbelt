@@ -552,11 +552,12 @@ def test_a_clip_whose_header_undersells_it_is_read_only_as_far_as_it_was_priced(
     )
     assert output.meta["notes"][1].startswith("Re-encoded to 160 × 120 at 25 fps")  # noqa: RUF001
     video, _audio = streams(output.path)
-    # 50 frames, and 101 for the 4.06 s the second clip starts at -0.023 s: 6.04 s at 25 fps.
-    assert int(video["nb_read_frames"]) == 151
-    assert int(video["nb_read_frames"]) / 25 == pytest.approx(2.0 + 4.06, abs=0.04)
+    # Each clip from its own start, which its sound's priming puts 0.023 s before its picture:
+    # 51 frames for the first clip's 2.023 s, 101 for the 4.06 s priced: 6.08 s at 25 fps.
+    assert int(video["nb_read_frames"]) == 152
+    assert int(video["nb_read_frames"]) / 25 == pytest.approx(2.023 + 4.06, abs=0.04)
     sound = times(output.path, "a:0")
-    assert max(at + length for at, length in sound) == pytest.approx(6.04, abs=0.03)
+    assert max(at + length for at, length in sound) == pytest.approx(6.08, abs=0.03)
     # Every clip's decode stops at its priced length: the extras' too, not just the input's.
     encode = next(args for args in seen if args[0] == "ffmpeg")
     assert input_limits(encode) == {
@@ -586,3 +587,52 @@ def test_an_honest_pair_is_still_copied_untouched(
     assert len(kept) >= sum(len(hashes(c, "a:0")) for c in clips) - 4
     # One ffmpeg run, the concat demuxer's: the clips are read through the list.
     assert [args[0] for args in seen].count("ffmpeg") == 1
+
+
+def test_sound_far_past_the_priced_length_is_never_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    honest = mkv_clip(tmp_path / "a.mkv", 2)
+    # 2 s of picture and 120 s of sound, under a header that says 2 s.
+    long = make(
+        tmp_path / "b.mkv",
+        *("-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=2"),
+        *("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=120"),
+        *("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "25"),
+        *("-c:a", "aac", "-b:a", "64k", "-ac", "2"),
+    )
+    undersell(long, 2)
+    seen = commands(monkeypatch)
+    output = merge(tmp_path, [honest, long], {}, "video/x-matroska")
+    # Each clip's packets are listed only to its priced length and 2 s more (the worker keeps
+    # the sound's in its own memory), its picture and sound each on its own: the second clip
+    # is priced at 2 s x 1.02 + 1 s = 3.04 s, so 5.04 s.
+    scans = [args for args in seen if "packet=stream_index,pts_time,duration_time" in args]
+    assert len(scans) == 4
+    assert [args[args.index("-read_intervals") + 1] for args in scans[2:]] == ["%+5.040"] * 2
+    # Its sound runs past what was priced, so it isn't copied: re-encoded, read 3.04 s.
+    assert output.meta["notes"][1].startswith("Re-encoded")
+    assert output.meta["notes"][2].startswith("Clip 2 runs longer than its header says")
+    sound = times(output.path, "a:0")
+    assert max(at + length for at, length in sound) == pytest.approx(4.08, abs=0.05)
+
+
+def test_a_clip_that_starts_late_is_joined_by_its_length(tmp_path: Path) -> None:
+    first = h264_clip(tmp_path / "a.mp4", 2)
+    # A clip cut from a longer recording keeps its times: it starts 20 s in.
+    late = make(
+        tmp_path / "b.mp4",
+        *("-i", str(h264_clip(tmp_path / "src.mp4", 2)), "-c", "copy"),
+        *("-output_ts_offset", "20"),
+    )
+    assert float(probe(late, "-show_entries", "format=start_time")[0]) >= 19.9
+    output = merge(
+        tmp_path, [late, first], {"transition": "crossfade", "transitionLength": "0.5"}, "video/mp4"
+    )
+    video, audio = streams(output.path)
+    # 2 s and 2 s less the 0.5 s crossfade: neither clip's picture lost, the sound with it.
+    assert int(video["nb_read_frames"]) / 25 == pytest.approx(3.5, abs=0.1)
+    assert float(audio["duration"]) == pytest.approx(3.5, abs=0.1)
+    # 0.5 s is 12.5 frames at 25 fps, rounded up to 13: 0.52 s. 51 + 50 frames less those 13
+    # (the MP4's sound starts 0.023 s before its picture, which adds a frame).
+    assert output.meta["notes"][0] == "2 clips joined with 0.52 s crossfades: 3.52 s"

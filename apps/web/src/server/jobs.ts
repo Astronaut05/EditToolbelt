@@ -772,20 +772,30 @@ export async function stopJob(
   if (!cancelled) return null;
   const keys = [...(job.inputKey ? [job.inputKey] : []), ...job.extraInputKeys];
   if (job.status === 'queued' && keys.length > 0) {
-    try {
-      for (const key of keys) await deleteObject(key);
+    // Each is tried, even after one fails: the job keeps the keys of any left, and the
+    // sweeper removes those within the hour.
+    const gone: string[] = [];
+    for (const key of keys) {
+      try {
+        await deleteObject(key);
+        gone.push(key);
+      } catch (error) {
+        if (!(error instanceof StorageError)) throw error;
+        log.warn({ job_id: job.id }, 'job.input_not_deleted');
+      }
+    }
+    if (gone.length > 0) {
       await db()
         .update(jobs)
-        .set({ inputKey: null, extraInputKeys: [] })
+        .set({
+          inputKey: job.inputKey && gone.includes(job.inputKey) ? null : job.inputKey,
+          extraInputKeys: job.extraInputKeys.filter((key) => !gone.includes(key)),
+        })
         .where(eq(jobs.id, job.id));
       await db()
         .update(uploads)
         .set({ deletedAt: new Date() })
-        .where(inArray(uploads.storageKey, keys));
-    } catch (error) {
-      // The sweeper removes it within the hour.
-      if (!(error instanceof StorageError)) throw error;
-      log.warn({ job_id: job.id }, 'job.input_not_deleted');
+        .where(inArray(uploads.storageKey, gone));
     }
   }
   log.info({ job_id: job.id, tool_id: job.toolId }, 'job.cancelled');
