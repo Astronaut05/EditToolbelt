@@ -1,0 +1,5 @@
+# 2026-10-02 · Browser tests take more than 10 files of a batch from its ZIP
+
+**Decision:** a test that checks more than 10 files of a batch reads them from "Download all · ZIP" and clicks only a few files' own Download buttons. Watermark Images' 20-photo test checks all 20 in the ZIP, and the first and last file buttons against it.
+**Why:** Chromium starts at most 10 downloads a second from one page and drops the rest with no download event and no console message. 16 downloads started 10 or 50 ms apart give 10; 80 ms apart, 13 or 14; 120 ms apart, all 16 (Chromium 141 and 153). On CI's runner the test clicked the 20 file buttons about 45 ms apart, so the 11th download never came and the test timed out after 3 minutes, in Chromium only (PR #71). Here the clicks were 120 to 150 ms apart, so it passed. No one clicks 11 buttons in a second, and the ZIP is there for many files, so the shell is unchanged.
+**Reverse:** click every file's button again, at least 100 ms apart, in `apps/web/e2e/watermark-image.spec.ts`.

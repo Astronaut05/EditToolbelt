@@ -1548,109 +1548,6 @@ _What a call is billed, and the gate: superseded by "What a GPU call is billed" 
 **Why:** a test that crashes the browser it checks says nothing about the tool, and the crop bug would have shipped to Safari.
 **Reverse:** the helpers are test-only; `cropper()` in `reframe.ts` can go back to Mediabunny's `crop` once WebKit honours the source rectangle for VideoFrames.
 
-## 2026-10-01 · Merge Videos (M8)
-
-**Decision:**
-- **Fast join when the clips match:**
-  - When every clip has the same video codec, decoder settings (the codec string and its parameter sets, byte for byte), size and rotation, and the same audio (or none), their packets are copied end to end into the first clip's container.
-  - Nothing is decoded; it takes seconds.
-  - This holds only with a cut and the first clip's size and frame rate. Choosing anything else re-encodes.
-  - Each clip's sound starts exactly with its picture, so nothing drifts however many clips are joined (`placeCopiedSound`):
-    - An encoder's priming before a later clip's start is left out: AAC's first 1024 samples, which the container's edit list hides. Copied, they would play as 21 ms of extra sound at each join.
-    - A packet that would run past its clip's picture by more than 1 ms (Matroska's resolution) is left out, which leaves a gap shorter than one packet (21 ms of AAC) at that join. PCM is cut at the picture's end instead, which loses nothing.
-    - Start times only go forward; a packet is never moved later because the one before it ran long. Moving them was what made the sound about 32 ms later at each join.
-- **Re-encode otherwise:**
-  - Every frame is drawn on one constant clock, at the first clip's size and its frame rate rounded to the nearest standard one, or a size (2160 to 480 p) and rate (24 to 60 fps) picked. This is the spec's "CFR without drift": a 25 fps clip in a 30 fps result plays at its own speed.
-  - Clips of another shape are fitted on black.
-  - The codec follows the first clip's container: H.264, HEVC or AV1 in MP4, VP9 in WebM and MKV, the first the browser can encode.
-  - Each clip's decoder opens at its first frame and closes after its last, so at most two are open at once (in a crossfade).
-- **A clip lasts to the end of its last frame:** Matroska often leaves the last frame's duration out, which would end the clip a frame early and land the next clip on top of that frame.
-- **The sound follows its picture:** each clip's sound is brought to 48 kHz stereo and cut or padded to its own picture's length, so no clip drifts. In a crossfade it fades equal-power, and the picture dissolves linearly.
-- **Crossfade:** 0.5, 1 or 2 s at every join, at most half the shortest clip.
-- **The list** is the shell's combine mode from Merge Audio: 2 to 20 clips, reordered by keyboard.
-- **Up to 2 GB in all,** the browser limit for video: the joined file is built in memory. Clips that come to more are refused before any is read, as Loop Video refuses too many repeats.
-- **The server path for large totals** (the spec's hybrid runtime and per-minute price) waits for jobs that take several uploads. The registry keeps the spec's runtime and price, the tool's server switch stays off, and the page offers only the browser path.
-
-**Why:** `tools/video.md` → V12.
-**Reverse:** `packages/engines/src/video/merge-videos.ts`; the fixture `clip-vp9-25fps.webm` is described in `fixtures/video/README.md`.
-
-## 2026-10-01 · Change Speed & Pitch: our own phase vocoder, not Signalsmith Stretch (M8)
-
-**Decision:**
-- **Time-stretching is our own code** (`TimeStretch` in `@etb/core`), not Signalsmith Stretch (MIT, which `tools/audio.md` names and `docs/13` lists as preferred).
-  - Signalsmith's web build is an AudioWorklet that loads its own code from a `blob:` URL. Our CSP doesn't allow `blob:` scripts, and allowing it for one tool would weaken the CSP for every page.
-  - Its API is built for live playback in an AudioContext. An offline file would have to go through an OfflineAudioContext holding the whole output in memory.
-  - SoundTouch (LGPL) stays out too: no LGPL in the browser.
-- **How it works:**
-  - A phase vocoder with identity phase locking (Laroche & Dolson): 4096-point Hann frames at a quarter-frame synthesis hop (85 ms at 48 kHz).
-  - Each peak's phase advances at its measured frequency; the bins around it keep their phase relative to it, which keeps tones clean.
-  - It is streamed (a few frames in memory), pure and unit-tested. A minute of stereo takes about 2.6 s.
-  - The result is exactly round(input × ratio) long.
-- **Pitch** = stretch by 2^(semitones/12), then the core `Resampler` back to the original rate: the same length, the pitch moved.
-- **Vinyl** = the Resampler alone: faster and higher together.
-- **Controls:**
-  - Tempo 25-400%.
-  - Pitch −12 to +12 semitones plus −50 to +50 cents.
-  - Format: Keep, MP3, WAV or FLAC.
-  - The run waits until something would change. The settings show the new length.
-- **Channels** are stretched independently, up to stereo. Formant preservation is a Wave 3 idea, as the spec says.
-- **Reverse:** if Signalsmith ships a build that runs in a worker without `blob:` code, `TimeStretch` is the one place to swap. Video speed (V13) will use the same class.
-
-**Why:** `tools/audio.md` → A08, rule 6 and the CSP (`docs/11`).
-**Reverse:** `packages/core/src/audio/stretch.ts`, `fft.ts`; the engine is `packages/engines/src/audio/pitch.ts`.
-
-## 2026-10-01 · Change Video Speed (M8)
-
-**Decision:**
-- **Two ways with the picture:**
-  - Keep every frame (the default): every packet is copied with its time divided by the speed. It's instant and lossless, and the frame rate scales with the speed (30 fps at 2× plays at 60 fps).
-  - Keep frame rate: the video is redrawn at its own rate, dropping frames to speed up or repeating them to slow down, and re-encoded. This is for editors who need the original rate.
-  - Redrawn frames are encoded at the video's size rounded to even numbers (`even()`, shared with Merge Videos): H.264 and HEVC take only even sizes, so a 1437 × 899 screen recording comes out at 1438 × 900, and the notes say so.
-  - The settings show the length and the frame rate each way would give.
-- **Speeds:** 0.25×, 0.5×, 0.75×, 1.25×, 1.5×, 2×, 3× and 4×, or a custom speed from 0.25× to 4× in 0.05 steps.
-- **Sound:**
-  - Keep pitch (the default) time-stretches it with the core `TimeStretch` from Change Speed & Pitch.
-  - Shift pitch plays it faster or slower as it is, like tape, with the Resampler.
-  - Mute leaves it out.
-  - It's re-encoded in the container's usual codec.
-- **A clip lasts to the end of its last frame**, as in Merge Videos (`shownFor`, now shared in `video/held.ts` with the frame reader).
-- **The spec's pitch test** ("spectral centroid within tolerance") is done as zero crossings per second of the decoded sound, against the source's: the same within 5% when kept, double within 0.1 when shifted at 2×.
-
-**Why:** `tools/video.md` → V13.
-**Reverse:** `packages/engines/src/video/video-speed.ts`.
-
-## 2026-10-01 · Watermark Images (M8)
-
-**Decision:**
-- **Drawn in the image worker** after decoding (and after a LUT, if a later tool adds both), with `OffscreenCanvas`, then encoded like every photo tool's output. No new dependency.
-- **Everything is a share of the photo's width:** the mark's width (1-100%, default 15%), the margin (0-25%, default 2%), the offset (−50% to 50% each way). Height follows the mark's own shape. The spot is one of nine on a 3 × 3 grid (`@etb/core/watermark`).
-- **Text** is drawn once at 200 px in the browser's sans-serif, cut to its ink, then scaled to its box like a logo, so it's the same size relative to every photo whatever the font's metrics. Colour picked, default white; opacity 0-100%, default 60%.
-- **Logo:** PNG, WebP or JPG up to 20 MB, checked by its bytes. SVG is left out: workers can't decode it (`createImageBitmap` has no SVG in a worker).
-- **Tiled:** the mark repeats over the whole photo, half its width apart, every other row shifted by half a step, from half a mark outside the top-left corner, so no edge is bare.
-- **The shell gains a `grid` option kind**, a 3 × 3 radio group (arrow keys move across and down), drawn by `PositionGrid` in `@etb/ui`.
-- **The registry's `ui` is `form`, like the other photo tools,** not `batch`: one photo shows before and after and redoes it as a setting changes; several go to the batch list.
-
-**Why:** `tools/photo.md` → P11.
-**Reverse:** `packages/engines/src/image/watermark.ts`, `watermark-draw.ts`; the placement is `packages/core/src/image/watermark.ts`.
-
-## 2026-10-01 · Batch Rename Files (M8)
-
-**Decision:**
-- **Rules in a fixed order, not a chain the user builds:** find and replace, remove, case, prefix and suffix, date, counter, extension. Each is one setting, so the tool fits the shared settings panel; any order a user would build reads the same in this one.
-- **Find:** plain text (any case, the default), exact case, or a pattern (a JavaScript regular expression, case-sensitive, `$1` in the replacement). A pattern that doesn't parse says why and stops the rename.
-- **Dates:** taken (EXIF DateTimeOriginal in JPG, PNG, WebP and TIFF, as the camera wrote it; an MP4 or MOV's creation time from its movie header), modified, or today. A file with no date taken uses its modified date and the list says so. Only the bytes that hold the date are read.
-- **Counter:** start, step, digits, start or end of the name or instead of it, counted as added, by name (numbers as numbers), by date taken or by date modified.
-- **Flagged names stop the rename:** two names the same ignoring case (Windows and macOS ignore it), no name left, `\ / : * ? " < > |`, a name Windows keeps (CON, NUL, COM1 …), a trailing dot or space, over 255 bytes. A missing date only warns.
-- **Two ways out:**
-  - A ZIP of the files under their new names, stored without compression: the bytes are the files' own.
-  - In desktop Chromium, "Open a folder" lists its files (not subfolders or hidden files) and, after a confirm, renames them where they are with `FileSystemHandle.move()`. Each file goes to a temporary name first, then its new one, so names that swap or chain never meet; if a move fails, the ones done go back. Undo works while the page is open. Shown only where `showDirectoryPicker` and `move()` exist.
-- **The shell gains `preset.names`** (the plan behind the list, and the folder flow), a batch run tells the engine its file's place among the rest (`ctx.batch`), and an engine can set the whole output name (`out.name`). The file list gets a "New name" column, and on phones it drops the size columns and wraps names, so it fits the screen.
-- **Up to 1,000 files at once**, any type.
-- **The ZIP holds up to 2 GB in all,** and that's the registry's browser limit. It's built in memory (the files, then the archive), and fflate writes no ZIP64, so past 4 GB its sizes and offsets would overflow. Dropped files over 2 GB in all hold the rename, and the page says to rename them where they are in Chrome or Edge on a computer, or to choose fewer. A folder renamed in place has no size limit: no file is read.
-
-**Why:** `tools/utility.md` → U02.
-**Reverse:** the rules are `packages/core/src/rename.ts`; the dates `packages/engines/src/files/taken.ts`; the folder rename `packages/ui/src/tool/in-place.ts`.
-
 ## 2026-10-02 · GPU jobs run in slots of their own (`WORKER_GPU_SLOTS`)
 
 **Decision:**
@@ -1835,26 +1732,8 @@ _What a call is billed, and the gate: superseded by "What a GPU call is billed" 
 **Why:** in WebKit (Playwright's WebKit 26.6 on Linux), `copyTo` from interleaved `f32`, which is what its Opus decoder gives, to `f32-planar` with a `frameOffset` above 0 never returns. The page hangs, then crashes a minute or more later. A boomerang's backward sound starts partway into a block, so in WebKit its Download never came on. A test page showed the call alone hangs. Offset 0 (whole or shorter), planar to planar and interleaved to interleaved all work, and Chromium and Firefox handle all five cases. A block is a few thousand frames, so copying it whole costs nothing.
 **Reverse:** pass `frameOffset` and `frameCount` to `copyTo` again once WebKit converts from an offset; `stream.test.ts` checks the cut either way.
 
-## 2026-10-02 · The ToolShell loads tool-specific parts only on the tools that use them
-
-**Decision:** code in the shared ToolShell that only some tools use is no longer in the scripts every tool page loads.
-- **Loaded when shown, with `React.lazy`** (like the canvas editor, timeline and colour picker before): the batch list, the combine list (`FileOrder`), the analyzer's fact grid, the `grid` and `checklist` option controls, and the timeline workspace (now `TimelineWorkspace.tsx`, which loads with the Timeline).
-- **Loaded on mount and kept in state**, because the shell calls into them while it renders (whether the run is blocked, whether the server offer can start):
-  - U02's name checks, folder picker, renames in place and undo (`FolderRename.tsx`), only for a preset with `names`. The drop zone takes the "Open a folder" button as a `folder` slot instead of an `onFolder` callback, so its icon comes with it.
-  - The server path's notice, price dialog, terms and error class (`ServerNotice.tsx`), only for a tool with `server`.
-- `plural` moves from `server.ts` to `format.ts`.
-
-**Why:** Batch Rename and Watermark Images (PR #71) put about 2.7 KB of their own code into the shell, which took /remove-background past the 180 KB script-transfer budget for tool pages. On the CI build, /remove-background now loads 176,252 bytes of script, down from 181,047, and /video-converter 173,511, down from 178,309 (Lighthouse: 172 KB and 169 KB, down from 177 KB and 174 KB). The budgets are unchanged.
-**Reverse:** import those modules statically in `packages/ui/src/tool/ToolShell.tsx` again.
-
 ## 2026-10-02 · A result's audio player loads only its header until played
 
 **Decision:** the shell's result `<audio>` (every tool whose result is audio) has `preload="metadata"`, like the input player on timeline tools. It reads the header and shows the length; the rest loads when the person presses play. The result `<video>` is unchanged.
 **Why:** Merge Audio's join test hung in WebKit on main (CI runs 36960698035, 36963706269). Stage logs and a 250 ms page heartbeat on a debug branch showed the merge itself always finished (the 2,688,044-byte WAV was written). The page then froze right after the result player's `loadstart`, before `loadedmetadata`, for about 90 s, so Download never came on. With the default preload (auto), the join hung in 2 of 12 and 3 of 12 runs, and the player errored in 2 more. With `metadata`, `none`, or no player, there were no failures in 12 runs each (debug runs 36977764969, 36979041409). Playwright's Linux WebKit plays media through GStreamer, and the stall comes only with `auto`, which lets the browser buffer the whole file. Safari uses AVFoundation instead, and Chromium and Firefox never stalled. The header is all the player needs to show before anyone listens, and it doesn't read a large result into memory unasked.
 **Reverse:** drop `preload` from the result `<audio>` in `ToolShell.tsx` and the `toHaveAttribute('preload', 'metadata')` check in `merge-audio.spec.ts`.
-
-## 2026-10-02 · Browser tests take more than 10 files of a batch from its ZIP
-
-**Decision:** a test that checks more than 10 files of a batch reads them from "Download all · ZIP" and clicks only a few files' own Download buttons. Watermark Images' 20-photo test checks all 20 in the ZIP, and the first and last file buttons against it.
-**Why:** Chromium starts at most 10 downloads a second from one page and drops the rest with no download event and no console message. 16 downloads started 10 or 50 ms apart give 10; 80 ms apart, 13 or 14; 120 ms apart, all 16 (Chromium 141 and 153). On CI's runner the test clicked the 20 file buttons about 45 ms apart, so the 11th download never came and the test timed out after 3 minutes, in Chromium only (PR #71). Here the clicks were 120 to 150 ms apart, so it passed. No one clicks 11 buttons in a second, and the ZIP is there for many files, so the shell is unchanged.
-**Reverse:** click every file's button again, at least 100 ms apart, in `apps/web/e2e/watermark-image.spec.ts`.
