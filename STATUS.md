@@ -103,6 +103,7 @@
 Applies of the Railway project (Actions → Railway → "Apply the plan", environment `railway`). Work goes on around them.
 
 - **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Approve at Actions → Railway → run 36946470385 → Review deployments. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
+- **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and the token pair `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: deploying the GPU app and its T4 check, then each GPU tool's first real run.
 
 ## Blocked
 
@@ -110,6 +111,13 @@ Applies of the Railway project (Actions → Railway → "Apply the plan", enviro
 - Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark (IoU on 5 photos with reference masks, desktop and 2 phones) needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
 - Housekeeping only: `docs/design-handover` can't be deleted from this session (HTTP 403); see `docs/DECISIONS.md`.
 - M4's `LocalGpu` backend (upscale, stems and transcription on the 1080 Ti): this build environment has no GPU and can't download models (huggingface.co is blocked). The queue, the processor interface and `gpu_seconds` are ready for it; the GPU image (pinned Pascal build), the models and the three tools are built where the GPU is: on Astro's PC, during the stress test, or with M5's backend.
+
+## Parked for Astro
+
+Each item has a recommended pick; nothing else waits on it.
+
+- **CodeQL alert 17 (MD5 in Click's `sign_string`).** Click's protocol fixes the MD5 signature, so the code can't change. **Recommended:** Security → Code scanning → alert 17 → Dismiss → "Won't fix", with the reason "Click's SHOP-API signs with MD5; the secret never leaves the server". Until then it shows as an open alert.
+- **Click and Payme fiscal receipt codes.** The MXIK (IKPU) code, package code and VAT for "credits", and the seller's TIN or PINFL, from Astro's business registration. Both providers refuse to switch on without them. **Recommended:** look the codes up at tasnif.soliq.uz when the Click and Payme contracts are signed; `docs/runbooks/turn-on-payments.md` step 5 says where they go.
 
 ## Run it
 
