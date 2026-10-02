@@ -469,26 +469,25 @@ export const payme: PaymentProvider = {
       return new Response(null, { status: 503 });
     }
     if (request.method !== 'POST') return rpcError(null, PAYME_ERRORS.NOT_POST);
+    // Credentials before anything else (docs/11 → Payments): the body of a call
+    // without them is never read, so its JSON-RPC id is unknown and the -32504
+    // answer carries id null, as JSON-RPC 2.0 answers a request whose id it
+    // couldn't determine.
+    if (!authorized(request.headers.get('authorization'), key))
+      return rpcError(null, PAYME_ERRORS.AUTH);
 
     const body = await readBody(request);
-    let payload: unknown = undefined;
-    let parsed = false;
-    if (body) {
-      try {
-        payload = JSON.parse(body.toString('utf8'));
-        parsed = true;
-      } catch {
-        parsed = false;
-      }
+    let payload: unknown;
+    try {
+      if (!body) throw new Error('body too large');
+      payload = JSON.parse(body.toString('utf8'));
+    } catch {
+      return rpcError(null, PAYME_ERRORS.PARSE_ERROR);
     }
     const id: RpcId =
       isRecord(payload) && (typeof payload.id === 'number' || typeof payload.id === 'string')
         ? payload.id
         : null;
-
-    if (!authorized(request.headers.get('authorization'), key))
-      return rpcError(id, PAYME_ERRORS.AUTH);
-    if (!parsed) return rpcError(id, PAYME_ERRORS.PARSE_ERROR);
     if (!isRecord(payload) || typeof payload.method !== 'string' || !isRecord(payload.params))
       return rpcError(id, PAYME_ERRORS.INVALID_REQUEST);
     const method = Object.hasOwn(METHODS, payload.method) ? METHODS[payload.method] : undefined;

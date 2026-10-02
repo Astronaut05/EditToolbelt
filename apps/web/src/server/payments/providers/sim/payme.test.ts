@@ -263,7 +263,7 @@ describe('Payme, played by the simulator', () => {
       expect(answer.error?.code).toBe(PAYME_ERRORS.TRANSACTION_NOT_FOUND);
   });
 
-  it('refuses wrong credentials with -32504 before doing anything', async () => {
+  it('refuses wrong credentials with -32504 before reading the body', async () => {
     const { store, sim, purchase } = setup();
     for (const authorization of [
       null,
@@ -275,8 +275,17 @@ describe('Payme, played by the simulator', () => {
       const answer = await sim.checkPerform(purchase.id, STARTER, { authorization });
       expect(answer.status).toBe(200);
       expect(answer.error?.code).toBe(PAYME_ERRORS.AUTH);
-      expect(answer.id).not.toBeNull();
+      // The body was never parsed, so its id is unknown.
+      expect(answer.id).toBeNull();
     }
+    // Not even a body that isn't JSON gets further than the credentials.
+    const garbage = await sim.call(
+      'CheckTransaction',
+      {},
+      { rawBody: '{not json', authorization: paymeAuthorization('wrong-key') },
+    );
+    expect(garbage).toMatchObject({ id: null, error: { code: PAYME_ERRORS.AUTH } });
+    expect(store.events).toEqual([]);
     const create = await sim.call(
       'CreateTransaction',
       { id: paymeId(), time: Date.now(), amount: STARTER, account: { order_id: purchase.id } },
