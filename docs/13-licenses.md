@@ -60,6 +60,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | SoundTouch (JS/WASM port) | tempo/pitch fallback | LGPL-2.1 | ⚠️ only if Signalsmith falls short; separate file, source offer |
 | qrcode (npm) | QR generation (U01): browser entry only, it builds the matrix and we render SVG/PNG | MIT | ✅ checked 2026-09-30 (1.5.4) |
 | fflate | ZIP of batch outputs ("Download all") and of Split Image's tiles, in the image worker | MIT | ✅ checked 2026-09-30 (0.8.3) |
+| hash-wasm | File Checksum's MD5, SHA-1 and SHA-256, streamed in WebAssembly so multi-GB files hash in the browser (WebCrypto has no MD5 and no streaming) | MIT | ✅ checked 2026-10-01 (4.12.0, no dependencies) |
 | `@mediabunny/mp3-encoder` (preferred) or lamejs | MP3 encoding — WebCodecs has no MP3 encoder | package MPL-2.0; LAME inside is LGPL | ⚠️ checked 2026-09-30 (1.60.0): the LAME WASM is compiled into the package's own worker, imported only when MP3 is picked, so it ships as a separate lazy-loaded file; source offer on `/licenses`. MP3 patents have expired |
 | `@mediabunny/flac-encoder` | FLAC encoding — no browser encodes FLAC | package MPL-2.0; libFLAC inside is BSD-3-Clause | ✅ checked 2026-09-30 (1.60.0) |
 | `@mediabunny/aac-encoder` | AAC-LC encoding where the browser's WebCodecs can't (feature-detect first) | package MPL-2.0; WASM build of FFmpeg's AAC encoder (LGPL) | ⚠️ separate lazy-loaded file, source offer; AAC patent question → open question 10 |

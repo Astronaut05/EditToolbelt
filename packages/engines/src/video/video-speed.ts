@@ -56,7 +56,7 @@ export function speedOf(value: string | undefined): number {
   return speed;
 }
 
-async function audioCodecFor(mime: string, channels: number): Promise<AudioCodec | null> {
+export async function audioCodecFor(mime: string, channels: number): Promise<AudioCodec | null> {
   const candidates: AudioCodec[] =
     mime === 'video/webm' ? ['opus'] : mime === 'video/x-matroska' ? ['opus', 'aac'] : ['aac'];
   for (const codec of candidates) {

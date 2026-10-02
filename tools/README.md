@@ -126,7 +126,7 @@ Totals: 75 tools · Wave 1: 26 · Wave 2: 32 · Wave 3: 17.
 | U01 | QR Code Generator | `qr-code-generator` | 1 | client | text | — | W M |
 | U02 | Batch Rename Files | `batch-rename` | 2 | client | text | — | W |
 | U03 | Print Size & DPI Calculator | `dpi-calculator` | 2 | client | text | — | W M |
-| U04 | File Checksum | `file-checksum` | 3 | client | text | — | W |
+| U04 | File Checksum | `file-checksum` | 3 | client | file-hash | — | W |
 
 ## Conversion pair pages (programmatic SEO, Wave 1 & 2)
 

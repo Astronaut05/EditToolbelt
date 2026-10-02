@@ -29,6 +29,10 @@ export function Rows({ children }: { children: ReactNode }) {
  * calculator fields take in early edits). On mount, a field that no longer
  * holds the value React rendered reports what it holds, as if just edited. A
  * field React rendered itself always holds it, so nothing happens then.
+ *
+ * Every field is `autoComplete="off"`: Firefox otherwise puts a field's old value
+ * back on reload, into the prerendered page's defaults, and this would take it in
+ * as an edit (a reloaded gradient lost a stop).
  */
 function useEarlyEdit(
   ref: RefObject<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>,
@@ -78,6 +82,7 @@ export function NumberField({
           id={id}
           inputMode="decimal"
           step={step}
+          autoComplete="off"
           value={value}
           onChange={(event) => {
             onChange(event.target.value);
@@ -170,6 +175,7 @@ export function TextAreaField({
         ref={ref}
         id={id}
         rows={rows}
+        autoComplete="off"
         value={value}
         placeholder={placeholder}
         onChange={(event) => {
@@ -201,6 +207,7 @@ export function SelectField({
       <select
         ref={ref}
         id={id}
+        autoComplete="off"
         value={value}
         onChange={(event) => {
           onChange(event.target.value);
