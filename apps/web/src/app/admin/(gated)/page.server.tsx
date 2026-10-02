@@ -30,6 +30,7 @@ import {
 } from '../../../components/admin/AdminFrame';
 import { loadToolFlags } from '../../../lib/flags';
 import { formatMoney } from '../../../lib/money';
+import { requireAdmin } from '../../../server/admin';
 import { db } from '../../../server/db';
 import { serverEnv } from '../../../server/env';
 import { gpuCostByTool, gpuStarting, gpuToday, usd } from '../../../server/gpu';
@@ -80,6 +81,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 /** docs/07 → Dashboard: accounts, tools, server jobs, GPU cost, services and sales. */
 export default async function AdminDashboard({ searchParams }: Props) {
+  await requireAdmin();
   const query = await searchParams;
   await loadToolFlags();
   const d = db();

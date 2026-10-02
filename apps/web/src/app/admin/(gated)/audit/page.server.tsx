@@ -1,6 +1,7 @@
 import { adminAuditLog, desc, eq, lt, users } from '@etb/db';
 
 import { AdminFrame, Table, when } from '../../../../components/admin/AdminFrame';
+import { requireAdmin } from '../../../../server/admin';
 import { db } from '../../../../server/db';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,7 @@ const PAGE = 100;
 
 /** docs/07 → Audit log: every admin action, newest first, 100 a page. */
 export default async function AdminAudit({ searchParams }: Props) {
+  await requireAdmin();
   const before = (await searchParams).before;
   const rows = await db()
     .select({
