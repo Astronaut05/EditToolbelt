@@ -113,7 +113,13 @@ SMOKE: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "upscale_image": (
         {
             "input_url": data_url(tiny_png(), "image/png"),
-            "options": {"scale": 2, "model": "general", "denoise": 0.5, "format": "png"},
+            "options": {
+                "scale": 2,
+                "model": "general",
+                "denoise": 0.5,
+                "format": "png",
+                "max_pixels": 32 * 24,
+            },
         },
         {"width": 64, "height": 48},
     ),
@@ -127,7 +133,7 @@ SMOKE: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "erase_object": (
         {
             "input_url": data_url(tiny_png(64, 48), "image/png"),
-            "options": {"format": "png"},
+            "options": {"format": "png", "max_pixels": 64 * 48},
             "extra_urls": [data_url(tiny_mask(64, 48), "image/png")],
         },
         {"width": 64, "height": 48, "regions": 1},

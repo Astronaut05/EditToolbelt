@@ -276,6 +276,7 @@ def test_upscale_presigns_calls_and_finishes_like_any_job(db: Conn) -> None:
         "model": "general",
         "denoise": 0.5,
         "format": "png",
+        "max_pixels": 100 * 50,  # the probe's picture, priced: no bigger one is decoded
     }
     assert key_of(call.kwargs["input_url"]) == input_key
     assert ("PUT", row["output_key"], "image/png") in storage.presigned

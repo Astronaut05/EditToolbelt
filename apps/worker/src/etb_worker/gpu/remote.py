@@ -12,9 +12,10 @@ Standard library only, so the GPU images need nothing extra for it:
   here, from the start of the call to its answer, so it includes loading the
   model when the container was cold.
 - ``int_cap`` / ``float_cap``: the most the call may decode (``max_frames``,
-  ``max_seconds``), which the worker works out from the probe the job was
-  priced on. A file's header can say less than the file holds; the decoders
-  stop at these, so the GPU never works on more than was paid for.
+  ``max_seconds``, ``max_pixels``), which the worker works out from the probe
+  the job was priced on. A file's header can say less than the file holds;
+  the decoders stop at these, so the GPU never works on more than was paid
+  for. A picture can't be cut short, so ``check_pixels`` refuses a bigger one.
 
 Nothing here logs: URLs carry signatures and files are the person's.
 """
@@ -73,6 +74,22 @@ def float_cap(options: dict[str, Any], name: str, most: float) -> float:
     """A cap in seconds the worker sent (``max_seconds``), at most ``most``; as ``int_cap``."""
     value = _cap(options, name, integer=False)
     return most if value is None else min(float(value), most)
+
+
+def check_pixels(width: int, height: int, max_pixels: int) -> None:
+    """Refuses a picture with more pixels than its job was priced on (``max_pixels``).
+
+    Read from the image's own header before any pixel is decoded. The worker
+    prices from its probe (ffprobe), and a crafted file can show the decoder
+    here a bigger picture than the probe saw; it would then cost more GPU
+    time than was paid for.
+    """
+    if width * height > max_pixels:
+        raise CallFailed(
+            "TOO_LARGE",
+            f"This image is {width} × {height} px, bigger than its file said when it "  # noqa: RUF001
+            "was priced. Save it again from an image editor and try again.",
+        )
 
 
 def length_label(seconds: float) -> str:
