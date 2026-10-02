@@ -81,6 +81,7 @@
 - Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#63).
 - CI runs the browser tests against the production image too, through a stand-in Cloudflare Access (152 pass on Chromium). The server build's search index is fresh within 30 s, as tool status is (#65).
 - Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
+- Test fix: Remove Silence's shorten test reads the ranges once the last setting's search has landed (it read the previous search's on the phone profile, 5 runs in 8).
 
 ## Next
 
