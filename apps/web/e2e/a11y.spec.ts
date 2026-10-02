@@ -1,18 +1,4 @@
-import AxeBuilder from '@axe-core/playwright';
-
-import { expect, PAGES, remote, test, WORKSHOP_ONLY } from './fixtures';
-
-async function seriousViolations(page: import('@playwright/test').Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-    .analyze();
-  return results.violations
-    .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
-    .map(
-      (violation) =>
-        `${violation.id}: ${violation.nodes.map((node) => node.target.join(' ')).join(', ')}`,
-    );
-}
+import { expect, PAGES, remote, seriousViolations, test, WORKSHOP_ONLY } from './fixtures';
 
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`axe, ${scheme}`, () => {
@@ -81,6 +67,19 @@ for (const scheme of ['light', 'dark'] as const) {
       // On phones the grid is in its settings sheet.
       if (isMobile) await page.getByRole('button', { name: /^Position/ }).click();
       await expect(page.getByRole('radiogroup', { name: 'Position' })).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
+    test('checksum list with hashes, compared: no serious issues', async ({ page }) => {
+      await page.goto('/file-checksum', { waitUntil: 'networkidle' });
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles([
+          { name: 'a.mov', mimeType: 'video/quicktime', buffer: Buffer.from('a') },
+          { name: 'b.mov', mimeType: 'video/quicktime', buffer: Buffer.from('b') },
+        ]);
+      await expect(page.getByText('The 2 files are different.')).toBeVisible();
       expect(await seriousViolations(page)).toEqual([]);
     });
 

@@ -137,13 +137,17 @@ curl -s -o small.mp4 "$(jq -r .job.result.download_url job.json)"`}</Code>
           does all of the above for any server tool and any size of file: parts in parallel, URLs
           signed again when they run out, the price, progress, and the download. Node 20 or newer,
           no packages. An option written <Mono>@path</Mono> is a file that goes up as its own
-          upload, like Burn Subtitles’ subtitle file.
+          upload, like Burn Subtitles’ subtitle file; a list of them goes up in order, like Merge
+          Videos’ other clips.
         </p>
         <Code label="Run the script">{`ETB_API=${api} ETB_KEY=etb_live_… \
   node run-tool.mjs compress-video clip.mov '{"mode":"size","targetMb":25}'
 
 ETB_API=${api} ETB_KEY=etb_live_… \
-  node run-tool.mjs burn-subtitles clip.mp4 '{"subtitles":"@clip.srt"}'`}</Code>
+  node run-tool.mjs burn-subtitles clip.mp4 '{"subtitles":"@clip.srt"}'
+
+ETB_API=${api} ETB_KEY=etb_live_… \
+  node run-tool.mjs merge-videos a.mp4 '{"clips":["@b.mp4","@c.mp4"]}'`}</Code>
         <p>
           Each tool’s options, with their defaults, are in <Mono>GET /tools/{'{id}'}</Mono> as JSON
           Schema.

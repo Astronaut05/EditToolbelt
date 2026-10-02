@@ -7,6 +7,7 @@
  */
 import { z } from 'zod';
 
+import { MERGE_VIDEOS } from './choices';
 import { WHISPER_LANGUAGE_CODES, type WhisperLanguage } from './languages';
 
 /**
@@ -63,6 +64,26 @@ const burnSubtitles = z.strictObject({
   position: z.enum(['bottom', 'top']).default('bottom'),
   /** How far the lines may run: nearly edge to edge, or narrower. */
   width: z.enum(['full', 'narrow']).default('full'),
+});
+
+/**
+ * V12: the browser tool's settings (`MERGE_VIDEOS` in ./choices), and the
+ * clips after the first, in order. The first clip is the job's own upload.
+ */
+const mergeVideos = z.strictObject({
+  /** The other clips' upload ids, in the order they play after the first: 1 to 19. */
+  clips: z
+    .array(z.uuid())
+    .min(MERGE_VIDEOS.minClips - 1)
+    .max(MERGE_VIDEOS.maxClips - 1)
+    .refine((ids) => new Set(ids).size === ids.length, 'each clip once'),
+  transition: z.enum(MERGE_VIDEOS.transitions).default('none'),
+  /** Crossfade seconds, at every join. */
+  transitionLength: z.enum(MERGE_VIDEOS.crossfades).default('1'),
+  /** `first`: the first clip's size; or a height, with the first clip's shape. */
+  size: z.enum(MERGE_VIDEOS.sizes).default('first'),
+  /** `first`: the first clip's rate, as the nearest standard one. */
+  fps: z.enum(MERGE_VIDEOS.fps).default('first'),
 });
 
 /**
@@ -154,6 +175,7 @@ export const serverOptions = {
   'compress-video': compressVideo,
   'vfr-to-cfr': vfrToCfr,
   'burn-subtitles': burnSubtitles,
+  'merge-videos': mergeVideos,
   'upscale-image': upscaleImage,
   'transcribe-audio': transcribeAudio,
   'auto-subtitles': autoSubtitles,
@@ -171,25 +193,36 @@ export const previewSeconds: Partial<Record<keyof typeof serverOptions, number>>
   'remove-noise': 10,
 };
 
-/** Options that name another upload, by tool: the job takes those files too, in this order. */
+/**
+ * Options that name other uploads, by tool: the job takes those files too, in
+ * this order, after its own upload. An option holds one upload id, or a list
+ * of them (Merge Videos' `clips`).
+ */
 export const uploadOptions: Partial<Record<keyof typeof serverOptions, readonly string[]>> = {
   'burn-subtitles': ['subtitles'],
   'object-eraser': ['mask'],
+  'merge-videos': ['clips'],
 };
 
 /** Subtitle files, as the uploads API types them (by extension: browsers rarely do). */
 export const SUBTITLE_MIME_TYPES = ['application/x-subrip', 'text/vtt', 'text/x-ssa'] as const;
 
-/**
- * What each of those uploads must be: the types it may have, what to call it,
- * and the problem's title when it isn't one of them.
- */
-export const uploadKinds: Partial<
-  Record<
-    keyof typeof serverOptions,
-    Record<string, { types: readonly string[]; is: string; title: string }>
-  >
-> = {
+/** What an option's uploads must be (`uploadKinds`). */
+export interface UploadKind {
+  /** The types each may have, as the uploads API types them. */
+  types: readonly string[];
+  /** What to call one, and the problem's title when it isn't one. */
+  is: string;
+  title: string;
+  /**
+   * More of the job's own kind, joined with it (Merge Videos' clips): each must
+   * have a picture, and the tier's limits and the price are for them together.
+   */
+  joined?: true;
+}
+
+/** What each of those uploads must be. */
+export const uploadKinds: Partial<Record<ServerToolId, Record<string, UploadKind>>> = {
   'burn-subtitles': {
     subtitles: {
       types: SUBTITLE_MIME_TYPES,
@@ -198,6 +231,14 @@ export const uploadKinds: Partial<
     },
   },
   'object-eraser': { mask: { types: ['image/png'], is: 'a PNG', title: 'Not a PNG mask' } },
+  'merge-videos': {
+    clips: {
+      types: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'],
+      is: 'a video',
+      title: 'Not a video',
+      joined: true,
+    },
+  },
 };
 
 export type ServerToolId = keyof typeof serverOptions;

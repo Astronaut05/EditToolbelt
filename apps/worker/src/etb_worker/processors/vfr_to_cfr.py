@@ -95,7 +95,7 @@ class VfrToCfr:
         )
         ctx.run(
             ffmpeg(
-                *("-i", ctx.input_path.name, "-map", "0:v:0"),
+                *("-i", ctx.input_path.name, "-map", "0:V:0"),
                 *("-vf", f"fps={rate}", "-fps_mode", "cfr", "-r", rate),
                 *picture,
                 *sound,

@@ -46,10 +46,12 @@ const objectUrl = (key: string) => `${TEST_STORAGE.S3_ENDPOINT}/${TEST_STORAGE.S
 test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
 test.beforeAll(async () => {
-  await db
-    .insert(toolFlags)
-    .values({ toolId: 'compress-video', serverEnabled: true })
-    .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
+  for (const toolId of ['compress-video', 'merge-videos']) {
+    await db
+      .insert(toolFlags)
+      .values({ toolId, serverEnabled: true })
+      .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
+  }
   // The server tools are beta in the registry; undo any status an earlier spec set.
   for (const toolId of ['vfr-to-cfr', 'burn-subtitles']) {
     await db
@@ -438,4 +440,100 @@ test('Burn Subtitles uploads the subtitle file beside the video', async ({ page 
   expect(subtitles).toMatchObject({ mimeClaimed: 'application/x-subrip', bytes: 38 });
   expect(job.options).toMatchObject({ subtitles: subtitles?.id });
   await db.update(jobs).set({ status: 'cancelled' }).where(eq(jobs.id, job.id));
+});
+
+test('Merge Videos uploads every clip, in the order on the page, for one job', async ({ page }) => {
+  const email = newEmail();
+  await signIn(page, email);
+  const owner = await userId(email);
+  const start = page.getByRole('button', { name: 'Merge on our servers', exact: true });
+  await expect
+    .poll(
+      async () => {
+        await page.goto('/merge-videos');
+        const input = page.locator('input[type=file][data-hydrated]').first();
+        if ((await input.count()) === 0) return false;
+        await input.setInputFiles([CLIP, VFR_CLIP]);
+        await expect(page.getByRole('button', { name: 'Merge', exact: true })).toBeVisible();
+        return offerLink(page).isVisible();
+      },
+      { timeout: 90_000, intervals: [3000] },
+    )
+    .toBe(true);
+  // The second clip first.
+  await page.getByRole('button', { name: 'Move clip-vfr.mp4 up' }).click();
+  await offerLink(page).click();
+  // 30 s and 4 s of clips: the price is for both, and a free job covers it.
+  await expect(
+    page
+      .getByText('Free: uses 1 of your free server jobs today (3 left).')
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await page.getByRole('radio', { name: 'Crossfade' }).click();
+  await start.click();
+
+  // The worker's probe, for both clips once both are in.
+  let rows: (typeof uploads.$inferSelect)[] = [];
+  await expect
+    .poll(
+      async () => {
+        rows = await db
+          .select()
+          .from(uploads)
+          .where(and(eq(uploads.userId, owner), isNotNull(uploads.completedAt)));
+        return rows.length;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(2);
+  for (const row of rows) {
+    await db
+      .update(uploads)
+      .set({
+        probe: {
+          container: 'mp4',
+          duration_ms: row.bytes > 100_000 ? 30_000 : 4083,
+          video: { codec: 'h264', width: 256, height: 144, fps: 30 },
+        },
+        probedAt: new Date(),
+      })
+      .where(eq(uploads.id, row.id));
+  }
+  const job = await jobOf(owner);
+  expect(job).toMatchObject({ toolId: 'merge-videos', funding: 'daily' });
+  expect(job.options).toMatchObject({ transition: 'crossfade', transitionLength: '1' });
+  // The page's order: the short phone clip is the job's own upload, the other comes after.
+  const vfrBytes = readFileSync(VFR_CLIP).length;
+  const [first] = rows.filter((row) => row.storageKey === job.inputKey);
+  const [second] = rows.filter((row) => row.storageKey === job.extraInputKeys[0]);
+  expect(first?.bytes).toBe(vfrBytes);
+  expect(second?.bytes).toBe(readFileSync(CLIP).length);
+  expect(job.options).toMatchObject({ clips: [second?.id] });
+
+  const output = readFileSync(CLIP).subarray(0, 40_000);
+  const outputKey = `out/${randomUUID()}`;
+  await storage.fetch(objectUrl(outputKey), { method: 'PUT', body: output });
+  await db
+    .update(jobs)
+    .set({
+      status: 'succeeded',
+      progress: 100,
+      outputKey,
+      outputMeta: {
+        bytes: output.length,
+        content_type: 'video/mp4',
+        ext: 'mp4',
+        notes: ['2 clips joined with 1.00 s crossfades: 33.1 s'],
+      },
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    })
+    .where(eq(jobs.id, job.id));
+  const download = page.getByRole('button', { name: /^Download MP4/ });
+  await expect(download).toBeEnabled({ timeout: 20_000 });
+  await expect(page.getByText('2 clips joined with 1.00 s crossfades').first()).toBeAttached();
+  const saved = page.waitForEvent('download');
+  await download.click();
+  expect((await saved).suggestedFilename()).toBe('clip-h264-aac_merged.mp4');
+  await storage.fetch(objectUrl(outputKey), { method: 'DELETE' });
 });

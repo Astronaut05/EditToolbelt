@@ -9,6 +9,8 @@ import { viewIndex } from './view-index';
 export default viewIndex<ViewIds<'subtitles-time'>>({
   'aspect-ratio-calculator': dynamic(() => import('../aspect-ratio-calculator')),
   'bitrate-calculator': dynamic(() => import('../bitrate-calculator')),
+  'shutter-angle-calculator': dynamic(() => import('../shutter-angle-calculator')),
+  'storage-calculator': dynamic(() => import('../storage-calculator')),
   'subtitle-converter': dynamic(() => import('../subtitle-converter')),
   'subtitle-shift': dynamic(() => import('../subtitle-shift')),
   'timecode-calculator': dynamic(() => import('../timecode-calculator')),

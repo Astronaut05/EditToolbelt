@@ -9,5 +9,6 @@ import { viewIndex } from './view-index';
 export default viewIndex<ViewIds<'utility'>>({
   'batch-rename': dynamic(() => import('../batch-rename')),
   'dpi-calculator': dynamic(() => import('../dpi-calculator')),
+  'file-checksum': dynamic(() => import('../file-checksum')),
   'qr-code-generator': dynamic(() => import('../qr-code-generator')),
 });

@@ -121,6 +121,7 @@ export const WASM_ENGINES: ReadonlySet<EngineId> = new Set([
   'video-ffmpeg-wasm',
   'audio-dsp',
   'media-probe',
+  'file-hash',
 ]);
 
 /** A working tool page that loads WebAssembly. `soon` pages load no tool code. */

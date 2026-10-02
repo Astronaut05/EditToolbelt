@@ -17,6 +17,8 @@ export default viewIndex<ViewIds<'audio'>>({
   'normalize-audio': dynamic(() => import('../normalize-audio')),
   'remove-noise': dynamic(() => import('../remove-noise')),
   'remove-silence': dynamic(() => import('../remove-silence')),
+  'reverse-audio': dynamic(() => import('../reverse-audio')),
+  'split-audio': dynamic(() => import('../split-audio')),
   'transcribe-audio': dynamic(() => import('../transcribe-audio')),
   'trim-audio': dynamic(() => import('../trim-audio')),
 });

@@ -6,6 +6,7 @@ import { maskFits, MAX_PRORES_BYTES } from '../lib/gpu-limits';
 import {
   extrasRefusal,
   frameCount,
+  frameRateRefusal,
   gpuRate,
   MAX_NOISE_WORK_BYTES,
   noiseWorkBytes,
@@ -55,11 +56,13 @@ describe('the other tools', () => {
       expect(refusal(id, silent, {})).toMatchObject({ status: 422, code: 'NOTHING_TO_DO' });
       expect(refusal(id, { ...silent, audio: { codec: 'aac' } }, {})).toBeNull();
     }
-    expect(refusal('vfr-to-cfr', { video: { vfr: false, fps: 30 } }, {})?.detail).toContain(
+    const hd = { width: 1920, height: 1080 };
+    expect(refusal('vfr-to-cfr', { video: { ...hd, vfr: false, fps: 30 } }, {})?.detail).toContain(
       '(30.00 fps)',
     );
-    expect(refusal('vfr-to-cfr', { video: { vfr: true } }, {})).toBeNull();
-    expect(refusal('compress-video', silent, {})).toBeNull();
+    expect(refusal('vfr-to-cfr', { video: { ...hd, vfr: true } }, {})).toBeNull();
+    // A silent video still has a picture to compress.
+    expect(refusal('compress-video', { ...silent, video: hd }, {})).toBeNull();
   });
 });
 
@@ -100,6 +103,18 @@ describe('Noise Reduction', () => {
   });
 });
 
+describe('the CPU video tools', () => {
+  it('refuse a file with no picture before anything is charged', () => {
+    const song = { duration_ms: 5000, video: null, audio: { channels: 2, sample_rate: 44_100 } };
+    for (const id of ['compress-video', 'vfr-to-cfr', 'burn-subtitles']) {
+      expect(refusal(id, song, {})).toMatchObject({ status: 422, title: 'No video' });
+    }
+    const clip = { duration_ms: 5000, video: { width: 1920, height: 1080, fps: 30 } };
+    expect(refusal('compress-video', clip, {})).toBeNull();
+    expect(refusal('burn-subtitles', clip, {})).toBeNull();
+  });
+});
+
 describe('every server tool', () => {
   it('refuses video past 240 fps before anything is charged, and takes slow motion at 240', () => {
     const clip = (fps: number) => ({
@@ -114,6 +129,8 @@ describe('every server tool', () => {
       });
     }
     expect(refusal('compress-video', clip(240), {})).toBeNull();
+    // Merge Videos names the clip.
+    expect(frameRateRefusal(clip(300), 'clip 2')?.detail).toMatch(/^Clip 2 runs at 300 fps;/);
     // A still image says 25 fps and has no length.
     expect(
       refusal('upscale-image', { duration_ms: 0, video: { width: 100, height: 100, fps: 25 } }, {}),

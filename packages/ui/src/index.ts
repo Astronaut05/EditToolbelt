@@ -107,6 +107,8 @@ export {
   fileOptionName,
   fileOptionValue,
   ToolShell,
+  type BatchResult,
+  type BatchVerdict,
   type InputInfo,
   type OutputInfo,
   type ProbeInfo,
