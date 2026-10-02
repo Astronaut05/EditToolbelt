@@ -1139,6 +1139,34 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Reverse:** move `gpu/` to its own project with its own lockfile; the worker would then depend on `modal` only.
 
+## 2026-10-02 · Approvals never stop the work
+
+**Decision:** Astro's instruction of 2026-10-02.
+- **The `railway` approval gate stays.** Every apply of `.railway/railway.ts` waits for Astro to approve it in GitHub, from a phone if Astro is away.
+- **Work never pauses for an approval.** Request it, carry on with other tasks, and pick the deploy back up once it's approved.
+- **What can't move until then** is listed in `STATUS.md` → "Waiting for Astro's approval"; everything else keeps being built.
+- **Custom domains are added in Railway's dashboard.** Railway's configuration can't register them: its plan says so. `.railway/railway.ts` declares them once they exist, so later plans match.
+
+**Why:** Astro's instruction; and Railway's own limit on custom domains.
+**Reverse:** remove the `railway` environment's required reviewer (Settings → Environments), and the apply runs without waiting.
+
+## 2026-10-02 · Grouped PRs for the finished tools
+
+**Decision:** The 29 finished tool commits for the rest of M8 and Wave 3 merge as five PRs, not 29. Each PR is a run of consecutive commits, so what one relies on is already merged:
+- A: Rotate & Flip Video and Resize Video for Social, Extract Frames, Remove Silence, Add or Replace Audio, Merge Audio, LUT Preview (with the shell fix that keeps a setting picked while a file is read).
+- B: Merge Videos, Change Speed & Pitch, Change Video Speed, Watermark Images, Batch Rename Files.
+- C: Draw on Image, Add Text to Image, Blur & Pixelate, Photo Editor, and the mobile work.
+- D: Wave 3, part 1: Shutter Angle and Recording Storage calculators, File Checksum, Reverse Audio and Video, Loop Video, Split Audio, Gradient Generator.
+- E: Wave 3, part 2: LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor.
+
+Each tool keeps its own tests and its own entry here; each PR lists what it gathers.
+
+**Why:**
+- A CI run takes 25 to 45 minutes, and every merge deploys. 29 runs one after another would take a day.
+- A group is still one topic: the tools of one milestone part.
+
+**Reverse:** nothing to reverse; later work goes back to one topic per PR.
+
 ## 2026-10-01 · Fade In / Fade Out and Audio Channel Tools (M8)
 
 **Decision:**
