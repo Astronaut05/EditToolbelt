@@ -38,13 +38,25 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   vtt: 'text/vtt',
   ass: 'text/x-ssa',
   ssa: 'text/x-ssa',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
-  flac: 'audio/flac',
-  ogg: 'audio/ogg',
   m4a: 'audio/mp4',
   aac: 'audio/aac',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  weba: 'audio/webm',
 };
+
+/** The type the API is told for a file: by extension first, as browsers type some files oddly. */
+export function uploadType(file: File): string {
+  return TYPE_BY_EXTENSION[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? file.type;
+}
 
 /** The worker's stages, in words. */
 const STAGES: Record<string, string> = {
@@ -87,7 +99,7 @@ async function upload(
   stage = 'Uploading',
 ): Promise<string> {
   // By extension first: browsers type subtitle files inconsistently, if at all.
-  const type = TYPE_BY_EXTENSION[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? file.type;
+  const type = uploadType(file);
   try {
     return await api(() =>
       client.uploadFile(file, toolId, type, {
@@ -214,6 +226,36 @@ async function download(job: Job, ctx: ServerRunContext): Promise<Blob> {
   return new Blob(chunks, { type: result.content_type ?? 'application/octet-stream' });
 }
 
+/** What some tools add to the server path. */
+export interface ServerExtras {
+  /** The output megapixels a run makes, for tools priced per megapixel (Upscale Image). */
+  megapixels?: (width: number, height: number, options: Record<string, string>) => number;
+  /**
+   * Turns the dropped file into the one to upload, in the browser, after the
+   * person has said yes (Auto Subtitles: only the sound of a video).
+   */
+  prepare?: (file: File, ctx: ServerRunContext) => Promise<File>;
+}
+
+/** Credits for a file before the server has checked it; null when that needs more than we know. */
+export function estimateCredits(
+  rule: ServerInfo['rule'],
+  durationSec: number | undefined,
+  picture: { width?: number; height?: number } | undefined,
+  options: Record<string, string>,
+  megapixels?: ServerExtras['megapixels'],
+): number | null {
+  if (rule.kind === 'perMegapixel') {
+    if (!picture?.width || !picture.height) return null;
+    const mp = megapixels
+      ? megapixels(picture.width, picture.height, options)
+      : (picture.width * picture.height) / 1e6;
+    return priceOf(rule, { megapixels: mp });
+  }
+  if (rule.kind === 'perMinute' && durationSec === undefined) return null;
+  return priceOf(rule, { durationMs: (durationSec ?? 0) * 1000 });
+}
+
 /**
  * The ToolShell's server path for one tool: `toServer` turns the shell's
  * options into the tool's API options (@etb/registry/options). `files` are
@@ -226,15 +268,14 @@ export function serverPath(
   toServer: (options: Record<string, string>) => Record<string, unknown>,
   here: string,
   files: readonly { option: string; label: string }[] = [],
+  adds: ServerExtras = {},
 ): ShellServer {
   return {
     price: info.price,
     maxBytes: info.maxBytes,
     signInHref: `/sign-in?next=${encodeURIComponent(here)}`,
-    estimate: (durationSec) =>
-      info.rule.kind === 'perMinute' && durationSec === undefined
-        ? null
-        : priceOf(info.rule, { durationMs: (durationSec ?? 0) * 1000 }),
+    estimate: (durationSec, picture, options = {}) =>
+      estimateCredits(info.rule, durationSec, picture, options, adds.megapixels),
     async account(): Promise<ServerAccount | null> {
       try {
         const me = await client.me();
@@ -250,7 +291,8 @@ export function serverPath(
           throw new ServerRunError(`Choose the ${extra.label} first`, 'Something’s missing');
         }
       }
-      const uploadId = await upload(file, toolId, ctx);
+      const sending = adds.prepare ? await adds.prepare(file, ctx) : file;
+      const uploadId = await upload(sending, toolId, ctx);
       const values = { ...shellOptions };
       const extras: string[] = [];
       let offer: ReadyQuote & ServerQuote;

@@ -1,8 +1,14 @@
 # The GPU app on Modal (apps/worker/src/etb_worker/gpu/modal_app.py,
 # docs/01-architecture.md → GPU backend). Every merge to main that touches it
 # deploys it, then calls it. Actions → Modal → Run workflow deploys by hand,
-# and "gpu check" also runs a few seconds on a T4. A push to a claude/ops-*
-# branch only runs the app's ping once, without deploying (Phase 1 checks).
+# and "gpu check" also runs a few seconds on a T4; "smoke" calls each tool
+# function once on a tiny input it makes itself (a few GPU-seconds each,
+# plus cold starts; nothing is stored). A push to a claude/ops-* branch only
+# runs the app's ping once, without deploying (Phase 1 checks).
+#
+# The pinned weights (gpu/pins.json) are checked against their sources on
+# every change to them, before any deploy builds an image from them: no
+# Modal token needed, no GPU time.
 name: Modal
 
 on:
@@ -19,6 +25,10 @@ on:
         description: Also run a few seconds on a T4 (costs a few GPU-seconds)
         type: boolean
         default: false
+      smoke:
+        description: Also call each tool function once on a tiny input (a few GPU-seconds each, plus cold starts)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,10 +40,29 @@ env:
   UV_VERSION: '0.12.20'
 
 jobs:
+  pins:
+    name: Check the pinned weights
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/worker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          working-directory: apps/worker
+      - run: uv sync --locked --no-dev
+      # Downloads every pinned file (Whisper large-v3 is about 3 GB) and checks its SHA-256.
+      - run: uv run python -m etb_worker.gpu.check --pins
+
   deploy:
     name: Deploy and check the GPU app
+    needs: pins
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The first build of the GPU images (PyTorch, the weights) takes a while; later ones reuse layers.
+    timeout-minutes: 45
     env:
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
@@ -70,4 +99,5 @@ jobs:
         if: steps.ready.outputs.ready == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
         env:
           GPU_CHECK: ${{ inputs.gpu-check && '--gpu' || '' }}
-        run: uv run python -m etb_worker.gpu.check $GPU_CHECK
+          SMOKE: ${{ inputs.smoke && '--smoke' || '' }}
+        run: uv run python -m etb_worker.gpu.check $GPU_CHECK $SMOKE

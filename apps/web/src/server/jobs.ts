@@ -42,6 +42,7 @@ import type { CurrentUser } from './account';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
 import { requestHash } from './idempotency';
+import { gpuRate, priceInput, refusal, type Probe } from './job-rules';
 import { ApiError, problemType } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
 import { ownUpload, SUBTITLE_TYPES, tierOf, type Tier, type Upload } from './uploads';
@@ -58,22 +59,6 @@ const PROBE_WAIT_MS = 8000;
 const OUTPUT_TTL_MS = 60 * 60 * 1000;
 /** A preview snippet may run this much over its length: the page cuts at frame edges. */
 const PREVIEW_SLACK_MS = 500;
-
-interface Probe {
-  duration_ms?: number;
-  video?: { width?: number; height?: number; fps?: number; vfr?: boolean | null } | null;
-}
-
-/**
- * A tool's own reason not to run a file, read from the probe before any job
- * exists: nothing to fix means nothing to pay.
- */
-const PRECHECKS: Record<string, (probe: Probe) => string | null> = {
-  'vfr-to-cfr': (probe) =>
-    probe.video?.vfr === false
-      ? `This video already has a constant frame rate${probe.video.fps ? ` (${probe.video.fps.toFixed(2)} fps)` : ''}, so it stays in sync as it is. Nothing to fix, and nothing was charged.`
-      : null,
-};
 
 export interface JobRequest {
   toolId: string;
@@ -328,16 +313,16 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   const probe = probeOf(probed);
   const tier = await tierOf(user.id);
   checkLimits(tool, tier, probe);
-  const reason = PRECHECKS[tool.id]?.(probe);
-  if (reason) throw new ApiError(422, 'NOTHING_TO_DO', 'Nothing to fix', reason);
+  // A tool's own reason not to take the file, before anything is charged.
+  const refused = refusal(tool.id, probe, parsed.options);
+  if (refused) throw new ApiError(refused.status, refused.code, refused.title, refused.detail);
   const extras = await extraUploads(user, tool, parsed.options);
   if (!extras) return null;
   const preview = parsed.options.preview === true;
   if (preview) checkPreview(tool, probe);
-  const megapixels = ((probe.video?.width ?? 0) * (probe.video?.height ?? 0)) / 1e6;
   const credits = preview
     ? 0
-    : priceOf(costOf(tool), { durationMs: probe.duration_ms ?? 0, megapixels });
+    : priceOf(costOf(tool), priceInput(tool.id, probe, parsed.options));
   return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options, preview };
 }
 
@@ -512,6 +497,8 @@ async function startJob(
         creditsQuoted: paying.funding === 'credits' ? prepared.credits : 0,
         timeoutSec: limits?.timeoutSec ?? 900,
         maxConcurrent: limits?.maxConcurrent ?? null,
+        // Its GPU's price a second: the worker costs the job and keeps to the daily budget.
+        gpuRateUsd: gpuRate(prepared.tool),
         idempotencyKey,
         idempotencyHash,
       })
@@ -584,12 +571,18 @@ const ERROR_TEXT: Record<string, string> = {
   NOT_FOUND: 'The upload was gone before the job started. Try again.',
   STORAGE_UNAVAILABLE: 'Storage wasn’t answering. Try again.',
   INTERNAL: 'Something went wrong on our side.',
+  GPU_UNAVAILABLE: 'Our GPU servers aren’t available right now. Try again later.',
+  GPU_FAILED: 'Our GPU server couldn’t finish this one.',
 };
 const PROCESSOR_CODES: ReadonlySet<string> = new Set([
   'TARGET_TOO_SMALL',
   'NO_VIDEO',
-  'NO_AUDIO',
+  // Noise Reduction's own.
   'TOO_MANY_CHANNELS',
+  // The GPU tools' own (Upscale Image, Transcribe Audio, Auto Subtitles).
+  'TOO_LARGE',
+  'NO_AUDIO',
+  'NO_SPEECH',
 ]);
 
 function errorText(job: Job): string {

@@ -14,6 +14,7 @@ import {
   apiKeys,
   applyCredit,
   eq,
+  gpuBudget,
   inArray,
   InsufficientCreditsError,
   isNotNull,
@@ -36,6 +37,7 @@ import { audit, requireAdmin } from '../../../server/admin';
 import { db } from '../../../server/db';
 import { invalidateToolFlags } from '../../../server/flags';
 import { field } from '../../../server/form';
+import { dailyBudgetUsd } from '../../../server/gpu';
 import { stopJob } from '../../../server/jobs';
 import { hasView } from '../../../tools/ids';
 
@@ -363,4 +365,46 @@ export async function retryJob(formData: FormData): Promise<void> {
   });
   log.info({ job_id: job.id, retried: Boolean(retried) }, 'admin.job_retry');
   redirect(`${back}?${retried ? 'saved=retried' : 'error=input'}`);
+}
+
+const Budget = z.strictObject({
+  dailyUsd: dailyBudgetUsd,
+  reason: Reason,
+});
+
+/**
+ * docs/05 → GPU costs and the daily budget: the dollars a day the GPU may
+ * cost. The worker stops starting GPU jobs once today's spend reaches it and
+ * picks up a change on its next claim.
+ */
+export async function saveGpuBudget(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = Budget.safeParse({
+    dailyUsd: field(formData, 'dailyUsd'),
+    reason: field(formData, 'reason'),
+  });
+  if (!parsed.success) {
+    const blank = field(formData, 'dailyUsd').trim() === '';
+    redirect(`/admin?error=${blank ? 'budget_blank' : 'budget'}#gpu`);
+  }
+  const { dailyUsd, reason } = parsed.data;
+  await db().transaction(async (tx) => {
+    const [before] = await tx.select().from(gpuBudget).where(eq(gpuBudget.id, 1));
+    const next = { dailyUsd: dailyUsd.toFixed(2), updatedBy: admin.id, updatedAt: new Date() };
+    await tx
+      .insert(gpuBudget)
+      .values({ id: 1, ...next })
+      .onConflictDoUpdate({ target: gpuBudget.id, set: next });
+    await audit(tx, {
+      adminId: admin.id,
+      action: 'gpu.budget',
+      targetType: 'system',
+      targetId: 'gpu_budget',
+      before: { daily_usd: before?.dailyUsd ?? null },
+      after: { daily_usd: next.dailyUsd },
+      reason,
+    });
+  });
+  log.info({ user_ref: admin.id, daily_usd: dailyUsd }, 'admin.gpu_budget');
+  redirect('/admin?saved=budget#gpu');
 }

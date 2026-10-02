@@ -7,6 +7,8 @@
  */
 import { z } from 'zod';
 
+import { WHISPER_LANGUAGE_CODES, type WhisperLanguage } from './languages';
+
 /**
  * V02 on the server: the browser tool's settings (tools/video.md → V02), so
  * one set of choices works either way. A size is MB of 10⁶ bytes.
@@ -80,10 +82,46 @@ const removeNoise = z.strictObject({
   preview: z.boolean().default(false),
 });
 
+/** P08: Real-ESRGAN, 2× or 4×, a general or an illustration model, PNG, JPG or WebP. */
+const upscaleImage = z.strictObject({
+  scale: z.enum(['2', '4']).default('4'),
+  /** general: photos and most images; anime: illustrations, drawings, anime. */
+  model: z.enum(['general', 'anime']).default('general'),
+  /** How much grain and JPEG noise to clean up (the general model only). */
+  denoise: z.enum(['none', 'low', 'medium', 'high']).default('medium'),
+  format: z.enum(['png', 'jpg', 'webp']).default('png'),
+});
+
+/** Whisper's language codes, or auto to detect it. */
+const language = z
+  .enum(['auto', ...(WHISPER_LANGUAGE_CODES as [WhisperLanguage, ...WhisperLanguage[]])])
+  .default('auto');
+
+/** A12: Whisper large-v3; plain text, subtitles or JSON with every word's time. */
+const transcribeAudio = z.strictObject({
+  language,
+  format: z.enum(['txt', 'srt', 'vtt', 'json']).default('txt'),
+});
+
+/** V17: subtitles from speech, with line limits, word timing and translation to English. */
+const autoSubtitles = z.strictObject({
+  language,
+  /** Translate the speech to English subtitles. */
+  translate: z.boolean().default(false),
+  format: z.enum(['srt', 'vtt', 'ass', 'txt']).default('srt'),
+  maxChars: z.number().int().min(16).max(80).default(42),
+  maxLines: z.number().int().min(1).max(3).default(2),
+  /** A time for every word: VTT timestamp tags, ASS karaoke. */
+  words: z.boolean().default(false),
+});
+
 export const serverOptions = {
   'compress-video': compressVideo,
   'vfr-to-cfr': vfrToCfr,
   'burn-subtitles': burnSubtitles,
+  'upscale-image': upscaleImage,
+  'transcribe-audio': transcribeAudio,
+  'auto-subtitles': autoSubtitles,
   'remove-noise': removeNoise,
 } satisfies Record<string, z.ZodType>;
 

@@ -915,7 +915,11 @@ export function ToolShell({
       setOnServer(true);
       setState({ kind: 'running', input, stage: 'Uploading', fraction: 0, elapsedSec: 0 });
       try {
-        const credits = server.estimate(media?.durationSec ?? input.durationSec);
+        const credits = server.estimate(
+          media?.durationSec ?? input.durationSec,
+          { width: media?.width ?? input.width, height: media?.height ?? input.height },
+          options,
+        );
         const free =
           credits === 0 || (account !== null && account !== undefined && account.freeJobsLeft > 0);
         const out = await server.run(file, options, {
@@ -950,6 +954,11 @@ export function ToolShell({
         });
         const url = URL.createObjectURL(out.blob);
         urls.current.push(url);
+        // Text results (subtitles, transcripts) show their start, as browser ones do.
+        const text =
+          preset.preview === 'text'
+            ? (await out.blob.text()).slice(0, TEXT_PREVIEW_CHARS)
+            : undefined;
         const seconds = (performance.now() - started) / 1000;
         track('tool_run_succeeded', {
           engine_path: 'server',
@@ -972,6 +981,7 @@ export function ToolShell({
             width: out.width ?? input.width,
             height: out.height ?? input.height,
             notes: out.notes,
+            text,
           },
         });
       } catch (error) {
@@ -991,7 +1001,7 @@ export function ToolShell({
         });
       }
     },
-    [account, media, options, server, track],
+    [account, media, options, preset.preview, server, track],
   );
 
   /** The free preview: the page cuts and sends the snippet; the result plays A/B. */
@@ -1474,7 +1484,14 @@ export function ToolShell({
   // The offer's numbers: the price for this file's length, and whether this account can start it.
   const serverCredits =
     server && state.kind === 'ready'
-      ? server.estimate(media?.durationSec ?? state.input.durationSec)
+      ? server.estimate(
+          media?.durationSec ?? state.input.durationSec,
+          {
+            width: media?.width ?? state.input.width,
+            height: media?.height ?? state.input.height,
+          },
+          options,
+        )
       : null;
   // What a run sends: the file, or less (a video sends only its sound).
   const sendFile = state.kind === 'ready' ? state.files?.[0] : undefined;

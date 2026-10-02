@@ -94,8 +94,16 @@ export interface ShellPreview {
 export interface ShellServer {
   /** The price rule in words: "1 credit a minute, at least 2". */
   price: string;
-  /** Credits for a file this long, before the server has checked it; null if it depends on more. */
-  estimate: (durationSec: number | undefined) => number | null;
+  /**
+   * Credits for this file before the server has checked it: from its length,
+   * or its picture size and the options for tools priced per megapixel;
+   * null if it depends on more.
+   */
+  estimate: (
+    durationSec: number | undefined,
+    picture?: { width?: number; height?: number },
+    options?: Record<string, string>,
+  ) => number | null;
   maxBytes: { free: number; paid: number };
   /** Where "Sign in" goes; it comes back to this page. */
   signInHref: string;
