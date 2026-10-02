@@ -95,3 +95,27 @@ test('0.5× keeping the frame rate redraws it at 30 fps, twice as long', async (
   expect(Math.abs(info.durationSec - 8)).toBeLessThan(1 / 30 + 0.03);
   expect((await videoPackets(new Blob([out.bytes]))).length).toBe(240);
 });
+
+test('keeping the frame rate rounds an odd size to even, as H.264 encoders need', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/video-speed');
+  await page
+    .locator('input[type=file][data-hydrated]')
+    .first()
+    .setInputFiles(fixture('clip-vp9-odd.webm'));
+  await expect(
+    page
+      .getByText(/255 × 143/)
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible();
+  await choose(page, isMobile, 'Sound', 'Keep frame rate');
+  const out = await run(page);
+  const info = await probeMedia(new Blob([out.bytes]));
+  expect(info.video).toMatchObject({ width: 256, height: 144, fps: 30 });
+  // 2 s at 2×: 1 s of frames at 30 fps.
+  expect((await videoPackets(new Blob([out.bytes]))).length).toBe(30);
+  await expect(page.getByText(/at 256 × 144 px: encoders take even sizes/).first()).toBeAttached();
+});

@@ -36,3 +36,13 @@ ffmpeg -f lavfi -i "testsrc2=size=320x240:rate=25:duration=4" \
 ```
 
 For Video Converter, `clip-h264-aac.mov` (H.264 + AAC in QuickTime) and `clip-vp9-opus.mkv` (VP9 + Opus in Matroska): the first 4 s of the clips above, remuxed without re-encoding by `node packages/engines/scripts/converter-fixtures.ts`.
+
+For Change Video Speed, `clip-vp9-odd.webm`: 2 s of the same test pattern at an odd size, 255 × 143 px, 30 fps, VP9 + Opus. Redrawn frames must come out at even sizes, which H.264 and HEVC encoders need. Made with FFmpeg 6.1:
+
+```sh
+ffmpeg -f lavfi -i "testsrc2=size=256x144:rate=30:duration=2" \
+  -f lavfi -i "sine=frequency=440:beep_factor=4:sample_rate=48000:duration=2" -ac 2 \
+  -vf "crop=255:143:0:0:exact=1" \
+  -c:v libvpx-vp9 -pix_fmt yuv420p -crf 60 -b:v 0 -g 60 -row-mt 1 -deadline good -cpu-used 4 \
+  -c:a libopus -b:a 32k -map_metadata -1 -fflags +bitexact clip-vp9-odd.webm
+```

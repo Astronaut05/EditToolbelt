@@ -29,7 +29,7 @@ import { planesOf } from '../audio/stream';
 import { EngineAbortError } from '../dummy';
 import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput } from '../types';
-import { Held, shownFor } from './held';
+import { even, Held, shownFor } from './held';
 import { codecLabel, MediaInputError, openInput } from './media';
 import { containerFormat, sourceFamily } from './trim';
 
@@ -132,8 +132,14 @@ export const videoSpeedEngine: Engine<VideoSpeedOptions> = {
       const fps = metrics?.bestGuessFrameRate ?? 30;
       const duration = await shownFor(video, fps);
       const length = duration / speed;
-      const width = await video.getDisplayWidth();
-      const height = await video.getDisplayHeight();
+      const shown = {
+        width: await video.getDisplayWidth(),
+        height: await video.getDisplayHeight(),
+      };
+      // Redrawn frames are encoded, and H.264 and HEVC take only even sizes (a 1437 × 899 screen recording).
+      const width = reencode ? even(shown.width) : shown.width;
+      const height = reencode ? even(shown.height) : shown.height;
+      const resized = width !== shown.width || height !== shown.height;
 
       let videoCodec: VideoCodec | null = null;
       if (reencode) {
@@ -242,7 +248,7 @@ export const videoSpeedEngine: Engine<VideoSpeedOptions> = {
       const notes = [
         `${fixed(speed)}×: ${duration.toFixed(2)} s → ${length.toFixed(2)} s`,
         reencode
-          ? `Redrawn at ${fixed(fps)} fps, ${speed > 1 ? 'dropping' : 'repeating'} frames, ${codecLabel(videoCodec)}`
+          ? `Redrawn at ${fixed(fps)} fps, ${speed > 1 ? 'dropping' : 'repeating'} frames, ${codecLabel(videoCodec)}${resized ? `, at ${String(width)} × ${String(height)} px: encoders take even sizes` : ''}`
           : `Every frame kept and copied, now at ${fixed(fps * speed)} fps: instant and lossless`,
         !audio
           ? opts.audio === 'mute'
@@ -258,6 +264,7 @@ export const videoSpeedEngine: Engine<VideoSpeedOptions> = {
         blob: new Blob([bytes], { type: format.mimeType }),
         ext: format.fileExtension.slice(1),
         durationSec: length,
+        ...(reencode && { width, height }),
         path: reencode ? 'Browser · WebCodecs' : 'Browser · stream copy',
         notes,
         details: [

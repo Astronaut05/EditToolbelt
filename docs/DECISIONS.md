@@ -1400,6 +1400,7 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 - **Two ways with the picture:**
   - Keep every frame (the default): every packet is copied with its time divided by the speed. It's instant and lossless, and the frame rate scales with the speed (30 fps at 2× plays at 60 fps).
   - Keep frame rate: the video is redrawn at its own rate, dropping frames to speed up or repeating them to slow down, and re-encoded. This is for editors who need the original rate.
+  - Redrawn frames are encoded at the video's size rounded to even numbers (`even()`, shared with Merge Videos): H.264 and HEVC take only even sizes, so a 1437 × 899 screen recording comes out at 1438 × 900, and the notes say so.
   - The settings show the length and the frame rate each way would give.
 - **Speeds:** 0.25×, 0.5×, 0.75×, 1.25×, 1.5×, 2×, 3× and 4×, or a custom speed from 0.25× to 4× in 0.05 steps.
 - **Sound:**
