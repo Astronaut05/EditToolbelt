@@ -1149,3 +1149,20 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** Astro's instruction; and Railway's own limit on custom domains.
 **Reverse:** remove the `railway` environment's required reviewer (Settings → Environments), and the apply runs without waiting.
+
+## 2026-10-02 · Grouped PRs for the finished tools
+
+**Decision:** The 29 finished tool commits for the rest of M8 and Wave 3 merge as five PRs, not 29. Each PR is a run of consecutive commits, so what one relies on is already merged:
+- A: Rotate & Flip Video and Resize Video for Social, Extract Frames, Remove Silence, Add or Replace Audio, Merge Audio, LUT Preview (with the shell fix that keeps a setting picked while a file is read).
+- B: Merge Videos, Change Speed & Pitch, Change Video Speed, Watermark Images, Batch Rename Files.
+- C: Draw on Image, Add Text to Image, Blur & Pixelate, Photo Editor, and the mobile work.
+- D: Wave 3, part 1: Shutter Angle and Recording Storage calculators, File Checksum, Reverse Audio and Video, Loop Video, Split Audio, Gradient Generator.
+- E: Wave 3, part 2: LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor.
+
+Each tool keeps its own tests and its own entry here; each PR lists what it gathers.
+
+**Why:**
+- A CI run takes 25 to 45 minutes, and every merge deploys. 29 runs one after another would take a day.
+- A group is still one topic: the tools of one milestone part.
+
+**Reverse:** nothing to reverse; later work goes back to one topic per PR.
