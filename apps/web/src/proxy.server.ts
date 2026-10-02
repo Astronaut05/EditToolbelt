@@ -10,9 +10,10 @@
  * - The Content Security Policy on pages. Pages rendered per request get a
  *   fresh nonce (Next reads it from the request's CSP header and puts it on
  *   its scripts) plus the theme script's hash; prerendered pages get the
- *   'unsafe-inline' fallback (src/lib/csp.ts). Never cached: /account,
- *   /sign-in, /admin, /connect, /credits. /credits/buy alone may load
- *   Paddle.js, and only while Paddle is set up and payments are on.
+ *   'unsafe-inline' fallback and 'wasm-unsafe-eval' (src/lib/csp.ts;
+ *   docs/decisions/2026-10-02-server-build-csp.md). Never cached: /account,
+ *   /sign-in, /admin, /connect, /credits (src/lib/personal.ts). /credits/buy
+ *   alone may load Paddle.js, and only while Paddle is set up and payments are on.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -21,10 +22,8 @@ import { themeScript } from '@etb/ui/theme';
 import { buildCsp, originOf } from './lib/csp';
 import { headersForPath } from './lib/headers';
 import { PADDLE_CSP } from './lib/paddle-js';
+import { isPersonalPath } from './lib/personal';
 import { accessConfig, accessExempt, teamKeys, verifyAccessToken } from './server/access';
-
-/** Rendered per request, for one signed-in person: nonce CSP, no caching. */
-const PERSONAL = ['/account', '/sign-in', '/admin', '/connect', '/credits'];
 
 /** The one page that may load Paddle.js, for its overlay checkout (docs/11 → Web app). */
 const CHECKOUT_PAGE = '/credits/buy';
@@ -126,9 +125,12 @@ export default async function proxy(request: NextRequest) {
   if ((pathname === '/admin' || pathname.startsWith('/admin/')) && !adminAllowed(request)) {
     return new NextResponse('Not found', { status: 404 });
   }
-  const personal = PERSONAL.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+  const personal = isPersonalPath(pathname);
   const nonce = personal ? btoa(crypto.randomUUID()) : undefined;
   const paddle = pathname === CHECKOUT_PAGE && paddleOn;
+  // Every public page may compile WebAssembly, not only the tools that do: a
+  // client-side navigation keeps the CSP of the page it started on, and the
+  // MP3 and FLAC encoders compile theirs in blob workers, which inherit it.
   const csp = buildCsp({
     ...(nonce ? { nonce, hashes: [await themeScriptHash()] } : { inline: true, wasm: true }),
     ...(paddle && {

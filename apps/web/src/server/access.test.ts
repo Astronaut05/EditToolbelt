@@ -174,6 +174,8 @@ describe('accessConfig and accessExempt', () => {
     expect(accessExempt('/healthz')).toBe(true);
     expect(accessExempt('/api/webhooks/paddle')).toBe(true);
     expect(accessExempt('/readyz/x')).toBe(false);
+    // The worker's ages are for Astro and CI's service token only.
+    expect(accessExempt('/readyz/worker')).toBe(false);
     expect(accessExempt('/api/v1/me')).toBe(false);
     expect(accessExempt('/')).toBe(false);
   });

@@ -44,9 +44,10 @@ The functions that decode sound or video read only what the job was priced
 for: the worker sends ``max_seconds`` (all three) and ``max_frames`` (the
 video ones), worked out from the probe it priced the job on, and the
 decoders stop there (gpu/video.py, gpu/audio.py). A file whose header says
-less than it holds is cut at that point and the result says so. Without
-them (a worker from before the caps) a function takes its own hard caps
-below, never "no limit".
+less than it holds is cut at that point and the result says so. The image
+functions get ``max_pixels``, the picture's size as priced, and refuse a
+bigger one before decoding it. Without them (a worker from before the caps)
+a function takes its own hard caps below, never "no limit".
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ from etb_worker.gpu import APP_NAME, audio, inpaint, video
 from etb_worker.gpu.remote import (
     Call,
     CallFailed,
+    check_pixels,
     clear,
     fetch_input,
     float_cap,
@@ -203,6 +205,8 @@ def gpu_check() -> dict[str, str]:
 UPSCALE_TILE = 512
 UPSCALE_PAD = 24
 MAX_OUTPUT_PIXELS = 64_000_000
+#: The most pixels an image function decodes, whatever was priced (decompression bombs, docs/11).
+MAX_IMAGE_PIXELS = 100_000_000
 UPSCALE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
 #: The Real-ESRGAN weights each model loads; "general" blends two by the denoise strength.
 UPSCALERS = {
@@ -272,14 +276,18 @@ def _run_tiles(network: Any, pixels: Any) -> Any:
     return out
 
 
-def _read_image(source: Path, notes: list[str]) -> tuple[Any, Any, bytes | None]:
-    """The photo upright, as (H, W, 3 uint8), its alpha (or None) and its ICC profile."""
+def _read_image(source: Path, notes: list[str], max_pixels: int) -> tuple[Any, Any, bytes | None]:
+    """The photo upright, as (H, W, 3 uint8), its alpha (or None) and its ICC profile.
+
+    Refused before anything is decoded if its header gives more than ``max_pixels``.
+    """
     import numpy as np  # noqa: PLC0415
     from PIL import Image, ImageOps  # noqa: PLC0415
 
-    Image.MAX_IMAGE_PIXELS = 100_000_000  # decompression bombs (docs/11)
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
     try:
         with Image.open(source) as opened:
+            check_pixels(opened.width, opened.height, max_pixels)
             picture = ImageOps.exif_transpose(opened)
             icc = picture.info.get("icc_profile")
             alpha_modes = ("RGBA", "LA", "PA")
@@ -333,7 +341,7 @@ def _upscale(source: Path, target: Path, options: dict[str, Any], call: Call) ->
     scale = 2 if int(options.get("scale", 4)) == 2 else 4
     fmt = str(options.get("format", "png"))
     notes: list[str] = []
-    rgb, alpha, icc = _read_image(source, notes)
+    rgb, alpha, icc = _read_image(source, notes, int_cap(options, "max_pixels", MAX_IMAGE_PIXELS))
     height, width = rgb.shape[:2]
     if width * height * scale * scale > MAX_OUTPUT_PIXELS:
         too_big = "The result would be over 64 MP. Pick 2×, or a smaller image."  # noqa: RUF001
@@ -548,7 +556,7 @@ def _erase(
 
     fmt = str(options.get("format", "png"))
     notes: list[str] = []
-    rgb, alpha, icc = _read_image(source, notes)
+    rgb, alpha, icc = _read_image(source, notes, int_cap(options, "max_pixels", MAX_IMAGE_PIXELS))
     height, width = rgb.shape[:2]
     hole = _read_mask(mask_path, width, height)
     if not hole.any():

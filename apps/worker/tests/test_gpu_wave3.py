@@ -209,7 +209,8 @@ def test_the_eraser_sends_the_photo_and_its_mask() -> None:
     out = object_eraser.PROCESSOR.run(ctx)
     call = gpu.calls[0]
     assert call.function == "erase_object"
-    assert call.kwargs["options"] == {"format": "png"}
+    # The photo's pixels as probed and priced: the function decodes no bigger picture.
+    assert call.kwargs["options"] == {"format": "png", "max_pixels": 4000 * 3000}
     assert key_of(call.kwargs["input_url"]) == "in/photo"
     assert [key_of(url) for url in call.kwargs["extra_urls"]] == ["in/mask"]
     assert out == Output(

@@ -67,4 +67,5 @@ Plus a **daily digest** message at 09:00 Asia/Tashkent: yesterday's jobs, failur
 
 - `GET /healthz` — process up.
 - `GET /readyz` — DB reachable, storage reachable, registry loaded.
-- Worker exposes the same on an internal port. Uptime monitoring hits `/readyz` every minute from outside.
+- `GET /readyz/worker` — the worker's signs of life, as ages in seconds: its freshest heartbeat (stale after 10 min) and the retention sweeper's last pass (stale after 30 min); 503 problem+json naming what's stale. Behind Cloudflare Access, unlike `/readyz`, and not Railway's health check, so a dead worker never blocks the web's deploys. The worker has no port of its own.
+- From outside, the **Watch** workflow (`.github/workflows/watch.yml`) reads `/readyz/worker` through Access every 30 minutes with CI's service token and fails when it isn't 200; GitHub emails about a failed scheduled run. The worker's own alerts can't fire when the worker is dead; this can.

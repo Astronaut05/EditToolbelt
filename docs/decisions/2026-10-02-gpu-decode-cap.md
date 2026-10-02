@@ -9,3 +9,5 @@
 
 **Why:** the review of the Wave 3 GPU tools: a header that says less than the file holds (an MKV's Segment Duration, a FLAC's STREAMINFO sample count) was priced and limit-checked as a few seconds and then decoded in full. A patched MKV probed at 150 frames made 1,800; on V20 or V21 that runs the model on every frame until Modal's timeout (about $1.20 of L4 a job), past the free tier's 60 s, the 18,000-frame cap and the ProRes check, and holds the whole daily GPU budget.
 **Reverse:** drop `max_frames` and `max_seconds` from the processors' options (the functions then use their hard caps), or raise `LENGTH_MARGIN` and `LENGTH_SLACK_SEC` in `processors/remote.py`; for refusing instead of cutting, raise `TOO_LARGE` in `modal_app._video_notes` and the transcribe function where they add the cut note.
+
+Images get the same from their size: `2026-10-02-gpu-image-pixel-cap.md`.

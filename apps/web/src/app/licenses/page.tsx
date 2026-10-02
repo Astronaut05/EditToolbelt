@@ -21,6 +21,8 @@ interface Entry {
   source?: string;
   /** LGPL parts we ship as their own file: where their source is offered. */
   sourceOffer?: string;
+  /** And how the file we ship is built from it, at our version. */
+  buildSource?: string;
 }
 
 // Generated from the license register (licenses.json, docs/13-licenses.md):
@@ -43,39 +45,49 @@ export default function LicensesPage() {
         {sections.map((section) => (
           <section key={section}>
             <h2>{section}</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Project</th>
-                  <th>License</th>
-                  <th>Used for</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shipped
-                  .filter((entry) => entry.section === section)
-                  .map((entry) => (
-                    <tr key={entry.label}>
-                      <td>
-                        {entry.source ? <a href={entry.source}>{entry.label}</a> : entry.label}
-                      </td>
-                      <td>
-                        <code>{entry.license}</code>
-                      </td>
-                      <td>
-                        {entry.use}
-                        {entry.sourceOffer && (
-                          <>
-                            {' '}
-                            It includes LGPL code, loaded as a separate file you can replace;{' '}
-                            <a href={entry.sourceOffer}>get its source code</a>.
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+            {/* A narrow phone scrolls the table, not the page. */}
+            <div className="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>License</th>
+                    <th>Used for</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shipped
+                    .filter((entry) => entry.section === section)
+                    .map((entry) => (
+                      <tr key={entry.label}>
+                        <td>
+                          {entry.source ? <a href={entry.source}>{entry.label}</a> : entry.label}
+                        </td>
+                        <td>
+                          <code>{entry.license}</code>
+                        </td>
+                        <td>
+                          {entry.use}
+                          {entry.sourceOffer && (
+                            <>
+                              {' '}
+                              It includes LGPL code, loaded as a separate file you can replace;{' '}
+                              <a href={entry.sourceOffer}>get its source code</a>
+                              {entry.buildSource && (
+                                <>
+                                  {' '}
+                                  and <a href={entry.buildSource}>how our copy is built</a>
+                                </>
+                              )}
+                              .
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         ))}
       </LegalPage>

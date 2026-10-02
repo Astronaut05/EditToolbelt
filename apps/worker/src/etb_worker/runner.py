@@ -1,11 +1,14 @@
 """Running one job end to end (docs/01 -> Workers, Retention).
 
 Claim → download the input into a per-job temp dir → run the processor
-(the sandbox, progress reported through a heartbeat every 5 s) → upload the
-output under a random key → mark the job. Whatever happens, the ``finally``
+(the sandbox, progress reported through a heartbeat every 5 s) → put a new
+random key on the job, then upload the output under it (so it's found and
+deleted even if this worker dies before the next step) → mark the job.
+Whatever happens, the ``finally``
 deletes the temp dir and the input object: inputs live exactly as long as
-their job. Only a worker that dies mid-job leaves the input, so the reaper
-can hand the job to another worker.
+their job. Only a job that will run again keeps its input: one whose worker
+dies mid-job (the reaper hands it to another worker), one handed back on a
+clean stop, or one reaped while its worker stalled.
 
 GPU jobs (remote processors) skip the download and upload: the GPU function
 reads the input and writes the output through presigned URLs. They run in
@@ -19,7 +22,6 @@ from __future__ import annotations
 
 import shutil
 import socket
-import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -42,7 +44,8 @@ from etb_worker.processors import (
     is_remote,
 )
 from etb_worker.sandbox import Limits, ToolError
-from etb_worker.storage import Storage, StorageError
+from etb_worker.storage import Storage, StorageError, new_output_key
+from etb_worker.workdir import new_dir
 
 
 @dataclass
@@ -136,13 +139,12 @@ class JobRunner:
         job_id = str(job["id"])
         log = get_logger(job_id=job_id, tool_id=job["tool_id"])
         log.info("job.started", attempt=job["attempts"])
-        workdir = Path(tempfile.mkdtemp(prefix="etb-job-"))
+        workdir = new_dir("etb-job-")
         cancel = threading.Event()
         self._current = cancel
         progress = _Progress()
         beat = _Heartbeat(self, job_id, progress, cancel)
         beat.start()
-        requeued = False
         try:
             self._settle_stale_call(job)
             self._drop_stale_output(job)
@@ -158,9 +160,9 @@ class JobRunner:
             if isinstance(error, ToolError) and error.code == "CANCELLED":
                 if self.stopping.is_set():
                     with self.connect() as conn:
-                        jobqueue.requeue(conn, job_id, self.worker_id)
-                    requeued = True
-                    log.info("job.handed_back")
+                        handed_back = jobqueue.requeue(conn, job_id, self.worker_id)
+                    # Not handed back: the job was cancelled meanwhile, and its input goes.
+                    log.info("job.handed_back" if handed_back else "job.cancelled")
                 else:
                     log.info("job.cancelled")
             else:
@@ -173,7 +175,9 @@ class JobRunner:
             beat.stop()
             self._current = None
             shutil.rmtree(workdir, ignore_errors=True)
-            if not requeued:
+            if self._runs_elsewhere(job_id):
+                log.info("job.input_kept")  # its next attempt needs it
+            else:
                 self._delete_input(job)
 
     def _process(
@@ -221,7 +225,7 @@ class JobRunner:
             if output.key:
                 self.storage.delete(output.key)
             raise ToolError("CANCELLED", "cancelled")
-        key, size = self._store(output, progress)
+        key, size = self._store(job_id, output, progress)
         meta = {
             **output.meta,
             "bytes": size,
@@ -230,15 +234,23 @@ class JobRunner:
         }
         return key, meta
 
-    def _store(self, output: Output, progress: _Progress) -> tuple[str, int]:
-        """The output's key and size: stored already by a GPU function, or uploaded now."""
+    def _store(self, job_id: str, output: Output, progress: _Progress) -> tuple[str, int]:
+        """The output's key and size: stored already by a GPU function, or uploaded now.
+
+        An upload's key goes on the job first, so the file can always be found
+        and deleted, even if this worker dies before the job is marked done.
+        """
         if output.key is not None:
             return output.key, int(output.bytes or 0)
         if output.path is None:
             raise JobFailed("INTERNAL", "the tool made no output")
+        key = new_output_key()
+        with self.connect() as conn:
+            if not jobqueue.record_output(conn, job_id, self.worker_id, key):
+                raise ToolError("CANCELLED", "cancelled")  # cancelled or reaped: upload nothing
         progress.set(99, "uploading")
         size = output.path.stat().st_size
-        return self.storage.upload(output.path, output.content_type), size
+        return self.storage.upload(output.path, output.content_type, key), size
 
     def _record_gpu(self, job_id: str, usage: GpuUsage) -> None:
         log = get_logger(job_id=job_id)
@@ -300,6 +312,16 @@ class JobRunner:
             log.exception("job.fail_not_recorded", error_code=code)
             return
         log.warning("job.failed", error_code=code)
+
+    def _runs_elsewhere(self, job_id: str) -> bool:
+        """The job went back to the queue or on to another worker: handed back on a stop,
+        or reaped while this worker stalled. When the database can't say, False: the
+        inputs go, and a retry fails with its credits back."""
+        try:
+            with self.connect() as conn:
+                return jobqueue.runs_elsewhere(conn, job_id, self.worker_id)
+        except psycopg.Error:
+            return False
 
     def _delete_input(self, job: jobqueue.Job) -> None:
         """Every input goes, each tried even when one fails (Merge Videos has up to 20)."""

@@ -5,8 +5,14 @@
  *   each page as a <meta> tag).
  * - Server build, pages rendered per request (/account, /sign-in, /admin): a
  *   fresh nonce per response, set by the proxy, which Next puts on its scripts.
- * - Server build, prerendered pages: 'unsafe-inline' for scripts, the fallback
- *   docs/11 allows (we render no user HTML). Local stack only until M5.
+ * - Server build, public pages (prerendered, regenerated every 30 s):
+ *   'unsafe-inline' for scripts, the fallback docs/11 allows (we render no
+ *   user HTML). Build-time hashes can't follow a regenerated page; see
+ *   docs/decisions/2026-10-02-server-build-csp.md.
+ * - 'wasm-unsafe-eval' on every public page of both builds, not only the
+ *   tools: a client-side navigation keeps the policy of the page it started
+ *   on, and the MP3 and FLAC encoders compile WebAssembly in blob workers,
+ *   which inherit it. Pages rendered per request don't get it.
  * - /credits/buy adds Paddle's script, style and frame origins for its
  *   overlay checkout (src/lib/paddle-js.ts); no other page has them.
  */
@@ -17,7 +23,7 @@ export interface CspOptions {
   nonce?: string;
   /** Allow inline scripts (prerendered pages in the server build). */
   inline?: boolean;
-  /** 'wasm-unsafe-eval': pages that run WebAssembly. */
+  /** 'wasm-unsafe-eval': pages that run WebAssembly, or may open a tool that does. */
   wasm?: boolean;
   /** 'unsafe-eval' for React's development build (next dev only). */
   dev?: boolean;
