@@ -16,6 +16,7 @@ import json
 import shutil
 import statistics
 import tempfile
+import threading
 from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
@@ -61,6 +62,8 @@ CONTAINERS.update(SUBTITLES)
 MAX_PIXELS = 100_000_000  # a decoded frame, docs/11 -> decompression bombs
 #: Frame times read for the variable-frame-rate check: the first minute is enough.
 FRAME_TIMES_SPAN = "%+60"
+#: The most of them kept: a minute at 120 fps. They sit in the worker's own memory, outside
+#: the sandbox, and a file of tiny frames can list millions in a minute.
 MAX_FRAME_TIMES = 7200
 MAX_DURATION_MS = 24 * 60 * 60 * 1000
 PROBE_LIMITS = Limits(timeout_sec=60, memory_bytes=2 * 1024**3)
@@ -300,8 +303,23 @@ def packet_span(path: Path) -> float | None:
 
 
 def frame_times(path: Path) -> list[float]:
-    """The first minute's video packet times, for the variable-frame-rate check."""
-    lines: list[str] = []
+    """The first minute's video packet times, for the variable-frame-rate check.
+
+    Only the first ``MAX_FRAME_TIMES`` count, so ffprobe is stopped once it has listed
+    them: the check reads the same packets as if it had listed them all.
+    """
+    times: list[float] = []
+    enough = threading.Event()
+
+    def on_line(line: str) -> None:
+        if len(times) >= MAX_FRAME_TIMES:
+            enough.set()
+            return
+        try:
+            times.append(float(line.strip().rstrip(",")))
+        except ValueError:
+            return  # N/A: a packet without a time
+
     try:
         run(
             ffprobe(
@@ -310,16 +328,13 @@ def frame_times(path: Path) -> list[float]:
             ),
             cwd=path.parent,
             limits=PROBE_LIMITS,
-            on_line=lines.append,
+            cancel=enough,
+            on_line=on_line,
         )
     except ToolError:
-        return []  # the header's hint stands in
-    times: list[float] = []
-    for line in lines[:MAX_FRAME_TIMES]:
-        try:
-            times.append(float(line.strip().rstrip(",")))
-        except ValueError:
-            continue
+        if not enough.is_set():
+            return []  # the header's hint stands in
+        # Stopped once it had listed enough (or it failed after that): those stand.
     return times
 
 

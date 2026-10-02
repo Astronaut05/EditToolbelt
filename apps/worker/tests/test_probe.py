@@ -9,7 +9,13 @@ from typing import Any
 import pytest
 
 from etb_worker import probe as probe_module
-from etb_worker.probe import ProbeRefused, probe_json, summarize, variable_frame_rate
+from etb_worker.probe import (
+    MAX_FRAME_TIMES,
+    ProbeRefused,
+    probe_json,
+    summarize,
+    variable_frame_rate,
+)
 from etb_worker.sandbox import ToolError, run
 
 VIDEO = {
@@ -366,3 +372,40 @@ def test_a_file_tagged_rotate_abc_is_probed_as_unrotated(tmp_path: Path) -> None
     assert data["streams"][0]["tags"]["rotate"] == "abc"
     video = summarize(data, "video/x-matroska")["video"]
     assert (video["width"], video["height"], video["rotation"]) == (64, 48, 0)
+
+
+def test_the_frame_times_stop_at_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file of tiny frames lists more packets in its first minute than the check reads:
+    the worker keeps only the first ``MAX_FRAME_TIMES`` and stops ffprobe there."""
+    path = tmp_path / "input"
+    ffmpeg(
+        *("-f", "lavfi", "-i", "color=black:size=16x16:rate=1000:duration=10"),
+        *("-c:v", "rawvideo", "-pix_fmt", "gray", "-f", "mov", str(path)),
+    )
+    listed: list[int] = []
+    stopped: list[bool] = []
+
+    def counting(args: list[str], **kwargs: Any) -> str:
+        on_line, lines = kwargs["on_line"], 0
+
+        def count(line: str) -> None:
+            nonlocal lines
+            lines += 1
+            on_line(line)
+
+        try:
+            return run(args, **{**kwargs, "on_line": count})
+        finally:
+            listed.append(lines)
+            stopped.append(kwargs.get("cancel") is not None and kwargs["cancel"].is_set())
+
+    monkeypatch.setattr(probe_module, "run", counting)
+    data = probe_json(path)
+    times = data["frame_times"]
+    # 10,000 packets; the first 7,200 kept, the same ones the check read before.
+    assert len(times) == MAX_FRAME_TIMES
+    assert times[:3] == pytest.approx([0.0, 0.001, 0.002])
+    assert times[-1] == pytest.approx(7.199)
+    assert listed[-1] > MAX_FRAME_TIMES
+    assert stopped[-1]
+    assert summarize(data, "video/quicktime")["video"]["vfr"] is False
