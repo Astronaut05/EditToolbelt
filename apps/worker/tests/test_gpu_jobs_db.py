@@ -78,8 +78,7 @@ class FakeStorage:
         dest.write_bytes(self.objects[key][0])
         return dest.stat().st_size
 
-    def upload(self, source: Path, content_type: str) -> str:
-        key = f"out/{uuid.uuid4()}"
+    def upload(self, source: Path, content_type: str, key: str) -> str:
         self.objects[key] = (source.read_bytes(), content_type)
         return key
 

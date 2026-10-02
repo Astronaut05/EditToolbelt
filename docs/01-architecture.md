@@ -94,7 +94,8 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 
 ### Retention (hard rule)
 - Input objects: deleted by the worker the moment the job ends (any outcome).
-- Output objects: deleted 60 min after completion by a sweeper that runs every 5 min.
+- Output objects: deleted 60 min after completion by a sweeper that runs every 5 min. A CPU output's key goes on its job *before* the upload, so an output whose worker dies (or whose success can't be recorded) is still found: the next attempt deletes it first, or the sweeper 60 min after the job ends.
+- Uploads: one nobody completed within the hour is aborted, and its object deleted too, in case storage completed it while the web failed to record that.
 - GPU output keys: every key a GPU call was given a presigned PUT URL for is in `jobs.gpu_output_keys` until that URL expires (the job's limit plus 15 min). On every pass the sweeper deletes each of them that isn't the job's live output (that of a running or succeeded job, which keeps its 60 min). A call whose worker died could write to its key at any time until then; whatever it writes is gone within one pass, 5 min.
 - Safety net: bucket lifecycle rules `Expiration: 1 day` on every object **and** `AbortIncompleteMultipartUpload: 1 day` (R2's default abort rule is 7 days — without this, parts of abandoned uploads sit in the bucket for a week). R2 lifecycle works in whole days and removes objects typically within 24 h *after* they expire, so the backstop's worst case is ~48 h. **The sweeper is the real guarantee; lifecycle only catches sweeper failures.** The sweeper also aborts open multipart uploads older than 1 h.
 - Job rows keep metadata only (tool, byte sizes, durations, resolution, status, cost). No filenames, no content.
