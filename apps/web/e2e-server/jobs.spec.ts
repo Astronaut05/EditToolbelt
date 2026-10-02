@@ -553,6 +553,41 @@ test('progress streams to the page, then the result downloads', async ({ page, b
   await storage.fetch(objectUrl(outputKey), { method: 'DELETE' });
 });
 
+test('an account gets 5 progress streams at once', async ({ page }) => {
+  const owner = await newUser(page);
+  const created = await create(page.request, (await upload(owner)).id, 2);
+  const { job } = (await created.json()) as JobBody;
+  const headers = await keyFor(owner, ['jobs:read']);
+  const open = (signal?: AbortSignal) =>
+    fetch(`${ORIGIN}/api/v1/jobs/${job.id}/events`, { headers, signal });
+
+  const leaving = Array.from({ length: 5 }, () => new AbortController());
+  const streams = await Promise.all(leaving.map((controller) => open(controller.signal)));
+  expect(streams.map((stream) => stream.status)).toEqual([200, 200, 200, 200, 200]);
+  const sixth = await open();
+  expect(sixth.status).toBe(429);
+  expect(sixth.headers.get('retry-after')).toBe('15');
+  expect(sixth.headers.get('ratelimit-remaining')).not.toBeNull();
+  expect(await sixth.json()).toMatchObject({ code: 'RATE_LIMITED' });
+
+  // One leaves; its slot comes back within a poll or two.
+  leaving[0]?.abort();
+  const next = new AbortController();
+  await expect
+    .poll(
+      async () => {
+        const answer = await open(next.signal);
+        if (answer.status !== 200) await answer.text();
+        return answer.status;
+      },
+      { timeout: 10_000, intervals: [500] },
+    )
+    .toBe(200);
+  next.abort();
+  for (const controller of leaving) controller.abort();
+  await post(page.request, `/api/v1/jobs/${job.id}/cancel`, {});
+});
+
 test('Burn Subtitles takes the subtitle file as its own upload, beside the video', async ({
   page,
   browser,

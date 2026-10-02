@@ -1249,3 +1249,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6 confirmed a `jobs:write`-only key could get a presigned download URL from cancel or a repeated start, and the balance from a quote.
 **Reverse:** have `jobFor` and `quoteFor` return what they're given.
+
+## 2026-10-02 · 5 progress streams at once per account (M6 fix)
+
+**Decision:**
+- **`GET /jobs/:id/events` holds one of 5 slots per account while it reads the job** (`server/streams.ts`, counted in this process). The 6th gets `429 RATE_LIMITED` with `Retry-After: 15`; polling `GET /jobs/:id` still works, and the site's own page falls back to it when its EventSource fails.
+- **Per account, not per key:** the database load is the account's, however many keys it has.
+- **The slot goes back when the stream stops reading the job** (`jobEvents`' `onClose`): the job ended, the 15 minutes ran out, or the client left (within a poll, at most 2 s).
+- **A stream reads a queued job every 2 s** instead of every second; a running one stays at 1 s, so progress shows as quickly as before.
+
+**Why:** a review of M6: each stream reads the database every second for up to 15 minutes, and only stream starts were limited (30 a minute per key), so one key could hold hundreds open against a pool of 10 connections.
+**Reverse:** `MAX_STREAMS` in `server/streams.ts`; `STREAM_POLL_QUEUED_MS` in `server/jobs.ts`.

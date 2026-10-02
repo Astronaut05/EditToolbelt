@@ -612,7 +612,9 @@ export async function listJobs(user: CurrentUser, cursor: string | null): Promis
 }
 
 const FINAL: ReadonlySet<string> = new Set(['succeeded', 'failed', 'cancelled', 'expired']);
+/** How often a stream reads the job: every second while it runs, every 2 s while it waits. */
 const STREAM_POLL_MS = 1000;
+const STREAM_POLL_QUEUED_MS = 2000;
 const STREAM_PING_MS = 20_000;
 /** A stream closes after this; EventSource reconnects on its own. */
 const STREAM_MAX_MS = 15 * 60 * 1000;
@@ -635,12 +637,14 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
  * GET /jobs/:id/events as server-sent events: `progress` whenever status,
  * progress, stage or queue position changes, then one `done` with the whole
  * job once it ends, and the stream closes. A comment line every 20 s keeps
- * proxies from closing a quiet stream.
+ * proxies from closing a quiet stream. `onClose` runs once, when it stops
+ * reading the job: it ended, the stream ran its 15 minutes, or the client left.
  */
 export function jobEvents(
   user: CurrentUser,
   first: Job,
   signal: AbortSignal,
+  onClose: () => void = () => undefined,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let closed = false;
@@ -675,7 +679,7 @@ export function jobEvents(
             quietSince = Date.now();
           }
           if (Date.now() - started > STREAM_MAX_MS) break;
-          await pause(STREAM_POLL_MS, signal);
+          await pause(job.status === 'queued' ? STREAM_POLL_QUEUED_MS : STREAM_POLL_MS, signal);
           [job] = await db()
             .select()
             .from(jobs)
@@ -684,6 +688,7 @@ export function jobEvents(
       } catch (error) {
         log.warn({ err: error, job_id: first.id }, 'job.events_failed');
       } finally {
+        onClose();
         if (!closed) {
           closed = true;
           controller.close();

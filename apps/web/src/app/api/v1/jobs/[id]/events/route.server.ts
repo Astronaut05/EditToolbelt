@@ -1,10 +1,11 @@
 /**
  * GET /api/v1/jobs/:id/events (docs/06): the job's progress as server-sent
  * events (`progress`, then `done`), for EventSource. Polling
- * GET /jobs/:id works too.
+ * GET /jobs/:id works too. 5 streams at once per account.
  */
 import { preflight, limit, requireCaller, route } from '../../../../../../server/api';
 import { jobEvents, ownJob } from '../../../../../../server/jobs';
+import { takeStream } from '../../../../../../server/streams';
 
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
@@ -15,7 +16,9 @@ export const GET = route('jobs.events', async (request, { params }: Context) => 
   const { user, ref } = await requireCaller(request, 'jobs:read');
   limit(request, `jobs.events:${ref}`, 30, 60);
   const job = await ownJob(user, (await params).id);
-  return new Response(jobEvents(user, job, request.signal), {
+  // The slot goes back when the stream stops reading the job.
+  const release = takeStream(user.id);
+  return new Response(jobEvents(user, job, request.signal, release), {
     headers: {
       'Content-Type': 'text/event-stream; charset=utf-8',
       // no-transform: compression would hold events back.
