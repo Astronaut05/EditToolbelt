@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { MIN_PACK_PRICE_USD, creditNetUsd, packNetUsdPerCredit, packs } from './business';
+import {
+  MIN_PACK_PRICE_USD,
+  creditNetUsd,
+  disposableEmailDomains,
+  packNetUsdPerCredit,
+  packs,
+} from './business';
 
 describe('credit packs', () => {
   it('never go below the minimum pack price', () => {
@@ -42,5 +48,14 @@ describe('creditNetUsd', () => {
   it('is taken from the pack that is worst for us, not the list price', () => {
     expect(creditNetUsd).toBeCloseTo(0.0154, 4);
     expect(creditNetUsd).toBe(Math.min(...packs.map(packNetUsdPerCredit)));
+  });
+});
+
+describe('disposableEmailDomains', () => {
+  it('are bare, lowercase domains, listed once', () => {
+    for (const domain of disposableEmailDomains) {
+      expect(domain).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
+    }
+    expect(new Set(disposableEmailDomains).size).toBe(disposableEmailDomains.length);
   });
 });

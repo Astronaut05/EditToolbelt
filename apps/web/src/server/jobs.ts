@@ -41,6 +41,7 @@ import { log } from '../lib/log';
 import type { CurrentUser } from './account';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
+import { buyUrl } from './payments/checkout';
 import { ApiError } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
 import { ownUpload, SUBTITLE_TYPES, tierOf, type Tier, type Upload } from './uploads';
@@ -195,6 +196,13 @@ function checkLimits(tool: ToolDef, tier: Tier, probe: Probe): void {
       max_pixels: limit.maxPixels,
     });
   }
+}
+
+/** "This needs 4 credits; you have 1." A balance below zero comes from a refunded pack. */
+function shortfall(credits: number, balance: number): string {
+  return balance < 0
+    ? `This needs ${String(credits)} credits, and your balance is ${String(balance)} after a refunded pack. Paid jobs start again once it's topped up.`
+    : `This needs ${String(credits)} credits; you have ${String(balance)}.`;
 }
 
 /** The price and what pays for it: nothing, a free daily job, or credits. */
@@ -379,14 +387,20 @@ export async function createJob(
     const paying = await funding(user, prepared.tier, prepared.credits, tx);
     if (!paying.can_start) {
       const quota = paying.blocked_by === 'QUOTA_EXCEEDED';
+      // docs/05: the shortfall and, while credits are on sale, where to buy them.
       throw new ApiError(
         quota ? 429 : 402,
         quota ? 'QUOTA_EXCEEDED' : 'INSUFFICIENT_CREDITS',
         quota ? 'No free jobs left today' : 'Not enough credits',
         quota
           ? `You've used today's ${String(freeAllowance.signedInDailyServerJobs)} free server jobs. They come back tomorrow (UTC).`
-          : `This needs ${String(prepared.credits)} credits; you have ${String(paying.balance)}.`,
-        { credits: prepared.credits, balance: paying.balance },
+          : shortfall(prepared.credits, paying.balance),
+        {
+          credits: prepared.credits,
+          balance: paying.balance,
+          shortfall: prepared.credits - paying.balance,
+          buy_url: await buyUrl(tx),
+        },
       );
     }
     const [row] = await tx
@@ -416,9 +430,18 @@ export async function createJob(
         await applyCredit(tx, user.id, 'reserve', -prepared.credits, { jobId: row.id });
       } catch (error) {
         if (error instanceof InsufficientCreditsError) {
-          throw new ApiError(402, 'INSUFFICIENT_CREDITS', 'Not enough credits', undefined, {
-            credits: prepared.credits,
-          });
+          throw new ApiError(
+            402,
+            'INSUFFICIENT_CREDITS',
+            'Not enough credits',
+            shortfall(prepared.credits, error.balance),
+            {
+              credits: prepared.credits,
+              balance: error.balance,
+              shortfall: prepared.credits - error.balance,
+              buy_url: await buyUrl(db()),
+            },
+          );
         }
         throw error;
       }
@@ -700,6 +723,7 @@ export function jobEvents(
 export async function me(user: CurrentUser): Promise<Me> {
   const tier = await tierOf(user.id);
   const used = tier === 'free' ? await dailyJobsUsed(user.id) : 0;
+  const buy = await buyUrl(db());
   return {
     email: user.email ?? '',
     name: user.displayName,
@@ -707,5 +731,6 @@ export async function me(user: CurrentUser): Promise<Me> {
     credit_balance: user.creditBalance,
     free_jobs_left: tier === 'free' ? Math.max(0, freeAllowance.signedInDailyServerJobs - used) : 0,
     max_concurrent_jobs: maxConcurrentServerJobs[tier],
+    buy_url: buy,
   };
 }

@@ -215,7 +215,8 @@ export const ENDPOINTS: Endpoint[] = [
     operationId: 'getMe',
     tag: 'Account',
     summary: 'Your account',
-    description: 'Tier, balance, free server jobs left today (UTC) and how many may run at once.',
+    description:
+      'Tier, balance, free server jobs left today (UTC), how many may run at once, and `buy_url`: where to buy credits while they are on sale (null otherwise). A balance can be below zero after a refund; paid jobs then wait for a top-up.',
     auth: 'account:read',
     ok: { status: 200, description: 'The account.', schema: S.Me },
     errors: [],

@@ -22,6 +22,7 @@ export type ApiCode =
   | 'QUOTA_EXCEEDED'
   | 'INSUFFICIENT_CREDITS'
   | 'STORAGE_UNAVAILABLE'
+  | 'PROVIDER_UNAVAILABLE'
   | 'INTERNAL';
 
 export class ApiError extends Error {

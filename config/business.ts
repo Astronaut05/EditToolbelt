@@ -82,8 +82,59 @@ export const maxConcurrentServerJobs = {
   paid: 4,
 } as const;
 
-/** Domains refused for the welcome grant. Filled in before M5. */
-export const disposableEmailDomains: readonly string[] = [];
+/**
+ * Throwaway-inbox domains refused for the welcome grant (docs/05 → Fraud and
+ * abuse). A subdomain of one counts too. Sign-in still works; only the grant
+ * is refused. Add domains as they show up in Admin → Users.
+ */
+export const disposableEmailDomains: readonly string[] = [
+  '10minutemail.com',
+  '20minutemail.com',
+  'anonbox.net',
+  'discard.email',
+  'dispostable.com',
+  'dropmail.me',
+  'emailondeck.com',
+  'fakeinbox.com',
+  'getairmail.com',
+  'getnada.com',
+  'guerrillamail.biz',
+  'guerrillamail.com',
+  'guerrillamail.de',
+  'guerrillamail.info',
+  'guerrillamail.net',
+  'guerrillamail.org',
+  'guerrillamailblock.com',
+  'harakirimail.com',
+  'inboxbear.com',
+  'mail.tm',
+  'maildrop.cc',
+  'mailinator.com',
+  'mailinator.net',
+  'mailnesia.com',
+  'mintemail.com',
+  'mohmal.com',
+  'moakt.com',
+  'mytemp.email',
+  'nada.email',
+  'sharklasers.com',
+  'spam4.me',
+  'spamgourmet.com',
+  'temp-mail.io',
+  'temp-mail.org',
+  'tempail.com',
+  'tempmail.dev',
+  'tempmail.net',
+  'tempmailo.com',
+  'tempr.email',
+  'throwawaymail.com',
+  'tmail.ws',
+  'trashmail.com',
+  'trashmail.de',
+  'yopmail.com',
+  'yopmail.fr',
+  'yopmail.net',
+];
 
 // ---------------------------------------------------------------------------
 // Retention (docs/01 → Retention, CLAUDE.md rule 4). The sweeper is the

@@ -242,6 +242,8 @@ export const Me = z
     credit_balance: z.number().int(),
     free_jobs_left: z.number().int(),
     max_concurrent_jobs: z.number().int(),
+    /** The website's page that sells credits, while they're on sale; null otherwise. */
+    buy_url: z.url().nullable(),
   })
   .register(api, { id: 'Me' });
 export type Me = z.infer<typeof Me>;
