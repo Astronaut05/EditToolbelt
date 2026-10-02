@@ -53,7 +53,7 @@ GitHub → Settings → Environments → `railway`: Astro is the required review
 
 1. A PR merges to `main`.
 2. Railway sees the commit, waits for its GitHub checks, builds both images, runs the migrations (pre-deploy), and swaps in the web service once `/readyz` answers. A failed migration or health check keeps the old version running.
-3. Railway reports the deploy to GitHub as a deployment; **Smoke** waits until `/healthz` names the new commit, then checks the site through Access (private without a token, ready, security headers, `www` redirect). A red Smoke run is fixed first, before any other work.
+3. Railway reports the deploy to GitHub as a deployment; **Smoke** waits until `/healthz` names the new commit, then checks the site through Access (private without a token, ready, security headers, `www` redirect) and runs the browser tests against it (every tool page, CSP, axe; `apps/web/playwright.prod.config.ts`). A red Smoke run is fixed first, before any other work.
 4. A merge that touches the GPU app also deploys it to Modal (Actions → **Modal**).
 
 Changing Railway's setup (services, variables, regions) is a PR to `.railway/railway.ts`: CI shows the plan. Applying it: Actions → **Railway** → Run workflow on `main` → Astro approves → it plans again and applies that plan. It never removes anything.
