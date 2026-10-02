@@ -26,6 +26,7 @@ from etb_worker.processors import (
     upscale_video,
     video_background,
 )
+from etb_worker.processors.remote import PRESIGN_MARGIN_SEC
 from etb_worker.sandbox import Limits, ToolError
 from etb_worker.storage import Storage
 
@@ -132,6 +133,68 @@ def clip(
 def test_the_three_tools_are_remote_processors() -> None:
     for tool in ("object-eraser", "upscale-video", "video-background-remover"):
         assert getattr(PROCESSORS[tool], "remote", False), tool
+
+
+#: Each Wave 3 tool with an input it takes, and the GPU function it calls.
+RUNS: list[tuple[str, dict[str, Any], dict[str, Any], list[str], str]] = [
+    ("object-eraser", {**PHOTO, "extras": [MASK]}, {}, ["in/mask"], "erase_object"),
+    ("upscale-video", clip(1280, 720, 20), {"scale": "2"}, [], "upscale_video"),
+    (
+        "video-background-remover",
+        clip(1280, 720, 20),
+        {"output": "webm"},
+        [],
+        "remove_video_background",
+    ),
+]
+
+
+@pytest.mark.parametrize(("tool", "meta", "options", "extras", "function"), RUNS)
+def test_each_call_is_on_its_job_before_it_starts_and_billed_after(
+    tool: str, meta: dict[str, Any], options: dict[str, Any], extras: list[str], function: str
+) -> None:
+    """As for P08, A12 and V17 (remote.run_on_gpu): the review fixes of #66 cover these too.
+
+    Before the URLs leave the worker, the call and the key it may write to go
+    on the job (start_call: the job's output and its GPU keys, swept until
+    the URL expires); the backend's id as soon as the call exists
+    (call_spawned: a dead worker's call is cancelled by it); and the call's
+    billed time once it ends (record_gpu).
+    """
+    gpu = Gpu(Bucket(), width=1280, height=720)
+    ctx, _ = context(tool, meta, options, gpu, extras=extras)
+    events: list[tuple[Any, ...]] = []
+
+    def start_call(key: str, expires: int) -> bool:
+        events.append(("start", key, expires, len(gpu.calls)))
+        return True
+
+    ctx.start_call = start_call
+    ctx.call_spawned = lambda call_id: events.append(("spawned", call_id))
+    ctx.record_gpu = lambda usage: events.append(("used", usage))
+    out = PROCESSORS[tool].run(ctx)
+    assert gpu.calls[0].function == function
+    assert events == [
+        ("start", out.key, 60 + PRESIGN_MARGIN_SEC, 0),
+        ("spawned", "fc-1"),
+        ("used", GpuUsage(5.0, 15.0)),
+    ]
+    assert key_of(gpu.calls[0].kwargs["output_url"]) == out.key
+
+
+@pytest.mark.parametrize(("tool", "meta", "options", "extras", "function"), RUNS)
+def test_a_job_no_longer_ours_starts_no_call(
+    tool: str, meta: dict[str, Any], options: dict[str, Any], extras: list[str], function: str
+) -> None:
+    """Cancelled, or taken by the reaper, between the claim and the call: nothing runs."""
+    gpu = Gpu(Bucket())
+    ctx, used = context(tool, meta, options, gpu, extras=extras)
+    ctx.start_call = lambda _key, _expires: False
+    with pytest.raises(ToolError) as caught:
+        PROCESSORS[tool].run(ctx)
+    assert caught.value.code == "CANCELLED"
+    assert gpu.calls == []
+    assert used == []
 
 
 # --- P17 Object Eraser -----------------------------------------------------------
