@@ -20,8 +20,10 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'aspect-ratio-calculator': dynamic(() => import('./aspect-ratio-calculator')),
   'audio-channels': dynamic(() => import('./audio-channels')),
   'audio-converter': dynamic(() => import('./audio-converter')),
+  'batch-rename': dynamic(() => import('./batch-rename')),
   'bitrate-calculator': dynamic(() => import('./bitrate-calculator')),
   'bpm-key-finder': dynamic(() => import('./bpm-key-finder')),
+  'change-pitch': dynamic(() => import('./change-pitch')),
   'burn-subtitles': dynamic(() => import('./burn-subtitles')),
   'color-converter': dynamic(() => import('./color-converter')),
   'color-palette-from-image': dynamic(() => import('./color-palette-from-image')),
@@ -40,6 +42,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'loudness-meter': dynamic(() => import('./loudness-meter')),
   'lut-preview': dynamic(() => import('./lut-preview')),
   'merge-audio': dynamic(() => import('./merge-audio')),
+  'merge-videos': dynamic(() => import('./merge-videos')),
   'mute-video': dynamic(() => import('./mute-video')),
   'normalize-audio': dynamic(() => import('./normalize-audio')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
@@ -60,7 +63,9 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'vfr-to-cfr': dynamic(() => import('./vfr-to-cfr')),
   'video-converter': dynamic(() => import('./video-converter')),
   'video-info': dynamic(() => import('./video-info')),
+  'video-speed': dynamic(() => import('./video-speed')),
   'video-to-gif': dynamic(() => import('./video-to-gif')),
+  'watermark-image': dynamic(() => import('./watermark-image')),
 };
 
 export function ToolView({ tool, to }: { tool: ShellTool; to?: string }) {

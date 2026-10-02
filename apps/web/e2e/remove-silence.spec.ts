@@ -133,14 +133,17 @@ test('shortens every pause from 0.2 s up, and exports the cut list as CSV', asyn
   await setNumber(page, isMobile, 'Silence below', 'At least', '0.2');
   await choose(page, isMobile, 'Silences', 'Shorten');
   await setNumber(page, isMobile, 'Silences', 'Shorten to', '0.1');
-  // Found again with the new settings: all three, each shortened to 0.1 s.
-  await expect(page.getByRole('button', { name: /^Range 3:/ })).toBeVisible();
-  const found = await ranges(page, 3);
-  found.forEach((cut, i) => {
-    const pause = PAUSES[i];
-    expect(Math.abs(cut.start - ((pause?.start ?? 0) + 0.05))).toBeLessThanOrEqual(0.02);
-    expect(Math.abs(cut.end - ((pause?.end ?? 0) - 0.05))).toBeLessThanOrEqual(0.02);
-  });
+  // Found again with the new settings: all three, each shortened to 0.1 s. Each change
+  // searches again, so the ranges are read until the last search has landed.
+  let found: { start: number; end: number }[] = [];
+  await expect(async () => {
+    found = await ranges(page, 3);
+    found.forEach((cut, i) => {
+      const pause = PAUSES[i];
+      expect(Math.abs(cut.start - ((pause?.start ?? 0) + 0.05))).toBeLessThanOrEqual(0.02);
+      expect(Math.abs(cut.end - ((pause?.end ?? 0) - 0.05))).toBeLessThanOrEqual(0.02);
+    });
+  }).toPass({ timeout: 15_000 });
   await choose(page, isMobile, 'Export', 'Cut list (CSV)');
   const out = await run(page);
   expect(out.name).toBe('speech_cuts.csv');

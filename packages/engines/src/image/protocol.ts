@@ -5,6 +5,7 @@ import type { GeometryJob } from './geometry';
 import type { GridSpec } from './grid';
 import type { ImageFormat } from './sniff';
 import type { Focus, SocialFit } from './social';
+import type { WatermarkJob } from './watermark-draw';
 
 export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'bmp';
 
@@ -50,6 +51,8 @@ export interface ImageJob {
   social?: SocialJob;
   /** C05: a LUT applied after any geometry, blended with the original by `intensity` (0-1). */
   lut?: { lut: Lut; intensity: number; label: string };
+  /** P11: a text or logo mark drawn on, after the LUT. */
+  watermark?: WatermarkJob;
 }
 
 export interface SocialJob {

@@ -91,6 +91,14 @@ export const MEDIA_META = {
     }),
     estimate: (input) => ({ seconds: Math.max(2, input.size / 8_000_000) }),
   },
+  videoSpeed: {
+    capabilities: () => ({ supported: true }),
+    estimate: (input) => ({ seconds: Math.max(1, input.size / 20_000_000) }),
+  },
+  mergeVideos: {
+    capabilities: () => ({ supported: true }),
+    estimate: (input) => ({ seconds: Math.max(1, input.size / 30_000_000) }),
+  },
   replaceAudio: {
     capabilities: () => ({
       supported: typeof AudioEncoder === 'function' && hasAudioDecoder(),

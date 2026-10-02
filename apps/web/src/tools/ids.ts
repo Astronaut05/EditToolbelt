@@ -7,8 +7,10 @@ export const TOOL_IDS = [
   'aspect-ratio-calculator',
   'audio-channels',
   'audio-converter',
+  'batch-rename',
   'bitrate-calculator',
   'bpm-key-finder',
+  'change-pitch',
   'burn-subtitles',
   'color-converter',
   'color-palette-from-image',
@@ -27,6 +29,7 @@ export const TOOL_IDS = [
   'loudness-meter',
   'lut-preview',
   'merge-audio',
+  'merge-videos',
   'mute-video',
   'normalize-audio',
   'qr-code-generator',
@@ -47,7 +50,9 @@ export const TOOL_IDS = [
   'vfr-to-cfr',
   'video-converter',
   'video-info',
+  'video-speed',
   'video-to-gif',
+  'watermark-image',
 ] as const;
 
 export type ToolId = (typeof TOOL_IDS)[number];

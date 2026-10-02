@@ -30,6 +30,7 @@ import {
 } from './protocol';
 import { FORMAT_LABELS, type ImageFormat } from './sniff';
 import { enlargement, rgbaOf, socialFrame } from './social';
+import { drawWatermark } from './watermark-draw';
 
 interface WorkerScope {
   postMessage(message: WorkerMessage, transfer?: Transferable[]): void;
@@ -366,6 +367,12 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
     post({ type: 'progress', fraction: 0.25, stage: 'Applying the LUT' });
     applyLut(image.data, job.lut.lut, job.lut.intensity);
     notes.push(`${job.lut.label} applied at ${String(Math.round(job.lut.intensity * 100))}%`);
+  }
+  if (job.watermark) {
+    post({ type: 'progress', fraction: 0.25, stage: 'Adding the watermark' });
+    const marked = await drawWatermark(image, job.watermark);
+    image = marked.image;
+    notes.push(marked.note);
   }
   if (job.tiles) return runTiles({ ...job, tiles: job.tiles }, image, notes);
   if (job.social) return runSocial({ ...job, social: job.social }, image, notes);

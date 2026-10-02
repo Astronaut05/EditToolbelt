@@ -1275,3 +1275,98 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/color.md` → C05.
 **Reverse:** `packages/core/src/color/lut.ts` (pure, with tests, also at `@etb/core/lut` so the worker loads only that); the engine is `packages/engines/src/image/lut-preview.ts`.
+
+## 2026-10-01 · Merge Videos (M8)
+
+**Decision:**
+- **Fast join when the clips match:**
+  - When every clip has the same video codec, decoder settings (the codec string and its parameter sets, byte for byte), size and rotation, and the same audio (or none), their packets are copied end to end into the first clip's container.
+  - Nothing is decoded; it takes seconds.
+  - This holds only with a cut and the first clip's size and frame rate. Choosing anything else re-encodes.
+- **Re-encode otherwise:**
+  - Every frame is drawn on one constant clock, at the first clip's size and its frame rate rounded to the nearest standard one, or a size (2160 to 480 p) and rate (24 to 60 fps) picked. This is the spec's "CFR without drift": a 25 fps clip in a 30 fps result plays at its own speed.
+  - Clips of another shape are fitted on black.
+  - The codec follows the first clip's container: H.264, HEVC or AV1 in MP4, VP9 in WebM and MKV, the first the browser can encode.
+- **A clip lasts to the end of its last frame:** Matroska often leaves the last frame's duration out, which would end the clip a frame early and land the next clip on top of that frame.
+- **The sound follows its picture:** each clip's sound is brought to 48 kHz stereo and cut or padded to its own picture's length, so no clip drifts. In a crossfade it fades equal-power, and the picture dissolves linearly.
+- **Crossfade:** 0.5, 1 or 2 s at every join, at most half the shortest clip.
+- **The list** is the shell's combine mode from Merge Audio: 2 to 20 clips, reordered by keyboard.
+- **The server path for large totals** (the spec's hybrid runtime and per-minute price) waits for jobs that take several uploads. The registry keeps the spec's runtime and price, the tool's server switch stays off, and the page offers only the browser path.
+
+**Why:** `tools/video.md` → V12.
+**Reverse:** `packages/engines/src/video/merge-videos.ts`; the fixture `clip-vp9-25fps.webm` is described in `fixtures/video/README.md`.
+
+## 2026-10-01 · Change Speed & Pitch: our own phase vocoder, not Signalsmith Stretch (M8)
+
+**Decision:**
+- **Time-stretching is our own code** (`TimeStretch` in `@etb/core`), not Signalsmith Stretch (MIT, which `tools/audio.md` names and `docs/13` lists as preferred).
+  - Signalsmith's web build is an AudioWorklet that loads its own code from a `blob:` URL. Our CSP doesn't allow `blob:` scripts, and allowing it for one tool would weaken the CSP for every page.
+  - Its API is built for live playback in an AudioContext. An offline file would have to go through an OfflineAudioContext holding the whole output in memory.
+  - SoundTouch (LGPL) stays out too: no LGPL in the browser.
+- **How it works:**
+  - A phase vocoder with identity phase locking (Laroche & Dolson): 4096-point Hann frames at a quarter-frame synthesis hop (85 ms at 48 kHz).
+  - Each peak's phase advances at its measured frequency; the bins around it keep their phase relative to it, which keeps tones clean.
+  - It is streamed (a few frames in memory), pure and unit-tested. A minute of stereo takes about 2.6 s.
+  - The result is exactly round(input × ratio) long.
+- **Pitch** = stretch by 2^(semitones/12), then the core `Resampler` back to the original rate: the same length, the pitch moved.
+- **Vinyl** = the Resampler alone: faster and higher together.
+- **Controls:**
+  - Tempo 25-400%.
+  - Pitch −12 to +12 semitones plus −50 to +50 cents.
+  - Format: Keep, MP3, WAV or FLAC.
+  - The run waits until something would change. The settings show the new length.
+- **Channels** are stretched independently, up to stereo. Formant preservation is a Wave 3 idea, as the spec says.
+- **Reverse:** if Signalsmith ships a build that runs in a worker without `blob:` code, `TimeStretch` is the one place to swap. Video speed (V13) will use the same class.
+
+**Why:** `tools/audio.md` → A08, rule 6 and the CSP (`docs/11`).
+**Reverse:** `packages/core/src/audio/stretch.ts`, `fft.ts`; the engine is `packages/engines/src/audio/pitch.ts`.
+
+## 2026-10-01 · Change Video Speed (M8)
+
+**Decision:**
+- **Two ways with the picture:**
+  - Keep every frame (the default): every packet is copied with its time divided by the speed. It's instant and lossless, and the frame rate scales with the speed (30 fps at 2× plays at 60 fps).
+  - Keep frame rate: the video is redrawn at its own rate, dropping frames to speed up or repeating them to slow down, and re-encoded. This is for editors who need the original rate.
+  - The settings show the length and the frame rate each way would give.
+- **Speeds:** 0.25×, 0.5×, 0.75×, 1.25×, 1.5×, 2×, 3× and 4×, or a custom speed from 0.25× to 4× in 0.05 steps.
+- **Sound:**
+  - Keep pitch (the default) time-stretches it with the core `TimeStretch` from Change Speed & Pitch.
+  - Shift pitch plays it faster or slower as it is, like tape, with the Resampler.
+  - Mute leaves it out.
+  - It's re-encoded in the container's usual codec.
+- **A clip lasts to the end of its last frame**, as in Merge Videos (`shownFor`, now shared in `video/held.ts` with the frame reader).
+- **The spec's pitch test** ("spectral centroid within tolerance") is done as zero crossings per second of the decoded sound, against the source's: the same within 5% when kept, double within 0.1 when shifted at 2×.
+
+**Why:** `tools/video.md` → V13.
+**Reverse:** `packages/engines/src/video/video-speed.ts`.
+
+## 2026-10-01 · Watermark Images (M8)
+
+**Decision:**
+- **Drawn in the image worker** after decoding (and after a LUT, if a later tool adds both), with `OffscreenCanvas`, then encoded like every photo tool's output. No new dependency.
+- **Everything is a share of the photo's width:** the mark's width (1-100%, default 15%), the margin (0-25%, default 2%), the offset (−50% to 50% each way). Height follows the mark's own shape. The spot is one of nine on a 3 × 3 grid (`@etb/core/watermark`).
+- **Text** is drawn once at 200 px in the browser's sans-serif, cut to its ink, then scaled to its box like a logo, so it's the same size relative to every photo whatever the font's metrics. Colour picked, default white; opacity 0-100%, default 60%.
+- **Logo:** PNG, WebP or JPG up to 20 MB, checked by its bytes. SVG is left out: workers can't decode it (`createImageBitmap` has no SVG in a worker).
+- **Tiled:** the mark repeats over the whole photo, half its width apart, every other row shifted by half a step, from half a mark outside the top-left corner, so no edge is bare.
+- **The shell gains a `grid` option kind**, a 3 × 3 radio group (arrow keys move across and down), drawn by `PositionGrid` in `@etb/ui`.
+- **The registry's `ui` is `form`, like the other photo tools,** not `batch`: one photo shows before and after and redoes it as a setting changes; several go to the batch list.
+
+**Why:** `tools/photo.md` → P11.
+**Reverse:** `packages/engines/src/image/watermark.ts`, `watermark-draw.ts`; the placement is `packages/core/src/image/watermark.ts`.
+
+## 2026-10-01 · Batch Rename Files (M8)
+
+**Decision:**
+- **Rules in a fixed order, not a chain the user builds:** find and replace, remove, case, prefix and suffix, date, counter, extension. Each is one setting, so the tool fits the shared settings panel; any order a user would build reads the same in this one.
+- **Find:** plain text (any case, the default), exact case, or a pattern (a JavaScript regular expression, case-sensitive, `$1` in the replacement). A pattern that doesn't parse says why and stops the rename.
+- **Dates:** taken (EXIF DateTimeOriginal in JPG, PNG, WebP and TIFF, as the camera wrote it; an MP4 or MOV's creation time from its movie header), modified, or today. A file with no date taken uses its modified date and the list says so. Only the bytes that hold the date are read.
+- **Counter:** start, step, digits, start or end of the name or instead of it, counted as added, by name (numbers as numbers), by date taken or by date modified.
+- **Flagged names stop the rename:** two names the same ignoring case (Windows and macOS ignore it), no name left, `\ / : * ? " < > |`, a name Windows keeps (CON, NUL, COM1 …), a trailing dot or space, over 255 bytes. A missing date only warns.
+- **Two ways out:**
+  - A ZIP of the files under their new names, stored without compression: the bytes are the files' own.
+  - In desktop Chromium, "Open a folder" lists its files (not subfolders or hidden files) and, after a confirm, renames them where they are with `FileSystemHandle.move()`. Each file goes to a temporary name first, then its new one, so names that swap or chain never meet; if a move fails, the ones done go back. Undo works while the page is open. Shown only where `showDirectoryPicker` and `move()` exist.
+- **The shell gains `preset.names`** (the plan behind the list, and the folder flow), a batch run tells the engine its file's place among the rest (`ctx.batch`), and an engine can set the whole output name (`out.name`). The file list gets a "New name" column, and on phones it drops the size columns and wraps names, so it fits the screen.
+- **Up to 1,000 files at once**, any type, up to 4 GB each (the ZIP holds them in memory; a folder doesn't).
+
+**Why:** `tools/utility.md` → U02.
+**Reverse:** the rules are `packages/core/src/rename.ts`; the dates `packages/engines/src/files/taken.ts`; the folder rename `packages/ui/src/tool/in-place.ts`.

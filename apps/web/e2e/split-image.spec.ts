@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import type { Page } from '@playwright/test';
 
-import { choose, expect, pick, test } from './fixtures';
+import { choose, expect, pick, test, unzipStored } from './fixtures';
 
 // P14 Split Image into Grid (tools/photo.md → Tests): 3×3 of 3000 × 3000 is
 // 9 × 1000 × 1000 in row-major order.
@@ -35,26 +35,6 @@ async function gradient(page: Page, width: number, height: number): Promise<Buff
     [width, height] as const,
   );
   return Buffer.from(base64, 'base64');
-}
-
-/** The entries of a stored (uncompressed) ZIP, in order: enough for the tiles' ZIP. */
-function unzipStored(zip: Buffer): { name: string; data: Buffer }[] {
-  const entries: { name: string; data: Buffer }[] = [];
-  let at = 0;
-  while (zip.readUInt32LE(at) === 0x04034b50) {
-    const method = zip.readUInt16LE(at + 8);
-    const size = zip.readUInt32LE(at + 18);
-    const nameLength = zip.readUInt16LE(at + 26);
-    const extraLength = zip.readUInt16LE(at + 28);
-    expect(method).toBe(0);
-    const start = at + 30 + nameLength + extraLength;
-    entries.push({
-      name: zip.toString('utf8', at + 30, at + 30 + nameLength),
-      data: zip.subarray(start, start + size),
-    });
-    at = start + size;
-  }
-  return entries;
 }
 
 /** A tile's size and its top-left pixel. */
