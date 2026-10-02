@@ -119,6 +119,20 @@ describe.skipIf(!TEST_DATABASE_URL)('PurchaseStore', () => {
     expect(await balanceOf(db, userId)).toBe(700);
   });
 
+  it('joins a caller’s transaction, and rolls back with it', async () => {
+    const userId = await newUser(db);
+    const id = await newPurchase(db, userId);
+    await expect(
+      db.transaction(async (tx) => {
+        await createPurchaseStore(tx).complete(id);
+        throw new Error('the audit row failed');
+      }),
+    ).rejects.toThrow('the audit row failed');
+    expect((await store.get(id))?.status).toBe('pending');
+    expect(await rowsFor(id)).toHaveLength(0);
+    expect(await balanceOf(db, userId)).toBe(0);
+  });
+
   it('cancels a pending purchase without a ledger row, and never a completed one', async () => {
     const userId = await newUser(db);
     const id = await newPurchase(db, userId);

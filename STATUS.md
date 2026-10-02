@@ -1,6 +1,6 @@
 # Status
 
-**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter and Normalize Loudness (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter and Normalize Loudness (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 part 1 is in review: payments built complete and switched off (Paddle, Click and Payme behind one interface, the purchase store, the switches, `/credits/buy`, Admin → Payments, the welcome grant); turning them on is `docs/runbooks/turn-on-payments.md`, after Astro's contracts. M5's GPU tools follow. M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -72,6 +72,13 @@
 - M8: Social Media Image Resizer (beta). 14 sizes on Instagram, YouTube, TikTok, X, LinkedIn, Facebook and Pinterest, all from one image in one go. Each crop keeps the focal point you click in frame; or the whole image fits on a blurred copy of itself or a color. YouTube and X upload limits are kept by lowering the quality just enough. Each size is dated and reviewed every quarter (#56).
 - M8: Loudness Meter and Normalize Loudness (beta). Integrated, short-term and momentary LUFS, loudness range and 4× oversampled true peak to ITU-R BS.1770-4 and EBU R128. The meter shows a graph and pass or fail for YouTube, Spotify, Apple Music, podcasts, EBU R128 and US TV. The normaliser hits −14, −16, −23, −24 or any target with a −1 dBTP ceiling, adding a true-peak limiter only when the gain needs it, and measures the file it made. Our own implementation, checked against the EBU's test signals and pyloudnorm (#57).
 
+- M5, part 1 (in review; the providers themselves arrive in their own branch): payments built and switched off. **M5 ≈ 50 %** (payments done, off; GPU tools next).
+  - Three locks, all off by default: `PAYMENTS_ENABLED`, the admin switch per provider in Admin → Payments (refused, with the reason, while its keys or fiscal codes are missing; audit-logged), and the provider's keys. While off: no "Buy credits" anywhere, and `/credits/buy`, checkout and every webhook path answer 404.
+  - Buying: `/credits/buy` (Click and Payme first in sum for Uzbekistan, Paddle first in dollars elsewhere; never COEP), `POST /api/v1/credits/checkout` (session only), `/credits/return` follows the purchase, `/account` lists purchases. Webhooks at `/api/webhooks/{paddle,click,payme}`.
+  - The purchase store: complete and refund move the purchase and its ledger row in one transaction, idempotent; a refund may take a balance below zero (paid jobs then wait for a top-up). Webhook events are processed again after a failure.
+  - The welcome grant: 30 credits once per verified inbox at sign-in; throwaway domains refused.
+  - A job quoted as a free daily job is never charged credits unasked (`quote_funding`, 409, the site asks again).
+
 ## Next
 
 0. Phase 1 (with Astro): the production setup, step by step, each checked from CI (`.github/workflows/ops.yml`). Then Phase 2 runs on its own: M5 (payments built and off), M5's GPU tools on Modal, the rest of M8 and Wave 3, a final pass.
@@ -79,7 +86,7 @@
 1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
 2. M6 sign-off once parts 1 to 4 merge.
 3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
-4. M5 (credits, payments, GPU tools) after Go public.
+4. M5: payments are built and off (part 1, in review). Turning them on follows `docs/runbooks/turn-on-payments.md` once Astro has the Paddle, Click and Payme contracts and the fiscal codes. Then M5's GPU tools.
 
 ## Blocked
 
@@ -103,5 +110,7 @@ docker compose exec worker python -m etb_worker --task daily_digest   # send the
 ```
 
 Server Compress Video on the stack: in Admin → Tools → Compress Video, tick "Server path on" and save. Within 30 s, /compress-video offers "Use our servers instead" after you add a video. Signed in, you get 3 free server jobs a day. VFR to CFR and Burn Subtitles: in Admin → Tools, set each one's status to beta; its page works within 30 s. Admin → Jobs lists every server job.
+
+Payments on the stack: Admin → Payments shows the three locks per provider and refuses to switch one on without its keys; with none on, `/credits/buy` is a 404 and no page offers credits. Buying needs a provider's sandbox keys in `.env` and `PAYMENTS_ENABLED=true` (`docs/runbooks/turn-on-payments.md`). The server e2e tests run a whole purchase with a stand-in provider: `TEST_DATABASE_URL=… pnpm --filter @etb/web e2e:server`.
 
 API docs on the stack: http://localhost:3000/developers and /api/v1/openapi.json. With a key: `ETB_API=http://localhost:3000/api/v1 ETB_KEY=etb_live_… node apps/web/public/examples/run-tool.mjs compress-video clip.mp4 '{"targetMb":25}'`. API keys: sign in, open /account → API keys, make one, then `curl -H "Authorization: Bearer etb_live_…" http://localhost:3000/api/v1/me`. The panel's connect flow by hand: `curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:3000/api/v1/auth/device`, open its `verification_uri_complete`, approve, then post its `device_code` to `/api/v1/auth/device/token`.

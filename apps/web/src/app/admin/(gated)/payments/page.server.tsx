@@ -28,7 +28,7 @@ import { serverEnv } from '../../../../server/env';
 import { PROVIDER_IDS } from '../../../../server/payments/contract';
 import { paymentEnv, paymentStates, PROVIDER_NAMES } from '../../../../server/payments/switches';
 import { webhookUrl } from '../../../../server/payments/urls';
-import { refundPurchase, setPaymentSwitch } from './actions';
+import { recordRefund, refundPurchase, setPaymentSwitch } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +44,7 @@ const SAVED: Record<string, string> = {
   on: 'Switched on. It’s in the audit log.',
   off: 'Switched off. It’s in the audit log.',
   refund: 'Refund requested. The credits come off when the provider’s refund event arrives.',
+  recorded: 'Refund recorded: the credits came off. It’s in the audit log.',
 };
 
 const yes = (value: boolean, good = 'yes', bad = 'no') => (
@@ -278,10 +279,24 @@ export default async function AdminPayments({ searchParams }: Props) {
                           </Button>
                         </form>
                       </details>
-                    ) : refundable && purchase.provider !== 'paddle' ? (
-                      <span className="text-13.5 text-text-muted">
-                        In {provider?.name}’s cabinet
-                      </span>
+                    ) : refundable && purchase.provider === 'click' ? (
+                      <details>
+                        <summary className="cursor-pointer underline underline-offset-4">
+                          Record refund
+                        </summary>
+                        <form action={recordRefund} className="mt-2 flex w-72 flex-col gap-2">
+                          <input type="hidden" name="purchaseId" value={purchase.id} />
+                          <p className="text-13.5 text-text-muted">
+                            After refunding it in Click’s cabinet: takes its credits back.
+                          </p>
+                          <ReasonField id={`record-${purchase.id}`} />
+                          <Button type="submit" size="sm" className="self-start">
+                            Record the refund
+                          </Button>
+                        </form>
+                      </details>
+                    ) : refundable && purchase.provider === 'payme' ? (
+                      <span className="text-13.5 text-text-muted">In Payme’s cabinet</span>
                     ) : null}
                   </td>
                 </tr>
@@ -300,9 +315,10 @@ export default async function AdminPayments({ searchParams }: Props) {
           </p>
         )}
         <p className="text-14 text-text-muted">
-          Paddle refunds go through Paddle’s API from here. Click and Payme refunds are made in each
-          provider’s merchant cabinet; the credits come off when its cancel call reaches us. A
-          refund can take a balance below zero; paid jobs then wait for a top-up.
+          Paddle refunds go through Paddle’s API from here; the credits come off when Paddle
+          approves. Payme refunds are made in Payme’s cabinet and arrive as its cancel call. Click
+          has no refund call: refund in Click’s cabinet, then record it here. A refund can take a
+          balance below zero; paid jobs then wait for a top-up.
         </p>
       </Section>
 

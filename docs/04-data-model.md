@@ -16,7 +16,7 @@ Conventions: `id` is UUIDv7 (time-sortable) unless noted, with Postgres 18's nat
 | email_verified_at | timestamptz null | |
 | display_name | text null | optional |
 | role | enum `user`,`admin` | |
-| credit_balance | int not null default 0 | cached; always equals sum of ledger — see invariant |
+| credit_balance | int not null default 0 | cached; always equals sum of ledger — see invariant. Below zero only after a refunded pack (see Money) |
 | marketing_opt_in | bool default false | explicit opt-in only |
 | locale | text default 'en' | |
 | deleted_at | timestamptz null | soft-delete during 30-day grace, then the row is scrubbed into a tombstone (see Account deletion) |
@@ -62,28 +62,38 @@ Conventions: `id` is UUIDv7 (time-sortable) unless noted, with Postgres 18's nat
 | purchase_id | fk purchases null | |
 | admin_id | fk users null | who did an admin grant/debit |
 | reason | text null | required for admin kinds |
-| balance_after | int | running balance for auditing |
+| balance_after | int | running balance for auditing. Below zero only on a `refund_purchase` row, or on a later row that adds or keeps credits (check constraint) |
 
-Invariant: `users.credit_balance = SUM(credit_transactions.amount)` for that user. Every write goes through one function `applyCredit(tx, userId, kind, amount, refs)` which inserts the row and updates the cached balance in the same transaction with `SELECT … FOR UPDATE` on the user row. A nightly job verifies the invariant for all users and alerts on any mismatch.
+Invariant: `users.credit_balance = SUM(credit_transactions.amount)` for that user. Every write goes through one function `applyCredit(tx, userId, kind, amount, refs, options)` which inserts the row and updates the cached balance in the same transaction with `SELECT … FOR UPDATE` on the user row. A nightly job verifies the invariant for all users and alerts on any mismatch.
+
+A negative amount never takes the balance below zero, except a `refund_purchase` row that asks for it (`allowNegativeBalance`, refused for every other kind): a refunded pack's credits come off even when some were spent (`05` → Payments). A balance below zero then blocks paid jobs until it's topped up. One `purchase` row per purchase and one `refund_purchase` row per (purchase, refund id in `reason`), by partial unique indexes.
 
 **purchases**
 | column | type | notes |
 |---|---|---|
-| id | uuid pk | |
+| id | uuid pk | our order id; providers see it |
 | user_id | fk users | |
-| provider | text | `paddle` |
-| provider_txn_id | text unique | idempotency on webhooks |
+| provider | text | `paddle`, `click`, `payme` |
+| provider_txn_id | text null | the provider's transaction (Paddle `txn_…`, Click `click_trans_id`, Payme id), once it has one; unique per (provider, provider_txn_id) |
 | pack_id | text | from `config/business.ts` |
-| credits | int | |
-| amount_minor | int | what the customer paid, in currency minor units |
-| currency | char(3) | |
-| status | enum `pending`,`completed`,`refunded`,`partially_refunded`,`chargeback` | |
-| raw_event_id | fk webhook_events | |
+| credits | int | > 0 |
+| amount_minor | int | what the customer pays, in the currency's minor units (cents, tiyin); > 0 |
+| currency | char(3) | `USD` (Paddle) or `UZS` (Click, Payme) |
+| status | enum `pending`,`completed`,`cancelled`,`refunded`,`partially_refunded`,`chargeback` | |
+| provider_data | jsonb not null default `{}` | provider-specific state: Payme's times, state and reason; Click's prepare id; Paddle's refund ids |
+| raw_event_id | fk webhook_events null | |
+
+Indexes: `(user_id, created_at)`; `(provider, created_at)`; unique `(provider, provider_txn_id)`. Pending purchases are never cancelled for age (Payme may still pay an order up to 7 days old).
+
+**payment_settings** — the admin's switch per payment provider (`05` → Payments). No row means off.
+| provider pk | enabled bool default false | updated_at | updated_by fk users null | reason text null |
+
+Every change is also an `admin_audit_log` row.
 
 **webhook_events**
 | id | provider | event_id (unique) | type | payload jsonb | received_at | processed_at | error text null |
 
-Store, then process. Processing is idempotent on `event_id`.
+Store, then process. Unique per (provider, event_id); processing is idempotent. An event stays fresh until it's processed without an error, so a provider's retry after a failure is processed again.
 
 ### Jobs
 
@@ -134,7 +144,7 @@ Unconsumed uploads are deleted with their objects after 1 hour.
 **welcome_grant_claims**
 | email_hmac pk | claimed_at |
 
-`email_hmac` = HMAC-SHA256(lowercased email, grant_secret) with a long-lived secret. Written when the welcome grant is given; survives account deletion so delete-and-re-sign-up can't farm grants. Purged after 12 months. Listed in the Privacy page (fraud prevention, legitimate interest).
+`email_hmac` = HMAC-SHA256(normalised email, grant_secret) with a long-lived secret (`WELCOME_GRANT_SECRET`, else derived from `BETTER_AUTH_SECRET`). Normalised: lowercase, `+tag` dropped, Gmail's dots dropped (`05` → Welcome grant). Written when the welcome grant is given; survives account deletion so delete-and-re-sign-up can't farm grants. Purged after 12 months. Listed in the Privacy page (fraud prevention, legitimate interest).
 
 **admin_audit_log** — every admin action.
 | id | admin_id | action | target_type | target_id | before jsonb | after jsonb | reason text | created_at |

@@ -1176,3 +1176,52 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** Astro's instruction; `docs/05` → Payments.
 **Reverse:** a provider is one file behind the interface; drop it from the registry. `PAYMENTS_ENABLED` unset turns everything off at once.
+
+## 2026-10-02 · The purchase store: refunds below zero, retries, one transaction id per provider (M5)
+
+**Decision:**
+- **A balance goes below zero only through a refund.** `applyCredit` takes `{ allowNegativeBalance: true }` and refuses it for every kind but `refund_purchase`. The database agrees: `balance_after >= 0 or amount >= 0 or kind = 'refund_purchase'`, and `users.credit_balance` lost its `>= 0` check.
+  - A row that adds or keeps credits (`release`, `capture`, `purchase`, grants) may leave the balance below zero. Otherwise a failed job's refund, or the top-up itself, would be refused while the balance is negative.
+  - Paid jobs then wait for a top-up (402 says why). Free daily jobs still run: `docs/05` blocks only paid jobs.
+- **One ledger row per purchase, one per refund id**, by partial unique indexes on `credit_transactions` (`purchase_id` for `purchase`; `purchase_id, reason` for `refund_purchase`, the refund id in `reason`). The append-only trigger is untouched.
+- **`provider_txn_id` is unique per provider**, `(provider, provider_txn_id)`, not across all three: Click's numeric ids and Payme's hex ids come from different systems.
+- **A refund never takes more than is left** (`min(credits, left)`), so a provider's rounding of a partial refund can't overdraw a purchase; without `credits` it takes what's left.
+- **A webhook event is fresh again until it's processed without an error.** A provider that got a 500 retries, and the retry must be processed; only an event that went through cleanly is a duplicate. Processing is idempotent, so a second run is harmless.
+- **Pending purchases are never cancelled for age.** Payme may still pay an order up to 7 days old, and a late Paddle payment must find its purchase. `/account` shows a checkout older than 7 days as "Not paid".
+- A purchase that only partly came back (`partially_refunded`) still makes the account "paid" (larger limits, 4 jobs at once).
+
+**Why:** `docs/05` → Payments ("a refund can take the balance negative"); the providers' protocols (retries, Payme's 7-day orders).
+**Reverse:** the check constraint and `applyCredit`'s option in `packages/db`; `recordEvent`'s `setWhere` in `apps/web/src/server/payments/store.ts`.
+
+## 2026-10-02 · Payment switches, checkout, and where "Buy credits" shows (M5)
+
+**Decision:**
+- **The switches are read on every request** (three rows, no cache): switching a provider off closes its checkout and webhook path at once.
+- **Buy links come from one place:** `GET /me` → `buy_url` (the website's `/credits/buy` while any provider is on, else null), and 402 answers carry it too. The account page reads the switches itself; the tool pages' server offer and errors read `buy_url`, so ISR-cached tool pages need nothing. The panel will use the same field.
+- **`/credits/buy`'s CSP gets Paddle's origins from the proxy, which can't reach the database** (it's compiled for the edge runtime): it adds them while `PAYMENTS_ENABLED` is true and `PADDLE_CLIENT_TOKEN` is set. The page itself answers 404 unless a provider is on, and loads Paddle.js only for a Paddle checkout.
+- **Paddle's default payment link is `/credits/buy`:** with `?_ptxn=`, the page reopens the overlay for that transaction if it's the signed-in buyer's own pending purchase, then drops `_ptxn` from the URL.
+- **A checkout the provider can't start** cancels the pending purchase and answers 502 `PROVIDER_UNAVAILABLE` ("Nothing was charged").
+- **Refunds from the admin:** Paddle through its API (credits come off when Paddle approves); Payme from its cabinet (its CancelTransaction takes the credits back); Click has no refund call, so "Record refund" runs the store's refund by hand, once per purchase, audit-logged. The "reprocess" button `docs/07` planned isn't built: a failed event is processed again on the provider's retry or Paddle's replay.
+- **A test-only stub provider** (`PAYMENTS_STUB=paddle|click|payme`, refused unless `APP_ENV=test`, webhook key `PAYMENTS_STUB_KEY`) stands in for one provider in the server e2e, so the switches, checkout, store and ledger are tested end to end without a provider's network.
+
+**Why:** `docs/05` → Payments; Astro's "no buy buttons while payments are off"; Next's proxy runs on the edge runtime here.
+**Reverse:** a cache for the switches in `payments/switches.ts`; `buy_url` stays either way. The proxy's `paddleOn` is one line.
+
+## 2026-10-02 · The welcome grant: at sign-in, once per inbox (M5)
+
+**Decision:**
+- **Given after each sign-in** (Better Auth's `session.create` after-hook) when the email is verified, so it also reaches accounts made before it existed. A failure is logged and never blocks signing in; the next sign-in tries again.
+- **Once per inbox:** the HMAC is of the normalised email (lowercase, `+tag` dropped, Gmail's dots dropped and `googlemail.com` → `gmail.com`), not just the lowercased one (`docs/04`), so aliases can't farm it. An account that has its grant row never gets another, even after its claim is purged at 12 months.
+- **The HMAC key** is `WELCOME_GRANT_SECRET`, or one derived from `BETTER_AUTH_SECRET` when it's unset, so nothing new is needed in production; set the dedicated one before ever rotating the auth secret.
+- **`WELCOME_GRANT_ENABLED=false`** stops it at once (abuse); the server build's e2e tests run with it off, so their accounts start at 0 credits as the job tests expect. The grant's own tests run against the database.
+- **The throwaway-domain list is filled** (46 common ones, subdomains included); the grant is refused, sign-in isn't.
+
+**Why:** `docs/05` → Free allowance, Fraud and abuse; `docs/04` → welcome_grant_claims.
+**Reverse:** `apps/web/src/server/welcome.ts` (`normaliseEmail`, `grantSecret`) and the hook in `auth.ts`.
+
+## 2026-10-02 · A job carries what its quote said pays (`quote_funding`) (M5)
+
+**Decision:** `POST /jobs` takes `quote_funding` beside `quote_credits` and answers 409 CONFLICT, reserving nothing, when what pays changed since the quote: the last free daily job went to another job, so the same price would now take credits. The website sends it and, on that 409, shows the new quote and asks again; the example script and `/developers` send it too. It's optional, so v1 clients that don't send it keep working (`docs/06` → Versioning).
+
+**Why:** the M6 review: a job quoted as a free daily job could be charged credits without the person agreeing ("never charge without a confirm").
+**Reverse:** drop the check in `createJob` (`apps/web/src/server/jobs.ts`); the field can stay.

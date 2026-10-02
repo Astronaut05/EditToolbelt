@@ -26,7 +26,6 @@ import {
   purchases,
   sql,
   webhookEvents,
-  type Db,
   type Queryable,
 } from '@etb/db';
 
@@ -130,7 +129,8 @@ const REFUNDABLE: readonly PurchaseStatus[] = [
   'chargeback',
 ];
 
-export function createPurchaseStore(db: Db): PurchaseStore {
+/** The store on `db`; on a transaction, its calls become savepoints inside it. */
+export function createPurchaseStore(db: Queryable): PurchaseStore {
   return {
     async get(id) {
       if (!UUID.test(id)) return null;

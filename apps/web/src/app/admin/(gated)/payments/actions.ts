@@ -16,7 +16,7 @@ import { db } from '../../../../server/db';
 import { field } from '../../../../server/form';
 import { providerContext } from '../../../../server/payments/checkout';
 import { PROVIDER_IDS, type ProviderId } from '../../../../server/payments/contract';
-import { toRecord } from '../../../../server/payments/store';
+import { createPurchaseStore, toRecord } from '../../../../server/payments/store';
 import {
   enabledProvider,
   paymentEnv,
@@ -73,7 +73,7 @@ export async function refundPurchase(formData: FormData): Promise<void> {
     redirect(
       back({
         error: provider
-          ? `${name} refunds are made in ${name}’s own cabinet; the credits come off when its cancel call arrives.`
+          ? `${name} refunds are made in ${name}’s own cabinet.`
           : `${name} is switched off, so its refund event couldn’t arrive. Switch it on first.`,
       }),
     );
@@ -97,4 +97,47 @@ export async function refundPurchase(formData: FormData): Promise<void> {
   });
   log.info({ purchase_id: row.id, provider: row.provider, user_ref: admin.id }, 'admin.refund');
   redirect(back({ saved: 'refund' }));
+}
+
+/**
+ * Click has no refund call (docs/DECISIONS.md → "Click: Prepare and
+ * Complete"): after refunding in Click's cabinet, record it here. The store
+ * takes the credits back with the purchase, once per purchase.
+ */
+export async function recordRefund(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const id = field(formData, 'purchaseId');
+  if (!UUID.test(id)) redirect(BACK);
+  const reason = Reason.safeParse(field(formData, 'reason'));
+  if (!reason.success) redirect(back({ error: 'Give a reason of 3 to 500 characters.' }));
+  const [row] = await db().select().from(purchases).where(eq(purchases.id, id));
+  if (!row) redirect(BACK);
+  if (row.provider !== 'click') {
+    redirect(back({ error: 'Only Click refunds are recorded by hand.' }));
+  }
+  if (row.status !== 'completed' && row.status !== 'partially_refunded') {
+    redirect(back({ error: `A ${row.status} purchase can’t be refunded.` }));
+  }
+  const after = await db().transaction(async (tx) => {
+    const done = await createPurchaseStore(tx).refund(
+      row.id,
+      { refundId: `cabinet:${row.id}` },
+      { refundRecordedBy: admin.id },
+    );
+    await audit(tx, {
+      adminId: admin.id,
+      action: 'purchase.refund_recorded',
+      targetType: 'purchase',
+      targetId: row.id,
+      before: { status: row.status, credits: row.credits },
+      after: { status: done.status },
+      reason: reason.data,
+    });
+    return done;
+  });
+  log.info(
+    { purchase_id: row.id, status: after.status, user_ref: admin.id },
+    'admin.refund_recorded',
+  );
+  redirect(back({ saved: 'recorded' }));
 }

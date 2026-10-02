@@ -220,6 +220,10 @@ describe.skipIf(!url)('database', () => {
     expect(await pgCode(insert('reserve', -10))).toBe('23514');
     await insert('refund_purchase', -10);
     await insert('release', 5);
+    // Rows written by hand: put the cached balance in step, or the shared
+    // database fails every later ledger check (the worker's included).
+    await db.update(users).set({ creditBalance: -5 }).where(eq(users.id, userId));
+    expect((await ledgerMismatches(db)).filter((m) => m.userId === userId)).toEqual([]);
   });
 
   it('writes one purchase row per purchase and one row per refund id', async () => {
