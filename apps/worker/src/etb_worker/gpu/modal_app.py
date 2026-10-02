@@ -39,6 +39,14 @@ config/business.ts prices together with the GPU.
 A function never lets an exception out: Modal would log its traceback, and
 urllib's errors can quote the presigned URL. Anything unexpected comes back
 as ``GPU_FAILED`` with a fixed sentence and only the exception's type.
+
+The functions that decode sound or video read only what the job was priced
+for: the worker sends ``max_seconds`` (all three) and ``max_frames`` (the
+video ones), worked out from the probe it priced the job on, and the
+decoders stop there (gpu/video.py, gpu/audio.py). A file whose header says
+less than it holds is cut at that point and the result says so. Without
+them (a worker from before the caps) a function takes its own hard caps
+below, never "no limit".
 """
 
 from __future__ import annotations
@@ -47,14 +55,23 @@ import contextlib
 import json
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import modal
 
-from etb_worker.gpu import APP_NAME, inpaint, video
-from etb_worker.gpu.remote import Call, CallFailed, clear, fetch_input, put_output
+from etb_worker.gpu import APP_NAME, audio, inpaint, video
+from etb_worker.gpu.remote import (
+    Call,
+    CallFailed,
+    clear,
+    fetch_input,
+    float_cap,
+    int_cap,
+    put_output,
+)
 
 HERE = Path(__file__).resolve().parent
 WEIGHTS = "/models"
@@ -92,6 +109,10 @@ SPECS: dict[str, Spec] = {
 MAX_MASK_BYTES = 50 * 1024**2
 #: The video tools take this many frames at most (10 min at 30 fps, 5 at 60).
 MAX_VIDEO_FRAMES = 18_000
+#: The most a function decodes, whatever the worker sends: the tools' longest paid length
+#: (registry: 10 min of video, 4 h of speech) with room for the worker's margin (2 % + 1 s).
+MAX_VIDEO_SECONDS = 11 * 60
+MAX_AUDIO_SECONDS = 4 * 60 * 60 + 10 * 60
 
 app = modal.App(APP_NAME)
 
@@ -393,39 +414,55 @@ def _transcript(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _samples(pcm: bytes) -> Any:
+    """16-bit samples as the float32 array Whisper takes (as whisper.audio.load_audio makes it)."""
+    import numpy as np  # noqa: PLC0415 - only inside the GPU image
+
+    return np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
+
+
 @app.function(image=whisper_env, **_options(SPECS["transcribe"]))
 def transcribe(input_url: str, output_url: str | None, options: dict[str, Any]) -> dict[str, Any]:
-    """A12 and V17: Whisper large-v3's transcript of the audio, as JSON, to ``output_url``."""
+    """A12 and V17: Whisper large-v3's transcript of the audio, as JSON, to ``output_url``.
+
+    Only the input's first ``options["max_seconds"]`` are decoded (what was priced).
+    """
     spec = SPECS["transcribe"]
     call = Call(gpu=spec.gpu, idle_tail_seconds=spec.scaledown)
     work = Path(tempfile.mkdtemp(prefix="etb-"))
     try:
+        max_seconds = float_cap(options, "max_seconds", MAX_AUDIO_SECONDS)
         source = work / "input"
         fetch_input(input_url, source, spec.max_input_bytes)
         language = str(options.get("language") or "auto")
         task = "translate" if options.get("task") == "translate" else "transcribe"
+        # Decoded here, not by Whisper (which reads to the end of the file), and only so far.
+        pcm = audio.decode(source, max_seconds)
+        notes = [audio.cut_note(pcm)] if audio.reached_cap(pcm, max_seconds) else []
+        samples = _samples(pcm)
+        del pcm
         model = _whisper(call)
-        try:
-            result = model.transcribe(
-                str(source),
-                language=None if language == "auto" else language,
-                task=task,
-                word_timestamps=True,
-                verbose=None,  # never print the words
-                condition_on_previous_text=False,
-                hallucination_silence_threshold=2.0,
-                fp16=True,
-            )
-        except RuntimeError:
-            raise CallFailed(
-                "DECODE_FAILED", "The audio couldn't be decoded; it may be damaged."
-            ) from None
+        result = model.transcribe(
+            samples,
+            language=None if language == "auto" else language,
+            task=task,
+            word_timestamps=True,
+            verbose=None,  # never print the words
+            condition_on_previous_text=False,
+            hallucination_silence_threshold=2.0,
+            fp16=True,
+        )
         document = _transcript(result)
         target = work / "transcript.json"
         target.write_text(json.dumps(document, ensure_ascii=False), "utf-8")
         size = put_output(output_url, target, "application/json")
         return call.ok(
-            {"language": document["language"], "segments": len(document["segments"]), "bytes": size}
+            {
+                "language": document["language"],
+                "segments": len(document["segments"]),
+                "bytes": size,
+            },
+            notes,
         )
     except CallFailed as error:
         return call.failed(error)
@@ -595,6 +632,38 @@ def _check_video(info: video.VideoInfo) -> None:
         raise CallFailed("TOO_LARGE", video.too_many_frames(info, MAX_VIDEO_FRAMES))
 
 
+@dataclass(frozen=True)
+class VideoCaps:
+    """The most a video call decodes: what the worker priced, within the hard caps."""
+
+    frames: int
+    seconds: float
+
+
+def _video_caps(options: dict[str, Any]) -> VideoCaps:
+    return VideoCaps(
+        frames=int_cap(options, "max_frames", MAX_VIDEO_FRAMES),
+        seconds=float_cap(options, "max_seconds", MAX_VIDEO_SECONDS),
+    )
+
+
+def _frame_pipe(
+    source: Path, info: video.VideoInfo, encode: list[str], caps: VideoCaps
+) -> video.FramePipe:
+    """The input's frames (RGB, as shown), at most ``caps``, into ``encode``."""
+    return video.FramePipe(
+        video.decode_args(source, info, max_seconds=caps.seconds, max_frames=caps.frames),
+        info.width * info.height * 3,
+        encode,
+        max_frames=caps.frames,
+    )
+
+
+def _video_notes(info: video.VideoInfo, pipe: video.FramePipe, notes: list[str]) -> list[str]:
+    cut = [video.cut_note(pipe.read, info.fps)] if pipe.cut else []
+    return [*cut, *video.notes_for(info), *notes]
+
+
 # --- V20 Upscale Video ---------------------------------------------------------------
 
 #: Input pixels a batch holds at most: four 540p frames, or one 1080p frame.
@@ -632,6 +701,7 @@ def _upscale_frames(
 def _upscale_video(
     source: Path, target: Path, options: dict[str, Any], call: Call
 ) -> dict[str, Any]:
+    caps = _video_caps(options)
     info = video.probe(source)
     _check_video(info)
     scale = 2 if int(options.get("scale", 4)) == 2 else 4
@@ -653,12 +723,12 @@ def _upscale_video(
         fps=info.fps,
         source=source,
         audio=info.audio,
+        max_seconds=caps.seconds,
         sar=info.sar,
         nvenc=nvenc,
     )
     batch = max(1, min(8, VIDEO_BATCH_PIXELS // (info.width * info.height)))
-    frame_bytes = info.width * info.height * 3
-    with video.FramePipe(video.decode_args(source, info), frame_bytes, encode) as pipe:
+    with _frame_pipe(source, info, encode, caps) as pipe:
         pending: list[bytes] = []
         for frame in pipe.frames():
             pending.append(frame)
@@ -676,7 +746,7 @@ def _upscale_video(
         "frames": frames,
         "fps": round(float(info.fps), 3),
         "encoder": "nvenc" if nvenc else "x264",
-        "notes": [*video.notes_for(info), *notes],
+        "notes": _video_notes(info, pipe, notes),
     }
 
 
@@ -787,10 +857,42 @@ def _matte_frame(session: Any, name: str, rgb: Any) -> tuple[Any, Any]:
     return alpha.astype(np.float32), gray
 
 
-def _matte_video(source: Path, target: Path, options: dict[str, Any], call: Call) -> dict[str, Any]:
-    import numpy as np  # noqa: PLC0415
+def _matter(
+    options: dict[str, Any], call: Call, width: int, height: int, *, keyed: bool
+) -> Callable[[bytes], bytes]:
+    """One frame's work: an RGB frame in; RGBA with the matte as alpha (``keyed``), or RGB on
+    the background colour, out. The flicker filter carries from each frame to the next."""
+    import numpy as np  # noqa: PLC0415 - only inside the GPU image
     from PIL import Image  # noqa: PLC0415
 
+    background = np.array(_colour(options), dtype=np.uint16)
+    session = _session(BIREFNET, call, search="EXHAUSTIVE")
+    name = session.get_inputs()[0].name
+    smoother = _Smoother()
+
+    def matte(frame: bytes) -> bytes:
+        rgb = np.frombuffer(frame, np.uint8).reshape(height, width, 3)
+        small, gray = _matte_frame(session, name, rgb)
+        smooth = smoother.step(small, gray)
+        alpha = np.asarray(
+            Image.fromarray((smooth * 255 + 0.5).astype(np.uint8)).resize(
+                (width, height), Image.Resampling.BILINEAR
+            )
+        )
+        if keyed:
+            pixels = np.dstack((rgb, alpha))
+        else:
+            weight = alpha.astype(np.uint16)[..., None]
+            mixed = (rgb.astype(np.uint16) * weight + background * (255 - weight) + 127) // 255
+            pixels = mixed.astype(np.uint8)
+        out: bytes = pixels.tobytes()
+        return out
+
+    return matte
+
+
+def _matte_video(source: Path, target: Path, options: dict[str, Any], call: Call) -> dict[str, Any]:
+    caps = _video_caps(options)
     info = video.probe(source)
     _check_video(info)
     if not video.fits_4k(info.width, info.height):
@@ -798,11 +900,9 @@ def _matte_video(source: Path, target: Path, options: dict[str, Any], call: Call
     output = str(options.get("output") or "prores")
     encoding = MATTE_OUTPUTS.get(output, MATTE_OUTPUTS["prores"])[0]
     keyed = encoding != "h264"
-    background = np.array(_colour(options), dtype=np.uint16)
-    session = _session(BIREFNET, call, search="EXHAUSTIVE")
-    name = session.get_inputs()[0].name
-    nvenc = not keyed and _nvenc()
     width, height = info.width, info.height
+    matte = _matter(options, call, width, height, keyed=keyed)
+    nvenc = not keyed and _nvenc()
     encode, notes = video.encode_args(
         target,
         encoding=encoding,
@@ -811,26 +911,13 @@ def _matte_video(source: Path, target: Path, options: dict[str, Any], call: Call
         fps=info.fps,
         source=source,
         audio=info.audio,
+        max_seconds=caps.seconds,
         sar=info.sar,
         nvenc=nvenc,
     )
-    smoother = _Smoother()
-    with video.FramePipe(video.decode_args(source, info), width * height * 3, encode) as pipe:
+    with _frame_pipe(source, info, encode, caps) as pipe:
         for frame in pipe.frames():
-            rgb = np.frombuffer(frame, np.uint8).reshape(height, width, 3)
-            matte, gray = _matte_frame(session, name, rgb)
-            smooth = smoother.step(matte, gray)
-            alpha = np.asarray(
-                Image.fromarray((smooth * 255 + 0.5).astype(np.uint8)).resize(
-                    (width, height), Image.Resampling.BILINEAR
-                )
-            )
-            if keyed:
-                pipe.write(np.dstack((rgb, alpha)).tobytes())
-            else:
-                weight = alpha.astype(np.uint16)[..., None]
-                mixed = (rgb.astype(np.uint16) * weight + background * (255 - weight) + 127) // 255
-                pipe.write(mixed.astype(np.uint8).tobytes())
+            pipe.write(matte(frame))
         frames = pipe.finish()
     return {
         "width": width,
@@ -838,7 +925,7 @@ def _matte_video(source: Path, target: Path, options: dict[str, Any], call: Call
         "frames": frames,
         "fps": round(float(info.fps), 3),
         "output": output if output in MATTE_OUTPUTS else "prores",
-        "notes": [*video.notes_for(info), *notes],
+        "notes": _video_notes(info, pipe, notes),
     }
 
 

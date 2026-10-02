@@ -6,7 +6,8 @@ back, deletes it at once, and writes the format the person asked for
 (captions.py): TXT, SRT, VTT or JSON for A12; SRT, VTT, ASS or TXT with
 line limits, optional word timing and optional translation to English for
 V17. V17's page extracts the sound in the browser first, so only the audio
-is uploaded.
+is uploaded. The function hears no more of the file than the job was
+priced for (``max_seconds``), whatever the file's header says.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Any
 
 from etb_worker import captions
 from etb_worker.processors import Estimate, JobContext, JobFailed, Output
-from etb_worker.processors.remote import run_on_gpu
+from etb_worker.processors.remote import length_cap, run_on_gpu
 from etb_worker.storage import StorageError
 
 #: Whisper large-v3 on an L4: GPU seconds per second of audio (a guess, for progress), plus loading.
@@ -41,6 +42,8 @@ class Transcribe:
     def run(self, ctx: JobContext) -> Output:
         if not ctx.meta.get("audio"):
             raise JobFailed("NO_AUDIO", "This file has no sound to transcribe.")
+        # Whisper hears no more than was priced per minute, whatever the header said.
+        max_seconds = length_cap(ctx.meta)
         fmt = str(ctx.options.get("format") or self.default_format)
         if fmt not in captions.FORMATS:
             fmt = self.default_format
@@ -49,7 +52,11 @@ class Transcribe:
         outcome = run_on_gpu(
             ctx,
             function="transcribe",
-            options={"language": language, "task": "translate" if translate else "transcribe"},
+            options={
+                "language": language,
+                "task": "translate" if translate else "transcribe",
+                "max_seconds": max_seconds,
+            },
             content_type="application/json",
             estimate_sec=self.estimate(ctx.meta, ctx.options).seconds,
             stage="transcribing",
@@ -87,7 +94,10 @@ class Transcribe:
             meta={
                 "language": transcript.language,
                 "cues": cues,
-                "notes": self._notes(transcript, fmt, language, translate, words, cues),
+                "notes": [
+                    *self._notes(transcript, fmt, language, translate, words, cues),
+                    *outcome.result.notes,
+                ],
             },
         )
 

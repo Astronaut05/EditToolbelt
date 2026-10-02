@@ -15,11 +15,18 @@
 3. Record the call's GPU time on the job whatever happened, then check the
    output is there. A failure deletes whatever the GPU wrote and fails the
    job with its code, so its credits come back the usual way.
+
+A tool that sends sound or video also sends the most the GPU may decode
+(``max_seconds``, ``length_cap``; the video tools ``max_frames`` too), from
+the probe the job was priced and checked on. The probe reads the file's
+header, and a header can say less than the file holds: the GPU function
+stops there, so nobody gets more GPU time than they paid for.
 """
 
 from __future__ import annotations
 
 import contextlib
+import math
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +39,11 @@ from etb_worker.storage import Storage, StorageError, new_output_key
 
 #: Presigned URLs outlive the job's time limit by this much: the call may queue for a GPU first.
 PRESIGN_MARGIN_SEC = 15 * 60
+
+#: An honest file's sound and pictures can run a little past the length its header gives
+#: (rounding, a last frame's duration); the GPU reads this far past it, and no further.
+LENGTH_MARGIN = 1.02
+LENGTH_SLACK_SEC = 1.0
 
 #: What the person reads for failures the GPU function doesn't word itself.
 GPU_TEXT = {
@@ -46,6 +58,30 @@ class GpuOutcome:
     key: str
     bytes: int
     result: GpuResult
+
+
+def length_sec(meta: dict[str, Any]) -> float:
+    """The input's length as probed (what the job was priced on), in seconds.
+
+    NO_DURATION when the file doesn't say (a browser recording's WebM): its
+    price would be the minimum whatever it holds, so it isn't run at all.
+    """
+    try:
+        seconds = float(meta.get("duration_ms") or 0) / 1000
+    except (TypeError, ValueError):
+        seconds = 0.0
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise JobFailed(
+            "NO_DURATION",
+            "This file doesn't say how long it is, so we can't price it. Save or export it "
+            "again, then upload that.",
+        )
+    return seconds
+
+
+def length_cap(meta: dict[str, Any]) -> float:
+    """``max_seconds``: the most of the input the GPU may decode, the priced length and a margin."""
+    return round(length_sec(meta) * LENGTH_MARGIN + LENGTH_SLACK_SEC, 3)
 
 
 def _storage(ctx: JobContext) -> Storage:
