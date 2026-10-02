@@ -22,6 +22,7 @@ from etb_worker.hello import HelloResult, run_hello
 from etb_worker.logs import configure_logging, get_logger
 from etb_worker.notify import Notifier
 from etb_worker.runner import JobRunner
+from etb_worker.sandbox import hide_from_tools
 from etb_worker.scheduler import DAILY, TICK_SEC, Scheduler
 from etb_worker.settings import Settings, load_settings
 from etb_worker.slots import listen, run_gpu_slot, run_slot
@@ -65,6 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--task", choices=sorted(DAILY), help="run one daily job now, then exit")
     args = parser.parse_args(argv)
 
+    # Before any tool runs: ffmpeg can't read the worker's secrets from /proc.
+    hidden = hide_from_tools()
     settings = load_settings()
     configure_logging(
         service="worker",
@@ -73,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         level=settings.log_level,
     )
     log = get_logger()
-    log.info("worker.started", pid=os.getpid())
+    log.info("worker.started", pid=os.getpid(), hidden_from_tools=hidden)
 
     stop = threading.Event()
 
