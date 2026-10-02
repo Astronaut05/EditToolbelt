@@ -44,6 +44,7 @@ import { refreshToolFlags } from './flags';
 import { requestHash } from './idempotency';
 import {
   checkCrossfade,
+  checkHasLength,
   checkHasVideo,
   checkInputs,
   checkKind,
@@ -290,7 +291,10 @@ async function extraUploads(
     }
     const probe = probeOf(probed);
     const joined = extra.kind?.joined === true;
-    if (joined) checkHasVideo(probe, extra.label);
+    if (joined) {
+      checkHasVideo(probe, extra.label);
+      checkHasLength(probe, extra.label);
+    }
     extras.push({ upload: probed, probe, joined });
   }
   return probing ? null : extras;
@@ -328,7 +332,10 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   // A tool's own reason not to take the file, before anything is charged.
   const refused = refusal(tool.id, probe, parsed.options);
   if (refused) throw new ApiError(refused.status, refused.code, refused.title, refused.detail);
-  if (joins) checkHasVideo(probe, 'clip 1');
+  if (joins) {
+    checkHasVideo(probe, 'clip 1');
+    checkHasLength(probe, 'clip 1');
+  }
   const extras = await extraUploads(user, tool, named);
   if (!extras) return null;
   const odd = extrasRefusal(

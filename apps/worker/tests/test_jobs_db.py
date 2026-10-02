@@ -396,7 +396,14 @@ def test_every_clip_of_a_merge_goes_when_the_job_ends(
         quote=3,
         extra_input_keys=keys[1:],
         options=Jsonb(options),
-        input_meta=Jsonb({"duration_ms": 2000, "mime": "video/mp4", "extras": [{}, {}]}),
+        # Each clip's probe, as the jobs API passes them on: their lengths priced the job.
+        input_meta=Jsonb(
+            {
+                "duration_ms": 2000,
+                "mime": "video/mp4",
+                "extras": [{"duration_ms": 2000, "mime": "video/mp4"}] * 2,
+            }
+        ),
     )
     run = merge_runner(storage)
     run.run(claim_this(db, run, job))

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   checkCrossfade,
+  checkHasLength,
   checkHasVideo,
   checkInputs,
   checkKind,
@@ -110,6 +111,25 @@ describe('checkKind', () => {
       code: 'UNSUPPORTED_FORMAT',
       detail: 'Clip 3 has no picture in it, only sound.',
     });
+  });
+
+  it('refuses a clip whose header gives no length: it can’t be priced, so none of it is read', () => {
+    expect(() => {
+      checkHasLength({ duration_ms: 1000 }, 'clip 2');
+    }).not.toThrow();
+    for (const probe of [{ duration_ms: 0 }, {}]) {
+      expect(
+        refusal(() => {
+          checkHasLength(probe, 'clip 2');
+        }),
+      ).toMatchObject({
+        status: 422,
+        code: 'UNSUPPORTED_FORMAT',
+        title: 'A clip has no length',
+        detail:
+          'Clip 2 doesn’t say how long it is, so we can’t price it. Save or export it again, then upload that.',
+      });
+    }
   });
 });
 

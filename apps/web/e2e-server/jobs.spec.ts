@@ -781,6 +781,14 @@ test('Merge Videos takes its other clips as a list of uploads, in order', async 
     code: 'UNSUPPORTED_FORMAT',
     detail: 'Clip 3 has no picture in it, only sound.',
   });
+  // A clip whose header gives no length can't be priced, so it isn't joined.
+  const unknown = await clip(0);
+  expect(await refused({ clips: [b.id, unknown.id] })).toMatchObject({
+    status: 422,
+    title: 'A clip has no length',
+    detail:
+      'Clip 3 doesn’t say how long it is, so we can’t price it. Save or export it again, then upload that.',
+  });
   const subtitles = await upload(owner, { tool: 'merge-videos', subtitles: true });
   expect(await refused({ clips: [subtitles.id] })).toMatchObject({ title: 'Not a video' });
   const elsewhere = await upload(owner);

@@ -1,0 +1,12 @@
+# 2026-10-02 · Merge Videos reads each clip only as far as it was priced
+
+**Decision:**
+- **Each clip's priced length is its own probe's:** `priced_seconds` (the decode cap's 2 % and 1 s margin) of the job's input record for clip 1, and of each entry of its `extras` for the others, in order. The price and the limits were the sum of those lengths.
+- **A clip whose picture runs past it is cut there** (`cap` in `merge_videos.py`): its end becomes its start plus that length, and the result's notes say "Clip 2 runs longer than its header says, so only its first 4.1 s were used: the length it was priced for", as the GPU tools say it.
+- **A cut clip means no copy.** The concat demuxer reads the last clip to its end, and the sound drops count every packet of each clip, which an `outpoint` would break. The clips are re-encoded instead, as when they differ.
+- **Every clip's decode is capped when re-encoding:** an input `-t` of its priced length before each `-i`. `JobContext.run` caps only the job's own input; the other clips are read through their own names (`extra-0`, …), so the processor caps them itself.
+- **A clip without a length is not read at all.** A header that gives none (a browser recording's WebM) was priced as nothing; the quote refuses it ("Clip 3 doesn't say how long it is, so we can't price it", before anything is charged), and the worker fails it with `NO_DURATION` (credits back) if one gets that far, as the GPU tools do. `priced_seconds` answers None for it, which `JobContext.run` takes as nothing to cap.
+- **An honest set is untouched:** streams run past the container's length by an audio frame or a last frame, never by 2 % and a second, so matching clips are still copied packet for packet.
+
+**Why:** the review of [2026-10-02-merge-videos-on-our-servers.md](2026-10-02-merge-videos-on-our-servers.md) found the copy path read every clip to its end and the re-encode capped only the first clip, so an MKV whose Segment Duration said 3 s while it held 12 s was priced as 3 s and joined in full (a 14 s result for 2 s and "3 s" of clips). The same hole the decode cap closed for one input ([2026-10-02-a-server-job-reads-its-input-only-as-far-as-it-was-priced.md](2026-10-02-a-server-job-reads-its-input-only-as-far-as-it-was-priced.md)).
+**Reverse:** drop `cap` and the per-clip `-t` from `apps/worker/src/etb_worker/processors/merge_videos.py`, and `checkHasLength` from `apps/web/src/server/inputs.ts`; `tests/test_merge_videos.py` shows what comes back then.

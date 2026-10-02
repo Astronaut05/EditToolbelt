@@ -23,6 +23,12 @@ so the same settings give the same result either way:
 The result is in the first clip's format: MP4 or MOV with H.264 and AAC,
 WebM or MKV with VP9 and Opus (a copy keeps the codecs, in MKV when the
 first clip's format can't hold them).
+
+Each clip is read only as far as it was priced: its own probe's length with
+the decode cap's margin (``priced_seconds``). The probe reads the length from
+the container's header, which the uploader writes; a clip whose picture runs
+past its priced length is cut there, and the clips are re-encoded with an
+input ``-t`` on every clip (a copy would take each clip to its end).
 """
 
 from __future__ import annotations
@@ -33,7 +39,15 @@ from array import array
 from dataclasses import dataclass, field
 from typing import Any
 
-from etb_worker.processors import Estimate, JobContext, JobFailed, Output, ffmpeg_progress
+from etb_worker.gpu.remote import length_label
+from etb_worker.processors import (
+    Estimate,
+    JobContext,
+    JobFailed,
+    Output,
+    ffmpeg_progress,
+    priced_seconds,
+)
 from etb_worker.sandbox import ToolError, ffmpeg, ffprobe
 
 MAX_CLIPS = 20
@@ -147,6 +161,10 @@ class Clip:
     #: The sound's packets in file order, for a copy: start and length, seconds.
     sound_at: array[float] = field(default_factory=lambda: array("d"))
     sound_for: array[float] = field(default_factory=lambda: array("d"))
+    #: The most of it the job reads, in seconds: the length it was priced for (``cap``).
+    priced: float | None = None
+    #: Its picture ran past that, so it ends there.
+    cut: bool = False
 
     @property
     def fps(self) -> float:
@@ -260,6 +278,42 @@ def read_clip(ctx: JobContext, name: str, number: int) -> Clip:
     fps = clip.fps or 30.0
     clip.end = last_at + 1 / fps if last_for < 0.5 / fps else end
     return clip
+
+
+def priced_lengths(meta: dict[str, Any], count: int) -> list[float]:
+    """Each clip's priced length, from its own probe: the first clip's is the job's input
+    record, the others' are its ``extras``, in order. A clip without one (its header gives no
+    length) was priced as nothing, so none of it is read: NO_DURATION, credits back."""
+    metas = [meta, *(meta.get("extras") or [])]
+    lengths: list[float] = []
+    for number in range(1, count + 1):
+        record = metas[number - 1] if number <= len(metas) else None
+        seconds = priced_seconds(record) if isinstance(record, dict) else None
+        if seconds is None:
+            raise JobFailed(
+                "NO_DURATION",
+                f"Clip {number} doesn't say how long it is, so we can't price it. Save or "
+                "export it again, then upload that.",
+            )
+        lengths.append(seconds)
+    return lengths
+
+
+def cap(clip: Clip, seconds: float) -> None:
+    """Reads at most ``seconds`` of the clip, the length it was priced for. A picture that
+    runs past it (the header undersold the clip) ends there."""
+    clip.priced = seconds
+    if clip.end - clip.start > seconds:
+        clip.end = clip.start + seconds
+        clip.cut = True
+
+
+def cut_note(clip: Clip) -> str:
+    """What the result says about a clip that ran past what was priced."""
+    return (
+        f"Clip {clip.number} runs longer than its header says, so only its first "
+        f"{length_label(clip.end - clip.start)} were used: the length it was priced for"
+    )
 
 
 def copy_drops(clip: Clip, first: bool) -> list[int]:
@@ -439,10 +493,14 @@ class MergeVideos:
             raise JobFailed("NOT_FOUND", "The other clips are missing. Add them again.")
         if len(names) > MAX_CLIPS:
             raise JobFailed("TOOL_FAILED", f"Merge up to {MAX_CLIPS} clips at once.")
+        # Before anything is read: a clip that wasn't priced isn't read at all.
+        priced = priced_lengths(ctx.meta, len(names))
         ctx.progress(0, "analysing")
         clips = []
-        for number, name in enumerate(names, start=1):
-            clips.append(read_clip(ctx, name, number))
+        for number, (name, seconds) in enumerate(zip(names, priced, strict=True), start=1):
+            clip = read_clip(ctx, name, number)
+            cap(clip, seconds)
+            clips.append(clip)
             ctx.progress(round(number / len(names) * 4), "analysing")
         family = family_of(ctx.meta)
         options = ctx.options
@@ -456,19 +514,23 @@ class MergeVideos:
             clip.video_key() == first.video_key() and clip.audio_key() == first.audio_key()
             for clip in clips[1:]
         )
+        # A copy takes each clip to its end, and its sound drops count every packet: a clip
+        # cut short is re-encoded with the rest, each read only as far as it was priced.
+        cut = [clip for clip in clips if clip.cut]
         notes: list[str] = []
-        if wants_copy and same:
+        if wants_copy and same and not cut:
             try:
                 return self._copy(ctx, clips, copy_family(family, first))
             except ToolError as error:
                 if error.code != "TOOL_FAILED":
                     raise
                 notes.append("The clips couldn't be copied as they are, so they were re-encoded")
-        elif wants_copy:
+        elif wants_copy and not same:
             notes.append(
                 "The clips differ in codec, settings or size, so they were re-encoded "
                 "to the first clip's"
             )
+        notes += [cut_note(clip) for clip in cut]
         return self._encode(ctx, clips, family, notes)
 
     def _copy(self, ctx: JobContext, clips: list[Clip], family: str) -> Output:
@@ -520,7 +582,12 @@ class MergeVideos:
             # Every input, not just the first, may open local files only. Every clip's
             # decoder opens at the start: two threads each keep 20 of them, even at 4K,
             # within the sandbox's address space on a machine with many cores.
-            inputs += ["-threads", "2", "-protocol_whitelist", "file,pipe", "-i", clip.name]
+            inputs += ["-threads", "2", "-protocol_whitelist", "file,pipe"]
+            # Each clip is read only as far as it was priced (JobContext.run caps the
+            # first, the job's own input, too; the others only here).
+            if clip.priced is not None:
+                inputs += ["-t", f"{clip.priced:.3f}"]
+            inputs += ["-i", clip.name]
         out = ctx.workdir / f"out.{ext}"
         report = ffmpeg_progress(round(t.length * 1000), ctx.progress, "encoding", 5, 98)
         ctx.run(

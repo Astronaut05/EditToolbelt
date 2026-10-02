@@ -64,6 +64,10 @@ export function checkKind(named: NamedUpload, mime: string): void {
   );
 }
 
+function capital(label: string): string {
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+}
+
 /** A clip the probe found no picture in can't be joined (checked before anything is charged). */
 export function checkHasVideo(probe: Probe, label: string): void {
   if (!probe.video) {
@@ -71,9 +75,24 @@ export function checkHasVideo(probe: Probe, label: string): void {
       422,
       'UNSUPPORTED_FORMAT',
       'A clip has no video',
-      `${label.charAt(0).toUpperCase()}${label.slice(1)} has no picture in it, only sound.`,
+      `${capital(label)} has no picture in it, only sound.`,
     );
   }
+}
+
+/**
+ * A clip whose header gives no length (a browser recording's WebM) can't be
+ * priced, and the worker reads each clip only as far as it was priced: none
+ * of it. Said before anything is charged.
+ */
+export function checkHasLength(probe: Probe, label: string): void {
+  if ((probe.duration_ms ?? 0) > 0) return;
+  throw new ApiError(
+    422,
+    'UNSUPPORTED_FORMAT',
+    'A clip has no length',
+    `${capital(label)} doesn’t say how long it is, so we can’t price it. Save or export it again, then upload that.`,
+  );
 }
 
 export interface Input {

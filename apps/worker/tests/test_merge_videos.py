@@ -9,6 +9,7 @@ import array
 import json
 import math
 import shutil
+import struct
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -17,14 +18,19 @@ from typing import Any
 
 import pytest
 
-from etb_worker.processors import PROCESSORS, JobContext, JobFailed
+from etb_worker import processors, sandbox
+from etb_worker.probe import ProbeRefused, probe_json, summarize
+from etb_worker.processors import PROCESSORS, JobContext, JobFailed, priced_seconds
 from etb_worker.processors.merge_videos import (
     Clip,
+    cap,
     concat_list,
     copy_drops,
     copy_family,
+    cut_note,
     drop_expression,
     family_of,
+    priced_lengths,
     standard_fps,
     target,
 )
@@ -141,6 +147,37 @@ def test_the_result_is_in_the_first_clips_format() -> None:
     assert copy_family("mov", h264) == "mov"
 
 
+def test_each_clip_is_priced_on_its_own_probe_and_cut_there() -> None:
+    meta = {"duration_ms": 3000, "extras": [{"duration_ms": 2000}, {"duration_ms": 60_000}]}
+    # The decode cap's margin: 2 % and a second.
+    assert priced_lengths(meta, 3) == [4.06, 3.04, 62.2]
+    honest, lying = clip(2.0, start=-0.023), clip(12.0, start=-0.023)
+    cap(honest, 3.04)
+    cap(lying, 4.06)
+    assert (honest.end, honest.cut, honest.priced) == (2.0, False, 3.04)
+    assert lying.end == pytest.approx(4.037)
+    assert lying.cut
+    lying.number = 2
+    assert cut_note(lying) == (
+        "Clip 2 runs longer than its header says, so only its first 4.1 s were used: "
+        "the length it was priced for"
+    )
+
+
+def test_a_clip_that_was_never_priced_is_not_read() -> None:
+    for meta in (
+        {"duration_ms": 3000, "extras": [{"duration_ms": 0}]},
+        {"duration_ms": 3000, "extras": [{}]},
+        {"duration_ms": 3000},
+    ):
+        with pytest.raises(JobFailed) as caught:
+            priced_lengths(meta, 2)
+        assert caught.value.code == "NO_DURATION"
+        assert str(caught.value).startswith("Clip 2 doesn't say how long it is")
+    with pytest.raises(JobFailed):
+        priced_lengths({"extras": [{"duration_ms": 3000}]}, 2)
+
+
 # --- The real thing, with ffmpeg ---------------------------------------------------------
 
 
@@ -180,7 +217,21 @@ class Merged:
     meta: dict[str, Any]
 
 
+MIME_BY_SUFFIX = {".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska"}
+
+
+def probed(path: Path) -> dict[str, Any]:
+    """The upload's probe record, as the jobs API hands it to the worker: its length set the
+    price, from the container's header."""
+    try:
+        return summarize(probe_json(path), MIME_BY_SUFFIX.get(path.suffix, "video/mp4"))
+    except ProbeRefused:
+        return {}  # a broken file; the probe would have refused it
+
+
 def merge(tmp_path: Path, clips: list[Path], options: dict[str, Any], mime: str) -> Merged:
+    """Runs the processor as a job would: the first clip is the job's input, the others its
+    extras, each with its probe record, and the first one's type."""
     work = tmp_path / "work"
     work.mkdir(parents=True)
     shutil.copy(clips[0], work / "input")
@@ -194,7 +245,7 @@ def merge(tmp_path: Path, clips: list[Path], options: dict[str, Any], mime: str)
         input_path=work / "input",
         workdir=work,
         options=options,
-        meta={"mime": mime},
+        meta={**probed(clips[0]), "mime": mime, "extras": [probed(c) for c in clips[1:]]},
         limits=Limits(timeout_sec=300),
         cancel=threading.Event(),
         progress=lambda _pct, _stage: None,
@@ -435,3 +486,103 @@ def test_limits_and_broken_clips_are_refused(tmp_path: Path, media: dict[str, An
     assert str(no_video.value) == "Clip 2 has no picture in it, only sound."
     with pytest.raises((JobFailed, ToolError)):
         merge(tmp_path / "5", [two[0], media["garbage"]], {}, "video/mp4")
+
+
+def mkv_clip(path: Path, seconds: float) -> Path:
+    """One camera's clips in Matroska, whose header gives the length the probe believes."""
+    return make(
+        path,
+        *("-f", "lavfi", "-i", f"testsrc=size=160x120:rate=25:duration={seconds}"),
+        *("-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=44100:duration={seconds}"),
+        *("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-g", "25"),
+        *("-c:a", "aac", "-b:a", "64k", "-ac", "2"),
+    )
+
+
+def undersell(path: Path, seconds: float) -> None:
+    """Rewrites a Matroska file's Segment Duration (an 8-byte float, in ms) to ``seconds``."""
+    data = bytearray(path.read_bytes())
+    at = data.find(b"\x44\x89\x88")
+    assert at > 0, "no 8-byte Duration element"
+    data[at + 3 : at + 11] = struct.pack(">d", seconds * 1000)
+    path.write_bytes(bytes(data))
+
+
+def commands(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Every command the job runs in the sandbox, as it runs it (the decode cap applied)."""
+    seen: list[list[str]] = []
+    real = sandbox.run
+
+    def spy(args: list[str], **kwargs: Any) -> str:
+        seen.append(list(args))
+        return real(args, **kwargs)
+
+    monkeypatch.setattr(processors, "run", spy)
+    return seen
+
+
+def input_limits(args: list[str]) -> dict[str, str]:
+    """Each input of an ffmpeg command line and the ``-t`` among its options."""
+    limits: dict[str, str] = {}
+    start = 0
+    for k, arg in enumerate(args):
+        if arg != "-i":
+            continue
+        options = args[start:k]
+        limits[args[k + 1]] = options[options.index("-t") + 1] if "-t" in options else "none"
+        start = k + 2
+    return limits
+
+
+def test_a_clip_whose_header_undersells_it_is_read_only_as_far_as_it_was_priced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    honest = mkv_clip(tmp_path / "a.mkv", 2)
+    lying = mkv_clip(tmp_path / "b.mkv", 12)
+    undersell(lying, 3)
+    assert probed(lying)["duration_ms"] == 3000  # the probe believes the header
+    seen = commands(monkeypatch)
+    # The same camera's clips would be copied; the second is the job's extra, not its input.
+    output = merge(tmp_path, [honest, lying], {}, "video/x-matroska")
+
+    # Priced as 3 s, so read for 3 s x 1.02 + 1 s = 4.06 s; joined to the 2 s clip, not 12 s.
+    assert output.meta["notes"][2] == (
+        "Clip 2 runs longer than its header says, so only its first 4.1 s were used: "
+        "the length it was priced for"
+    )
+    assert output.meta["notes"][1].startswith("Re-encoded to 160 × 120 at 25 fps")  # noqa: RUF001
+    video, _audio = streams(output.path)
+    # 50 frames, and 101 for the 4.06 s the second clip starts at -0.023 s: 6.04 s at 25 fps.
+    assert int(video["nb_read_frames"]) == 151
+    assert int(video["nb_read_frames"]) / 25 == pytest.approx(2.0 + 4.06, abs=0.04)
+    sound = times(output.path, "a:0")
+    assert max(at + length for at, length in sound) == pytest.approx(6.04, abs=0.03)
+    # Every clip's decode stops at its priced length: the extras' too, not just the input's.
+    encode = next(args for args in seen if args[0] == "ffmpeg")
+    assert input_limits(encode) == {
+        "input": f"{priced_seconds(probed(honest)):.3f}",
+        "extra-0": "4.060",
+    }
+
+
+def test_an_honest_pair_is_still_copied_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clips = [mkv_clip(tmp_path / "a.mkv", 2), mkv_clip(tmp_path / "b.mkv", 3)]
+    seen = commands(monkeypatch)
+    output = merge(tmp_path, clips, {}, "video/x-matroska")
+    assert output.ext == "mkv"
+    assert output.meta["notes"] == [
+        "2 clips joined: 5.00 s",
+        "The clips share their codec and settings, so every packet is copied: "
+        "nothing re-encoded, nothing lost",
+    ]
+    assert hashes(output.path, "v:0") == [h for c in clips for h in hashes(c, "v:0")]
+    # The sound's packets as they were, in order, less the second clip's priming and any
+    # packet that would run past a picture's end.
+    sound = iter([h for c in clips for h in hashes(c, "a:0")])
+    kept = hashes(output.path, "a:0")
+    assert all(h in sound for h in kept)
+    assert len(kept) >= sum(len(hashes(c, "a:0")) for c in clips) - 4
+    # One ffmpeg run, the concat demuxer's: the clips are read through the list.
+    assert [args[0] for args in seen].count("ffmpeg") == 1
