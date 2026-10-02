@@ -89,9 +89,13 @@ class Storage:
             raise StorageError(_code(error), f"download failed: {_code(error)}") from None
         return dest.stat().st_size
 
-    def upload(self, source: Path, content_type: str) -> str:
-        """Uploads ``source`` under a new random ``out/`` key and returns the key."""
-        key = new_output_key()
+    def upload(self, source: Path, content_type: str, key: str) -> str:
+        """Uploads ``source`` under ``key`` (``new_output_key()``) and returns the key.
+
+        The caller makes the key and puts it on the job first, so an upload
+        whose worker dies before the job is marked done is still found and
+        deleted (runner.py).
+        """
         try:
             self._client.upload_file(
                 str(source), self.bucket, key, ExtraArgs={"ContentType": content_type}

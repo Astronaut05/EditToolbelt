@@ -385,14 +385,16 @@ def test_a_tool_failing_over_10_percent_alerts(db: Conn) -> None:
 
 def test_a_slow_queue_alerts(db: Conn) -> None:
     user = new_user(db)
+    # Twenty slow jobs: the p95 covers every job in the window, other tests'
+    # too, so they must be over 5% of them (up to ~400 jobs) to set it.
     add_jobs(
-        db, user, "test-queue", ["queued"] * 3, queued_at=datetime.now(UTC) - timedelta(minutes=5)
+        db, user, "test-queue", ["queued"] * 20, queued_at=datetime.now(UTC) - timedelta(minutes=5)
     )
     try:
         [alert] = queue_wait(db)
         assert alert.rule == "queue_wait"
-        # The p95 covers every job in the window, other tests' too, so it can
-        # sit below these three's 5 min; it must still be over the 2 min limit.
+        # Other tests' quicker jobs can pull it below these jobs' 5 min; it must
+        # still be over the 2 min limit.
         found = re.match(
             r"Queue wait p95 is (\d+\.\d) min over the last 10 min \(\d+ jobs\)\.$",
             alert.message,

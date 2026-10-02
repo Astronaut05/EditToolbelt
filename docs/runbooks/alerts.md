@@ -19,10 +19,10 @@ A worker (or the web) stopped writing its heartbeat for 2 minutes.
 
 ## disk: "The worker's disk is N % full"
 
-Job temp folders live under the worker's temp dir and are deleted after every job, whatever happens.
+Job and probe folders live under `etb-work` in the worker's temp dir and are deleted after every job, whatever happens. A killed worker's folders are removed when the worker starts again.
 
-1. `docker compose exec worker sh -c 'df -h /tmp; du -sh /tmp/etb-* 2>/dev/null | sort -h | tail'`.
-2. Leftover `etb-job-*` folders older than the longest job timeout are from a killed worker: delete them.
+1. `docker compose exec worker sh -c 'df -h /tmp; du -sh /tmp/etb-work/* 2>/dev/null | sort -h | tail'`.
+2. Leftover `etb-job-*` folders older than the longest job timeout are from a killed worker that hasn't restarted: restart it (it clears them), or delete them.
 3. Still full: fewer `WORKER_SLOTS`, or a bigger disk.
 
 ## tool_failure_rate: "<tool>: N of M server jobs failed in the last 30 min"
@@ -54,6 +54,16 @@ The retention sweeper (every 5 min) hasn't finished in 30 min, or objects older 
 1. `docker compose logs --tail 200 worker | grep retention`.
 2. Storage unreachable: `curl -s localhost:3000/readyz`. Fix storage first; the sweeper catches up on its own.
 3. Old objects that no row points to: the sweeper only deletes what the database knows. List them (`aws s3 ls` with the stack's keys, or the gateway's console) and delete them; then find how they got there.
+
+## Watch failed (GitHub Actions): "/readyz/worker answered HTTP 503: Stale: …"
+
+The scheduled **Watch** workflow found no worker heartbeat in 10 minutes, or no finished sweeper pass in 30. The worker's own alerts can't fire when it is down, so this is the one that tells you. Treat it as urgent: while the sweeper is stopped, files outlive their hour.
+
+1. Railway → service `worker` → Deployments and Logs: is it running? Crash-looping (`hello.gave_up` means the database or storage didn't answer at start)?
+2. Running, but `worker_heartbeat` stale: it can't reach the database; check Postgres first.
+3. Heartbeat fresh, `retention_sweeper` stale: look for `retention.sweep_failed` (storage unreachable) or `scheduler.step_failed` with `step=maintain` (a bug) in its logs. Then as sweeper_stale below.
+4. Redeploying the worker (Railway → Redeploy) restarts it; the sweeper catches up on its first pass.
+5. Re-run Actions → Watch → Run workflow to confirm it's green.
 
 ## lifecycle_missing
 

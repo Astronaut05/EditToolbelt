@@ -1,0 +1,56 @@
+# Every 30 minutes, from outside: is the worker alive and is the retention
+# sweeper running? (CLAUDE.md rule 4: the sweeper is the guarantee.) The
+# worker alerts on both itself, but a dead worker can't alert: this run reads
+# /readyz/worker through Cloudflare Access with CI's service token, like Smoke,
+# and fails when the worker's heartbeat (10 min) or the sweeper's last pass
+# (30 min) is too old. GitHub emails about a failed scheduled run.
+# It skips cleanly until the service token (CF_ACCESS_CLIENT_ID,
+# CF_ACCESS_CLIENT_SECRET) and SITE_URL are set. Run it by hand from
+# Actions → Watch → Run workflow. What to do when it fails:
+# docs/runbooks/alerts.md → Watch.
+name: Watch
+
+on:
+  schedule:
+    # Off the hour: GitHub delays scheduled runs at :00 the most.
+    - cron: '13,43 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watch
+
+jobs:
+  worker:
+    name: Production · worker heartbeat and sweeper, through Access
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Is the service token set?
+        id: token
+        run: |
+          if [ -n "$ID" ] && [ -n "$SECRET" ] && [ -n "$SITE" ]; then
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No Access service token or SITE_URL yet (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET, vars.SITE_URL): worker check skipped."
+          fi
+        env:
+          ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          SITE: ${{ vars.SITE_URL }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.token.outputs.set == 'true'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.token.outputs.set == 'true'
+        with:
+          node-version-file: .nvmrc
+      - name: Worker check
+        if: steps.token.outputs.set == 'true'
+        run: node scripts/ops/verify.ts
+        env:
+          OPS_CHECKS: worker
+          SITE_URL: ${{ vars.SITE_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

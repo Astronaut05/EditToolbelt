@@ -34,6 +34,12 @@ def output_size(meta: dict[str, Any], options: dict[str, Any]) -> tuple[int, int
     return int(video.get("width") or 0) * scale, int(video.get("height") or 0) * scale
 
 
+def priced_pixels(meta: dict[str, Any]) -> int:
+    """``max_pixels``: the picture's size as the probe gave it, which the job is priced on."""
+    video = meta.get("video") or {}
+    return int(video.get("width") or 0) * int(video.get("height") or 0)
+
+
 class UpscaleImage:
     tool_id = "upscale-image"
     remote = True
@@ -60,6 +66,7 @@ class UpscaleImage:
             "model": "anime" if ctx.options.get("model") == "anime" else "general",
             "denoise": DENOISE.get(str(ctx.options.get("denoise")), DENOISE["medium"]),
             "format": fmt,
+            "max_pixels": priced_pixels(ctx.meta),
         }
         outcome = run_on_gpu(
             ctx,

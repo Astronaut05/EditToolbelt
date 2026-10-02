@@ -9,7 +9,7 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const SERVER_PORT = 4175;
+export const SERVER_PORT = Number(process.env.PW_SERVER_PORT ?? 4175);
 
 export const OUTBOX = join(fileURLToPath(new URL('..', import.meta.url)), 'test-results', 'outbox');
 
