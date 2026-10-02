@@ -59,8 +59,13 @@ describe('Click, played by the simulator', () => {
     expect(stored.providerData).toMatchObject({
       clickTransId,
       prepareId: prepare.answer.merchant_prepare_id,
+      clickPaydocId: complete?.sent.click_paydoc_id,
     });
     expect(store.balance()).toBe(200);
+    // Its fiscal receipt is queued with the credits, under Click's payment id.
+    expect(store.receipts).toEqual([
+      { purchaseId: purchase.id, paymentId: complete?.sent.click_paydoc_id },
+    ]);
   });
 
   it('keeps every signed call with the answer it got, and nothing unsigned', async () => {
@@ -182,6 +187,7 @@ describe('Click, played by the simulator', () => {
     });
     expect(again.answer).toEqual(complete?.answer);
     expect(store.ledgerFor(purchase.id)).toHaveLength(1);
+    expect(store.receipts).toHaveLength(1);
   });
 
   it('refuses a bad signature (-1): another secret, or a field changed after signing', async () => {
@@ -337,9 +343,10 @@ describe('Click, played by the simulator', () => {
         return Promise.reject(new Error('database is down'));
       }
     }
-    const { sim, purchase } = setup(new BrokenStore());
+    const { store, sim, purchase } = setup(new BrokenStore());
     const { complete } = await sim.pay(purchase.id, STARTER);
     expect(complete?.answer).toMatchObject({ error: -7, error_note: 'Failed to update user' });
+    expect(store.receipts).toEqual([]);
   });
 
   it('pays a retry after a failed Complete, and answers its repeated Complete with 0', async () => {
@@ -472,5 +479,7 @@ describe('Click, played by the simulator', () => {
     const prepareAgain = await sim.prepare({ merchantTransId: purchase.id, amount: STARTER });
     expect(prepareAgain.answer.error).toBe(CLICK_ERRORS.TRANSACTION_CANCELLED);
     expect(store.ledger).toHaveLength(0);
+    // Nothing was sold: no fiscal receipt.
+    expect(store.receipts).toEqual([]);
   });
 });

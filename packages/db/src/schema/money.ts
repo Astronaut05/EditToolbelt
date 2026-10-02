@@ -1,6 +1,7 @@
 /**
  * Money (docs/04 → Money, docs/05): the append-only credit ledger, purchases,
- * the payment webhooks they come from and the admin's payment switches.
+ * the payment webhooks they come from, Click's fiscal receipts and the
+ * admin's payment switches.
  *
  * `credit_transactions` is never updated or deleted: a trigger raises on
  * UPDATE, DELETE and TRUNCATE (migrations/0002_ledger_append_only.sql). Check
@@ -113,6 +114,48 @@ export const purchases = pgTable(
     index('purchases_provider_created_idx').on(t.provider, t.createdAt),
     uniqueIndex('purchases_provider_txn_key').on(t.provider, t.providerTxnId),
     check('purchases_positive', sql`${t.credits} > 0 and ${t.amountMinor} > 0`),
+  ],
+);
+
+export const FISCAL_RECEIPT_STATUSES = ['pending', 'sent', 'failed'] as const;
+export type FiscalReceiptStatus = (typeof FISCAL_RECEIPT_STATUSES)[number];
+
+export const fiscalReceiptStatus = pgEnum('fiscal_receipt_status', FISCAL_RECEIPT_STATUSES);
+
+/**
+ * The fiscal receipts we send ourselves (docs/05 → Payments): Click's, one
+ * per purchase, queued in the transaction that credits it and sent to
+ * Click's Merchant API (`ofd_data/submit_items`) by the web server, again
+ * and again with backoff until Click accepts it. `pending`: not tried yet;
+ * `failed`: the last try failed and another is due at `next_attempt_at`;
+ * `sent`: Click accepted it. No personal data, and never the seller's TIN or
+ * PINFL (they come from config/business.ts when it's sent).
+ */
+export const fiscalReceipts = pgTable(
+  'fiscal_receipts',
+  {
+    id: id(),
+    purchaseId: uuid('purchase_id')
+      .notNull()
+      .references(() => purchases.id),
+    /** Click's payment id (`click_paydoc_id` from Complete): the receipt's `payment_id`. */
+    paymentId: text('payment_id').notNull(),
+    status: fiscalReceiptStatus('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    /** When the next try is due; pushed ahead while a try is under way, so one sender has it. */
+    nextAttemptAt: tstz('next_attempt_at').notNull().defaultNow(),
+    /** Why the last try failed: our words, or Click's code and note. */
+    lastError: text('last_error'),
+    sentAt: tstz('sent_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('fiscal_receipts_purchase_key').on(t.purchaseId),
+    index('fiscal_receipts_due_idx')
+      .on(t.nextAttemptAt)
+      .where(sql`${t.status} <> 'sent'`),
+    check('fiscal_receipts_attempts', sql`${t.attempts} >= 0`),
   ],
 );
 

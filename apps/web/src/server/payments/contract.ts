@@ -41,6 +41,11 @@ export interface PurchaseRecord {
   createdAt: Date;
 }
 
+/** A fiscal receipt to queue with a completed sale: Click's payment id (`click_paydoc_id`). */
+export interface FiscalReceiptRequest {
+  paymentId: string;
+}
+
 /**
  * Purchases and the ledger, for providers. Each call is one database
  * transaction; every credit change goes through applyCredit (CLAUDE.md rule 5).
@@ -64,11 +69,16 @@ export interface PurchaseStore {
    * Idempotent: a completed purchase comes back unchanged, with no second row
    * (the caller compares its providerTxnId). Throws on a cancelled or
    * refunded purchase.
+   *
+   * With `receipt`, the fiscal receipt we send ourselves (Click's) is queued
+   * in the same transaction, so a credited sale always has one
+   * (`fiscal_receipts`, sent by payments/fiscal.ts).
    */
   complete(
     id: string,
     data?: Record<string, unknown>,
     providerTxnId?: string,
+    receipt?: FiscalReceiptRequest,
   ): Promise<PurchaseRecord>;
   /** pending → cancelled. No ledger row. Idempotent. Throws on a completed purchase. */
   cancel(id: string, data?: Record<string, unknown>): Promise<PurchaseRecord>;

@@ -99,6 +99,11 @@ Store, then process. Unique per (provider, event_id); processing is idempotent. 
 - `error`: something a person must look at (a payment not credited, a store failure); it alerts at once (`07` → Alerts).
 - `answer`: Click and Payme only, what we answered (their code and note, or `result`). A refusal their protocol expects is an answer, not an error.
 
+**fiscal_receipts** — the fiscal receipts we send ourselves: Click's, one per sale (`05` → Payments).
+| id | purchase_id (fk purchases, unique) | payment_id text (Click's `click_paydoc_id`) | status enum `pending`,`sent`,`failed` | attempts int ≥ 0 | next_attempt_at | last_error text null | sent_at null | created_at | updated_at |
+
+Written by the store's `complete` in the transaction that credits the purchase. The web server sends what's due (partial index on `next_attempt_at` where not `sent`), each row locked while Click answers, and retries with backoff until Click accepts it. The body is built at each try from the purchase and `config/business.ts`, never stored; no personal data.
+
 ### Jobs
 
 **jobs**

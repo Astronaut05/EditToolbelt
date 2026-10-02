@@ -85,6 +85,13 @@
       "when": 1790931238758,
       "tag": "0011_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790945468563,
+      "tag": "0012_click_fiscal",
+      "breakpoints": true
     }
   ]
 }
