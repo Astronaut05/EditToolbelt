@@ -203,8 +203,10 @@ jobs:
       - name: Migrations apply to the local stack's database
         run: |
           docker compose run --rm -T migrate
+          # Every table the latest migration snapshot describes exists.
+          want=$(jq '.tables | length' "$(ls packages/db/migrations/meta/*_snapshot.json | sort | tail -1)")
           docker compose exec -T postgres psql -U etb -d etb -tAc \
-            "select count(*) from information_schema.tables where table_schema = 'public'" | grep -qx 20
+            "select count(*) from information_schema.tables where table_schema = 'public'" | grep -qx "$want"
       - name: Worker hello-world job (JSON logs, job succeeds)
         run: |
           set -o pipefail
