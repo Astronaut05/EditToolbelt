@@ -7,6 +7,7 @@ from typing import Any
 
 import modal.exception
 import pytest
+from pydantic import SecretStr
 
 from etb_worker.gpu.backend import (
     GpuCall,
@@ -169,5 +170,13 @@ def test_the_setting_picks_the_backend(settings: Settings) -> None:
     with pytest.raises(GpuError) as caught:
         LocalGpu().run(GpuCall("transcribe", {}, 60))
     assert caught.value.code == "GPU_UNAVAILABLE"
-    modal_settings = settings.model_copy(update={"gpu_backend": "modal"})
+    no_token = settings.model_copy(update={"gpu_backend": "modal"})
+    assert make_backend(no_token) is None
+    modal_settings = settings.model_copy(
+        update={
+            "gpu_backend": "modal",
+            "modal_token_id": SecretStr("ak-test"),
+            "modal_token_secret": SecretStr("as-test"),
+        }
+    )
     assert isinstance(make_backend(modal_settings), ModalGpu)

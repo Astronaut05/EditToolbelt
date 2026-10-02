@@ -34,7 +34,7 @@ The services reference these (`.railway/railway.ts`); a reference to one that is
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | worker | The alert bot (optional; email alone works) |
 | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | worker | Modal → a token for the workspace |
 
-Everything else the services read is set in `.railway/railway.ts` itself (no secrets there): `APP_ENV`, `SITE_URL`, `DATABASE_URL` (a reference to Postgres), `S3_BUCKET`, `MAIL_FROM`, `WORKER_SLOTS`. Payments add their own variables, switched off; `turn-on-payments.md` lists them once M5 lands.
+Everything else the services read is set in `.railway/railway.ts` itself (no secrets there): `APP_ENV`, `SITE_URL`, `DATABASE_URL` (a reference to Postgres), `S3_BUCKET`, `MAIL_FROM`, `WORKER_SLOTS`, `GPU_BACKEND` (`modal`; without the Modal token the worker starts with its GPU tools off and logs `gpu.off`). Payments add their own variables, switched off; `turn-on-payments.md` lists them once M5 lands.
 
 ### GitHub → Settings → Secrets and variables → Actions
 

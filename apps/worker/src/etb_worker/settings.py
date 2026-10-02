@@ -43,7 +43,8 @@ class Settings(BaseSettings):
     # The GPU tools' backend (docs/01 -> GPU backend): `modal` runs them on
     # Modal (ServerlessGpu) with MODAL_TOKEN_ID and MODAL_TOKEN_SECRET, which the
     # Modal client reads from the environment itself; `local` is the dev-only
-    # LocalGpu; unset, the GPU tools are off on this worker.
+    # LocalGpu; unset, the GPU tools are off on this worker. `modal` without a
+    # token also leaves them off (logged), rather than stopping the CPU tools.
     gpu_backend: Literal["modal", "local"] | None = None
     modal_token_id: SecretStr | None = None
     modal_token_secret: SecretStr | None = None
@@ -100,13 +101,17 @@ class Settings(BaseSettings):
         if (self.modal_token_id is None) != (self.modal_token_secret is None):
             msg = "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET: set both, or neither"
             raise ValueError(msg)
-        if self.gpu_backend == "modal" and self.modal_token_id is None:
-            msg = "GPU_BACKEND=modal: needs MODAL_TOKEN_ID and MODAL_TOKEN_SECRET"
-            raise ValueError(msg)
         if self.gpu_backend == "local" and self.app_env == "production":
             msg = "GPU_BACKEND=local: LocalGpu is for development only"
             raise ValueError(msg)
         return self
+
+    @property
+    def gpu_ready(self) -> bool:
+        """GPU_BACKEND names a backend this worker can use."""
+        if self.gpu_backend == "modal":
+            return self.modal_token_id is not None
+        return self.gpu_backend == "local"
 
     @property
     def telegram_enabled(self) -> bool:

@@ -131,17 +131,18 @@ def test_gpu_tools_are_off_by_default(clean_env: pytest.MonkeyPatch) -> None:
 def test_modal_needs_its_token(clean_env: pytest.MonkeyPatch) -> None:
     _base(clean_env)
     clean_env.setenv("GPU_BACKEND", "modal")
-    with pytest.raises(ValidationError) as caught:
-        Settings()
-    assert format_errors(caught.value) == [
-        "GPU_BACKEND=modal: needs MODAL_TOKEN_ID and MODAL_TOKEN_SECRET"
-    ]
+    # No token: the worker still starts (its CPU tools work), with the GPU tools off.
+    assert not Settings().gpu_ready
     clean_env.setenv("MODAL_TOKEN_ID", "ak-test")
-    with pytest.raises(ValidationError):
-        Settings()  # half a token
+    with pytest.raises(ValidationError) as caught:
+        Settings()  # half a token is a mistake
+    assert format_errors(caught.value) == [
+        "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET: set both, or neither"
+    ]
     clean_env.setenv("MODAL_TOKEN_SECRET", "as-test-secret")
     settings = Settings()
     assert settings.gpu_backend == "modal"
+    assert settings.gpu_ready
     assert "as-test-secret" not in repr(settings)
 
 

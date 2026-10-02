@@ -186,8 +186,8 @@ class LocalGpu:
 
 def make_backend(settings: Settings) -> GpuBackend | None:
     """The backend GPU_BACKEND names; None turns the GPU tools off on this worker."""
+    if not settings.gpu_ready:
+        return None
     if settings.gpu_backend == "modal":
         return ModalGpu()
-    if settings.gpu_backend == "local":
-        return LocalGpu()
-    return None
+    return LocalGpu()

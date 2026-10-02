@@ -16,6 +16,7 @@ import threading
 from collections.abc import Callable, Sequence
 
 from etb_worker.db import connect
+from etb_worker.gpu.backend import make_backend
 from etb_worker.hello import HelloResult, run_hello
 from etb_worker.logs import configure_logging, get_logger
 from etb_worker.notify import Notifier
@@ -102,7 +103,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     wake = threading.Event()
     threading.Thread(target=listen, args=(settings, wake, stop), daemon=True).start()
-    runners = [JobRunner(storage, lambda: connect(settings)) for _ in range(settings.worker_slots)]
+    gpu = make_backend(settings)
+    if settings.gpu_backend and gpu is None:
+        log.error("gpu.off", error_code="GPU_NOT_CONFIGURED", backend=settings.gpu_backend)
+    else:
+        log.info("gpu.backend", backend=gpu.name if gpu else "off")
+    runners = [
+        JobRunner(storage, lambda: connect(settings), gpu=gpu) for _ in range(settings.worker_slots)
+    ]
     slots = [
         threading.Thread(target=run_slot, args=(settings, storage, runner, wake, stop))
         for runner in runners

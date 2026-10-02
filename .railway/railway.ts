@@ -96,7 +96,9 @@ export default defineRailway((ctx) => {
       ALERT_EMAIL: shared('ALERT_EMAIL'),
       TELEGRAM_BOT_TOKEN: shared('TELEGRAM_BOT_TOKEN'),
       TELEGRAM_CHAT_ID: shared('TELEGRAM_CHAT_ID'),
-      // GPU jobs on Modal (ServerlessGpu).
+      // GPU jobs on Modal (ServerlessGpu). Without the token the worker runs
+      // with its GPU tools off; each GPU tool also waits for an admin to switch it on.
+      GPU_BACKEND: 'modal',
       MODAL_TOKEN_ID: shared('MODAL_TOKEN_ID'),
       MODAL_TOKEN_SECRET: shared('MODAL_TOKEN_SECRET'),
     },
