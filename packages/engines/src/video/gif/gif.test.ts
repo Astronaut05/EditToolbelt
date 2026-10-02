@@ -214,7 +214,9 @@ describe('GIF', () => {
     expect(read.frames[1]?.pixels[5]).toEqual([200, 10, 30]);
   });
 
-  it('survives long runs past the 4096-code table', () => {
+  // Quantising 60,000 random colours takes about 3 s alone and up to 9 s when
+  // every package's tests share the CPU, past Vitest's 5 s default.
+  it('survives long runs past the 4096-code table', { timeout: 30_000 }, () => {
     const w = 300;
     const h = 200;
     const frame = new Uint8Array(w * h * 4);
