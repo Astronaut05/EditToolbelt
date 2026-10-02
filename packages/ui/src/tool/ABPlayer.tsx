@@ -11,6 +11,15 @@ import { SegmentedControl } from '../primitives/SegmentedControl';
 
 type Side = 'original' | 'result';
 
+interface Loaded {
+  context: AudioContext;
+  buffers: Record<Side, AudioBuffer>;
+  gains: Record<Side, GainNode>;
+  sources: AudioBufferSourceNode[];
+  /** context.currentTime when position 0 last played. */
+  zero: number;
+}
+
 const SIDES = [
   { value: 'original' as const, label: 'Original' },
   { value: 'result' as const, label: 'Cleaned' },
@@ -50,14 +59,10 @@ export function ABPlayer({
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [failed, setFailed] = useState(false);
-  const audio = useRef<{
-    context: AudioContext;
-    buffers: Record<Side, AudioBuffer>;
-    gains: Record<Side, GainNode>;
-    sources: AudioBufferSourceNode[];
-    /** context.currentTime when position 0 last played. */
-    zero: number;
-  } | null>(null);
+  const audio = useRef<Loaded | null>(null);
+  /** The one decode in flight: a second Play while it runs waits for it, never starts another. */
+  const loading = useRef<Promise<Loaded> | null>(null);
+  const mounted = useRef(true);
   const sideRef = useRef(side);
   const frame = useRef(0);
 
@@ -74,39 +79,51 @@ export function ABPlayer({
   }, []);
 
   useEffect(() => {
+    mounted.current = true;
     return () => {
+      mounted.current = false;
       stop();
       void audio.current?.context.close();
       audio.current = null;
     };
   }, [stop]);
 
+  const load = useCallback(async (): Promise<Loaded> => {
+    const context = new AudioContext();
+    try {
+      const [a, b] = await Promise.all(
+        [original, result].map(async (blob) => context.decodeAudioData(await blob.arrayBuffer())),
+      );
+      if (!a || !b) throw new Error('nothing decoded');
+      const gains = { original: context.createGain(), result: context.createGain() };
+      gains.original.connect(context.destination);
+      gains.result.connect(context.destination);
+      return { context, buffers: { original: a, result: b }, gains, sources: [], zero: 0 };
+    } catch (error) {
+      void context.close();
+      throw error;
+    }
+  }, [original, result]);
+
   const start = useCallback(
     async (at: number) => {
       try {
         if (!audio.current) {
-          const context = new AudioContext();
-          const [a, b] = await Promise.all(
-            [original, result].map(async (blob) =>
-              context.decodeAudioData(await blob.arrayBuffer()),
-            ),
-          );
-          if (!a || !b) throw new Error('nothing decoded');
-          const gains = { original: context.createGain(), result: context.createGain() };
-          gains.original.connect(context.destination);
-          gains.result.connect(context.destination);
-          audio.current = {
-            context,
-            buffers: { original: a, result: b },
-            gains,
-            sources: [],
-            zero: 0,
-          };
-          setDuration(Math.min(a.duration, b.duration));
+          loading.current ??= load();
+          const loaded = await loading.current.finally(() => {
+            loading.current = null;
+          });
+          if (!mounted.current) {
+            loaded.context.close().catch(() => undefined);
+            return;
+          }
+          audio.current ??= loaded;
+          setDuration(Math.min(loaded.buffers.original.duration, loaded.buffers.result.duration));
         }
         const now = audio.current;
-        stop();
         await now.context.resume();
+        // After the await: a second Play that got here first is stopped, so one set plays.
+        stop();
         const length = Math.min(now.buffers.original.duration, now.buffers.result.duration);
         const offset = at % length;
         const when = now.context.currentTime + 0.02;
@@ -132,7 +149,7 @@ export function ABPlayer({
         setPlaying(false);
       }
     },
-    [original, result, stop],
+    [load, stop],
   );
 
   const pause = useCallback(() => {

@@ -74,6 +74,10 @@ OVERSHOOT_DB = 2.5
 PEAK_METER = "ebur128=peak=true:metadata=1,ametadata=mode=print:key=lavfi.r128.true_peak:file={}"
 #: More channels than this is not speech.
 MAX_CHANNELS = 8
+#: The decoded and the cleaned sound, raw 32-bit float, kept on the job's disk
+#: together: the jobs API refuses more before charging (job-rules.ts,
+#: MAX_NOISE_WORK_BYTES); this is the same limit, should a job get here anyway.
+MAX_WORK_BYTES = 8 * 1024**3
 #: The probe's container and codec -> the format a "keep" writes.
 KEEP_CODECS = {"mp3": "mp3", "aac": "m4a", "alac": "m4a", "flac": "flac", "opus": "ogg"}
 KEEP_CONTAINERS = {"wav": "wav", "flac": "flac", "ogg": "ogg", "mp3": "mp3"}
@@ -489,6 +493,9 @@ class RemoveNoise:
                 "TOO_MANY_CHANNELS",
                 f"This file has {channels} channels; noise reduction takes up to {MAX_CHANNELS}.",
             )
+        work = float(ctx.meta.get("duration_ms") or 0) / 1000 * rate * channels * 4 * 2
+        if work > MAX_WORK_BYTES:
+            raise JobFailed("TOO_LARGE", "This file is too long to clean at once; split it.")
         options = ctx.options
         codec = str(audio.get("codec") or "")
         depth = source_depth(ctx) if codec.startswith(LOSSLESS) else 16

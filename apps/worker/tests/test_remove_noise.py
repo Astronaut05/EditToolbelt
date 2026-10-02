@@ -407,3 +407,11 @@ def test_a_file_without_sound_or_a_broken_one_fails_cleanly(tmp_path: Path) -> N
     with pytest.raises(JobFailed) as wide:
         processor.run(ctx)
     assert wide.value.code == "TOO_MANY_CHANNELS"
+    # An hour of 8 channels at 192 kHz: a few MB as FLAC, 44 GB raw on the disk.
+    ctx.meta = {
+        "duration_ms": 3_600_000,
+        "audio": {"codec": "flac", "sample_rate": 192000, "channels": 8},
+    }
+    with pytest.raises(JobFailed) as long:
+        processor.run(ctx)
+    assert long.value.code == "TOO_LARGE"

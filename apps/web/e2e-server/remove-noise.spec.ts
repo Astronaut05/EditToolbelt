@@ -124,6 +124,18 @@ async function dropNoisy(page: Page) {
 test('a free 10 s preview plays A/B, then the whole file is cleaned on our servers', async ({
   page,
 }) => {
+  // Counts the page's AudioContexts: one for the A/B player, however Play is pressed.
+  await page.addInitScript(() => {
+    const Base = window.AudioContext;
+    const counted = window as unknown as { audioContexts: number };
+    counted.audioContexts = 0;
+    window.AudioContext = class extends Base {
+      constructor(options?: AudioContextOptions) {
+        super(options);
+        counted.audioContexts += 1;
+      }
+    };
+  });
   const email = newEmail();
   await signIn(page, email);
   const owner = await userId(email);
@@ -160,6 +172,8 @@ test('a free 10 s preview plays A/B, then the whole file is cleaned on our serve
     'Medium: background noise down by up to 24 dB',
   ]);
   await expect(page.getByText('Preview · 0:00.0 to 0:06.0')).toBeVisible({ timeout: 20_000 });
+  // A double press on Play while the snippet decodes makes one player, not two that can't be stopped.
+  await page.getByRole('button', { name: 'Play', exact: true }).dblclick();
   const listen = page.getByRole('radiogroup', { name: 'Listen to' });
   await expect(listen.getByRole('radio', { name: 'Cleaned' })).toBeChecked();
   await listen.getByRole('radio', { name: 'Original' }).click();
@@ -187,6 +201,9 @@ test('a free 10 s preview plays A/B, then the whole file is cleaned on our serve
   const saved = page.waitForEvent('download');
   await download.click();
   expect((await saved).suggestedFilename()).toBe('noisy-speech_clean.wav');
+  expect(
+    await page.evaluate(() => (window as unknown as { audioContexts: number }).audioContexts),
+  ).toBe(1);
   for (const key of [snippetKey, resultKey]) {
     await storage.fetch(objectUrl(key), { method: 'DELETE' });
   }
