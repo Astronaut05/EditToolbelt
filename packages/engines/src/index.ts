@@ -125,3 +125,59 @@ export {
   type NamesPlan,
 } from './files/batch-rename';
 export { takenDate } from './files/taken';
+export {
+  arrowHead,
+  drawMark,
+  drawMarks,
+  MARK_TOOLS,
+  nextMarker,
+  type Mark,
+  type MarkTool,
+  type Point,
+} from './image/annotate';
+export {
+  addUserFont,
+  cssFont,
+  drawTextLayer,
+  drawTextLayers,
+  hitsLayer,
+  layerFrame,
+  loadTextFont,
+  measureText,
+  snapCentre,
+  type TextAlign,
+  type TextBlock,
+  type TextLayer,
+} from './image/text-layer';
+export { TEXT_FONTS } from './image/text-fonts';
+export {
+  throughFrame,
+  throughUpright,
+  uprightFor,
+  type Frame,
+  type Upright,
+} from './image/upright';
+export {
+  ADJUST_RANGES,
+  adjustNote,
+  adjustValue,
+  applyAdjust,
+  isNeutral,
+  NO_ADJUST,
+  type Adjust,
+} from './image/adjust';
+export {
+  activeAreas,
+  applyRedact,
+  areaBoxOf,
+  defaultAmount,
+  faceArea,
+  maxAmount,
+  REDACT_EFFECTS,
+  REDACT_SHAPES,
+  type Redact,
+  type RedactEffect,
+  type Redaction,
+  type RedactShape,
+} from './image/redact';
+export { YUNET, type FaceBox } from './image/faces/yunet';

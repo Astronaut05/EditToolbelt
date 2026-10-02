@@ -11,7 +11,7 @@
  * - Files already in place (and matching) are left alone, so it's quick to rerun.
  *
  * Runs before `build` and `dev`. A failed download warns and the build goes
- * on (Remove Background then says the model is missing); `--strict` (CI)
+ * on (Remove Background or Find faces then says the model is missing); `--strict` (CI)
  * fails on it instead. The quality model is optional either way: without it
  * the tool uses Light mode. With an absolute MODELS_BASE_URL there is nothing
  * to do here; the files are uploaded to that host instead.
@@ -30,17 +30,27 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { YUNET } from '../../../packages/engines/src/image/faces/yunet.ts';
 import {
   ORT_FILES,
   ORT_VERSION,
   SEGMENT_MODELS,
-  type SegmentModel,
 } from '../../../packages/engines/src/image/rmbg/models.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const OUT = join(ROOT, 'apps/web/public/models');
 const strict = process.argv.includes('--strict');
-const OPTIONAL = new Set<SegmentModel['id']>(['birefnet-lite']);
+
+interface ModelFile {
+  id: string;
+  /** Path under MODELS_BASE_URL, and the key of its source in models.json. */
+  file: string;
+  sha256: string | null;
+}
+
+/** P07's two models and P12's face finder. */
+const MODELS: ModelFile[] = [...Object.values(SEGMENT_MODELS), { id: 'yunet', ...YUNET }];
+const OPTIONAL = new Set(['birefnet-lite']);
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
@@ -73,7 +83,7 @@ function copyRuntime(): string[] {
   return [];
 }
 
-async function fetchModel(model: SegmentModel, source: string): Promise<string | null> {
+async function fetchModel(model: ModelFile, source: string): Promise<string | null> {
   const to = join(OUT, model.file);
   if (existsSync(to)) {
     const hash = sha256(readFileSync(to));
@@ -117,7 +127,7 @@ async function main(): Promise<number> {
   >;
   const problems = copyRuntime();
   const warnings: string[] = [];
-  for (const model of Object.values(SEGMENT_MODELS)) {
+  for (const model of MODELS) {
     const source = sources[model.file];
     if (!source) {
       problems.push(`${model.file}: no source in models.json`);
@@ -130,7 +140,7 @@ async function main(): Promise<number> {
     console.warn(`Warning: ${warning} (optional: Light mode still works)`);
   for (const problem of problems) console.error(`${strict ? 'Error' : 'Warning'}: ${problem}`);
   if (problems.length && !strict) {
-    console.warn('Remove Background won’t work until `pnpm models` succeeds.');
+    console.warn('Remove Background and Find faces won’t work until `pnpm models` succeeds.');
   }
   return strict && problems.length ? 1 : 0;
 }

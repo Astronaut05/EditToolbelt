@@ -67,7 +67,7 @@ jobs:
           }
       - run: pnpm licenses:check
       - run: pnpm hosts:check
-      - name: AI models and ONNX Runtime for Remove Background, checksums checked
+      - name: AI models and ONNX Runtime for Remove Background and Find faces, checksums checked
         run: pnpm models --strict
       - name: Build static export
         run: pnpm build

@@ -6,6 +6,10 @@
  */
 import { applyLut } from '@etb/core/lut';
 
+import { adjustNote, applyAdjust, isNeutral } from './adjust';
+import { drawMarks } from './annotate';
+import { applyRedact, type RedactEffect } from './redact';
+
 import { encodeBmp } from './bmp';
 import { decodeImage, ImageReadError } from './decode';
 import { zipSync } from 'fflate';
@@ -347,6 +351,32 @@ async function runSocial(
   };
 }
 
+const REDACT_DONE: Record<RedactEffect, string> = {
+  blur: 'blurred',
+  pixelate: 'pixelated',
+  solid: 'covered',
+};
+
+/** The image with the marks drawn on it at `scale` (smaller when the decode was scaled down). */
+function drawn(image: ImageData, marks: NonNullable<ImageJob['marks']>, scale: number): ImageData {
+  const canvas = new OffscreenCanvas(image.width, image.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No 2D canvas in this browser');
+  ctx.putImageData(image, 0, 0);
+  drawMarks(ctx, marks, scale);
+  return ctx.getImageData(0, 0, image.width, image.height);
+}
+
+/** The image with an overlay (P10's text) drawn over it, stretched to its size if the decode was scaled. */
+function laidOver(image: ImageData, overlay: ImageBitmap): ImageData {
+  const canvas = new OffscreenCanvas(image.width, image.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No 2D canvas in this browser');
+  ctx.putImageData(image, 0, 0);
+  ctx.drawImage(overlay, 0, 0, image.width, image.height);
+  return ctx.getImageData(0, 0, image.width, image.height);
+}
+
 async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done' }>> {
   const notes: string[] = [];
   post({ type: 'progress', fraction: 0.1, stage: 'Reading' });
@@ -357,6 +387,29 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
   if (scale < 1) notes.push(`Scaled down to ${String(width)} × ${String(height)} px`);
   let image = rgba(bitmap, width, height);
   bitmap.close();
+  if (job.adjust && !isNeutral(job.adjust)) {
+    post({ type: 'progress', fraction: 0.11, stage: 'Adjusting' });
+    applyAdjust(image.data, job.adjust);
+    notes.push(adjustNote(job.adjust));
+  }
+  if (job.redact) {
+    post({ type: 'progress', fraction: 0.12, stage: 'Hiding' });
+    const hidden = applyRedact(image, job.redact, scale);
+    if (hidden > 0) {
+      notes.push(
+        `${String(hidden)} ${hidden === 1 ? 'area' : 'areas'} ${REDACT_DONE[job.redact.effect]}`,
+      );
+    }
+  }
+  if (job.marks && job.marks.length > 0) {
+    post({ type: 'progress', fraction: 0.15, stage: 'Drawing' });
+    image = drawn(image, job.marks, scale);
+    notes.push(`${String(job.marks.length)} ${job.marks.length === 1 ? 'mark' : 'marks'} drawn`);
+  }
+  if (job.overlay) {
+    image = laidOver(image, job.overlay);
+    job.overlay.close();
+  }
   if (job.geometry) {
     post({ type: 'progress', fraction: 0.2, stage: job.geometry.resize ? 'Resizing' : 'Cropping' });
     const done = applyGeometry(image, job.geometry);

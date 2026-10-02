@@ -1370,3 +1370,108 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/utility.md` → U02.
 **Reverse:** the rules are `packages/core/src/rename.ts`; the dates `packages/engines/src/files/taken.ts`; the folder rename `packages/ui/src/tool/in-place.ts`.
+
+## 2026-10-01 · Draw on Image (M8)
+
+**Decision:**
+- **Marks are data, not pixels:** each is a tool, its points in the image's own pixels, a colour, a size in px and an opacity, kept in the editor's edit, so undo and redo come with the editor's history.
+- **One renderer** (`drawMark` in `@etb/engines`): the editor draws the marks on a canvas over the image at screen scale, and the image worker draws them on the full-size decode before any crop or turn. What you see is what you save.
+- **The tools:**
+  - Brush: smoothed through the midpoints.
+  - Highlighter: 4 × wider, square ends, multiplied, so text under it stays readable.
+  - Line, arrow, rectangle, ellipse.
+  - Numbered marker: the next number in a filled circle (its radius 5 × the size, at least 14 px), the number in black or white by contrast.
+- **The arrowhead scales with the stroke:** 4 × the width long, about 2.5 × wide plus the width, never longer than the arrow. The shaft stops at the head's base, so a thick line never pokes out of the tip.
+- **No drag needed** (WCAG 2.5.7): a shape is also two clicks, start then end, with a preview between them; a marker is one click; Escape drops a started shape. The pen's controls sit in a bar over the image: tools as a radio group with arrow keys, then colour, size in px, opacity, and Clear all.
+- **Defaults:** a red arrow (#e53935), sized to the image (its longest side ÷ 250, at least 2 px), at full opacity.
+- **One image at a time.** It saves in its own format unless another is picked, at its full size.
+
+**Why:** `tools/photo.md` → P09.
+**Reverse:** the marks and renderer are `packages/engines/src/image/annotate.ts`; the editor's layer is `packages/ui/src/tool/DrawLayer.tsx`.
+
+## 2026-10-01 · Add Text to Image (M8)
+
+**Decision:**
+- **Fonts:** Onest and IBM Plex Mono (already the site's), plus Montserrat, Oswald and Noto Serif, from Fontsource (OFL-1.1, `docs/13`).
+  - Each was checked in the browser to draw Uzbek Latin oʻ gʻ (U+02BB) and Uzbek Cyrillic қ ғ ҳ ў.
+  - PT Serif, Caveat, Roboto Slab, Rubik, Lobster and Comfortaa each missed one, so they're out.
+  - Regular and bold, in four subsets each. The files are copied to `/fonts/text/` at build (`scripts/text-fonts.ts`, 668 KB in all), registered with their unicode ranges, and loaded only as text needs them.
+  - Fonts load under their own family names (`etb-text-*`), so they never clash with the site's Onest.
+- **Your own font:** a TTF, OTF, WOFF or WOFF2 file picked in the panel is loaded with `FontFace` from its bytes and used on the page only; it's never sent anywhere.
+- **Layers are data** in the editor's edit (text, font, bold, size in image px, colour, alignment, centre, rotation, outline, shadow, box), so undo and redo come with the editor.
+- **One renderer, on the page:** the preview and the export both lay the text out with `drawTextLayer` and the page's fonts. The export draws the layers at full size on a transparent canvas the image's size, and the image worker lays that over the decoded image. Fonts aren't loaded into the worker, because not every browser can do that.
+- **Layout:**
+  - Lines at 1.25 × the size, centred on the layer's point.
+  - Alignment within the block.
+  - An outline drawn twice as wide under the fill, so it sits outside the letters.
+  - A soft shadow scaled with the size, and a box with 0.3 × the size of padding at its own opacity.
+- **Placing:**
+  - Click the image to add text there, or Add text for the middle.
+  - Drag the chosen layer; it snaps to the image's middle lines within 8 screen px, and a guide shows while it does.
+  - Arrow keys nudge it (Shift for 10 px), and Delete removes it.
+- **New text** is white, bold Onest with a shadow, a tenth of the image's shorter side.
+- **On phones** the panel shows the text, font, size, bold and colour, with the rest folded under "More". It's capped at 55% of the editor, so the image stays in view.
+
+**Why:** `tools/photo.md` → P10.
+**Reverse:** the layers and renderer are `packages/engines/src/image/text-layer.ts`; the fonts are `text-fonts.ts`; the editor's parts are `packages/ui/src/tool/TextLayers.tsx` and `TextBar.tsx`.
+
+## 2026-10-01 · Blur & Pixelate Image (M8)
+
+**Decision:**
+- **Face model: YuNet 2023mar** from OpenCV's model zoo (MIT code and weights, `docs/13`). It's 0.2 MB, made for faces from about 10 px up, and runs on ONNX Runtime Web's WASM build, which Remove Background already ships, so the two tools share one 14 MB runtime download in the models cache.
+  - Pinned by SHA-256. `pnpm models` fetches it from the zoo's LFS file on `main`; a change there fails the checksum instead of shipping.
+  - **Reading a photo:** the model takes a fixed 640 × 640 input. The whole photo is read once, scaled to fit. When it's large, it's read again in overlapping tiles at 2× and 4× that detail, never finer than the photo's own pixels: 27 runs for a 4000 × 3000 photo, about 2 s in WASM. A face about 30 px across in a 4000 px group photo is found.
+  - **Merging:** the best box wins over any it overlaps by IoU above 0.3, or that lies mostly inside it (a face cut by a tile's edge).
+  - **Threshold:** 0.7, not OpenCV's 0.9. A missed face is worse than a box the user turns off.
+- **Found faces are hidden at once:** each becomes an ellipse grown from the detector's brow-to-chin box to cover the head (15% each side, 30% above, 10% below). A tap or Enter on a face's button leaves it as it is, and a second turns it back on. A new search replaces the earlier faces and keeps drawn areas.
+- **Areas are data** in the editor's edit (box, ellipse or brush path in image px), with one effect for all of them: Blur, Pixelate or Solid. So undo and redo come with the editor.
+- **Effects replace every pixel inside an area,** with no feathered edge, so nothing of a face shows through:
+  - **Pixelate:** blocks of the set size, counted from the area's top-left corner, each the opacity-weighted average of its pixels.
+  - **Blur:** three box blurs each way (about a Gaussian with σ = half the strength), reading the pixels around the area too.
+  - **Solid:** a colour, black by default.
+- **Strength in px:** it starts at about 1/60 of the photo's longest side (67 px on a 4000 px photo), up to 1/8.
+- **One renderer:** the same pure code in `packages/engines` makes the editor's preview (the photo redrawn at screen size) and, in the image worker, the full-size image, before marks, text and geometry.
+- **Without a pointer:** "Add box" puts a box in the middle. Each drawn box or ellipse can be focused: the arrows move it (Shift for 10 px), Alt and the arrows change its size, and Delete removes it.
+- **Fixture:** `fixtures/photo/face.jpg`, NASA's public-domain portrait of Eileen Collins at 256 px. The test puts four copies at four sizes into one image. Wikimedia is out of reach from the build container, so the copy in scikit-image's repository was used, checked against its SHA-256.
+
+**Why:** `tools/photo.md` → P12.
+**Reverse:** the areas and effects are `packages/engines/src/image/redact.ts`; the finder is `packages/engines/src/image/faces/`; the editor's parts are `packages/ui/src/tool/BlurLayer.tsx`. To raise or lower the threshold or the tile levels, change `FACE_THRESHOLD` or `MAX_LEVEL` in `faces/yunet.ts`.
+
+## 2026-10-01 · Photo Editor (M8)
+
+**Decision:**
+- **One editor, every mode:** Crop, Straighten, Rotate left and right, Flip both ways, Adjust, Draw, Text and Blur, in a rail on the left from the `lg` breakpoint and a scrolling bar along the bottom on phones. Undo and redo cover every mode. It opens on Adjust, so the photo shows clean.
+- **No Resize mode in the rail:** the size is in the settings with the crop ratio, the format, the quality and the metadata: Original, Longest side in px, or Percentage. Those settings are the spec's export dialog. The saved file's size shows on the result, and "Back to the editor" keeps every edit.
+- **Adjust:** exposure (−2 to +2 EV), brightness, contrast, saturation and warmth (−100 to 100).
+  - Exposure and warmth are gains in linear light; warmth moves red and blue up to 15% (green a third of that).
+  - Brightness is a midtone curve (v^2^(−b/100)) that keeps black and white.
+  - Contrast is a slope of ¼× to 4× around middle grey.
+  - Saturation mixes with Rec. 709 luma, from grey to twice as vivid.
+  - Per-channel tables, then the saturation mix.
+- **Live preview in JS, not WebGL:** the spec asks for WebGL. The same pure function instead runs on the editor's screen-sized copy, about 10 to 20 ms a frame, and in the worker at full size, so the preview is the file to the pixel.
+- **Order:** adjustments, then hidden areas, marks and text in the photo's own pixels, then turns, flips, straighten, crop and size.
+- **Crop with Straighten:** a box drawn on the straightened photo is cut in that frame. Only the part with no corners showing is kept. Crop Image and Rotate & Flip don't combine the two, so they're unchanged.
+- **Turned and flipped photos:** layers live in the photo's own pixels and turn with it.
+  - The editor maps the pointer through its zoom, angle, flips and turns, so drawing, boxes and dragging land where they're done.
+  - Arrow keys move things the way they show on screen.
+  - New text and numbered markers get an upright base, the inverse of the frame as a rotation and a mirror, so they read the right way in the saved image. A text shadow still falls downwards.
+- **Find faces** is in Blur mode here too. The Photo Editor isn't listed under the AI filter, because face finding is a side feature.
+
+**Why:** `tools/photo.md` → P01.
+**Reverse:** the adjustments are `packages/engines/src/image/adjust.ts`, the upright helpers `upright.ts`, the rail `layout` prop on `CanvasEditor`, and the bar `AdjustBar.tsx`.
+
+## 2026-10-01 · Mobile: share target, install button, desktop notes (M8)
+
+**Decision:**
+- **Android share target:** the manifest's `share_target` takes images, video, audio and subtitle files as a multipart POST to `/share`.
+  - The static site has no server, so the service worker answers that POST. It keeps the files (up to 50) in an `etb-shared` cache on the device, clears anything older, and redirects to `/share`.
+  - `/share` reads the files, **deletes them from the cache at once**, and lists the tools that take every one of them: open now, run in the browser, and reached without a full page load (the handoff is in memory). Several files list only batch tools when there are any. Batch Rename, which takes any file, comes last.
+  - Picking a tool hands the files to it in memory, the way "Use in another tool" does. The handoff now carries several files.
+  - iOS has no share target, which is fine (`docs/01`).
+- **Install button:** Chrome's `beforeinstallprompt` is kept and an "Install the app" button appears in the footer. It's never a pop-up. One prompt per offer, and the button goes after. On iPhone and iPad Safari, where nothing can prompt, a line says "tap Share, then Add to Home Screen". Neither shows once the app is installed.
+- **"Works best on a computer":** tools flagged `desktopBest` (Batch Rename) show "Works best on a computer, and works here too." under the privacy line, below the `lg` breakpoint only.
+- **Thumb reach and bottom sheets** were already in place: the primary action sits in a bar at the bottom of the screen on phones, and the settings open as bottom sheets.
+
+**Why:** `docs/12` → M8 (mobile), `docs/01` → Mobile, `docs/03` → Mobile.
+**Reverse:** the share target is `apps/web/src/app/manifest.ts`, `scripts/sw.ts` (`receiveShare`) and `src/app/share/`; the install button is `src/components/InstallButton.tsx`; the note is in `ToolShell`'s header.
+

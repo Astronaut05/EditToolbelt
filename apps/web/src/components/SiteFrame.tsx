@@ -2,6 +2,8 @@ import type { CategoryId } from '@etb/registry';
 import { Footer, Header } from '@etb/ui';
 import type { ReactNode } from 'react';
 
+import { InstallButton } from './InstallButton';
+
 const YEAR = new Date().getFullYear();
 
 /**
@@ -31,7 +33,7 @@ export function SiteFrame({
       <main id="main" tabIndex={-1} className="outline-none">
         {children}
       </main>
-      {footer && <Footer year={YEAR} />}
+      {footer && <Footer year={YEAR} extra={<InstallButton />} />}
     </>
   );
 }

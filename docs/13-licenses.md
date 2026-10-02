@@ -38,6 +38,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Lucide | icons | ISC | ✅ lucide-react 1.49.0, checked 2026-09-30 |
 | Onest (variable) + IBM Plex Mono | UI and numeric fonts, self-hosted | OFL-1.1 | ✅ |
 | Fontsource packages for Onest and IBM Plex Mono (`@fontsource-variable/onest`, `@fontsource/onest`, `@fontsource/ibm-plex-mono`) | where the self-hosted font files come from (copied into the build, subset by `unicode-range`); static Onest weights for the build-time OG images | OFL-1.1 | ✅ 5.3.1 / 5.3.1 / 5.3.0, checked 2026-09-29 |
+| Fontsource packages for Montserrat, Oswald and Noto Serif (`@fontsource/montserrat`, `@fontsource/oswald`, `@fontsource/noto-serif`) | Add Text to Image's fonts, with Onest and IBM Plex Mono: 400 and 700, Latin and Cyrillic subsets, copied into the build and loaded only when picked. Each was checked to draw Uzbek Latin oʻ gʻ (U+02BB) and Uzbek Cyrillic қ ғ ҳ ў; PT Serif, Caveat, Roboto Slab, Rubik, Lobster and Comfortaa were left out for missing one of them | OFL-1.1 | ✅ 5.3.0, checked 2026-10-01 |
 | PostCSS | CSS build pipeline for Tailwind (build time only) | MIT | ✅ checked 2026-09-30 |
 | Umami (self-hosted) | cookieless analytics | MIT | 🔍 |
 | Sentry SDKs / GlitchTip | error tracking | MIT / MIT | 🔍 |
@@ -80,7 +81,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Whisper / faster-whisper | transcription, auto subtitles | MIT | MIT | 🔍 |
 | DeepFilterNet | noise reduction | MIT / Apache-2.0 | same | 🔍 |
 | LaMa | object eraser (inpainting) | Apache-2.0 | 🔍 check weights | 🔍 |
-| YuNet (OpenCV zoo) | face detection for face blur | 🔍 | 🔍 | 🔍 |
+| YuNet (OpenCV zoo) | face detection for Blur & Pixelate's Find faces (P12) | MIT | MIT | ✅ checked 2026-10-01: `face_detection_yunet_2023mar.onnx` from opencv/opencv_zoo, whose model folder carries its own MIT licence (© 2020 Shiqi Yu). Pinned by SHA-256 in `packages/engines/src/image/faces/yunet.ts`. 0.2 MB, WASM, run with the ONNX Runtime Web already registered for P07 |
 | Face-restoration models (CodeFormer, GFPGAN-class) | "face-friendly" upscale | 🔍 | 🔍 — CodeFormer's licence is understood to be non-commercial; don't add any face model without a verified commercial licence | 🔍 |
 | RobustVideoMatting | video background removal | GPL-3.0 | 🔍 | ⚠️ server only, if weights allow commercial use |
 
