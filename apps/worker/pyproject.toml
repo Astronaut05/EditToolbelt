@@ -65,7 +65,7 @@ ignore_missing_imports = true
 
 # Installed only inside the Modal GPU images (gpu/modal_app.py), never in the worker.
 [[tool.mypy.overrides]]
-module = ["torch", "torch.*", "spandrel", "spandrel.*", "numpy", "numpy.*", "PIL", "PIL.*", "whisper", "whisper.*"]
+module = ["torch", "torch.*", "spandrel", "spandrel.*", "numpy", "numpy.*", "PIL", "PIL.*", "whisper", "whisper.*", "onnxruntime", "onnxruntime.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

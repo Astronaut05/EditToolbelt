@@ -88,6 +88,12 @@
   - Upscale Image (P08), Transcribe Audio (A12) and Auto Subtitles (V17) have their pages, options, prices and FAQ; Auto Subtitles sends only a video's sound, taken out in the browser. Each stays `soon` until an admin sets it to beta.
 - Fix: a result's audio player loads only its header until it's played. Loading the whole file could freeze the page in Linux WebKit (GStreamer), which hung Merge Audio's join test 1 run in 4 or 5.
 - Test fix: Remove Silence's shorten test reads the ranges once the last setting's search has landed (it read the previous search's on the phone profile, 5 runs in 8).
+- Wave 3 GPU tools (#77; tested with a stand-in GPU, real runs wait for the Modal token):
+  - Object Eraser (P17): brush over an object (Mark, Unmark, size, undo) and MI-GAN fills it on a T4. The page draws the mask and sends it beside the photo; each area is filled on a crop around it and only the brushed pixels change. 3 credits.
+  - Upscale Video (V20): Real-ESRGAN on every frame on an L4, 2× or 4× up to 4K, General with noise cleanup or Animation, H.264 MP4 with the sound. 10 credits a minute, up to 10 min.
+  - Video Background Remover (V21): BiRefNet_lite on every frame on an L4, with a flicker filter; ProRes 4444 or WebM with transparency, or MP4 on green or a color. 8 credits a minute, up to 10 min and 4K.
+  - Licences: LaMa (P17) and RobustVideoMatting (V21) are not used, their weights have no stated licence; MI-GAN's weights are MIT from its authors, BiRefNet's MIT. Each tool stays `soon` until an admin sets it to beta.
+  - Up to date with the M5 review's fixes (`claude/m5-gpu` at 5e74484 merged in): GPU slots of their own, each call's Modal id and output key on its job (a dead worker's call is cancelled and billed, its key swept until the URL expires), the worst-case budget gate, the billing of cold and failed calls, and `GPU_FAILED` for anything unexpected in the functions. Object Eraser and Video Background Remover install `gpu/requirements-onnx.txt` (hashed, compiled from PyPI); Upscale Video reuses Upscale Image's image. A video job's worst case (95 min on an L4, about $1.52) is over the default $1 budget, so one runs alone; raise the budget for more.
 
 ## Next
 
@@ -96,7 +102,7 @@
 1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
 2. M6 sign-off once parts 1 to 4 merge.
 3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
-4. M5's payments after Go public. M5's GPU tools: merge `claude/m5-gpu`, add the Modal token (GitHub and Railway), run Actions → Modal → Run workflow with "smoke", then switch each tool to beta in Admin → Tools. Then P07's hi-res server path (BiRefNet: pin the weights from CI), the free previews (P08's 512 px crop), and the light cue editor (with T03).
+4. M5's payments after Go public. M5's GPU tools: merge `claude/m5-gpu`, then `claude/wave3-gpu`, add the Modal token (GitHub and Railway), run Actions → Modal → Run workflow with "smoke", then switch each tool to beta in Admin → Tools and reprice from the measured GPU seconds (Video Background Remover likely needs about 20 credits a minute, `docs/05`). Then P07's hi-res server path (BiRefNet: pin the weights from CI), the free previews once A10's preview merges (P08's 512 px crop, P17's reduced size, V20's 3 s), Object Eraser in the browser (MI-GAN is 28 MB), and the light cue editor (with T03).
 
 ## Waiting for Astro's approval
 
@@ -114,7 +120,7 @@ Applies of the Railway project (Actions → Railway → "Apply the plan", enviro
 - Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark (IoU on 5 photos with reference masks, desktop and 2 phones) needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
 - Housekeeping only: `docs/design-handover` can't be deleted from this session (HTTP 403); see `docs/DECISIONS.md`.
 - M4's `LocalGpu` backend (the 1080 Ti): this build environment has no GPU. M5's tools run on Modal instead (`GPU_BACKEND=modal`); `LocalGpu` is a stub that says it isn't set up.
-- M5's GPU tools have never run on a real GPU: this environment has no GPU and no Modal token, and can reach neither huggingface.co nor Modal. The processors, the backend and the budget are tested with a stand-in GPU against real Postgres; the functions need Actions → Modal → Run workflow → "smoke" once the token is in GitHub's secrets. Three of the Real-ESRGAN hashes were read from Hugging Face's listings of copies of the files, not the release itself; CI's pins check confirms or corrects them before any image is built.
+- M5's and Wave 3's GPU tools have never run on a real GPU: this environment has no GPU and no Modal token, and can reach neither huggingface.co nor Modal. The processors, the backend and the budget are tested with a stand-in GPU against real Postgres; the functions need Actions → Modal → Run workflow → "smoke" once the token is in GitHub's secrets. Three of the Real-ESRGAN hashes were read from Hugging Face's listings of copies of the files, not the release itself; CI's pins check confirms or corrects them before any image is built.
 
 ## Run it
 
@@ -130,7 +136,7 @@ docker compose up --watch      # dev stack: http://localhost:3000 (sign in at /s
 docker compose exec worker python -m etb_worker --task daily_digest   # send the digest now (lands in Mailpit, or Telegram if set up)
 ```
 
-GPU tools (Upscale Image, Transcribe Audio, Auto Subtitles): the worker needs `GPU_BACKEND=modal` and a Modal token (`MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`), and the Modal app deployed (`cd apps/worker && uv run modal deploy -m etb_worker.gpu.modal_app`; `uv run python -m etb_worker.gpu.check --smoke` calls each function once on a tiny input). Then in Admin → Tools set each one's status to beta. Admin → Dashboard → GPU shows today's GPU spend and sets the daily budget.
+GPU tools (Upscale Image, Transcribe Audio, Auto Subtitles, Object Eraser, Upscale Video, Video Background Remover): the worker needs `GPU_BACKEND=modal` and a Modal token (`MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`), and the Modal app deployed (`cd apps/worker && uv run modal deploy -m etb_worker.gpu.modal_app`; `uv run python -m etb_worker.gpu.check --smoke` calls each function once on a tiny input). Then in Admin → Tools set each one's status to beta. Admin → Dashboard → GPU shows today's GPU spend and sets the daily budget.
 
 Server Compress Video on the stack: in Admin → Tools → Compress Video, tick "Server path on" and save. Within 30 s, /compress-video offers "Use our servers instead" after you add a video. Signed in, you get 3 free server jobs a day. VFR to CFR and Burn Subtitles: in Admin → Tools, set each one's status to beta; its page works within 30 s. Admin → Jobs lists every server job.
 

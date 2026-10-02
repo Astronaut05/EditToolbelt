@@ -29,7 +29,7 @@ def pin_for(content: bytes, url: str = "https://example.test/model.pth", **extra
 def test_the_repository_pins_are_well_formed_and_grouped_by_function() -> None:
     pins = load_pins()
     groups = {pin.group for pin in pins.values()}
-    assert groups == {"upscale", "whisper"}
+    assert groups == {"upscale", "whisper", "inpaint", "matte"}
     for pin in pins.values():
         assert pin.url.startswith("https://")
         assert len(pin.sha256) == 64
@@ -37,8 +37,17 @@ def test_the_repository_pins_are_well_formed_and_grouped_by_function() -> None:
     # OpenAI publishes Whisper under a path that is the file's own SHA-256.
     whisper = pins["large-v3.pt"]
     assert whisper.url.split("/")[-2] == whisper.sha256
-    # Only approved models are pinned: no Demucs until its weights licence is clear.
-    assert not any("demucs" in name.lower() or "htdemucs" in name for name in pins)
+    # Only approved models are pinned: no Demucs, LaMa or RobustVideoMatting until
+    # their weights licences are clear (docs/13 -> Models).
+    for banned in ("demucs", "lama", "rvm_", "robustvideomatting"):
+        assert not any(banned in name.lower() for name in pins), banned
+    # Every file a new Wave 3 function needs is pinned with its exact size.
+    for name in (
+        "migan_pipeline_v2.onnx",
+        "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+        "realesr-animevideov3.pth",
+    ):
+        assert pins[name].bytes, name
 
 
 def test_a_file_that_matches_its_pin_lands_in_place(tmp_path: Path) -> None:

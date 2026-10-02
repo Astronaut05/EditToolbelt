@@ -1,12 +1,13 @@
 """The step every GPU tool shares (docs/01 -> GPU backend, Retention).
 
-1. Presign: a GET URL for the job's input and a PUT URL for a new random
-   output key, valid for the job's time limit plus a margin. Before either
-   leaves the worker, the call is recorded on the job: when it started, and
-   the key, as the job's output and among its GPU keys. If this worker dies
-   mid-call, the reaper cancels the call and records its time, and the
-   sweeper keeps deleting the key until the URL has expired, so nothing a
-   runaway call writes outlives the hour.
+1. Presign: a GET URL for the job's input (and one for each other input,
+   such as Object Eraser's mask, when the tool takes them) and a PUT URL for
+   a new random output key, valid for the job's time limit plus a margin.
+   Before any leaves the worker, the call is recorded on the job: when it
+   started, and the key, as the job's output and among its GPU keys. If
+   this worker dies mid-call, the reaper cancels the call and records its
+   time, and the sweeper keeps deleting the key until the URL has expired,
+   so nothing a runaway call writes outlives the hour.
 2. Call the backend with those URLs and the options. The backend's id for
    the call goes on the job as soon as it exists. Between polls the elapsed
    time becomes progress (against the processor's estimate) and the
@@ -70,6 +71,7 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
     stage: str = "processing",
     start: int = 2,
     end: int = 95,
+    extra_inputs: bool = False,
 ) -> GpuOutcome:
     """Runs ``function`` on the job's input; the output is stored under the returned key."""
     storage = _storage(ctx)
@@ -77,11 +79,13 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
     timeout = ctx.limits.timeout_sec
     expires = int(timeout + PRESIGN_MARGIN_SEC)
     key = new_output_key()
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "input_url": storage.presign_get(str(ctx.input_key), expires),
         "output_url": storage.presign_put(key, content_type, expires),
         "options": options,
     }
+    if extra_inputs:
+        kwargs["extra_urls"] = [storage.presign_get(k, expires) for k in ctx.extra_input_keys]
     span = end - start
 
     def on_wait(elapsed: float) -> None:

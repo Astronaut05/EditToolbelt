@@ -41,6 +41,7 @@ import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import type { FocusFrame } from './FocusPicker';
 import type { GraphInfo } from './LineGraph';
+import { MASK_MODES, parseStrokes, type MaskStroke } from './brush';
 import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
 import { ServerNotice } from './ServerNotice';
@@ -66,6 +67,7 @@ const FocusPicker = lazy(() => import('./FocusPicker').then((m) => ({ default: m
 const LineGraph = lazy(() => import('./LineGraph').then((m) => ({ default: m.LineGraph })));
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
+const MaskBrush = lazy(() => import('./MaskBrush').then((m) => ({ default: m.MaskBrush })));
 const Swatches = lazy(() => import('./Swatches').then((m) => ({ default: m.Swatches })));
 const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.TempoTools })));
 
@@ -426,6 +428,12 @@ export interface ShellPreset {
     frames: (options: Record<string, string>) => FocusFrame[];
     when?: (options: Record<string, string>) => boolean;
   };
+  /**
+   * P17: before the run, the image takes a mask brush (mark what to remove).
+   * The strokes are kept as JSON, in image px, in `option`; the page turns
+   * them into the mask it sends.
+   */
+  mask?: { option: string };
   /** A03: a tap tempo pad and a metronome under the settings, file or not. */
   tempo?: boolean;
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
@@ -726,7 +734,8 @@ export function ToolShell({
   const ratio = ratioOf?.(options) ?? null;
   const editor = useEditor(ratio);
   const resetEditor = editor.reset;
-  const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare;
+  // A mask brush (P17) takes the canvas instead of the crop and turn editor.
+  const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare && !preset.mask;
   const cropping = editing && (preset.editor?.modes?.includes('crop') ?? true);
   const [cropSheet, setCropSheet] = useState(false);
   // P07: the Refine brush over the result.
@@ -1078,6 +1087,8 @@ export function ToolShell({
       if (refineId) setOptions((current) => ({ ...current, [refineId]: '' }));
       const focusId = preset.focus?.option;
       if (focusId) setOptions((current) => ({ ...current, [focusId]: '' }));
+      const maskId = preset.mask?.option;
+      if (maskId) setOptions((current) => ({ ...current, [maskId]: '' }));
       if (preset.maxFiles && files.length > preset.maxFiles) {
         setState({
           kind: 'error',
@@ -1557,20 +1568,27 @@ export function ToolShell({
     </p>
   );
 
-  // Back to the image to change the crop (editors) or the sizes and focal point (P13), then run again.
-  const back = state.kind === 'result' && (editing || preset.focus) && state.file && (
-    <p className="mt-3.5 px-4 text-14 lg:px-0">
-      <button
-        type="button"
-        className="link-accent"
-        onClick={() => {
-          if (state.file) setState({ kind: 'ready', input: state.input, files: [state.file] });
-        }}
-      >
-        {editing ? 'Back to the editor' : 'Back to the settings'}
-      </button>
-    </p>
-  );
+  // Back to the image to change the crop (editors), the sizes and focal point (P13) or the mask
+  // (P17), then run again.
+  const back = state.kind === 'result' &&
+    (editing || preset.focus || preset.mask) &&
+    state.file && (
+      <p className="mt-3.5 px-4 text-14 lg:px-0">
+        <button
+          type="button"
+          className="link-accent"
+          onClick={() => {
+            if (state.file) setState({ kind: 'ready', input: state.input, files: [state.file] });
+          }}
+        >
+          {editing
+            ? 'Back to the editor'
+            : preset.mask
+              ? 'Back to the brush'
+              : 'Back to the settings'}
+        </button>
+      </p>
+    );
 
   const next = result && tool.related.length > 0 && (
     <p className="mt-3.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 text-14 text-text-muted lg:px-0">
@@ -1646,6 +1664,17 @@ export function ToolShell({
               frames: preset.focus.frames(options),
               onChange: (value) => {
                 if (preset.focus) changeOption(preset.focus.option, value);
+              },
+            }
+          : null
+      }
+      mask={
+        preset.mask
+          ? {
+              strokes: parseStrokes(options[preset.mask.option], MASK_MODES),
+              onChange: (strokes) => {
+                if (preset.mask)
+                  changeOption(preset.mask.option, strokes.length ? JSON.stringify(strokes) : '');
               },
             }
           : null
@@ -2006,6 +2035,7 @@ function Workspace({
   peaks,
   picker,
   focus,
+  mask,
   refine,
 }: {
   state: ShellState;
@@ -2040,6 +2070,7 @@ function Workspace({
     frames: FocusFrame[];
     onChange: (value: string) => void;
   } | null;
+  mask: { strokes: MaskStroke[]; onChange: (strokes: MaskStroke[]) => void } | null;
   refine: {
     strokes: BrushStroke[];
     apply: (strokes: BrushStroke[]) => void;
@@ -2096,6 +2127,22 @@ function Workspace({
         setRange={setRange}
         multiRange={multiRange}
       />
+    );
+  }
+
+  if (mask && state.kind === 'ready' && state.input.url) {
+    return (
+      <div className={frame}>
+        <Suspense fallback={null}>
+          <MaskBrush
+            src={state.input.url}
+            width={media?.width}
+            height={media?.height}
+            strokes={mask.strokes}
+            onChange={mask.onChange}
+          />
+        </Suspense>
+      </div>
     );
   }
 
