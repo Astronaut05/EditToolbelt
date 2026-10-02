@@ -1,9 +1,11 @@
 'use client';
 
 import { Check, Copy } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { cn } from '../cn';
+
+const noSubscribe = () => () => undefined;
 
 /**
  * Copies text to the clipboard. The icon turns into a check and the change is
@@ -27,6 +29,12 @@ export function CopyButton({
   compact?: boolean;
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  // Disabled in the server's HTML: until the page's script runs, a click would do nothing.
+  const ready = useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
 
   useEffect(() => {
     if (state === 'idle') return;
@@ -53,6 +61,7 @@ export function CopyButton({
     <>
       <button
         type="button"
+        disabled={!ready}
         onClick={() => {
           void copy();
         }}

@@ -5,7 +5,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { print } from '@etb/core';
 import { Button, CalculatorShell, MonoLabel, OptionRow, type ShellTool } from '@etb/ui';
 
-import { ChoiceRow, fmt, num, NumberField, Results, Rows, SelectField } from './calc-ui';
+import { ChoiceRow, fmt, num, NumberField, Results, Rows, SelectField, useReady } from './calc-ui';
 import { oneOf, useQueryState } from './url-state';
 
 const MODES = ['size', 'pixels', 'dpi'] as const;
@@ -30,6 +30,7 @@ const length = (value: number, unit: print.Unit) => fmt(value, unit === 'mm' ? 0
 /** U03 Print Size & DPI Calculator (tools/utility.md). */
 export default function DpiCalculator({ tool }: { tool: ShellTool }) {
   const [state, set] = useQueryState(DEFAULTS);
+  const ready = useReady();
   const mode = oneOf(state.mode, MODES, 'size');
   const unit = oneOf(state.unit, UNITS, 'cm');
   const [readError, setReadError] = useState<string | null>(null);
@@ -188,6 +189,7 @@ export default function DpiCalculator({ tool }: { tool: ShellTool }) {
         />
         <Button
           type="button"
+          disabled={!ready}
           onClick={() => {
             picker.current?.click();
           }}
@@ -274,6 +276,7 @@ export default function DpiCalculator({ tool }: { tool: ShellTool }) {
             <button
               key={preset}
               type="button"
+              disabled={!ready}
               aria-pressed={state.dpi === preset}
               onClick={() => {
                 set('dpi', preset);

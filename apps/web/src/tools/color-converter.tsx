@@ -12,7 +12,7 @@ import {
   type ShellTool,
 } from '@etb/ui';
 
-import { Rows, TextField } from './calc-ui';
+import { Rows, TextField, useReady } from './calc-ui';
 import { shareUrl, useQueryState } from './url-state';
 
 const DEFAULTS = { c: '#ff6347' };
@@ -35,6 +35,7 @@ function Chip({ hex, size = 'size-5' }: { hex: string; size?: string }) {
 /** C03 Color Converter (tools/color.md): one colour in, every notation out. */
 export default function ColorConverter({ tool }: { tool: ShellTool }) {
   const [state, set] = useQueryState(DEFAULTS);
+  const ready = useReady();
   const result = color.parseColor(state.c);
   const setColor = (value: string) => {
     set('c', value);
@@ -136,6 +137,7 @@ export default function ColorConverter({ tool }: { tool: ShellTool }) {
           <li key={`${hex}-${String(index)}`}>
             <button
               type="button"
+              disabled={!ready}
               onClick={() => {
                 setColor(hex);
               }}

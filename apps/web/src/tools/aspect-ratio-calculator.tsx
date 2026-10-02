@@ -3,7 +3,7 @@
 import { aspect } from '@etb/core';
 import { CalculatorShell, MonoLabel, Switch, type ShellTool } from '@etb/ui';
 
-import { ChoiceRow, fmt, num, NumberField, Results, Rows, TextField } from './calc-ui';
+import { ChoiceRow, fmt, num, NumberField, Results, Rows, TextField, useReady } from './calc-ui';
 import { oneOf, useQueryState } from './url-state';
 
 type Mode = 'size' | 'solve' | 'fit';
@@ -26,6 +26,7 @@ const DEFAULTS = {
 /** T05 Aspect Ratio Calculator (tools/subtitles-and-time.md). */
 export default function AspectRatioCalculator({ tool }: { tool: ShellTool }) {
   const [state, set] = useQueryState(DEFAULTS);
+  const ready = useReady();
   const mode: Mode = oneOf(state.mode, MODES, 'size');
   const known = oneOf(state.known, SIDES, 'width');
   const even = state.even !== '0';
@@ -215,6 +216,7 @@ export default function AspectRatioCalculator({ tool }: { tool: ShellTool }) {
           <li key={common.label}>
             <button
               type="button"
+              disabled={!ready}
               onClick={() => {
                 set('mode', 'solve');
                 set('ratio', common.label);
