@@ -432,7 +432,7 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": ["fflate"],
-      "use": "ZIP of batch outputs (\"Download all\") and of Split Image's tiles, in the image worker",
+      "use": "ZIP of batch outputs (\"Download all\") and of Split Image's tiles, in the image worker; deflating Images to PDF's non-JPEG images",
       "license": "MIT",
       "scope": "browser",
       "status": "approved",
@@ -518,7 +518,7 @@
       "section": "Browser processing",
       "ecosystem": "npm",
       "packages": [],
-      "use": "image to SVG (Wave 3); package not chosen yet",
+      "use": "image to SVG (Wave 3); not used: our own tracer, see DECISIONS.md",
       "license": "MIT",
       "scope": "browser",
       "status": "verify"

@@ -12,5 +12,6 @@ export default viewIndex<ViewIds<'color'>>({
   'color-picker-from-image': dynamic(() => import('../color-picker-from-image')),
   'contrast-checker': dynamic(() => import('../contrast-checker')),
   'gradient-generator': dynamic(() => import('../gradient-generator')),
+  'lut-converter': dynamic(() => import('../lut-converter')),
   'lut-preview': dynamic(() => import('../lut-preview')),
 });

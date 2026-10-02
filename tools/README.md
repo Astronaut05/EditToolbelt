@@ -44,7 +44,7 @@ Totals: 75 tools · Wave 1: 26 · Wave 2: 32 · Wave 3: 17.
 | P15 | Photo Metadata Viewer & Remover | `exif-remover` | 2 | client | media-probe + image-codec | — | W M |
 | P16 | Collage Maker | `collage-maker` | 3 | client | image-geometry | — | W M |
 | P17 | Object Eraser | `object-eraser` | 3 | gpu | image-ml-server | 3 flat | W M A |
-| P18 | Images to PDF | `images-to-pdf` | 3 | client | image-codec | — | W M |
+| P18 | Images to PDF | `images-to-pdf` | 3 | client | image-geometry | — | W M |
 | P19 | Image to SVG | `image-to-svg` | 3 | client | image-vector | — | W |
 
 ## Video — `tools/video.md`

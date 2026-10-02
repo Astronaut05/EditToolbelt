@@ -117,6 +117,17 @@ export const MEDIA_META = {
     }),
     estimate: (input) => ({ seconds: Math.max(1, input.size / 30_000_000) }),
   },
+  audioToVideo: {
+    capabilities: () => ({
+      supported:
+        hasAudioDecoder() &&
+        typeof VideoEncoder === 'function' &&
+        typeof OffscreenCanvas !== 'undefined',
+      reason: EDIT_VIDEO,
+    }),
+    // About real time for the drawing and encoding, a little more for big files.
+    estimate: (input) => ({ seconds: Math.max(2, input.size / 1_000_000) }),
+  },
   audioEdit: {
     capabilities: () => ({ supported: hasAudioDecoder(), reason: READ_AUDIO }),
     estimate: (input) => ({ seconds: Math.max(0.5, input.size / 40_000_000) }),

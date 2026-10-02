@@ -11,11 +11,14 @@ export const VIEW_IDS = {
   photo: [
     'add-text-to-image',
     'blur-image',
+    'collage-maker',
     'compress-image',
     'crop-image',
     'draw-on-image',
     'exif-remover',
     'image-converter',
+    'image-to-svg',
+    'images-to-pdf',
     'object-eraser',
     'photo-editor',
     'remove-background',
@@ -52,6 +55,7 @@ export const VIEW_IDS = {
   audio: [
     'audio-channels',
     'audio-converter',
+    'audio-to-video',
     'bpm-key-finder',
     'change-pitch',
     'fade-audio',
@@ -71,6 +75,7 @@ export const VIEW_IDS = {
     'color-picker-from-image',
     'contrast-checker',
     'gradient-generator',
+    'lut-converter',
     'lut-preview',
   ],
   'subtitles-time': [
@@ -79,6 +84,7 @@ export const VIEW_IDS = {
     'shutter-angle-calculator',
     'storage-calculator',
     'subtitle-converter',
+    'subtitle-editor',
     'subtitle-shift',
     'timecode-calculator',
   ],

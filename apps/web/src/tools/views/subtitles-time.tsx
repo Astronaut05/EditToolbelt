@@ -12,6 +12,7 @@ export default viewIndex<ViewIds<'subtitles-time'>>({
   'shutter-angle-calculator': dynamic(() => import('../shutter-angle-calculator')),
   'storage-calculator': dynamic(() => import('../storage-calculator')),
   'subtitle-converter': dynamic(() => import('../subtitle-converter')),
+  'subtitle-editor': dynamic(() => import('../subtitle-editor')),
   'subtitle-shift': dynamic(() => import('../subtitle-shift')),
   'timecode-calculator': dynamic(() => import('../timecode-calculator')),
 });

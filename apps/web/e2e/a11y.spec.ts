@@ -83,6 +83,22 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test('subtitle editor with cues and issues: no serious issues', async ({ page }) => {
+      await page.goto('/subtitle-editor', { waitUntil: 'networkidle' });
+      const srt =
+        '1\n00:00:01,000 --> 00:00:02,000\nA line that is far too long to fit on one subtitle line\n\n2\n00:00:01,500 --> 00:00:03,000\n<i>Second</i>\n';
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles({
+          name: 'a.srt',
+          mimeType: 'application/x-subrip',
+          buffer: Buffer.from(srt),
+        });
+      await expect(page.getByRole('region', { name: 'Checks' })).toContainText('Overlaps: 1');
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('merge list with files: no serious issues', async ({ page }) => {
       await page.goto('/merge-audio', { waitUntil: 'networkidle' });
       // Two tiny silent WAVs: a list to check, nothing to decode at length.

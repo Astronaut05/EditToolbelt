@@ -9,6 +9,7 @@ import { viewIndex } from './view-index';
 export default viewIndex<ViewIds<'audio'>>({
   'audio-channels': dynamic(() => import('../audio-channels')),
   'audio-converter': dynamic(() => import('../audio-converter')),
+  'audio-to-video': dynamic(() => import('../audio-to-video')),
   'bpm-key-finder': dynamic(() => import('../bpm-key-finder')),
   'change-pitch': dynamic(() => import('../change-pitch')),
   'fade-audio': dynamic(() => import('../fade-audio')),
