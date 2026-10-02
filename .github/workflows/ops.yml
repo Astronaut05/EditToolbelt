@@ -1,6 +1,7 @@
 # Production checks from outside (scripts/ops/verify.ts): storage, Cloudflare's
 # settings, the site through Cloudflare Access. Each check runs when its
-# secrets are set and is skipped otherwise. Run it from Actions → Ops checks →
+# secrets are set and is skipped otherwise; `job` (a real server job, end to
+# end) runs only when named. Run it from Actions → Ops checks →
 # Run workflow, or by pushing to a claude/ops-* branch.
 # The logs are public (public repo): the script prints outcomes, never values.
 name: Ops checks
@@ -10,6 +11,10 @@ on:
     inputs:
       checks:
         description: Checks to run, comma-separated (empty runs every check whose secrets are set)
+        required: false
+        default: ''
+      retention-minutes:
+        description: For the job check, wait this long and check the output left storage (61 proves the hour)
         required: false
         default: ''
   push:
@@ -25,7 +30,8 @@ jobs:
   verify:
     name: Verify the production setup
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # The job check's retention wait (up to an hour) needs the longer limit.
+    timeout-minutes: ${{ inputs.retention-minutes && 90 || 25 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -44,3 +50,5 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          ETB_SMOKE_API_KEY: ${{ secrets.ETB_SMOKE_API_KEY }}
+          JOB_RETENTION_MINUTES: ${{ inputs.retention-minutes }}
