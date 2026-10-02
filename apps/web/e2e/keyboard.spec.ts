@@ -1,4 +1,4 @@
-import { expect, remote, test, WORKSHOP_ONLY } from './fixtures';
+import { expect, pressSearchShortcut, remote, test, WORKSHOP_ONLY } from './fixtures';
 
 test.describe('keyboard', () => {
   test.skip(({ isMobile }) => isMobile, 'desktop keyboard');
@@ -7,7 +7,7 @@ test.describe('keyboard', () => {
     page,
   }) => {
     await page.goto('/photo', { waitUntil: 'networkidle' });
-    await page.keyboard.press('ControlOrMeta+k');
+    await pressSearchShortcut(page);
     const input = page.getByRole('combobox', { name: 'Search tools' });
     await expect(input).toBeFocused();
     await page.keyboard.press('Escape');
@@ -16,13 +16,13 @@ test.describe('keyboard', () => {
     // While typing in a field too: it has a modifier.
     await page.goto('/timecode-calculator', { waitUntil: 'networkidle' });
     await page.getByRole('textbox').first().focus();
-    await page.keyboard.press('ControlOrMeta+k');
+    await pressSearchShortcut(page);
     await expect(input).toBeFocused();
     await page.keyboard.press('Escape');
 
     await page.goto('/', { waitUntil: 'networkidle' });
     await page.locator('body').click({ position: { x: 5, y: 700 } });
-    await page.keyboard.press('ControlOrMeta+k');
+    await pressSearchShortcut(page);
     await expect(page.locator('#home-search')).toBeFocused();
   });
 
