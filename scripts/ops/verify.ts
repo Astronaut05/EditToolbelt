@@ -1,8 +1,9 @@
 /**
  * Checks the production setup from outside, in GitHub Actions (`.github/workflows/ops.yml`):
- * storage, Cloudflare's settings, the site through Cloudflare Access. Each check
+ * storage, Cloudflare's settings, the site and the worker through Cloudflare Access. Each check
  * runs when its secrets are set and is skipped otherwise; OPS_CHECKS picks some
- * by name (`r2,cloudflare`). Run locally with the same variables:
+ * by name (`r2,cloudflare`). Smoke (`smoke.yml`) runs `site` after each deploy, and
+ * Watch (`watch.yml`) runs `worker` every 30 minutes. Run locally with the same variables:
  *
  *   OPS_CHECKS=r2 R2_ENDPOINT=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/ops/verify.ts
  *
@@ -528,6 +529,52 @@ async function checkSite(env: Env, site: string): Promise<string> {
   return `private (Access login without a token); through Access: version ${version ?? '?'}, ready, security headers, www redirects`;
 }
 
+// ── The worker, seen from outside, through Access ────────────────────────────
+
+interface WorkerCheck {
+  ok?: boolean;
+  age_sec?: number | null;
+  limit_sec?: number;
+}
+
+/** "worker_heartbeat 31 s (limit 600 s)": what /readyz/worker answered, numbers only. */
+function describeWorker(checks: Record<string, WorkerCheck> | undefined): string {
+  return Object.entries(checks ?? {})
+    .map(
+      ([name, check]) =>
+        `${name} ${check.age_sec === null || check.age_sec === undefined ? 'never' : `${String(check.age_sec)} s`} (limit ${String(check.limit_sec ?? '?')} s)`,
+    )
+    .join(', ');
+}
+
+/**
+ * A dead worker can't alert (its own alert rules run inside it): this reads
+ * `/readyz/worker` from outside, through Access, and fails when the worker's
+ * heartbeat or the retention sweeper's last pass is too old. The Watch
+ * workflow (.github/workflows/watch.yml) runs it every 30 minutes, and GitHub
+ * emails about a failed run. Only when named: right after a deploy the
+ * worker may still be starting.
+ */
+async function checkWorker(env: Env, site: string): Promise<string> {
+  const response = await fetch(`${site}/readyz/worker`, {
+    headers: {
+      'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID ?? '',
+      'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
+    },
+    redirect: 'manual',
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+    checks?: Record<string, WorkerCheck>;
+  };
+  const seen = describeWorker(body.checks);
+  expect(
+    response.ok,
+    `/readyz/worker answered HTTP ${String(response.status)}${body.detail ? `: ${body.detail}` : ''}${seen ? ` (${seen})` : ''}. See docs/runbooks/alerts.md → Watch`,
+  );
+  return `worker alive: ${seen}`;
+}
+
 // ── A server job, end to end, through Access ─────────────────────────────────
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -744,6 +791,12 @@ export const CHECKS: Check[] = [
     name: 'site',
     needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
     run: checkSite,
+  },
+  {
+    name: 'worker',
+    needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
+    run: checkWorker,
+    named: true,
   },
   {
     name: 'job',

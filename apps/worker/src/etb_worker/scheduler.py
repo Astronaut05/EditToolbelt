@@ -67,6 +67,16 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _log_failure(event: str, error: Exception, **fields: str) -> None:
+    """The error's type only: its message may quote a value from a file or a URL."""
+    if isinstance(error, psycopg.Error):
+        get_logger().warning(
+            event, error_code="DB_UNAVAILABLE", detail=type(error).__name__, **fields
+        )
+    else:
+        get_logger().error(event, error_code="INTERNAL", detail=type(error).__name__, **fields)
+
+
 @dataclass
 class Scheduler:
     settings: Settings
@@ -83,8 +93,9 @@ class Scheduler:
     _retry_at: dict[str, datetime] = field(default_factory=dict)
 
     def tick(self) -> None:
-        """One round. Database outages are logged, never raised: the next tick tries again."""
-        log = get_logger()
+        """One round. Nothing is raised: a database outage or a bug is logged, and the next
+        tick tries again. Each step runs even when one before it failed: a bug in the sweep
+        can't stop the reaper, the alerts or the daily jobs, and sweeper_stale reports it."""
         try:
             with self.connect(self.settings) as conn:
                 self.beat(conn)
@@ -94,15 +105,19 @@ class Scheduler:
                 if not leader or not leader["got"]:
                     return
                 try:
-                    self.maintain(conn)
-                    self.check_alerts(conn)
-                    self.run_due(conn)
+                    for name, step in (
+                        ("maintain", self.maintain),
+                        ("alerts", self.check_alerts),
+                        ("daily", self.run_due),
+                    ):
+                        try:
+                            step(conn)
+                        except Exception as error:  # noqa: BLE001 - logged; the others still run
+                            _log_failure("scheduler.step_failed", error, step=name)
                 finally:
                     conn.execute("select pg_advisory_unlock(%s)", (LOCK_KEY,))
-        except psycopg.Error as error:
-            log.warning(
-                "scheduler.tick_failed", error_code="DB_UNAVAILABLE", detail=type(error).__name__
-            )
+        except Exception as error:  # noqa: BLE001 - the loop must outlive any one failure
+            _log_failure("scheduler.tick_failed", error)
 
     def beat(self, conn: Conn) -> None:
         conn.execute(

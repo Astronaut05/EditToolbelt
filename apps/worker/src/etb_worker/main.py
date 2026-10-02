@@ -124,15 +124,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     for slot in slots:
         slot.start()
     log.info("slots.started", slots=len(cpu_runners), gpu_slots=len(gpu_runners))
-    while not stop.is_set():
-        scheduler.tick()
-        stop.wait(TICK_SEC)
-    # A clean stop hands running jobs back to the queue at once (a GPU call is cancelled first).
-    for runner in runners:
-        runner.stop_current()
-    wake.set()
-    for slot in slots:
-        slot.join(timeout=20)
-    scheduler.leave()
+    try:
+        run_scheduler(scheduler, stop)
+    finally:
+        # However the loop ended, the slots stop too: a worker without its scheduler (no
+        # heartbeat, reaper or sweeper) must exit, so Railway restarts it. A clean stop
+        # hands running jobs back to the queue at once (a GPU call is cancelled first).
+        stop.set()
+        for runner in runners:
+            runner.stop_current()
+        wake.set()
+        for slot in slots:
+            slot.join(timeout=20)
+        scheduler.leave()
     log.info("worker.stopped")
     return 0
+
+
+def run_scheduler(scheduler: Scheduler, stop: threading.Event, every: float = TICK_SEC) -> None:
+    """Ticks until ``stop``. A tick that raises anyway is logged and the loop goes on:
+    the heartbeat, the reaper and the retention sweeper all live in it."""
+    log = get_logger()
+    while not stop.is_set():
+        try:
+            scheduler.tick()
+        except Exception as error:  # noqa: BLE001 - tick catches its own; this is the last guard
+            # The type only, no traceback: its text may quote a value from a file.
+            log.error(  # noqa: TRY400
+                "scheduler.tick_crashed", error_code="INTERNAL", detail=type(error).__name__
+            )
+        stop.wait(every)
