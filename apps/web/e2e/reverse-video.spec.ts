@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { probeMedia, videoPackets } from '@etb/engines';
 import type { Page } from '@playwright/test';
 
-import { choose, cspViolations, expect, test } from './fixtures';
+import { choose, cspViolations, expect, framePixels, test } from './fixtures';
 
 // V18 Reverse Video (tools/video.md): frame i of the result is frame N−1−i
 // of the clip, across the stretches it's read in (90 frames, so this 120
@@ -36,48 +36,21 @@ async function run(page: Page) {
   return { name: file.suggestedFilename(), bytes: readFileSync(await file.path()) };
 }
 
-/** Frames `indexes` of a clip, as small greyscale thumbnails, played and drawn by the page. */
+/** Frames `indexes` of a clip, as 64 × 36 greyscale thumbnails (decoded with WebCodecs, see framePixels). */
 async function frames(page: Page, bytes: Buffer, indexes: number[]): Promise<number[][]> {
-  return page.evaluate(
-    async ({ data, indexes, fps }) => {
-      const raw = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-      const video = document.createElement('video');
-      video.muted = true;
-      video.src = URL.createObjectURL(new Blob([raw], { type: 'video/webm' }));
-      await new Promise((resolve, reject) => {
-        video.onloadeddata = resolve;
-        video.onerror = reject;
-      });
-      const canvas = new OffscreenCanvas(64, 36);
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) throw new Error('no canvas');
-      const out: number[][] = [];
-      for (const index of indexes) {
-        // "seeked" can fire before the new frame is shown: wait until it is presented.
-        await new Promise<void>((resolve) => {
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            resolve();
-          };
-          video.requestVideoFrameCallback(finish);
-          video.onseeked = () => setTimeout(finish, 1000);
-          video.currentTime = (index + 0.5) / fps;
-        });
-        ctx.drawImage(video, 0, 0, 64, 36);
-        const px = ctx.getImageData(0, 0, 64, 36).data;
-        const grey: number[] = [];
-        for (let i = 0; i < px.length; i += 4) {
-          grey.push(((px[i] ?? 0) + (px[i + 1] ?? 0) + (px[i + 2] ?? 0)) / 3);
-        }
-        out.push(grey);
-      }
-      URL.revokeObjectURL(video.src);
-      return out;
-    },
-    { data: bytes.toString('base64'), indexes, fps: FPS },
+  const { frames: rgba } = await framePixels(
+    page,
+    bytes,
+    indexes.map((index) => (index + 0.5) / FPS),
+    { width: 64, height: 36 },
   );
+  return rgba.map((px) => {
+    const grey: number[] = [];
+    for (let i = 0; i < px.length; i += 4) {
+      grey.push(((px[i] ?? 0) + (px[i + 1] ?? 0) + (px[i + 2] ?? 0)) / 3);
+    }
+    return grey;
+  });
 }
 
 const distance = (a: number[] | undefined, b: number[] | undefined) =>

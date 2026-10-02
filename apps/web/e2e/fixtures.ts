@@ -129,6 +129,7 @@ export function unzipStored(zip: Buffer): { name: string; data: Buffer }[] {
     at = start + size;
   }
   return entries;
+}
 
 /**
  * A video's frames at `times` (seconds), drawn at `width` × `height` (the

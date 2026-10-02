@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import type { Page } from '@playwright/test';
 
-import { choose, cspViolations, expect, test } from './fixtures';
+import { choose, cspViolations, expect, framePixels, test } from './fixtures';
 
 // A16 Audio to Video (tools/audio.md): 3 s of audio, a tone then silence,
 // becomes a 1:1 video whose bars stand tall during the tone and drop in the
@@ -47,65 +47,33 @@ interface Look {
   caption: number;
 }
 
-/** What the video shows at each time, counted on a 108 × 108 thumbnail. */
+/** What the video shows at each time, counted on a 108 × 108 thumbnail (decoded with WebCodecs, see framePixels). */
 async function looks(page: Page, bytes: Buffer, times: number[]): Promise<Look[]> {
-  return page.evaluate(
-    async ({ data, times }) => {
-      const raw = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-      const video = document.createElement('video');
-      video.muted = true;
-      video.src = URL.createObjectURL(new Blob([raw], { type: 'video/webm' }));
-      await new Promise((resolve, reject) => {
-        video.onloadeddata = resolve;
-        video.onerror = reject;
-      });
-      const canvas = new OffscreenCanvas(108, 108);
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) throw new Error('no canvas');
-      const out: { bars: number; title: number; caption: number }[] = [];
-      for (const time of times) {
-        // "seeked" can fire before the new frame is shown: wait until it is presented.
-        await new Promise<void>((resolve) => {
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            resolve();
-          };
-          video.requestVideoFrameCallback(finish);
-          video.onseeked = () => setTimeout(finish, 1000);
-          video.currentTime = time;
-        });
-        ctx.drawImage(video, 0, 0, 108, 108);
-        const px = ctx.getImageData(0, 0, 108, 108).data;
-        const count = (
-          from: number,
-          to: number,
-          test: (r: number, g: number, b: number) => boolean,
-        ) => {
-          let n = 0;
-          for (let y = from; y < to; y += 1) {
-            for (let x = 0; x < 108; x += 1) {
-              const i = (y * 108 + x) * 4;
-              if (test(px[i] ?? 0, px[i + 1] ?? 0, px[i + 2] ?? 0)) n += 1;
-            }
-          }
-          return n;
-        };
-        const pink = (r: number, g: number, b: number) => r > 150 && g < 110 && b > 40 && b < 160;
-        // Bright on the black background: text, softened at this size.
-        const white = (r: number, g: number, b: number) => r > 110 && g > 110 && b > 110;
-        out.push({
-          bars: count(34, 72, pink),
-          title: count(8, 29, white),
-          caption: count(77, 100, white),
-        });
+  const { frames } = await framePixels(page, bytes, times, { width: 108, height: 108 });
+  return frames.map((px) => {
+    const count = (
+      from: number,
+      to: number,
+      test: (r: number, g: number, b: number) => boolean,
+    ) => {
+      let n = 0;
+      for (let y = from; y < to; y += 1) {
+        for (let x = 0; x < 108; x += 1) {
+          const i = (y * 108 + x) * 4;
+          if (test(px[i] ?? 0, px[i + 1] ?? 0, px[i + 2] ?? 0)) n += 1;
+        }
       }
-      URL.revokeObjectURL(video.src);
-      return out;
-    },
-    { data: bytes.toString('base64'), times },
-  );
+      return n;
+    };
+    const pink = (r: number, g: number, b: number) => r > 150 && g < 110 && b > 40 && b < 160;
+    // Bright on the black background: text, softened at this size.
+    const white = (r: number, g: number, b: number) => r > 110 && g > 110 && b > 110;
+    return {
+      bars: count(34, 72, pink),
+      title: count(8, 29, white),
+      caption: count(77, 100, white),
+    };
+  });
 }
 
 /** The video's sound: its length and how loud its first and last half seconds are. */
