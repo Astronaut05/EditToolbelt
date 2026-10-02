@@ -5,21 +5,12 @@
  * pad. Crops, turns and flips move pixels without resampling (lossless
  * geometry); only a free angle and a resize filter.
  */
+import { centredRatio, clampRect, turnedSize, type Rect, type Size } from './rect';
+
+export { centredRatio, clampRect, turnedSize, type Rect, type Size };
 
 export interface Pixels {
   data: Uint8ClampedArray<ArrayBuffer>;
-  width: number;
-  height: number;
-}
-
-export interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface Size {
   width: number;
   height: number;
 }
@@ -71,10 +62,6 @@ export class GeometryError extends Error {}
 const px = (value: number) => `${String(value)} px`;
 const dims = (size: Size) => `${String(size.width)} × ${String(size.height)} px`;
 
-export function turnedSize(size: Size, turns = 0): Size {
-  return turns % 2 === 0 ? size : { width: size.height, height: size.width };
-}
-
 /** Rotates clockwise by a number of quarter turns. */
 export function rotateQuarter(image: Pixels, turns: number): Pixels {
   const t = ((Math.round(turns) % 4) + 4) % 4;
@@ -119,15 +106,6 @@ export function flipHorizontal(image: Pixels): Pixels {
   return { data: dst, width: w, height: h };
 }
 
-/** Keeps a rectangle inside the image, in whole pixels, at least 1 × 1. */
-export function clampRect(rect: Rect, bounds: Size): Rect {
-  const x = Math.min(Math.max(0, Math.round(rect.x)), bounds.width - 1);
-  const y = Math.min(Math.max(0, Math.round(rect.y)), bounds.height - 1);
-  const width = Math.min(Math.max(1, Math.round(rect.width)), bounds.width - x);
-  const height = Math.min(Math.max(1, Math.round(rect.height)), bounds.height - y);
-  return { x, y, width, height };
-}
-
 /** Where two rectangles overlap, or null when they don't. */
 export function intersectRect(a: Rect, b: Rect): Rect | null {
   const x = Math.max(a.x, b.x);
@@ -147,24 +125,6 @@ export function cropPixels(image: Pixels, rect: Rect): Pixels {
     dst.set(image.data.subarray(from, from + r.width * 4), y * r.width * 4);
   }
   return { data: dst, width: r.width, height: r.height };
-}
-
-/** The largest rectangle of a width/height ratio that fits, centred. */
-export function centredRatio(bounds: Size, ratio: number): Rect {
-  let width = bounds.width;
-  let height = Math.round(width / ratio);
-  if (height > bounds.height) {
-    height = bounds.height;
-    width = Math.round(height * ratio);
-  }
-  width = Math.min(Math.max(1, width), bounds.width);
-  height = Math.min(Math.max(1, height), bounds.height);
-  return {
-    x: Math.floor((bounds.width - width) / 2),
-    y: Math.floor((bounds.height - height) / 2),
-    width,
-    height,
-  };
 }
 
 interface Kernel {

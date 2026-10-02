@@ -4,6 +4,7 @@
  * header) and hands it to a worker that decodes and encodes.
  */
 import { EngineAbortError } from '../dummy';
+import { CODEC_META } from '../lazy-engines/image-codec';
 import type { Engine, EngineOutput } from '../types';
 import {
   OUTPUT_EXT,
@@ -158,12 +159,7 @@ export function sizeChange(before: number, after: number): string {
 }
 
 export const imageCodecEngine: Engine<ImageCodecOptions> = {
-  capabilities: () => ({
-    supported: typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function',
-    reason:
-      'This browser is too old for in-browser image processing. Try a current Chrome, Firefox or Safari.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 4_000_000) }),
+  ...CODEC_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const bytes = await input.arrayBuffer();
     const format = checkImage(new Uint8Array(bytes), input.size);

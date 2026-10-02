@@ -14,6 +14,7 @@ import {
   type Swatch,
 } from '@etb/core';
 
+import { PALETTE_LIMITS, PALETTE_META } from '../lazy-engines/palette';
 import type { Engine, EngineOutput } from '../types';
 import { decodeImage, ImageReadError } from './decode';
 import { sniffImage } from './sniff';
@@ -29,7 +30,7 @@ export interface PaletteEngineOptions {
   export?: string;
 }
 
-export const PALETTE_LIMITS = { maxBytes: 100 * 1024 ** 2 };
+export { PALETTE_LIMITS };
 
 const SAMPLE_SIDE = 256;
 
@@ -54,12 +55,7 @@ async function card(swatches: Swatch[]): Promise<Blob> {
 }
 
 export const paletteEngine: Engine<PaletteEngineOptions> = {
-  capabilities: () => ({
-    supported: typeof OffscreenCanvas === 'function',
-    reason:
-      'This browser can’t read images here yet. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: () => ({ seconds: 0.5 }),
+  ...PALETTE_META,
   async run(file, opts, ctx): Promise<EngineOutput> {
     if (file.size > PALETTE_LIMITS.maxBytes) {
       throw new ImageReadError('This image is over 100 MB, the limit for this tool.');

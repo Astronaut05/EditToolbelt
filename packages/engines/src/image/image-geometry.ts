@@ -3,20 +3,23 @@
  * Flip. Same checks and worker as `image-codec`; the worker turns, flips,
  * straightens, crops and resamples between decoding and encoding (./geometry).
  */
+import { GEOMETRY_META } from '../lazy-engines/image-geometry';
 import type { Engine, EngineOutput } from '../types';
 import type { Adjust } from './adjust';
 import type { Mark } from './annotate';
 import type { Redact } from './redact';
 import { renderTextOverlay, type TextLayer } from './text-layer';
 import type { Filter, Fit, GeometryJob, Rect, ResizeBy, ResizeSpec } from './geometry';
+import { ratioValue } from './rect';
 import {
   baseJob,
   checkImage,
-  imageCodecEngine,
   imageOutput,
   type ImageCodecOptions,
   runImageJob,
 } from './image-codec';
+
+export { ratioValue };
 
 export interface ImageGeometryOptions extends Pick<
   ImageCodecOptions,
@@ -62,13 +65,6 @@ export interface ImageGeometryOptions extends Pick<
   /** P10: text layers from the editor, and the image's size as the editor saw it (orientation applied). */
   texts?: TextLayer[];
   natural?: { width: number; height: number };
-}
-
-/** A crop ratio from the options: width / height, or null for Free. */
-export function ratioValue(ratio?: string, customW?: string, customH?: string): number | null {
-  const parts = ratio === 'custom' ? [customW, customH] : (ratio ?? '').split(':');
-  const [w, h] = parts.map(Number);
-  return w && h && w > 0 && h > 0 && Number.isFinite(w / h) ? w / h : null;
 }
 
 const PADS: Record<string, [number, number, number, number]> = {
@@ -131,8 +127,7 @@ export function geometryJob(opts: ImageGeometryOptions): GeometryJob {
 }
 
 export const imageGeometryEngine: Engine<ImageGeometryOptions> = {
-  capabilities: (caps) => imageCodecEngine.capabilities(caps),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 3_000_000) }),
+  ...GEOMETRY_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const bytes = await input.arrayBuffer();
     const format = checkImage(new Uint8Array(bytes), input.size);

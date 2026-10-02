@@ -7,11 +7,11 @@
  */
 import { ANCHORS, type Anchor } from '@etb/core/watermark';
 
+import { WATERMARK_META } from '../lazy-engines/watermark';
 import type { Engine, EngineOutput } from '../types';
 import {
   baseJob,
   checkImage,
-  imageCodecEngine,
   ImageInputError,
   runImageJob,
   type ImageCodecOptions,
@@ -90,8 +90,7 @@ export async function watermarkJob(opts: WatermarkOptions): Promise<WatermarkJob
 }
 
 export const watermarkEngine: Engine<WatermarkOptions> = {
-  capabilities: (caps) => imageCodecEngine.capabilities(caps),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 3_000_000) }),
+  ...WATERMARK_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const watermark = await watermarkJob(opts);
     const bytes = await input.arrayBuffer();

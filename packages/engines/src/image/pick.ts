@@ -5,6 +5,7 @@
  */
 import { color, paletteAse, type Swatch } from '@etb/core';
 
+import { PICKED_META } from '../lazy-engines/pick';
 import type { Engine, EngineOutput } from '../types';
 
 export interface PickedColor {
@@ -65,8 +66,7 @@ export function readPicked(json: string | undefined): string[] {
 
 /** Writes the picked colours, oldest first, as CSS variables, JSON or ASE. */
 export const pickedColorsEngine: Engine<PickedColorsOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: () => ({ seconds: 0 }),
+  ...PICKED_META,
   // The image is the picker's; the file is the list of colours picked from it.
   run(_file, opts): Promise<EngineOutput> {
     const hexes = readPicked(opts.picked).reverse();

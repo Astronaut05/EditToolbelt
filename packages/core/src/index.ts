@@ -144,8 +144,8 @@ export {
   type MusicGain,
   type MusicPart,
 } from './audio/mix';
+export { DATE_FORMATS } from './rename-dates';
 export {
-  DATE_FORMATS,
   DEFAULT_RULES,
   planRenames,
   RenameError,
