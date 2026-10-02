@@ -1,9 +1,8 @@
 import { readFileSync } from 'node:fs';
 
-import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { cspViolations, expect, test } from './fixtures';
+import { cspViolations, expect, seriousViolations, test } from './fixtures';
 
 // P09 Draw on Image (tools/photo.md → Tests): strokes render as drawn, at
 // full size; an arrow's head scales with its stroke width.
@@ -191,16 +190,6 @@ test('shapes take two clicks, markers count up, and undo takes the last off', as
   expect(first?.[0]).toBeGreaterThan(200);
   expect(second).toEqual([255, 255, 255]);
 });
-
-/** axe's serious and critical issues on the page as it is (WCAG 2.2 AA). */
-async function seriousViolations(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-    .analyze();
-  return results.violations
-    .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
-    .map((violation) => violation.id);
-}
 
 test('marks are added, moved, resized and removed from the keyboard', async ({ page }) => {
   await open(page);
