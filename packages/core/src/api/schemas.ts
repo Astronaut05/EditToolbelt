@@ -163,6 +163,12 @@ export type Quote = z.infer<typeof Quote>;
 export const JobCreate = QuoteRequest.extend({
   /** The quote's `credits`; the job is refused (409) if the price has changed since. */
   quote_credits: z.number().int().min(0),
+  /**
+   * The quote's `funding`; the job is refused (409) if what pays has changed
+   * since (today's free jobs ran out, so it would take credits). Send it:
+   * without it, the job takes whatever pays at that moment.
+   */
+  quote_funding: Funding.optional(),
 }).register(api, { id: 'JobCreate' });
 
 export const JOB_STATUSES = [

@@ -328,7 +328,7 @@ export async function quote(user: CurrentUser, request: JobRequest): Promise<Quo
 
 export async function createJob(
   user: CurrentUser,
-  request: JobRequest & { quoteCredits: number },
+  request: JobRequest & { quoteCredits: number; quoteFunding?: Funding | undefined },
   idempotencyKey: string | null,
   /** `api` for a call with an API key, `web` for the website's own. */
   source: 'web' | 'api' = 'web',
@@ -400,6 +400,23 @@ export async function createJob(
           balance: paying.balance,
           shortfall: prepared.credits - paying.balance,
           buy_url: await buyUrl(tx),
+        },
+      );
+    }
+    // The quote said what pays; never switch a free daily job to credits unasked.
+    if (request.quoteFunding !== undefined && request.quoteFunding !== paying.funding) {
+      throw new ApiError(
+        409,
+        'CONFLICT',
+        'What pays for this job changed',
+        paying.funding === 'credits'
+          ? `Today's free server jobs are used up, so this one costs ${String(prepared.credits)} credits. Confirm the new quote.`
+          : 'Confirm the new quote.',
+        {
+          credits: prepared.credits,
+          funding: paying.funding,
+          free_jobs_left: paying.free_jobs_left,
+          balance: paying.balance,
         },
       );
     }

@@ -145,7 +145,14 @@ async function main() {
   } = await api('/jobs', {
     method: 'POST',
     headers: { 'Idempotency-Key': randomUUID() },
-    body: { tool_id: toolId, upload_id: uploadId, options, quote_credits: quote.credits },
+    body: {
+      tool_id: toolId,
+      upload_id: uploadId,
+      options,
+      quote_credits: quote.credits,
+      // What the quote said pays: refused (409) if that changed, never charged unasked.
+      quote_funding: quote.funding,
+    },
   });
   while (job.status === 'queued' || job.status === 'running') {
     process.stderr.write(

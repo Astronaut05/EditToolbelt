@@ -1,8 +1,9 @@
 /**
  * /api/v1/jobs (docs/06):
- * - POST `{ tool_id, upload_id, options, quote_credits }` with an
- *   `Idempotency-Key` header starts a server job at the quoted price; a
- *   repeat with the same key answers the same job.
+ * - POST `{ tool_id, upload_id, options, quote_credits, quote_funding }` with
+ *   an `Idempotency-Key` header starts a server job at the quoted price, paid
+ *   as quoted (409 if either changed); a repeat with the same key answers
+ *   the same job.
  * - GET lists the caller's recent jobs, metadata only, 20 a page by `?cursor=`.
  */
 import { JobCreate, JobEnvelope, JobList } from '@etb/core/api';
@@ -38,6 +39,7 @@ export const POST = route('jobs.create', async (request) => {
       uploadId: body.upload_id,
       options: body.options,
       quoteCredits: body.quote_credits,
+      quoteFunding: body.quote_funding,
     },
     key,
     keyId ? 'api' : 'web',

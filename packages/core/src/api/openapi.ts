@@ -139,7 +139,7 @@ export const ENDPOINTS: Endpoint[] = [
     tag: 'Jobs',
     summary: 'Start a job',
     description:
-      'Starts the job at the quoted price: credits are reserved now and taken when it succeeds, or returned if it fails. Send an `Idempotency-Key`; a repeat answers the same job. 409 if the price changed since the quote.',
+      "Starts the job at the quoted price, paid as quoted: credits are reserved now and taken when it succeeds, or returned if it fails. Send the quote's `credits` as `quote_credits` and its `funding` as `quote_funding`: 409 if either changed since the quote (say, today's free jobs ran out, so it would take credits); ask for a new quote and confirm it. Send an `Idempotency-Key`; a repeat answers the same job. 402 with `shortfall` and, while credits are on sale, `buy_url` when the balance is short.",
     auth: 'jobs:write',
     body: S.JobCreate,
     idempotent: true,
