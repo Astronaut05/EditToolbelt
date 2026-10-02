@@ -1138,3 +1138,41 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - One project keeps the worker's calls and the functions they call in step.
 
 **Reverse:** move `gpu/` to its own project with its own lockfile; the worker would then depend on `modal` only.
+
+## 2026-10-02 · Payments: three providers behind one interface, built and switched off (M5)
+
+**Decision:** Astro's instruction of 2026-10-01: build M5 completely, with payments off until Astro says "turn payments on".
+- **One interface, `PaymentProvider`** (`apps/web/src/server/payments/contract.ts`). Each provider:
+  - creates a checkout for a pending purchase;
+  - answers its own server-to-server protocol;
+  - refunds through an API where there is one.
+
+  `docs/05`'s `verifyWebhook` and `parseEvent` become one `handleWebhook`, because Click and Payme are request-and-answer protocols, not event streams.
+- **Three providers:**
+  - **Paddle:** worldwide, USD, merchant of record. Checkout and webhooks, tested end to end against Paddle's sandbox.
+  - **Click:** Uzbekistan, UZS, Uzcard and Humo. The Shop API's Prepare and Complete calls, with their signatures.
+  - **Payme:** Uzbekistan, UZS. The Merchant API over JSON-RPC (CheckPerformTransaction, CreateTransaction, PerformTransaction, CancelTransaction, CheckTransaction, GetStatement), with Basic auth.
+- **Checkout offers Click and Payme to Uzbek cards and Paddle to everyone else.** Visitors from Uzbekistan (Cloudflare's country header) see Click and Payme first, everyone else sees Paddle first, and anyone can pick the other. Each provider's pack price is in its own currency, from `config/business.ts` (`priceUsd`, `priceUzs`).
+- **Credits only through the ledger:**
+  - Providers never touch the ledger directly. They get a `PurchaseStore`, whose `complete` and `refund` move the purchase and write its ledger row in one transaction.
+  - Both are idempotent: a repeated webhook or call adds nothing.
+  - A refund may take a balance below zero (`docs/05`); a negative balance blocks paid jobs until it's topped up.
+- **Click and Payme are tested against our own simulators** of their published protocols (signatures, every call and error code), since no merchant keys exist yet.
+- **Fiscal receipt fields** (MXIK/IKPU code, package code, VAT) live in `config/business.ts` → `fiscalReceipt`, empty until Astro has them. Click and Payme refuse to switch on without them.
+- **Off by default, three locks:**
+  - `PAYMENTS_ENABLED=true` (the global kill switch);
+  - an admin switch per provider, which refuses to turn on while that provider's keys are unset;
+  - the keys themselves.
+- **While a provider is off:**
+  - nothing offers it, and with all three off there are no buy buttons anywhere;
+  - its webhook path answers 404;
+  - balances, free daily jobs and the welcome grant work as before.
+- **Webhook paths that need a Cloudflare Access bypass** when payments are turned on (and only then), each answering only its provider's signed or authenticated calls:
+  - `/api/webhooks/paddle`
+  - `/api/webhooks/click`
+  - `/api/webhooks/payme`
+
+  `docs/runbooks/turn-on-payments.md` has the steps.
+
+**Why:** Astro's instruction; `docs/05` → Payments.
+**Reverse:** a provider is one file behind the interface; drop it from the registry. `PAYMENTS_ENABLED` unset turns everything off at once.

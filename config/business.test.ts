@@ -7,12 +7,19 @@ describe('credit packs', () => {
     for (const pack of packs) expect(pack.priceUsd).toBeGreaterThanOrEqual(MIN_PACK_PRICE_USD);
   });
 
-  it('get cheaper per credit as they get bigger', () => {
-    const sorted = [...packs].sort((a, b) => a.credits - b.credits);
-    const perCredit = sorted.map((pack) => pack.priceUsd / pack.credits);
-    for (let i = 1; i < perCredit.length; i++) {
-      expect(perCredit[i]).toBeLessThan(perCredit[i - 1] ?? Infinity);
-    }
+  it.each(['priceUsd', 'priceUzs'] as const)(
+    'get cheaper per credit as they get bigger (%s)',
+    (price) => {
+      const sorted = [...packs].sort((a, b) => a.credits - b.credits);
+      const perCredit = sorted.map((pack) => pack[price] / pack.credits);
+      for (let i = 1; i < perCredit.length; i++) {
+        expect(perCredit[i]).toBeLessThan(perCredit[i - 1] ?? Infinity);
+      }
+    },
+  );
+
+  it('are priced in whole sums in UZS', () => {
+    for (const pack of packs) expect(Number.isInteger(pack.priceUzs)).toBe(true);
   });
 
   it('have unique ids', () => {
