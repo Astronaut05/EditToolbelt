@@ -1420,3 +1420,9 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** `tools/utility.md` → U02.
 **Reverse:** the rules are `packages/core/src/rename.ts`; the dates `packages/engines/src/files/taken.ts`; the folder rename `packages/ui/src/tool/in-place.ts`.
+
+## 2026-10-02 · Decoded audio is copied a whole block at a time (WebKit)
+
+**Decision:** `planesOf` (`packages/engines/src/audio/stream.ts`) copies each plane of a decoded block whole and cuts the frames it wants from that copy. It never asks `AudioData.copyTo` for a `frameOffset`. Loop Video's boomerang, Reverse Audio's selections and Replace and Merge Audio's parts all read through it. `dropStart` in `packages/engines/src/video/encode-audio.ts`, which trims an overlapping block for every video tool that re-encodes sound, does the same.
+**Why:** in WebKit (Playwright's WebKit 26.6 on Linux), `copyTo` from interleaved `f32`, which is what its Opus decoder gives, to `f32-planar` with a `frameOffset` above 0 never returns. The page hangs, then crashes a minute or more later. A boomerang's backward sound starts partway into a block, so in WebKit its Download never came on. A test page showed the call alone hangs. Offset 0 (whole or shorter), planar to planar and interleaved to interleaved all work, and Chromium and Firefox handle all five cases. A block is a few thousand frames, so copying it whole costs nothing.
+**Reverse:** pass `frameOffset` and `frameCount` to `copyTo` again once WebKit converts from an offset; `stream.test.ts` checks the cut either way.
