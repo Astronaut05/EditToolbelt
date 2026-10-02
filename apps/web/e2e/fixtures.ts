@@ -36,6 +36,14 @@ export const test = base.extend({
 
 export { expect };
 
+/**
+ * Testing a running site (playwright.prod.config.ts): production, or the image
+ * production runs. Its build has no workshop, so the tests of the workshop's
+ * demos skip themselves.
+ */
+export const remote = Boolean(process.env.E2E_BASE_URL);
+export const WORKSHOP_ONLY = 'the workshop is only in local builds';
+
 export async function cspViolations(page: import('@playwright/test').Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __csp: string[] }).__csp);
 }

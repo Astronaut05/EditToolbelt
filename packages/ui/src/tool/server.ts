@@ -6,7 +6,7 @@
  */
 import type { CreditRule } from '@etb/registry/schema';
 
-import { formatBytes } from './format';
+import { formatBytes, plural } from './format';
 
 /** What a page knows about a tool's server path (serialisable, from the registry). */
 export interface ServerInfo {
@@ -127,8 +127,4 @@ export function serverTerms(
         ? `No free server jobs left today, and this needs about ${plural(credits, 'credit')} (you have ${String(account.balance)}). Free jobs come back tomorrow (UTC).`
         : `This needs about ${plural(credits, 'credit')}; you have ${String(account.balance)}.`,
   };
-}
-
-export function plural(n: number, word: string): string {
-  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
 }

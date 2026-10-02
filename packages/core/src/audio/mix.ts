@@ -56,8 +56,20 @@ export interface MusicGain {
   fadeOut: number;
   /** When the music stops (musicEnd). */
   end: number;
-  /** Video seconds where a loop starts again. */
+  /** Video seconds where a loop starts again, in order. */
   repeats: number[];
+}
+
+/** The first repeat at or after `t`, by halving: a 4 s loop under an hour has 900 of them. */
+function firstFrom(repeats: number[], t: number): number {
+  let lo = 0;
+  let hi = repeats.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((repeats[mid] ?? Infinity) < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** The music's gain at video second `t`. */
@@ -66,7 +78,11 @@ export function musicGain(t: number, g: MusicGain): number {
   let gain = g.level;
   if (g.fadeIn > 0 && t < g.fadeIn) gain *= t / g.fadeIn;
   if (g.fadeOut > 0 && t > g.end - g.fadeOut) gain *= (g.end - t) / g.fadeOut;
-  for (const at of g.repeats) {
+  // Only the repeats near t can dip it: those within twice the dip either side
+  // are checked, in order, exactly as a check of every repeat would.
+  for (let i = firstFrom(g.repeats, t - 2 * LOOP_FADE); i < g.repeats.length; i += 1) {
+    const at = g.repeats[i] ?? Infinity;
+    if (at > t + 2 * LOOP_FADE) break;
     const from = Math.abs(t - at);
     if (from < LOOP_FADE) gain *= from / LOOP_FADE;
   }
