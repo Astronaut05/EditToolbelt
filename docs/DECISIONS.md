@@ -1260,3 +1260,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6: each stream reads the database every second for up to 15 minutes, and only stream starts were limited (30 a minute per key), so one key could hold hundreds open against a pool of 10 connections.
 **Reverse:** `MAX_STREAMS` in `server/streams.ts`; `STREAM_POLL_QUEUED_MS` in `server/jobs.ts`.
+
+## 2026-10-02 · An Idempotency-Key names one request body (M6 fix)
+
+**Decision:**
+- **The job keeps a SHA-256 of the request that first used its key** (`jobs.idempotency_hash`, migration `0009_job_idempotency_hash`, nullable). The body is hashed in a canonical form: `tool_id`, `upload_id`, `options` and `quote_credits`, object keys sorted at every level, no options the same as `{}` (`server/idempotency.ts`).
+- **The same key with the same body answers the same job (200); with another body, `422 IDEMPOTENCY_KEY_REUSED`**, a problem whose `type` links to `/developers#idempotency`. 422, not 409, is what the IETF draft on the header asks for a reused key; it's a new stable code, which `docs/06` allows (adding is non-breaking). Jobs from before the column (hash null) answer as they did.
+- **A retry that races the first try gets its job.** If starting fails with 409 `CONFLICT` (the upload already has a job, or the price changed) and the key now names a job, that job is the answer; the hash check still applies. Inside the create transaction the key is checked again under the account's lock, as before.
+- `@etb/db/testing`'s locked migrations let `jobs.db.test.ts` run the real `createJob` against the test database, six tries at once.
+
+**Why:** a review of M6 confirmed a reused key with a different body got the first job with 200, and found a retry arriving just before the first try committed could get "This upload already has a job".
+**Reverse:** to drop the check, stop writing `idempotency_hash` (the column can stay null); the race retry is the `catch` in `createJob`.

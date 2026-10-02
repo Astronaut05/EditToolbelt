@@ -100,9 +100,11 @@ UPLOAD=$(jq -r .upload_id upload.json)`}</Code>
         <Code label="Get a quote">{`OPTIONS='{"mode":"size","targetMb":25}'
 curl -s -X POST "$API/jobs/quote" -H "$H" -H 'Content-Type: application/json' \\
   -d "{\\"tool_id\\":\\"compress-video\\",\\"upload_id\\":\\"$UPLOAD\\",\\"options\\":$OPTIONS}" > quote.json`}</Code>
-        <p>
+        <p id="idempotency">
           5. Start the job at that price. The <Mono>Idempotency-Key</Mono> makes a retry safe: the
-          same key answers the same job.
+          same key with the same body answers the same job (200 instead of 201). A key is for one
+          request only: sent again with a different body, it gets{' '}
+          <Mono>422 IDEMPOTENCY_KEY_REUSED</Mono>.
         </p>
         <Code label="Start the job">{`curl -s -X POST "$API/jobs" -H "$H" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \\
   -d "{\\"tool_id\\":\\"compress-video\\",\\"upload_id\\":\\"$UPLOAD\\",\\"options\\":$OPTIONS,\\"quote_credits\\":$(jq .credits quote.json)}" > job.json

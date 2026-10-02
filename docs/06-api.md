@@ -5,7 +5,7 @@ One API for everything: the website's own tool pages, the Premiere panel, the mo
 ## Basics
 
 - Base: `/api/v1`. Breaking changes → `/api/v2`; v1 kept for at least 6 months after.
-- JSON in/out. Errors are RFC 9457 `application/problem+json`: `{ type, title, status, detail, code, ...extra }` with stable `code` values (`INSUFFICIENT_CREDITS`, `FILE_TOO_LARGE`, `UNSUPPORTED_FORMAT`, `TOOL_UNAVAILABLE`, `RATE_LIMITED`, `QUOTA_EXCEEDED`, `NOT_FOUND`, `UNAUTHORIZED`).
+- JSON in/out. Errors are RFC 9457 `application/problem+json`: `{ type, title, status, detail, code, ...extra }` with stable `code` values (`INSUFFICIENT_CREDITS`, `FILE_TOO_LARGE`, `UNSUPPORTED_FORMAT`, `TOOL_UNAVAILABLE`, `RATE_LIMITED`, `QUOTA_EXCEEDED`, `NOT_FOUND`, `UNAUTHORIZED`, `IDEMPOTENCY_KEY_REUSED`, …). A code that needs more words has its own `type`, a link into `/developers`; the others are `about:blank`.
 - Schemas defined once in Zod (`@etb/core/api`, `packages/core/src/api/`) → OpenAPI 3.1 generated at build → published at `/api/v1/openapi.json` and a docs page at `/developers`.
 - Typed client `packages/api-client` generated from the same schemas; used by the web app and the panel.
 - Rate-limit headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
@@ -39,7 +39,7 @@ Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, st
 | `POST /uploads/:id/parts` | `{ from, count }` → fresh presigned URLs for the next parts. Part URLs expire in 15 min, so large uploads fetch them in batches. |
 | `POST /uploads/:id/complete` | `{ parts: [{ n, etag }] }` → completes multipart. |
 | `POST /jobs/quote` | `{ tool_id, upload_id, options }` → `{ credits, funding, can_start, free_jobs_left, balance, balance_after, estimate_seconds, options }` after server probe; `202 { status: "probing" }` with `Retry-After` while the probe runs. |
-| `POST /jobs` | `{ tool_id, upload_id, options, quote_credits }` + `Idempotency-Key` header → `{ job }`. Rejects if the quote changed. A tool that takes a second file names its upload in an option (Burn Subtitles: `subtitles`, an SRT, VTT or ASS upload of up to 5 MB). |
+| `POST /jobs` | `{ tool_id, upload_id, options, quote_credits }` + `Idempotency-Key` header → `{ job }`. Rejects if the quote changed. A repeat with the same key and body answers the same job (200); the same key with another body gets `422 IDEMPOTENCY_KEY_REUSED`. A tool that takes a second file names its upload in an option (Burn Subtitles: `subtitles`, an SRT, VTT or ASS upload of up to 5 MB). |
 | `GET /jobs/:id` | Job status, progress, result (when done: `download_url` presigned, expires in 10 min, `expires_at` of the object). |
 | `GET /jobs/:id/events` | SSE progress stream. 5 open at once per account; past that `429 RATE_LIMITED` with `Retry-After` (polling `GET /jobs/:id` works too). |
 | `POST /jobs/:id/cancel` | Cancel queued/running; releases credits. |

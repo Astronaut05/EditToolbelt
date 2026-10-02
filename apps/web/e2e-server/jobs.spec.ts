@@ -292,6 +292,24 @@ test('a job starts at the quoted price, once per Idempotency-Key, once per uploa
   expect(again.status()).toBe(200);
   expect(((await again.json()) as JobBody).job.id).toBe(job.id);
 
+  // A key is for one request: another body under it is refused.
+  const reused = await post(
+    page.request,
+    '/api/v1/jobs',
+    {
+      tool_id: 'compress-video',
+      upload_id: file.id,
+      options: { ...OPTIONS, targetMb: 12 },
+      quote_credits: 2,
+    },
+    { 'Idempotency-Key': key },
+  );
+  expect(reused.status()).toBe(422);
+  expect(await reused.json()).toMatchObject({
+    code: 'IDEMPOTENCY_KEY_REUSED',
+    type: expect.stringMatching(/\/developers#idempotency$/),
+  });
+
   const twice = await create(page.request, file.id, 2, randomUUID());
   expect(await twice.json()).toMatchObject({ code: 'CONFLICT', status: 409 });
 
