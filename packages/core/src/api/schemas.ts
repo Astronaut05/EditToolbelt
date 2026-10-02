@@ -63,7 +63,10 @@ export const ToolList = z.strictObject({ tools: z.array(Tool) }).register(api, {
 export const ToolDetail = Tool.extend({
   /** JSON Schema of the job's `options`, for server tools; null for browser-only ones. */
   options: z.record(z.string(), z.unknown()).nullable(),
-  /** More files a job takes beside the main upload, by option name (Burn Subtitles: `subtitles`). */
+  /**
+   * More files a job takes beside the main upload, by option name: an upload id
+   * (Burn Subtitles: `subtitles`), or a list of them in order (Merge Videos: `clips`).
+   */
   extra_uploads: z.array(z.string()),
 }).register(api, { id: 'ToolDetail' });
 export type ToolDetail = z.infer<typeof ToolDetail>;

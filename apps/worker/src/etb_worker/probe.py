@@ -93,7 +93,7 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
             "UNSUPPORTED_FORMAT", f"content is {fmt.get('format_name')!s}, not {mime}"
         )
     streams = raw.get("streams") or []
-    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    video = next((s for s in streams if _picture(s)), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
     if mime in SUBTITLES:
         subtitle = next((s for s in streams if s.get("codec_type") == "subtitle"), None)
@@ -209,9 +209,21 @@ def probe_json(path: Path) -> dict[str, Any]:
             raise ProbeRefused("UNSUPPORTED_FORMAT", "its length can't be read")
         data["format"] = {**fmt, "duration": f"{span:.6f}"}
         data["duration_from_packets"] = True
-    if any(stream.get("codec_type") == "video" for stream in streams):
+    if any(_picture(stream) for stream in streams):
         data["frame_times"] = frame_times(path)
     return data
+
+
+def _picture(stream: dict[str, Any]) -> bool:
+    """A video stream that is the picture, not a cover image (an MP3's or M4A's artwork).
+
+    ffprobe gives cover art a rate of 90,000 fps, which the jobs API would refuse, and a
+    video file's artwork may come before its picture. ffmpeg's ``V`` stream specifier
+    picks the same streams, so the processors map ``0:V:0``.
+    """
+    return stream.get("codec_type") == "video" and not (stream.get("disposition") or {}).get(
+        "attached_pic"
+    )
 
 
 def _timed(fmt: dict[str, Any], streams: list[dict[str, Any]]) -> bool:
@@ -283,7 +295,7 @@ def frame_times(path: Path) -> list[float]:
     try:
         run(
             ffprobe(
-                *("-select_streams", "v:0", "-read_intervals", FRAME_TIMES_SPAN),
+                *("-select_streams", "V:0", "-read_intervals", FRAME_TIMES_SPAN),
                 *("-show_entries", "packet=pts_time", "-of", "csv=p=0", "-i", path.name),
             ),
             cwd=path.parent,

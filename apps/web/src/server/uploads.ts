@@ -24,6 +24,7 @@ import { ApiError } from './problem';
 import { db } from './db';
 import { serverEnv } from './env';
 import { refreshToolFlags } from './flags';
+import { formatBytes } from './inputs';
 import {
   abortMultipart,
   completeMultipart,
@@ -321,15 +322,4 @@ export async function cancelUpload(user: CurrentUser, id: string): Promise<void>
     .set({ multipartId: null, deletedAt: new Date() })
     .where(eq(uploads.id, upload.id));
   log.info({ upload_id: upload.id }, 'upload.cancelled');
-}
-
-function formatBytes(bytes: number): string {
-  const units = ['bytes', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000;
-    unit += 1;
-  }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit] ?? ''}`;
 }

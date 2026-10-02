@@ -9,6 +9,7 @@
     "./isolated": "./src/isolated.ts",
     "./schema": "./src/schema.ts",
     "./options": "./src/options.ts",
+    "./choices": "./src/choices.ts",
     "./pricing": "./src/pricing.ts",
     "./languages": "./src/languages.ts"
   },

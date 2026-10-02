@@ -147,6 +147,11 @@ test('answers match the schemas, and their statuses the document', async ({ requ
   });
   const burn = await expectShape(await call('get', '/api/v1/tools/burn-subtitles'), ToolDetail);
   expect(burn.extra_uploads).toEqual(['subtitles']);
+  const merge = await expectShape(await call('get', '/api/v1/tools/merge-videos'), ToolDetail);
+  expect(merge.extra_uploads).toEqual(['clips']);
+  expect(merge.options).toMatchObject({
+    properties: { clips: { type: 'array', minItems: 1, maxItems: 19 } },
+  });
   const browserOnly = await expectShape(await call('get', '/api/v1/tools/trim-video'), ToolDetail);
   expect(browserOnly.options).toBeNull();
   const missing = await call('get', '/api/v1/tools/no-such-tool');

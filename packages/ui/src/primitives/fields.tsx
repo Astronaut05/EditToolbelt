@@ -124,6 +124,7 @@ export function ColorInput({
       <input
         id={id}
         type="color"
+        autoComplete="off"
         aria-label={label}
         value={value}
         onChange={(event) => {

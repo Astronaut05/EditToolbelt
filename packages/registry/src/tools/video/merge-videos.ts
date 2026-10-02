@@ -10,15 +10,26 @@ export default defineTool({
   summary: 'Join clips in order, fast when specs match',
   status: 'beta',
   wave: 2,
-  // The browser path is live; the server path for large totals waits for multi-file jobs (its switch stays off).
+  // The browser path, and ffmpeg on our servers for large totals once an admin switches it on.
   runtime: 'hybrid',
   engines: ['video-webcodecs', 'video-ffmpeg-server'],
   ui: 'form',
   batch: false,
   accepts: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'],
   outputs: ['mp4', 'mov', 'webm', 'mkv'],
-  // The clips together: the joined file is built in memory.
-  limits: { client: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 } },
+  limits: {
+    // The clips together: the joined file is built in memory.
+    client: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 },
+    // The clips together on our servers; each clip also fits on its own (its upload).
+    server: {
+      free: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 },
+      paid: { maxBytes: 10 * 1024 ** 3, maxDurationSec: 4 * 60 * 60 },
+    },
+    // A stream copy takes minutes; re-encoding 4 h at 1080p takes about 1 h on one core.
+    timeoutSec: 2 * 60 * 60,
+    maxConcurrent: 2,
+  },
+  // Priced on the clips' total length, from the server's probe.
   cost: { kind: 'perMinute', credits: 1, minCredits: 1 },
   surfaces: ['web', 'api'],
   seo: {
@@ -49,7 +60,7 @@ export default defineTool({
       },
       {
         q: 'Are my clips uploaded?',
-        a: 'No. They are joined in this browser and never leave your device.',
+        a: 'No. They are joined in this browser and never leave your device, unless you choose our servers for a very large set.',
       },
     ],
   },
