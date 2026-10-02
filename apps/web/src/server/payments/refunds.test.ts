@@ -92,6 +92,8 @@ describe.skipIf(!TEST_DATABASE_URL)('refunds from the admin', () => {
             eq(creditTransactions.kind, 'refund_purchase'),
           ),
         )
+        // Oldest first: without an order Postgres may return them either way.
+        .orderBy(creditTransactions.createdAt, creditTransactions.id)
     ).map((row) => row.amount);
 
   describe('Paddle, through its API', () => {
