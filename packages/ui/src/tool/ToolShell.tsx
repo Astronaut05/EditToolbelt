@@ -83,6 +83,9 @@ const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.T
 
 /** Tailwind's `lg` breakpoint: two columns from here up. */
 const WIDE = '(min-width: 64rem)';
+/** How often a running batch redraws its rows. */
+const BATCH_DRAW_MS = 120;
+
 function subscribeWide(onChange: () => void) {
   const query = matchMedia(WIDE);
   query.addEventListener('change', onChange);
@@ -1409,10 +1412,30 @@ export function ToolShell({
     const abort = new AbortController();
     controller.current = abort;
     track('tool_run_started', { path: 'client', files: String(files.length) });
+    // Rows' changes are gathered and drawn every BATCH_DRAW_MS, not with one
+    // render of the whole shell for each: a render takes about as long as a
+    // small file, so 50 of them took several times the work itself.
+    const pending = new Map<number, Partial<BatchItem>>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      clearTimeout(timer);
+      timer = undefined;
+      if (abort.signal.aborted || controller.current !== abort) pending.clear();
+      if (pending.size === 0) return;
+      const patches = new Map(pending);
+      pending.clear();
+      setBatch((items) =>
+        items.map((item, i) => {
+          const patch = patches.get(i);
+          return patch ? { ...item, ...patch } : item;
+        }),
+      );
+    };
     for (const [index, file] of files.entries()) {
       const id = batch[index]?.id ?? String(index);
       const update = (patch: Partial<BatchItem>) => {
-        setBatch((items) => items.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+        pending.set(index, { ...pending.get(index), ...patch });
+        timer ??= setTimeout(flush, BATCH_DRAW_MS);
       };
       update({ status: 'running', progress: 0 });
       try {
@@ -1440,13 +1463,18 @@ export function ToolShell({
           }),
         });
       } catch (error) {
-        if (abort.signal.aborted) return;
+        if (abort.signal.aborted) {
+          flush();
+          return;
+        }
         update({
           status: 'failed',
           error: error instanceof Error ? error.message : "Couldn't read this file.",
         });
       }
     }
+    // The last rows land with "done", in one render.
+    flush();
     setBatchDone(true);
   }
 
