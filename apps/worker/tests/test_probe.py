@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from etb_worker import probe as probe_module
 from etb_worker.probe import ProbeRefused, probe_json, summarize, variable_frame_rate
+from etb_worker.sandbox import ToolError, run
 
 VIDEO = {
     "codec_type": "video",
@@ -202,3 +205,71 @@ def test_media_whose_length_cant_be_read_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ProbeRefused) as refused:
         probe_json(headers_only)
     assert refused.value.code == "UNSUPPORTED_FORMAT"
+
+
+def encoded(path: Path, *args: str) -> Path:
+    """10 s of loud noise, then 50 s of near silence: a bitrate guess from the start is wrong."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run(  # noqa: S603
+        [
+            *("ffmpeg", "-hide_banner", "-loglevel", "error", "-y"),
+            *("-f", "lavfi", "-i", "anoisesrc=d=10:a=0.8,aformat=channel_layouts=stereo"),
+            *("-f", "lavfi", "-i", "anoisesrc=d=50:a=0.0005,aformat=channel_layouts=stereo"),
+            *("-filter_complex", "[0][1]concat=n=2:v=0:a=1", *args, str(path)),
+        ],
+        check=True,
+    )
+    return path
+
+
+@pytest.mark.parametrize(
+    ("name", "mime", "args"),
+    [
+        ("vbr.mp3", "audio/mpeg", ("-c:a", "libmp3lame", "-q:a", "0", "-write_xing", "0")),
+        ("raw.aac", "audio/aac", ("-c:a", "aac", "-q:a", "2", "-f", "adts")),
+    ],
+)
+def test_lengths_ffprobe_would_guess_from_the_bitrate_are_measured(
+    tmp_path: Path, name: str, mime: str, args: tuple[str, ...]
+) -> None:
+    data = probe_json(encoded(tmp_path / name, *args))
+    assert data["duration_from_packets"] is True
+    # The whole minute, not ffprobe's guess from the bitrate (57 s for this MP3, 74 s for this AAC).
+    assert 59_800 <= summarize(data, mime)["duration_ms"] <= 60_200
+
+
+def test_a_header_length_that_rounds_to_nothing_is_measured(tmp_path: Path) -> None:
+    """A Matroska header that says 0.1 ms would price and cap 0 ms: it is measured instead."""
+    seekable = tmp_path / "clip.mkv"
+    subprocess.run(  # noqa: S603
+        [
+            *("ffmpeg", "-hide_banner", "-loglevel", "error", "-y"),
+            *("-i", str(recording(tmp_path / "rec.webm", 3)), "-c", "copy", str(seekable)),
+        ],
+        check=True,
+    )
+    body = bytearray(seekable.read_bytes())
+    at = body.find(b"\x44\x89\x88")  # Segment Duration, an 8-byte float in ms
+    assert at > 0
+    body[at + 3 : at + 11] = struct.pack(">d", 0.0001)
+    seekable.write_bytes(bytes(body))
+    data = probe_json(seekable)
+    assert data["duration_from_packets"] is True
+    assert 2900 <= summarize(data, "video/x-matroska")["duration_ms"] <= 3100
+
+
+def test_a_length_that_takes_too_long_to_measure_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = recording(tmp_path / "rec.webm", 2)
+
+    def slow(args: list[str], **kwargs: Any) -> str:
+        if "packet=pts_time,duration_time" in args:
+            raise ToolError("TIMEOUT", "stopped after 300 s")
+        return run(args, **kwargs)
+
+    monkeypatch.setattr(probe_module, "run", slow)
+    with pytest.raises(ProbeRefused) as refused:
+        probe_json(path)
+    assert refused.value.code == "TIMEOUT"

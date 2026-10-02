@@ -199,9 +199,11 @@ def probe_json(path: Path) -> dict[str, Any]:
         raise ProbeRefused("UNSUPPORTED_FORMAT", "ffprobe gave no answer")
     streams = data.get("streams") or []
     fmt = data.get("format") or {}
-    if _timed(fmt, streams) and not _positive(fmt.get("duration")):
-        # The header has no length (a browser's MediaRecorder WebM writes none), and the length
-        # sets the price, the limits and how far a job reads: measure it from the packets.
+    if _timed(fmt, streams) and (not _positive(fmt.get("duration")) or _estimated(fmt)):
+        # The length sets the price, the limits and how far a job reads. When the header has
+        # none (a browser's MediaRecorder WebM writes none), or one that rounds to nothing, or
+        # ffprobe would only guess it from the bitrate (MP3 without a Xing header, raw AAC),
+        # it is measured from the packets.
         span = packet_span(path)
         if span is None:
             raise ProbeRefused("UNSUPPORTED_FORMAT", "its length can't be read")
@@ -221,10 +223,20 @@ def _timed(fmt: dict[str, Any], streams: list[dict[str, Any]]) -> bool:
 
 
 def _positive(value: object) -> bool:
+    """A length of at least a millisecond: less rounds to 0 ms, which prices and caps nothing."""
     try:
-        return float(str(value)) > 0
+        return float(str(value)) >= 0.001
     except ValueError:
         return False
+
+
+#: Containers whose length ffprobe estimates from the bitrate when nothing better says:
+#: a VBR MP3 without a Xing or VBRI header, ADTS AAC, MP3s joined end to end.
+ESTIMATED = frozenset({"mp3", "aac"})
+
+
+def _estimated(fmt: dict[str, Any]) -> bool:
+    return bool(set(str(fmt.get("format_name", "")).split(",")) & ESTIMATED)
 
 
 def packet_span(path: Path) -> float | None:
@@ -256,7 +268,9 @@ def packet_span(path: Path) -> float | None:
             limits=MEASURE_LIMITS,
             on_line=on_line,
         )
-    except ToolError:
+    except ToolError as error:
+        if error.code == "TIMEOUT":
+            raise ProbeRefused("TIMEOUT", "measuring its length took too long") from None
         return None
     if first is None or end <= first:
         return None

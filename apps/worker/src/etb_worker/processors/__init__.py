@@ -108,12 +108,16 @@ CAP_SLACK_SEC = 1.0
 
 def priced_seconds(meta: dict[str, Any]) -> float | None:
     """How much of the input a job may read: its probed length, which set the price and
-    the limits, with a margin; None for an input without one (an image, subtitles)."""
+    the limits, with a margin. None only for an input with neither sound nor picture
+    (subtitles). Sound or picture whose length reads as nothing (a still image, or a
+    header that says 0) is read for a second at most: the cap fails closed."""
+    if not meta.get("audio") and not meta.get("video"):
+        return None
     duration_ms = meta.get("duration_ms")
     if isinstance(duration_ms, bool) or not isinstance(duration_ms, int | float):
-        return None
+        return CAP_SLACK_SEC
     if duration_ms <= 0:
-        return None
+        return CAP_SLACK_SEC
     return round(duration_ms / 1000 * CAP_RATIO + CAP_SLACK_SEC, 3)
 
 
