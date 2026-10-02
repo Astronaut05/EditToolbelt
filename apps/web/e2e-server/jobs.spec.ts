@@ -272,7 +272,13 @@ test('the quote comes from the probe: price, what pays, and the limits', async (
   await new Promise((resolve) => setTimeout(resolve, 1000));
   await db
     .update(uploads)
-    .set({ probe: { duration_ms: 3 * MINUTE }, probedAt: new Date() })
+    .set({
+      probe: {
+        duration_ms: 3 * MINUTE,
+        video: { codec: 'h264', width: 1920, height: 1080, fps: 30 },
+      },
+      probedAt: new Date(),
+    })
     .where(eq(uploads.id, late.id));
   expect(await (await answer).json()).toMatchObject({ status: 'ready', credits: 3 });
 

@@ -115,6 +115,10 @@ const NO_VIDEO: Refusal = {
   detail: 'This file has no video in it.',
 };
 
+function hasPicture(probe: Probe): boolean {
+  return Boolean(probe.video?.width && probe.video.height);
+}
+
 const NO_SOUND: Refusal = {
   status: 422,
   code: 'NOTHING_TO_DO',
@@ -175,15 +179,20 @@ const RULES: Record<string, (probe: Probe, options: Record<string, unknown>) => 
       detail: `At ${String(audio.sample_rate / 1000)} kHz with ${String(audio.channels)} channels we clean up to ${hoursAndMinutes(MAX_NOISE_WORK_BYTES / perSecond)} at once; this file is ${hoursAndMinutes((probe.duration_ms ?? 0) / 1000)}. Split it into parts, or mix it down to fewer channels.`,
     };
   },
+  // A sound file (an M4A, or one with cover art) has no picture to work on.
+  'compress-video': (probe) => (hasPicture(probe) ? null : NO_VIDEO),
+  'burn-subtitles': (probe) => (hasPicture(probe) ? null : NO_VIDEO),
   'vfr-to-cfr': (probe) =>
-    probe.video?.vfr === false
-      ? {
-          status: 422,
-          code: 'NOTHING_TO_DO',
-          title: 'Nothing to fix',
-          detail: `This video already has a constant frame rate${probe.video.fps ? ` (${probe.video.fps.toFixed(2)} fps)` : ''}, so it stays in sync as it is. Nothing to fix, and nothing was charged.`,
-        }
-      : null,
+    !hasPicture(probe)
+      ? NO_VIDEO
+      : probe.video?.vfr === false
+        ? {
+            status: 422,
+            code: 'NOTHING_TO_DO',
+            title: 'Nothing to fix',
+            detail: `This video already has a constant frame rate${probe.video.fps ? ` (${probe.video.fps.toFixed(2)} fps)` : ''}, so it stays in sync as it is. Nothing to fix, and nothing was charged.`,
+          }
+        : null,
   'upscale-image': (probe, options) => {
     if (!probe.video?.width || !probe.video.height) {
       return {
