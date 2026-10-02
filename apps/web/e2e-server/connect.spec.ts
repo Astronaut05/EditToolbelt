@@ -2,6 +2,8 @@
  * The panel's connect flow (docs/06 → Auth): the `request` fixture plays the
  * panel (no cookies), the page plays the person approving at /connect.
  */
+import { randomBytes } from 'node:crypto';
+
 import AxeBuilder from '@axe-core/playwright';
 import { apiKeys, deviceCodes, eq, users } from '@etb/db';
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -11,6 +13,29 @@ import { closeTestDb, linkFor, newEmail, setScheme, signIn, testDb } from './hel
 const db = testDb();
 
 test.describe.configure({ mode: 'serial' });
+
+/**
+ * A client address no other test shares: the IPv6 documentation range
+ * (RFC 3849) and 96 random bits, as Cloudflare would pass it.
+ */
+function newAddress(): string {
+  const hex = randomBytes(12).toString('hex');
+  return `2001:db8:${Array.from({ length: 6 }, (_, i) => hex.slice(4 * i, 4 * i + 4)).join(':')}`;
+}
+
+/*
+ * Every test calls from an address of its own, its page and its panel alike.
+ * The server counts wrong codes (10 in 10 minutes lock /connect), new device
+ * codes and API calls per address, in its memory, for as long as it runs: all
+ * three browsers in CI, every local run until it stops. On a shared address,
+ * one test's misses (or one browser's) would lock out the next.
+ */
+test.use({
+  // eslint-disable-next-line no-empty-pattern -- Playwright reads a fixture's needs from this pattern
+  extraHTTPHeaders: async ({}, provide) => {
+    await provide({ 'cf-connecting-ip': newAddress() });
+  },
+});
 
 test.afterAll(async () => {
   await closeTestDb();
@@ -123,10 +148,6 @@ test('an expired or made-up code goes nowhere', async ({ page, request }) => {
 });
 
 test('ten wrong codes lock the account out, the right one too', async ({ page, request }) => {
-  // An address of its own, so the lockout touches no other test.
-  await page.setExtraHTTPHeaders({
-    'cf-connecting-ip': `203.0.113.${String(Math.floor(Math.random() * 250) + 1)}`,
-  });
   await signIn(page, newEmail());
   const wrong = /That code is wrong or has expired/;
   // Every kind of miss gets the same answer: malformed, made up, and declined then reused.
