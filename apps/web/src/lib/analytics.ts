@@ -7,7 +7,12 @@
  * go without query strings, sizes and durations only as buckets, the
  * referrer only as an origin, and nothing at all when the browser asks not to
  * be tracked (Do Not Track / Global Privacy Control).
+ *
+ * Nothing is sent from personal pages either (/account, /admin, /connect,
+ * /credits, /sign-in: src/lib/personal.ts), not even a page view: their paths
+ * can carry user and job ids (`/admin/users/<id>`).
  */
+import { isPersonalPath } from './personal';
 
 /** The event list from docs/09, plus real-user Web Vitals (docs/10). */
 export interface EventProps {
@@ -95,6 +100,11 @@ export function payload(
   };
 }
 
+/** The page as the collector may see it: its path, or null on a personal page (send nothing). */
+export function reportedPath(pathname: string): string | null {
+  return isPersonalPath(pathname) ? null : pathname;
+}
+
 export function optedOut(nav: {
   doNotTrack?: string | null;
   globalPrivacyControl?: boolean;
@@ -105,9 +115,11 @@ export function optedOut(nav: {
 function send(event?: { name: string; data: Record<string, string> }): void {
   if (!CONFIG || typeof window === 'undefined') return;
   if (optedOut(navigator)) return;
+  const pathname = reportedPath(location.pathname);
+  if (pathname === null) return;
   const page: PageContext = {
     hostname: location.hostname,
-    pathname: location.pathname,
+    pathname,
     referrer: document.referrer,
     language: navigator.language,
     screen: `${String(screen.width)}x${String(screen.height)}`,
