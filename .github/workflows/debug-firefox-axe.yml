@@ -1,0 +1,65 @@
+# Temporary (claude/debug-firefox-axe only, never merged): the Firefox hang in
+# setScheme on PR #67's admin and payments axe tests, with an instrumented
+# setScheme (apps/web/e2e-server/helpers.ts) that reports instead of hanging.
+name: Debug Firefox axe
+on:
+  push:
+    branches: ['claude/debug-firefox-axe']
+permissions:
+  contents: read
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+jobs:
+  e2e-server:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: etb
+          POSTGRES_PASSWORD: etb-ci-only
+          POSTGRES_DB: etb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U etb -d etb_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium firefox
+      - name: Storage for the server build's tests (the local stack's gateway)
+        run: |
+          docker run --detach --name storage --publish 7070:7070 --tmpfs /data \
+            versity/versitygw:v1.8.0@sha256:30292fc2eeacc67a36993b01f7a7a5e3361a19cced0e80c1d71cfa2a4b0a2499 \
+            --port=:7070 --access=etb-local --secret=etb-local-secret --region=us-east-1 \
+            '--cors-allow-origin=*' --quiet posix /data
+      - name: Firefox · admin + payments specs, repeat-each 2
+        id: firefox
+        continue-on-error: true
+        run: pnpm --filter @etb/web e2e:server e2e-server/admin.spec.ts e2e-server/payments.spec.ts --repeat-each=2
+        env:
+          TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
+          PW_BROWSERS: firefox
+      - name: Chromium · admin + payments specs
+        id: chromium
+        if: always()
+        continue-on-error: true
+        run: pnpm --filter @etb/web e2e:server --no-build e2e-server/admin.spec.ts e2e-server/payments.spec.ts
+        env:
+          TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
+          PW_BROWSERS: chromium
+      - name: Result
+        if: always()
+        run: |
+          echo "firefox: ${{ steps.firefox.outcome }}, chromium: ${{ steps.chromium.outcome }}"
+          test "${{ steps.firefox.outcome }}" = success && test "${{ steps.chromium.outcome }}" = success
