@@ -9,7 +9,7 @@ export default defineTool({
   tagline:
     'Convert variable frame rate phone and screen recordings to constant, so they stay in sync.',
   summary: 'Keep phone footage in sync in Premiere',
-  status: 'soon',
+  status: 'beta',
   wave: 2,
   runtime: 'server-cpu',
   engines: ['video-ffmpeg-server'],
@@ -18,7 +18,7 @@ export default defineTool({
   accepts: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'],
   outputs: ['mp4'],
   limits: {
-    // Off until an admin sets its status: it needs the server build and a worker.
+    // Runs on the worker; a copy of the site with no server path holds the run (ToolShell).
     server: {
       free: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 },
       paid: { maxBytes: 10 * 1024 ** 3, maxDurationSec: 4 * 60 * 60 },

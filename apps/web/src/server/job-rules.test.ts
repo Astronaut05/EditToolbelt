@@ -7,6 +7,8 @@ import {
   extrasRefusal,
   frameCount,
   gpuRate,
+  MAX_NOISE_WORK_BYTES,
+  noiseWorkBytes,
   outputSize,
   priceInput,
   proresBytes,
@@ -58,6 +60,43 @@ describe('the other tools', () => {
     );
     expect(refusal('vfr-to-cfr', { video: { vfr: true } }, {})).toBeNull();
     expect(refusal('compress-video', silent, {})).toBeNull();
+  });
+});
+
+describe('Noise Reduction', () => {
+  const sound = (ms: number, rate: number, channels: number) => ({
+    duration_ms: ms,
+    audio: { codec: 'flac', sample_rate: rate, channels },
+  });
+
+  it('takes 4 hours of mono and about 3 h 6 min of stereo at 48 kHz', () => {
+    expect(refusal('remove-noise', sound(4 * 3_600_000, 48_000, 1), {})).toBeNull();
+    expect(refusal('remove-noise', sound(186 * 60_000, 48_000, 2), {})).toBeNull();
+    expect(refusal('remove-noise', sound(187 * 60_000, 48_000, 2), {})).toMatchObject({
+      status: 413,
+      code: 'FILE_TOO_LARGE',
+      detail: expect.stringContaining('up to 3 h 6 min at once; this file is 3 h 7 min') as string,
+    });
+  });
+
+  it('counts the two raw copies on the worker’s disk, not the upload', () => {
+    // An hour of 8 channels at 192 kHz is a few MB as FLAC of silence, 44 GB raw.
+    const tiny = sound(3_600_000, 192_000, 8);
+    expect(noiseWorkBytes(tiny)).toBeCloseTo(3600 * 192_000 * 8 * 4 * 2);
+    expect(noiseWorkBytes(tiny)).toBeGreaterThan(5 * MAX_NOISE_WORK_BYTES);
+    expect(refusal('remove-noise', tiny, {})?.detail).toContain('At 192 kHz with 8 channels');
+  });
+
+  it('refuses no sound and more than 8 channels before anything is charged', () => {
+    expect(refusal('remove-noise', { duration_ms: 5000, audio: null }, {})).toMatchObject({
+      code: 'NOTHING_TO_DO',
+      title: 'Nothing to clean',
+    });
+    expect(refusal('remove-noise', sound(5000, 48_000, 12), {})).toMatchObject({
+      status: 422,
+      title: 'Too many channels',
+    });
+    expect(refusal('remove-noise', sound(5000, 48_000, 8), {})).toBeNull();
   });
 });
 

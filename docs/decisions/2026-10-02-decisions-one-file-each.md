@@ -1,0 +1,5 @@
+# 2026-10-02 · Decisions one file each; feature PRs leave STATUS alone
+
+**Decision:** decisions from 2026-10-02 on are one file each in `docs/decisions/` (format in its README); `docs/DECISIONS.md` keeps the entries before. Feature PRs no longer edit `STATUS.md`: a status PR of its own brings it up to date after each batch of merges. `CLAUDE.md` (the docs table, rule 10 and the `STATUS.md` convention) says so.
+**Why:** every PR appended to the end of `DECISIONS.md` and edited the same lines of `STATUS.md`, so with several PRs open, each merge left the others in conflict. Each conflict meant merging main and a full CI run, about 45 minutes, for every PR still open: on 2026-10-02 five PRs were in CI at once and four of them appended to `DECISIONS.md`. Separate files never collide, and one status PR after a batch conflicts with nothing.
+**Reverse:** append new entries to `docs/DECISIONS.md` again (the files can be pasted back in date order), have each PR update `STATUS.md`, and restore the three `CLAUDE.md` lines from git history.

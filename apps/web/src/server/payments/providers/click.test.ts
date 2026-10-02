@@ -11,6 +11,7 @@ const ENV = {
   CLICK_MERCHANT_ID: '67890',
   CLICK_MERCHANT_USER_ID: '24680',
   CLICK_SECRET_KEY: 's3cr3t',
+  CLICK_MERCHANT_API_URL: 'https://merchant.click.test/v2/merchant/',
 };
 
 describe('Click checkout', () => {
@@ -60,6 +61,7 @@ describe('Click checkout', () => {
       'CLICK_MERCHANT_ID',
       'CLICK_MERCHANT_USER_ID',
       'CLICK_SECRET_KEY',
+      'CLICK_MERCHANT_API_URL',
     ]);
     expect(click.currency).toBe('UZS');
   });

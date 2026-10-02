@@ -219,6 +219,30 @@ describe('webServerEnvSchema', () => {
     expect(typo).toEqual({ ok: false, errors: ['PAYMENTS_ENABLED: must be true or false'] });
   });
 
+  it('takes Click’s Merchant API URL, https once deployed', () => {
+    const url = { ...base, CLICK_MERCHANT_API_URL: 'https://merchant.example.test/v2/merchant/' };
+    const ok = parseEnv(webServerEnvSchema, url);
+    expect(ok.ok && ok.env.CLICK_MERCHANT_API_URL).toBe(
+      'https://merchant.example.test/v2/merchant/',
+    );
+    expect(parseEnv(webServerEnvSchema, base)).toMatchObject({ ok: true });
+    expect(
+      parseEnv(webServerEnvSchema, { ...base, CLICK_MERCHANT_API_URL: 'merchant/v2' }).ok,
+    ).toBe(false);
+    const local = { ...base, CLICK_MERCHANT_API_URL: 'http://127.0.0.1:9000/v2/merchant/' };
+    expect(parseEnv(webServerEnvSchema, local).ok).toBe(true);
+    expect(
+      parseEnv(webServerEnvSchema, {
+        ...local,
+        APP_ENV: 'production',
+        SITE_URL: 'https://site.example.test',
+      }),
+    ).toEqual({
+      ok: false,
+      errors: ['CLICK_MERCHANT_API_URL: must be an https URL when APP_ENV=production'],
+    });
+  });
+
   it('allows the payment stub in tests only', () => {
     const stub = { ...base, PAYMENTS_STUB: 'paddle' };
     expect(parseEnv(webServerEnvSchema, { ...stub, APP_ENV: 'test' }).ok).toBe(true);

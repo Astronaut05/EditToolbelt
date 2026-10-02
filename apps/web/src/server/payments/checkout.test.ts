@@ -15,7 +15,6 @@ import {
   enabledProviders,
   paymentStates,
   setProviderSwitch,
-  UNFINISHED,
   webhookProvider,
   type PaymentEnv,
 } from './switches';
@@ -54,7 +53,7 @@ describe.skipIf(!TEST_DATABASE_URL)('checkout', () => {
     enabled,
     vars: {},
     providers: [paddle, click, payme],
-    fiscal: { mxik: '1', packageCode: '2' },
+    fiscal: { mxik: '1', packageCode: '2', tin: '301234567', pinfl: '' },
     unfinished: {},
   });
 
@@ -197,8 +196,8 @@ const PADDLE = fakeProvider('paddle', ['PADDLE_API_KEY', 'PADDLE_WEBHOOK_SECRET'
 const CLICK = fakeProvider('click', ['CLICK_SECRET_KEY']);
 const PAYME = fakeProvider('payme', ['PAYME_KEY']);
 
-const FISCAL = { mxik: '10305001001000000', packageCode: '1545643' };
-const NO_FISCAL = { mxik: '', packageCode: ' ' };
+const FISCAL = { mxik: '10305001001000000', packageCode: '1545643', tin: '301234567', pinfl: '' };
+const NO_FISCAL = { mxik: '', packageCode: ' ', tin: '', pinfl: '' };
 
 function switchEnv(overrides: Partial<PaymentEnv> = {}): PaymentEnv {
   return {
@@ -302,14 +301,15 @@ describe.skipIf(!TEST_DATABASE_URL)('the switches in the database', () => {
     );
     expect(noFiscal.ok).toBe(false);
     if (!noFiscal.ok) expect(noFiscal.reason).toMatch(/fiscalReceipt\.mxik is empty/);
-    const unbuilt = await setProviderSwitch(
+    const noSeller = await setProviderSwitch(
       db,
       { adminId: admin, provider: 'click', enabled: true, reason: 'Try it' },
-      switchEnv({ unfinished: UNFINISHED }),
+      switchEnv({ fiscal: { ...FISCAL, tin: '' } }),
     );
-    expect(unbuilt).toEqual({
+    expect(noSeller).toEqual({
       ok: false,
-      reason: `Click can’t be switched on yet. ${UNFINISHED.click ?? ''}`,
+      reason:
+        'Click can’t be switched on yet. config/business.ts: fiscalReceipt.tin or fiscalReceipt.pinfl is empty.',
     });
     const noReason = await setProviderSwitch(
       db,

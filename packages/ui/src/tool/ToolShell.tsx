@@ -47,7 +47,7 @@ import type { GraphInfo } from './LineGraph';
 import { MASK_MODES, parseStrokes, type MaskStroke } from './brush';
 import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
-import type { ServerAccount, ServerInfo, ServerQuote, ShellServer } from './server';
+import type { PreviewResult, ServerAccount, ServerInfo, ServerQuote, ShellServer } from './server';
 import type * as ServerPath from './ServerNotice';
 import type { TimelineRange } from './Timeline';
 import type { MultiRange } from './TimelineWorkspace';
@@ -88,6 +88,14 @@ function subscribeWide(onChange: () => void) {
 const TimelineWorkspace = lazy(() =>
   import('./TimelineWorkspace').then((m) => ({ default: m.TimelineWorkspace })),
 );
+const ABPlayer = lazy(() => import('./ABPlayer').then((m) => ({ default: m.ABPlayer })));
+
+/** A server tool's free preview (A10): not run, on its way, ready to play, or failed. */
+type PreviewState =
+  | { kind: 'idle' }
+  | { kind: 'running'; stage: string; fraction?: number; amount?: string; elapsedSec: number }
+  | { kind: 'done'; result: PreviewResult; options: string; at: number }
+  | { kind: 'error'; message: string };
 
 /** What the shell needs from the registry entry (serialisable, no Zod). */
 export interface ShellTool {
@@ -687,6 +695,9 @@ export function ToolShell({
     quote: ServerQuote;
     answer: (go: boolean) => void;
   } | null>(null);
+  // A free preview of a snippet, played A/B (server.preview).
+  const [snippet, setSnippet] = useState<PreviewState>({ kind: 'idle' });
+  const previewAbort = useRef<AbortController | null>(null);
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
@@ -1082,6 +1093,56 @@ export function ToolShell({
     [account, media, options, preset.preview, server, serverPath, track],
   );
 
+  /** The free preview: the page cuts and sends the snippet; the result plays A/B. */
+  const runPreview = useCallback(
+    async (file: File) => {
+      if (!server?.preview) return;
+      previewAbort.current?.abort();
+      const abort = new AbortController();
+      previewAbort.current = abort;
+      const started = performance.now();
+      const made = JSON.stringify(options);
+      setSnippet({ kind: 'running', stage: 'Cutting the preview', elapsedSec: 0 });
+      try {
+        const result = await server.preview.run(file, options, {
+          signal: abort.signal,
+          offered: { credits: 0, free: true },
+          progress: ({ stage, fraction, amount }) => {
+            setSnippet({
+              kind: 'running',
+              stage,
+              fraction,
+              amount,
+              elapsedSec: (performance.now() - started) / 1000,
+            });
+          },
+          // A preview is free; a price would mean something else is wrong.
+          confirm: () => Promise.resolve(false),
+        });
+        setSnippet({ kind: 'done', result, options: made, at: performance.now() });
+      } catch (error) {
+        setSnippet(
+          abort.signal.aborted
+            ? { kind: 'idle' }
+            : {
+                kind: 'error',
+                message: `${(error instanceof Error ? error.message : 'Unknown error').replace(/\.$/, '')}.`,
+              },
+        );
+      } finally {
+        // Free jobs left have changed.
+        if (!abort.signal.aborted) setAccount(undefined);
+      }
+    },
+    [options, server],
+  );
+
+  const dropPreview = useCallback(() => {
+    previewAbort.current?.abort();
+    previewAbort.current = null;
+    setSnippet({ kind: 'idle' });
+  }, []);
+
   // The account decides the offer's terms: loaded when the offer shows.
   useEffect(() => {
     if (!server || serverReason === null || account !== undefined) return;
@@ -1184,6 +1245,7 @@ export function ToolShell({
         });
         return;
       }
+      dropPreview();
       const url = URL.createObjectURL(file);
       urls.current.push(url);
       const input: InputInfo = { name: file.name, size: file.size, url };
@@ -1231,7 +1293,7 @@ export function ToolShell({
       if (preset.autoRun && !offer) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [addToQueue, engine, inspect, preset, resetEditor, run, server, tool.ui, track],
+    [addToQueue, dropPreview, engine, inspect, preset, resetEditor, run, server, tool.ui, track],
   );
 
   // A result handed over from another tool arrives as if it were dropped here.
@@ -1364,6 +1426,7 @@ export function ToolShell({
 
   const cancel = useCallback(() => {
     controller.current?.abort();
+    dropPreview();
     setServerReason(null);
     setState({ kind: 'empty' });
     setBatch([]);
@@ -1378,7 +1441,7 @@ export function ToolShell({
     setMedia(null);
     setThumbs([]);
     setPeaks([]);
-  }, [resetEditor]);
+  }, [dropPreview, resetEditor]);
 
   const removeQueued = useCallback(
     (index: number) => {
@@ -1510,32 +1573,35 @@ export function ToolShell({
   const showCrop = cropping && state.kind === 'ready' && batch.length === 0;
   // An analyzer changes nothing: its notes are the verdict.
   const notesTitle = tool.ui === 'analyzer' ? 'Verdict' : undefined;
+  // A server tool on a copy of the site with no server path (the static export) can't run.
   const blocked =
     state.kind !== 'ready'
       ? undefined
-      : preset.combine && queue.length < preset.combine.min
-        ? `Add at least ${String(preset.combine.min)} files.`
-        : preset.combine && queue.some((q) => q.error)
-          ? `Remove ${queue.find((q) => q.error)?.name ?? 'the file'}: ${queue.find((q) => q.error)?.error ?? 'it can’t be read here.'}`
-          : preset.detect && detecting
-            ? preset.detect.busy
-            : preset.detect && ranges.length === 0
-              ? preset.detect.empty
-              : preset.names && !renamed
-                ? renaming
-                  ? renaming.namesBlocked(
-                      namesPlan,
-                      // Files dropped, not a folder opened, download renamed in a ZIP.
-                      folder
-                        ? undefined
-                        : {
-                            bytes: (state.files ?? []).reduce((sum, f) => sum + f.size, 0),
-                            maxBytes: preset.names.zipMaxBytes,
-                            inPlace: folderable,
-                          },
-                    )
-                  : 'Reading the files…'
-                : preset.blocked?.(options, state.files?.length ?? 1);
+      : !engine && !server
+        ? 'This tool runs on our servers, and this copy of the site doesn’t connect to them.'
+        : preset.combine && queue.length < preset.combine.min
+          ? `Add at least ${String(preset.combine.min)} files.`
+          : preset.combine && queue.some((q) => q.error)
+            ? `Remove ${queue.find((q) => q.error)?.name ?? 'the file'}: ${queue.find((q) => q.error)?.error ?? 'it can’t be read here.'}`
+            : preset.detect && detecting
+              ? preset.detect.busy
+              : preset.detect && ranges.length === 0
+                ? preset.detect.empty
+                : preset.names && !renamed
+                  ? renaming
+                    ? renaming.namesBlocked(
+                        namesPlan,
+                        // Files dropped, not a folder opened, download renamed in a ZIP.
+                        folder
+                          ? undefined
+                          : {
+                              bytes: (state.files ?? []).reduce((sum, f) => sum + f.size, 0),
+                              maxBytes: preset.names.zipMaxBytes,
+                              inPlace: folderable,
+                            },
+                      )
+                    : 'Reading the files…'
+                  : preset.blocked?.(options, state.files?.length ?? 1);
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
       {visibleOptions.map((option) => (
@@ -1575,12 +1641,20 @@ export function ToolShell({
           options,
         )
       : null;
+  // What a run sends: the file, or less (a video sends only its sound).
+  const sendFile = state.kind === 'ready' ? state.files?.[0] : undefined;
+  const sendBytes =
+    state.kind === 'ready'
+      ? sendFile && server?.uploadBytes
+        ? server.uploadBytes(sendFile)
+        : state.input.size
+      : 0;
   const serverOffer =
     server && serverReason !== null && state.kind === 'ready'
       ? {
           ok:
             account && serverPath
-              ? serverPath.serverTerms(server, account, state.input.size, serverCredits).ok
+              ? serverPath.serverTerms(server, account, sendBytes, serverCredits).ok
               : false,
           notice: (className: string) =>
             serverPath && (
@@ -1588,12 +1662,48 @@ export function ToolShell({
                 server={server}
                 reason={serverReason}
                 account={account}
-                bytes={state.input.size}
+                bytes={sendBytes}
                 credits={serverCredits}
                 className={className}
               />
             ),
         }
+      : null;
+  // The free preview's button and terms, beside the offer.
+  const previewOffer = server?.preview;
+  const previewLine = account && serverPath ? serverPath.previewTerms(account) : null;
+  const previewControl =
+    previewOffer && serverOffer && state.kind === 'ready' && batch.length === 0
+      ? (className: string) => (
+          <div className={className}>
+            {snippet.kind === 'running' ? (
+              <Button size="md" onClick={dropPreview}>
+                Cancel the preview
+              </Button>
+            ) : (
+              <Button
+                size="md"
+                disabled={!previewLine?.ok || Boolean(blocked)}
+                onClick={() => {
+                  if (sendFile) void runPreview(sendFile);
+                }}
+              >
+                {snippet.kind === 'done' ? 'Preview again' : 'Preview'}{' '}
+                {String(previewOffer.seconds)} s · free
+              </Button>
+            )}
+            <p className="mt-2 text-13.5 leading-body text-text-muted">
+              {previewLine?.line ??
+                `Hear ${String(previewOffer.seconds)} s cleaned before you run the whole file.`}
+            </p>
+            {snippet.kind === 'error' && (
+              <p role="alert" className="mt-2 flex items-baseline gap-2 text-14 leading-body">
+                <span aria-hidden="true" className="size-2 flex-none rounded-full bg-danger" />
+                {snippet.message}
+              </p>
+            )}
+          </div>
+        )
       : null;
   // Within the browser's limits the server is a choice, never a push.
   const serverChoice = server &&
@@ -1804,6 +1914,14 @@ export function ToolShell({
       media={media}
       thumbs={thumbs}
       peaks={peaks}
+      preview={
+        previewOffer
+          ? {
+              state: snippet,
+              changed: snippet.kind === 'done' && snippet.options !== JSON.stringify(options),
+            }
+          : null
+      }
       picker={
         preset.picker
           ? {
@@ -1941,6 +2059,7 @@ export function ToolShell({
         {settings}
         {serverOffer?.notice('mt-6.5 hidden lg:block')}
         {actions}
+        {previewControl?.('mt-5 hidden lg:block')}
         {serverChoice}
         {blocked && (
           <p role="status" className="mt-3.5 px-4 text-14 leading-body text-text-muted lg:px-0">
@@ -1989,6 +2108,7 @@ export function ToolShell({
       {hasFile && (
         <div className="pb-28 lg:hidden">
           {serverOffer?.notice('mx-4 mt-4')}
+          {previewControl?.('mx-4 mt-4')}
           {result && (
             <h2 className="px-4 pt-4 text-24 leading-title font-display tracking-title">
               {preset.resultTitle}
@@ -2170,6 +2290,7 @@ function Workspace({
   media,
   thumbs,
   peaks,
+  preview,
   picker,
   focus,
   mask,
@@ -2196,6 +2317,8 @@ function Workspace({
   media: ProbeInfo | null;
   thumbs: string[];
   peaks: number[];
+  /** A server tool's free preview: its progress, or the A/B player once it's back. */
+  preview: { state: PreviewState; changed: boolean } | null;
   picker: {
     sample: number;
     zoom: number;
@@ -2310,16 +2433,55 @@ function Workspace({
     );
   }
 
+  const previewing = state.kind === 'ready' ? preview?.state : undefined;
+  if (previewing?.kind === 'done') {
+    return (
+      <div className={cn(frame, 'overflow-y-auto bg-surface')}>
+        <div className="flex min-h-full flex-col justify-center px-4 py-8 lg:px-18">
+          <Suspense fallback={null}>
+            <ABPlayer
+              key={previewing.at}
+              original={previewing.result.original}
+              result={previewing.result.result}
+              fromSec={previewing.result.fromSec}
+              durationSec={previewing.result.durationSec}
+            />
+          </Suspense>
+          {preview?.changed && (
+            <p className="mt-4 text-14 leading-body">
+              The settings changed since this preview. Preview again to hear them.
+            </p>
+          )}
+          {previewing.result.notes && previewing.result.notes.length > 0 && (
+            <Notes title="In the preview" notes={previewing.result.notes} className="mt-6" />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (state.kind === 'running' || state.kind === 'ready') {
     return (
       <div className={frame}>
-        <InputPreview input={state.input} noun={preset.noun} dim={state.kind === 'running'} />
+        <InputPreview
+          input={state.input}
+          noun={preset.noun}
+          dim={state.kind === 'running' || previewing?.kind === 'running'}
+        />
         {state.kind === 'running' && (
           <ProgressBar
             className="max-lg:inset-x-4 max-lg:bottom-4"
             title={preset.progressTitle?.(state.stage) ?? state.stage ?? 'Working'}
             fraction={state.fraction}
             meta={{ amount: state.amount, step: state.step, elapsedSec: state.elapsedSec }}
+          />
+        )}
+        {previewing?.kind === 'running' && (
+          <ProgressBar
+            className="max-lg:inset-x-4 max-lg:bottom-4"
+            title={`Preview: ${previewing.stage}`}
+            fraction={previewing.fraction}
+            meta={{ amount: previewing.amount, elapsedSec: previewing.elapsedSec }}
           />
         )}
       </div>
