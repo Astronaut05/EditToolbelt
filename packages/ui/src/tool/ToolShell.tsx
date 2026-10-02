@@ -79,7 +79,6 @@ const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.C
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
 const MaskBrush = lazy(() => import('./MaskBrush').then((m) => ({ default: m.MaskBrush })));
 const Swatches = lazy(() => import('./Swatches').then((m) => ({ default: m.Swatches })));
-const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.TempoTools })));
 
 /** Tailwind's `lg` breakpoint: two columns from here up. */
 const WIDE = '(min-width: 64rem)';
@@ -510,8 +509,13 @@ export interface ShellPreset {
    * them into the mask it sends.
    */
   mask?: { option: string };
-  /** A03: a tap tempo pad and a metronome under the settings, file or not. */
-  tempo?: boolean;
+  /**
+   * A03: a tap tempo pad and a metronome under the settings, file or not. The
+   * tool's view passes them (`<TempoTools />`), so their code ships with that
+   * tool's page alone and is in the server's HTML in place: a lazy part here
+   * reached the page after its first paint and pushed the drop zone down.
+   */
+  tempo?: ReactNode;
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
   result?: 'compare' | 'output';
   /** Why the run can't start with these settings, if it can't. */
@@ -2231,11 +2235,9 @@ export function ToolShell({
   // file in, the settings column is empty and comes first, so they move under
   // the result instead. Only after a file arrives, so the server's HTML (no
   // file) is the same on every screen.
-  const tempoTools = (
-    <Suspense fallback={null}>
-      <TempoTools className="mt-10 px-4 pb-6 lg:px-0" />
-    </Suspense>
-  );
+  const tempoTools = preset.tempo ? (
+    <div className="mt-10 px-4 pb-6 lg:px-0">{preset.tempo}</div>
+  ) : null;
 
   return (
     <div className="lg:grid lg:min-h-[calc(100dvh-var(--header-h))] lg:grid-cols-[var(--tool-left-col)_1fr]">

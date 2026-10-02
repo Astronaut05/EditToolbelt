@@ -13,6 +13,13 @@
  * which on a local server is all of them, so it swings with task timing
  * (1966 to 2651 ms on one build); applied, the same page reads 1602 to 1771 ms.
  *
+ * Next's router prefetches the pages that links on screen lead to (their
+ * `?_rsc=` payloads, then their code) once the page is idle. Whether that
+ * landed inside a run decided the script transfer: /remove-background read
+ * 179,374 B without the home page's code and 183,624 B with it. Those requests
+ * are blocked (BLOCKED), so each run counts the page's own scripts alone, and
+ * the same build reads the same bytes every run.
+ *
  * Reports (Lighthouse's median simulated run, closest to the median FCP and
  * TTI) go to apps/web/.lighthouse/ (never uploaded).
  *
@@ -46,6 +53,8 @@ const PAGES = [
  */
 const TOOL_PAGES = new Set(['/remove-background', '/video-converter']);
 const TOOL_SCRIPT_MAX = 180_000;
+/** The router's prefetches of other pages (see the top of this file). */
+const BLOCKED = ['*_rsc=*'];
 /** Odd, so each median is one of the runs' values. */
 const RUNS = 5;
 /** Runs with applied throttling, for the budgets marked `applied` (LCP). */
@@ -174,7 +183,12 @@ async function main(): Promise<number> {
       const url = `http://localhost:${String(SITE_PORT)}${path}`;
       const runs: { lhr: Result; report: string }[] = [];
       for (let i = 0; i < RUNS; i++) {
-        const run = await lighthouse(url, { port: DEBUG_PORT, output: 'json', logLevel: 'error' });
+        const run = await lighthouse(url, {
+          port: DEBUG_PORT,
+          output: 'json',
+          logLevel: 'error',
+          blockedUrlPatterns: BLOCKED,
+        });
         if (!run) throw new Error(`No result for ${url}`);
         runs.push({ lhr: run.lhr as unknown as Result, report: run.report as string });
       }
@@ -182,7 +196,7 @@ async function main(): Promise<number> {
       for (let i = 0; i < APPLIED_RUNS; i++) {
         const run = await lighthouse(
           url,
-          { port: DEBUG_PORT, output: 'json', logLevel: 'error' },
+          { port: DEBUG_PORT, output: 'json', logLevel: 'error', blockedUrlPatterns: BLOCKED },
           {
             extends: 'lighthouse:default',
             settings: { throttlingMethod: 'devtools', onlyCategories: ['performance'] },
