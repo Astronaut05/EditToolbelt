@@ -51,7 +51,14 @@ import {
   namedUploads,
   type NamedUpload,
 } from './inputs';
-import { extrasRefusal, gpuRate, priceInput, refusal, type Probe } from './job-rules';
+import {
+  extrasRefusal,
+  frameRateRefusal,
+  gpuRate,
+  priceInput,
+  refusal,
+  type Probe,
+} from './job-rules';
 import { buyUrl } from './payments/checkout';
 import { ApiError, problemType } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
@@ -294,6 +301,8 @@ async function extraUploads(
     if (joined) {
       checkHasVideo(probe, extra.label);
       checkHasLength(probe, extra.label);
+      const fast = frameRateRefusal(probe, extra.label);
+      if (fast) throw new ApiError(fast.status, fast.code, fast.title, fast.detail);
     }
     extras.push({ upload: probed, probe, joined });
   }
@@ -330,7 +339,8 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   const own = { bytes: probed.bytes, probe };
   if (!joins) checkInputs(tool, tier, [own]);
   // A tool's own reason not to take the file, before anything is charged.
-  const refused = refusal(tool.id, probe, parsed.options);
+  const refused =
+    (joins ? frameRateRefusal(probe, 'clip 1') : null) ?? refusal(tool.id, probe, parsed.options);
   if (refused) throw new ApiError(refused.status, refused.code, refused.title, refused.detail);
   if (joins) {
     checkHasVideo(probe, 'clip 1');

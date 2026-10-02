@@ -78,6 +78,7 @@ interface Probed {
   bytes?: number;
   /** Sound only: no picture. */
   noVideo?: boolean;
+  fps?: number;
 }
 
 /** A completed upload, probed as the worker would probe it. */
@@ -107,7 +108,9 @@ async function upload(owner: string, probe: Probed = {}): Promise<{ id: string; 
           : {
               container: 'mp4',
               duration_ms: probe.durationMs ?? 90_000,
-              video: probe.noVideo ? null : { codec: 'h264', width: 1920, height: 1080, fps: 30 },
+              video: probe.noVideo
+                ? null
+                : { codec: 'h264', width: 1920, height: 1080, fps: probe.fps ?? 30 },
             },
       probedAt: probed ? new Date() : null,
       probeError: probe.probeError ?? null,
@@ -788,6 +791,16 @@ test('Merge Videos takes its other clips as a list of uploads, in order', async 
     title: 'A clip has no length',
     detail:
       'Clip 3 doesn’t say how long it is, so we can’t price it. Save or export it again, then upload that.',
+  });
+  // Every clip keeps to the servers' frame rate, not only the first.
+  const fast = await clip(3000, { fps: 10_000 });
+  expect(await refused({ clips: [b.id, fast.id] })).toMatchObject({
+    status: 422,
+    title: 'Too many frames a second',
+    detail: expect.stringMatching(/^Clip 3 runs at 10000 fps/),
+  });
+  expect(await refused({ clips: [b.id] }, fast.id)).toMatchObject({
+    detail: expect.stringMatching(/^Clip 1 runs at 10000 fps/),
   });
   const subtitles = await upload(owner, { tool: 'merge-videos', subtitles: true });
   expect(await refused({ clips: [subtitles.id] })).toMatchObject({ title: 'Not a video' });

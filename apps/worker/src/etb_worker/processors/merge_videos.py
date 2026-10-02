@@ -41,12 +41,13 @@ from typing import Any
 
 from etb_worker.gpu.remote import length_label
 from etb_worker.processors import (
+    CAP_RATIO,
+    CAP_SLACK_SEC,
     Estimate,
     JobContext,
     JobFailed,
     Output,
     ffmpeg_progress,
-    priced_seconds,
 )
 from etb_worker.sandbox import ToolError, ffmpeg, ffprobe
 
@@ -288,14 +289,19 @@ def priced_lengths(meta: dict[str, Any], count: int) -> list[float]:
     lengths: list[float] = []
     for number in range(1, count + 1):
         record = metas[number - 1] if number <= len(metas) else None
-        seconds = priced_seconds(record) if isinstance(record, dict) else None
-        if seconds is None:
+        duration_ms = record.get("duration_ms") if isinstance(record, dict) else None
+        if (
+            isinstance(duration_ms, bool)
+            or not isinstance(duration_ms, int | float)
+            or duration_ms <= 0
+        ):
             raise JobFailed(
                 "NO_DURATION",
                 f"Clip {number} doesn't say how long it is, so we can't price it. Save or "
                 "export it again, then upload that.",
             )
-        lengths.append(seconds)
+        # The decode cap's margin, as priced_seconds gives it for any input.
+        lengths.append(round(duration_ms / 1000 * CAP_RATIO + CAP_SLACK_SEC, 3))
     return lengths
 
 
