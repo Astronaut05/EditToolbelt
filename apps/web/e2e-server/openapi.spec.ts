@@ -26,7 +26,7 @@ import { apiKeys, applyCredit, toolFlags, uploads, users } from '@etb/db';
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import type { z } from 'zod';
 
-import { closeTestDb, newEmail, signIn, testDb } from './helpers';
+import { closeTestDb, newEmail, setScheme, signIn, testDb } from './helpers';
 
 const db = testDb();
 
@@ -257,7 +257,7 @@ test('/developers lists every endpoint and passes axe', async ({ page }) => {
   await page.goto('/developers');
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    await setScheme(page, scheme);
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();

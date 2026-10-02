@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { apiKeys, deviceCodes, eq, users } from '@etb/db';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
-import { closeTestDb, linkFor, newEmail, signIn, testDb } from './helpers';
+import { closeTestDb, linkFor, newEmail, setScheme, signIn, testDb } from './helpers';
 
 const db = testDb();
 
@@ -183,7 +183,7 @@ test('/connect passes axe, light and dark', async ({ page, request }) => {
   await signIn(page, newEmail());
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    await setScheme(page, scheme);
     for (const path of ['/connect', `/connect?code=${started.user_code}`]) {
       await page.goto(path);
       const results = await new AxeBuilder({ page })
