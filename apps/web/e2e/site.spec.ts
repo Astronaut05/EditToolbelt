@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures';
+import { expect, remote, test, WORKSHOP_ONLY } from './fixtures';
 
 test.describe('site', () => {
   test.skip(({ browserName, isMobile }) => browserName !== 'chromium' || isMobile, 'crawl once');
@@ -54,6 +54,7 @@ test.describe('site', () => {
   });
 
   test('each ToolShell demo runs to a result', async ({ page }) => {
+    test.skip(remote, WORKSHOP_ONLY);
     const cases = [
       { type: 'form', file: 'a.mp3', mime: 'audio/mpeg', run: 'Normalize audio' },
       { type: 'timeline', file: 'a.mp4', mime: 'video/mp4', run: 'Trim video' },

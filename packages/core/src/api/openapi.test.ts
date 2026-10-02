@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ENDPOINTS, openApiDocument } from './openapi';
+import { ENDPOINTS, openApiDocument, problemsOf, statusesOf } from './openapi';
 import { Job, Quote, Tool } from './schemas';
 
 const doc = openApiDocument('https://example.test');
@@ -53,10 +53,55 @@ describe('the OpenAPI document', () => {
   });
 
   it('describes bodies as they are on the wire', () => {
-    const job = doc.components.schemas.Job as { required: string[]; additionalProperties: boolean };
-    expect(job.required).toContain('result');
+    const job = doc.components.schemas.Job as {
+      required: string[];
+      additionalProperties: boolean;
+      properties: Record<string, unknown>;
+    };
+    expect(job.required).toContain('status');
     expect(job.additionalProperties).toBe(false);
-    expect(JSON.stringify(doc.components.schemas.Quote)).toContain('probing');
+    // Left out of answers to a key without jobs:read (docs/06 → Auth).
+    expect(job.required).not.toContain('result');
+    expect(JSON.stringify(job.properties.result)).toContain('jobs:read');
+    expect(JSON.stringify(doc.components.schemas.Quote)).toContain('QuoteProbing');
+    expect(JSON.stringify(doc.components.schemas.QuoteProbing)).toContain('probing');
+    expect(JSON.stringify(doc.components.schemas.QuoteReady)).toContain('account:read');
+  });
+
+  /** The responses an operation documents, by status. */
+  const responses = (path: string, method: string) =>
+    (doc.paths[path] as Record<string, { responses: Record<string, unknown> }>)[method]
+      ?.responses ?? {};
+
+  it('documents every status each endpoint answers, and only those', () => {
+    for (const endpoint of ENDPOINTS) {
+      const documented = Object.keys(responses(endpoint.path, endpoint.method));
+      expect(documented, `${endpoint.method} ${endpoint.path}`).toEqual(
+        statusesOf(endpoint).map(String),
+      );
+      expect(documented).not.toContain('default');
+      // The general limits and a crash can happen anywhere.
+      expect(problemsOf(endpoint)[429]).toContain('RATE_LIMITED');
+      expect(problemsOf(endpoint)[500]).toEqual(['INTERNAL']);
+    }
+  });
+
+  it('says what the routes really answer', () => {
+    const cancelUpload = responses('/uploads/{id}', 'delete');
+    expect(Object.keys(cancelUpload)).not.toContain('204');
+    expect(JSON.stringify(cancelUpload['200'])).toContain('UploadCancelled');
+    expect(JSON.stringify(responses('/jobs/quote', 'post')['202'])).toContain('QuoteProbing');
+    expect(Object.keys(responses('/jobs', 'post'))).toEqual(
+      expect.arrayContaining(['200', '201', '402', '422']),
+    );
+    expect(JSON.stringify(responses('/jobs', 'post')['422'])).toContain('IDEMPOTENCY_KEY_REUSED');
+    const token = responses('/auth/device/token', 'post');
+    expect(JSON.stringify(token['409'])).toContain('CONFLICT');
+    expect(JSON.stringify(token['429'])).toContain('RATE_LIMITED');
+    expect(JSON.stringify(responses('/auth/device', 'post')['429'])).toContain('RATE_LIMITED');
+    // Cancelling a job never answers 409: an ended job is answered as it is.
+    expect(Object.keys(responses('/jobs/{id}/cancel', 'post'))).not.toContain('409');
+    expect(JSON.stringify(responses('/tools', 'get')['200'])).toContain('RateLimit-Remaining');
   });
 });
 

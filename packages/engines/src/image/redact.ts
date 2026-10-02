@@ -8,6 +8,9 @@
  * original back in at the edges, so nothing of a face shows through.
  */
 import type { Point } from './annotate';
+import { activeAreas } from './edit-checks';
+
+export { activeAreas } from './edit-checks';
 
 export type RedactShape = 'rect' | 'ellipse' | 'brush';
 export type RedactEffect = 'blur' | 'pixelate' | 'solid';
@@ -303,9 +306,6 @@ function scaled(area: Redaction, scale: number): Redaction {
 export function areaBoxOf(area: Redaction, scale: number): Box | null {
   return areaBox(scaled(area, scale), Infinity, Infinity);
 }
-
-/** The areas that hide something: drawn ones, and found faces not turned off. */
-export const activeAreas = (redact: Redact) => redact.areas.filter((a) => !a.off);
 
 /**
  * Hides every active area in the pixels, in order. `scale` is the pixels'

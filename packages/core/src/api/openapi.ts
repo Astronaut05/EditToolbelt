@@ -22,10 +22,32 @@ export interface Endpoint {
   body?: z.ZodType;
   query?: { name: string; description: string }[];
   idempotent?: boolean;
-  ok: { status: number; description: string; schema?: z.ZodType; contentType?: string };
-  /** Problem codes this endpoint answers with, beyond UNAUTHORIZED, FORBIDDEN and RATE_LIMITED. */
-  errors: string[];
+  ok: Answer;
+  /** Other successful answers: a quote still probing (202), a repeated start (200). */
+  also?: Answer[];
+  /**
+   * Problem codes this endpoint answers with, by HTTP status, beyond those
+   * every endpoint of its kind can answer (`problemsOf` adds them).
+   */
+  errors: Partial<Record<number, string[]>>;
 }
+
+interface Answer {
+  status: number;
+  description: string;
+  schema?: z.ZodType;
+  contentType?: string;
+}
+
+/** What a quote and a start both check: the tool, the upload, the options, the probe and the limits. */
+const JOB_PROBLEMS: Endpoint['errors'] = {
+  400: ['BAD_REQUEST'],
+  404: ['NOT_FOUND'],
+  409: ['CONFLICT', 'TOOL_UNAVAILABLE', 'UPLOAD_INCOMPLETE'],
+  410: ['NOT_FOUND'],
+  413: ['FILE_TOO_LARGE'],
+  422: ['FILE_TOO_LARGE', 'UNSUPPORTED_FORMAT', 'NOTHING_TO_DO'],
+};
 
 export const ENDPOINTS: Endpoint[] = [
   {
@@ -41,7 +63,7 @@ export const ENDPOINTS: Endpoint[] = [
       { name: 'surface', description: 'Only tools on this surface: web, mobile, panel or api.' },
     ],
     ok: { status: 200, description: 'The tools.', schema: S.ToolList },
-    errors: ['BAD_REQUEST'],
+    errors: { 400: ['BAD_REQUEST'] },
   },
   {
     method: 'get',
@@ -53,7 +75,7 @@ export const ENDPOINTS: Endpoint[] = [
       "The tool plus the JSON Schema of a job's `options` (server tools), so a client can build its form.",
     auth: 'public',
     ok: { status: 200, description: 'The tool.', schema: S.ToolDetail },
-    errors: ['NOT_FOUND'],
+    errors: { 404: ['NOT_FOUND'] },
   },
   {
     method: 'post',
@@ -66,14 +88,14 @@ export const ENDPOINTS: Endpoint[] = [
     auth: 'jobs:write',
     body: S.UploadCreate,
     ok: { status: 201, description: 'The upload and its first part URLs.', schema: S.Upload },
-    errors: [
-      'BAD_REQUEST',
-      'FILE_TOO_LARGE',
-      'UNSUPPORTED_FORMAT',
-      'TOOL_UNAVAILABLE',
-      'NOT_FOUND',
-      'STORAGE_UNAVAILABLE',
-    ],
+    errors: {
+      404: ['NOT_FOUND'],
+      409: ['TOOL_UNAVAILABLE'],
+      413: ['FILE_TOO_LARGE'],
+      415: ['UNSUPPORTED_FORMAT'],
+      429: ['RATE_LIMITED'],
+      503: ['STORAGE_UNAVAILABLE'],
+    },
   },
   {
     method: 'post',
@@ -85,7 +107,7 @@ export const ENDPOINTS: Endpoint[] = [
     auth: 'jobs:write',
     body: S.PartsRequest,
     ok: { status: 200, description: 'Part URLs.', schema: S.PartList },
-    errors: ['BAD_REQUEST', 'NOT_FOUND', 'CONFLICT'],
+    errors: { 404: ['NOT_FOUND'], 409: ['CONFLICT'], 410: ['NOT_FOUND'] },
   },
   {
     method: 'post',
@@ -98,7 +120,13 @@ export const ENDPOINTS: Endpoint[] = [
     auth: 'jobs:write',
     body: S.UploadComplete,
     ok: { status: 200, description: 'Uploaded.', schema: S.UploadDone },
-    errors: ['BAD_REQUEST', 'UPLOAD_INCOMPLETE', 'NOT_FOUND', 'CONFLICT', 'STORAGE_UNAVAILABLE'],
+    errors: {
+      400: ['UPLOAD_INCOMPLETE'],
+      404: ['NOT_FOUND'],
+      409: ['CONFLICT'],
+      410: ['NOT_FOUND'],
+      503: ['STORAGE_UNAVAILABLE'],
+    },
   },
   {
     method: 'delete',
@@ -107,8 +135,13 @@ export const ENDPOINTS: Endpoint[] = [
     tag: 'Uploads',
     summary: 'Cancel an upload',
     auth: 'jobs:write',
-    ok: { status: 204, description: 'Cancelled; the parts are deleted.' },
-    errors: ['NOT_FOUND'],
+    ok: {
+      status: 200,
+      description:
+        'Cancelled; the parts or the file are deleted. Cancelling twice answers the same.',
+      schema: S.UploadCancelled,
+    },
+    errors: { 404: ['NOT_FOUND'], 503: ['STORAGE_UNAVAILABLE'] },
   },
   {
     method: 'post',
@@ -120,17 +153,15 @@ export const ENDPOINTS: Endpoint[] = [
       'The price from the probed file, what pays (a free daily job or credits) and whether it can start. Answers 202 `{ "status": "probing" }` until the probe is done: ask again after a second.',
     auth: 'jobs:write',
     body: S.QuoteRequest,
-    ok: { status: 200, description: 'The quote.', schema: S.Quote },
-    errors: [
-      'BAD_REQUEST',
-      'NOT_FOUND',
-      'CONFLICT',
-      'TOOL_UNAVAILABLE',
-      'UPLOAD_INCOMPLETE',
-      'FILE_TOO_LARGE',
-      'UNSUPPORTED_FORMAT',
-      'NOTHING_TO_DO',
+    ok: { status: 200, description: 'The quote.', schema: S.QuoteReady },
+    also: [
+      {
+        status: 202,
+        description: 'Still checking the file; ask again after `Retry-After` seconds.',
+        schema: S.QuoteProbing,
+      },
     ],
+    errors: JOB_PROBLEMS,
   },
   {
     method: 'post',
@@ -139,23 +170,24 @@ export const ENDPOINTS: Endpoint[] = [
     tag: 'Jobs',
     summary: 'Start a job',
     description:
-      'Starts the job at the quoted price: credits are reserved now and taken when it succeeds, or returned if it fails. Send an `Idempotency-Key`; a repeat answers the same job. 409 if the price changed since the quote.',
+      'Starts the job at the quoted price: credits are reserved now and taken when it succeeds, or returned if it fails. Send an `Idempotency-Key`: a repeat with the same body answers the same job (200), another body under the same key is refused (422 `IDEMPOTENCY_KEY_REUSED`). 409 if the price changed since the quote. The job’s `result` needs the jobs:read scope.',
     auth: 'jobs:write',
     body: S.JobCreate,
     idempotent: true,
-    ok: { status: 201, description: 'The job (200 for a repeat).', schema: S.JobEnvelope },
-    errors: [
-      'BAD_REQUEST',
-      'NOT_FOUND',
-      'CONFLICT',
-      'TOOL_UNAVAILABLE',
-      'UPLOAD_INCOMPLETE',
-      'FILE_TOO_LARGE',
-      'UNSUPPORTED_FORMAT',
-      'QUOTA_EXCEEDED',
-      'INSUFFICIENT_CREDITS',
-      'NOTHING_TO_DO',
+    ok: { status: 201, description: 'The job, started.', schema: S.JobEnvelope },
+    also: [
+      {
+        status: 200,
+        description: 'A repeat with the same `Idempotency-Key` and body: the job it started.',
+        schema: S.JobEnvelope,
+      },
     ],
+    errors: {
+      ...JOB_PROBLEMS,
+      402: ['INSUFFICIENT_CREDITS'],
+      422: [...(JOB_PROBLEMS[422] ?? []), 'IDEMPOTENCY_KEY_REUSED'],
+      429: ['QUOTA_EXCEEDED', 'RATE_LIMITED'],
+    },
   },
   {
     method: 'get',
@@ -167,7 +199,7 @@ export const ENDPOINTS: Endpoint[] = [
     auth: 'jobs:read',
     query: [{ name: 'cursor', description: 'The previous page’s `next_cursor`.' }],
     ok: { status: 200, description: 'A page of jobs.', schema: S.JobList },
-    errors: ['BAD_REQUEST'],
+    errors: { 400: ['BAD_REQUEST'] },
   },
   {
     method: 'get',
@@ -179,7 +211,7 @@ export const ENDPOINTS: Endpoint[] = [
       'Its status and progress; once it succeeds, `result.download_url` (valid 10 minutes; ask again for a fresh one). Outputs are deleted an hour after the job ends.',
     auth: 'jobs:read',
     ok: { status: 200, description: 'The job.', schema: S.JobEnvelope },
-    errors: ['NOT_FOUND'],
+    errors: { 404: ['NOT_FOUND'] },
   },
   {
     method: 'get',
@@ -188,7 +220,7 @@ export const ENDPOINTS: Endpoint[] = [
     tag: 'Jobs',
     summary: 'Live progress',
     description:
-      'Server-sent events: `progress` (a JobProgress) whenever it changes, then one `done` with the whole Job, and the stream ends. With a key, read it with `fetch` (EventSource can’t send headers), or poll `GET /jobs/{id}`.',
+      'Server-sent events: `progress` (a JobProgress) whenever it changes, then one `done` with the whole Job, and the stream ends. With a key, read it with `fetch` (EventSource can’t send headers), or poll `GET /jobs/{id}`. 5 streams at once per account; past that, 429.',
     auth: 'jobs:read',
     ok: {
       status: 200,
@@ -196,7 +228,7 @@ export const ENDPOINTS: Endpoint[] = [
       schema: S.JobProgress,
       contentType: 'text/event-stream',
     },
-    errors: ['NOT_FOUND'],
+    errors: { 404: ['NOT_FOUND'] },
   },
   {
     method: 'post',
@@ -204,10 +236,11 @@ export const ENDPOINTS: Endpoint[] = [
     operationId: 'cancelJob',
     tag: 'Jobs',
     summary: 'Cancel a job',
-    description: 'Stops a queued or running job and returns its credits.',
+    description:
+      'Stops a queued or running job and returns its credits. A job that already ended is answered as it is; its `result` needs the jobs:read scope.',
     auth: 'jobs:write',
     ok: { status: 200, description: 'The job as it ended.', schema: S.JobEnvelope },
-    errors: ['NOT_FOUND', 'CONFLICT'],
+    errors: { 404: ['NOT_FOUND'] },
   },
   {
     method: 'get',
@@ -218,7 +251,7 @@ export const ENDPOINTS: Endpoint[] = [
     description: 'Tier, balance, free server jobs left today (UTC) and how many may run at once.',
     auth: 'account:read',
     ok: { status: 200, description: 'The account.', schema: S.Me },
-    errors: [],
+    errors: {},
   },
   {
     method: 'get',
@@ -230,7 +263,7 @@ export const ENDPOINTS: Endpoint[] = [
     auth: 'account:read',
     query: [{ name: 'cursor', description: 'The previous page’s `next_cursor`.' }],
     ok: { status: 200, description: 'A page of ledger entries.', schema: S.CreditList },
-    errors: ['BAD_REQUEST'],
+    errors: { 400: ['BAD_REQUEST'] },
   },
   {
     method: 'post',
@@ -243,7 +276,7 @@ export const ENDPOINTS: Endpoint[] = [
     auth: 'public',
     body: S.DeviceStart,
     ok: { status: 200, description: 'The codes.', schema: S.DeviceCode },
-    errors: ['BAD_REQUEST'],
+    errors: {},
   },
   {
     method: 'post',
@@ -252,11 +285,15 @@ export const ENDPOINTS: Endpoint[] = [
     tag: 'Connect',
     summary: 'Collect the key',
     description:
-      'Problem `AUTHORIZATION_PENDING` until the person approves, `SLOW_DOWN` if polled sooner than every 5 s, `ACCESS_DENIED` if declined, `EXPIRED_TOKEN` after 10 minutes or once collected. Then the API key, this once.',
+      'Problem `AUTHORIZATION_PENDING` until the person approves, `SLOW_DOWN` if polled sooner than every 5 s, `ACCESS_DENIED` if declined (or the account was closed since), `EXPIRED_TOKEN` after 10 minutes or once collected, `CONFLICT` while the account has 10 keys. Then the API key, this once.',
     auth: 'public',
     body: S.DeviceTokenRequest,
     ok: { status: 200, description: 'The API key.', schema: S.DeviceToken },
-    errors: ['BAD_REQUEST', 'AUTHORIZATION_PENDING', 'SLOW_DOWN', 'ACCESS_DENIED', 'EXPIRED_TOKEN'],
+    errors: {
+      400: ['AUTHORIZATION_PENDING', 'SLOW_DOWN', 'EXPIRED_TOKEN'],
+      403: ['ACCESS_DENIED'],
+      409: ['CONFLICT'],
+    },
   },
 ];
 
@@ -283,7 +320,64 @@ function components(): Record<string, unknown> {
   );
 }
 
-const STANDARD_ERRORS = ['UNAUTHORIZED', 'FORBIDDEN', 'RATE_LIMITED'];
+/**
+ * Every problem an endpoint can answer, by HTTP status: its own, plus what
+ * every endpoint of its kind can answer. Any endpoint: 429 RATE_LIMITED (the
+ * general limits) and 500 INTERNAL. With a key or session: 401 and 403. With
+ * a JSON body: 400 when it doesn't parse, 413 when it's too large, 415 when
+ * it isn't JSON.
+ */
+export function problemsOf(endpoint: Endpoint): Record<number, string[]> {
+  const all: Record<number, Set<string>> = {};
+  const add = (status: number, codes: readonly string[]) => {
+    const set = (all[status] ??= new Set());
+    for (const code of codes) set.add(code);
+  };
+  for (const [status, codes] of Object.entries(endpoint.errors)) add(Number(status), codes ?? []);
+  if (endpoint.auth !== 'public') {
+    add(401, ['UNAUTHORIZED']);
+    add(403, ['FORBIDDEN']);
+  }
+  if (endpoint.body) {
+    add(400, ['BAD_REQUEST']);
+    add(413, ['BAD_REQUEST']);
+    add(415, ['BAD_REQUEST']);
+  }
+  add(429, ['RATE_LIMITED']);
+  add(500, ['INTERNAL']);
+  return Object.fromEntries(
+    Object.entries(all)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([status, codes]) => [Number(status), [...codes]]),
+  );
+}
+
+/** Every status an endpoint can answer, successes and problems. */
+export function statusesOf(endpoint: Endpoint): number[] {
+  return [
+    endpoint.ok.status,
+    ...(endpoint.also ?? []).map((answer) => answer.status),
+    ...Object.keys(problemsOf(endpoint)).map(Number),
+  ].sort((a, b) => a - b);
+}
+
+const RATE_LIMIT_HEADERS = {
+  'RateLimit-Limit': { description: 'Calls allowed in the window.', schema: { type: 'integer' } },
+  'RateLimit-Remaining': { description: 'Calls left in it.', schema: { type: 'integer' } },
+  'RateLimit-Reset': { description: 'Seconds until it starts again.', schema: { type: 'integer' } },
+};
+
+function answer(endpoint: Answer) {
+  return {
+    description: endpoint.description,
+    headers: RATE_LIMIT_HEADERS,
+    ...(endpoint.schema && {
+      content: {
+        [endpoint.contentType ?? 'application/json']: { schema: ref(endpoint.schema) },
+      },
+    }),
+  };
+}
 
 function operation(endpoint: Endpoint) {
   const params = [
@@ -306,14 +400,23 @@ function operation(endpoint: Endpoint) {
             name: 'Idempotency-Key',
             in: 'header',
             required: false,
-            description: '8 to 128 printable characters; a repeat answers the same job.',
+            description:
+              '8 to 128 printable characters, one per request: a repeat with the same body answers the same job; another body is refused (422).',
             schema: { type: 'string', minLength: 8, maxLength: 128 },
           },
         ]
       : []),
   ];
-  const errors =
-    endpoint.auth === 'public' ? endpoint.errors : [...endpoint.errors, ...STANDARD_ERRORS];
+  const responses: Record<string, unknown> = {};
+  for (const ok of [endpoint.ok, ...(endpoint.also ?? [])])
+    responses[String(ok.status)] = answer(ok);
+  for (const [status, codes] of Object.entries(problemsOf(endpoint))) {
+    responses[status] = {
+      description: `A problem. Codes: ${codes.join(', ')}.`,
+      headers: RATE_LIMIT_HEADERS,
+      content: { 'application/problem+json': { schema: ref(S.Problem) } },
+    };
+  }
   return {
     operationId: endpoint.operationId,
     tags: [endpoint.tag],
@@ -327,22 +430,7 @@ function operation(endpoint: Endpoint) {
         content: { 'application/json': { schema: ref(endpoint.body) } },
       },
     }),
-    responses: {
-      [String(endpoint.ok.status)]: {
-        description: endpoint.ok.description,
-        ...(endpoint.ok.schema && {
-          content: {
-            [endpoint.ok.contentType ?? 'application/json']: { schema: ref(endpoint.ok.schema) },
-          },
-        }),
-      },
-      ...(errors.length > 0 && {
-        default: {
-          description: `A problem. Codes: ${errors.join(', ')}.`,
-          content: { 'application/problem+json': { schema: ref(S.Problem) } },
-        },
-      }),
-    },
+    responses,
   };
 }
 

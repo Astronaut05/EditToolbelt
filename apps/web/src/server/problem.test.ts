@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { ApiError, problem } from './problem';
+import { ApiError, problem, problemType } from './problem';
+
+vi.mock('./env', () => ({ serverEnv: () => ({ SITE_URL: 'https://site.test' }) }));
 
 describe('problem', () => {
   it('answers RFC 9457 problem+json with a stable code and never caches', async () => {
@@ -19,6 +21,19 @@ describe('problem', () => {
       code: 'FILE_TOO_LARGE',
       detail: 'The limit is 2.1 GB.',
       max_bytes: 5,
+    });
+  });
+
+  it('can name a type that /developers explains', async () => {
+    const response = problem(
+      new ApiError(422, 'IDEMPOTENCY_KEY_REUSED', 'Used', undefined, {
+        type: problemType('idempotency'),
+      }),
+    );
+    expect(await response.json()).toMatchObject({
+      type: 'https://site.test/developers#idempotency',
+      status: 422,
+      code: 'IDEMPOTENCY_KEY_REUSED',
     });
   });
 });

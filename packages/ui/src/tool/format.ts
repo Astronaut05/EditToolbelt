@@ -67,6 +67,11 @@ export function sizeBucket(bytes: number): string {
   return '>1GB';
 }
 
+/** "1 file", "3 files". */
+export function plural(n: number, word: string): string {
+  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
+}
+
 /** Analytics duration bucket. */
 export function durationBucket(ms: number): string {
   const s = ms / 1000;

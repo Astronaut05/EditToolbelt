@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 
-import { expect, PAGES, test } from './fixtures';
+import { expect, PAGES, remote, test, WORKSHOP_ONLY } from './fixtures';
 
 async function seriousViolations(page: import('@playwright/test').Page) {
   const results = await new AxeBuilder({ page })
@@ -176,6 +176,7 @@ for (const scheme of ['light', 'dark'] as const) {
     });
 
     test('tool shell demo: no serious issues', async ({ page }) => {
+      test.skip(remote, WORKSHOP_ONLY);
       await page.goto('/workshop/screens/tool-result', { waitUntil: 'networkidle' });
       expect(await seriousViolations(page)).toEqual([]);
     });

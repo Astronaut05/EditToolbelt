@@ -9,6 +9,9 @@
  * and white) and contrast (around middle grey) on the sRGB value. Then
  * saturation, mixed with the pixel's luma.
  */
+import { isNeutral } from './edit-checks';
+
+export { isNeutral, NO_ADJUST } from './edit-checks';
 
 export interface Adjust {
   /** Stops, −2 to 2. */
@@ -23,14 +26,6 @@ export interface Adjust {
   warmth: number;
 }
 
-export const NO_ADJUST: Adjust = {
-  exposure: 0,
-  brightness: 0,
-  contrast: 0,
-  saturation: 0,
-  warmth: 0,
-};
-
 export const ADJUST_RANGES: Record<keyof Adjust, { min: number; max: number; step: number }> = {
   exposure: { min: -2, max: 2, step: 0.1 },
   brightness: { min: -100, max: 100, step: 1 },
@@ -38,9 +33,6 @@ export const ADJUST_RANGES: Record<keyof Adjust, { min: number; max: number; ste
   saturation: { min: -100, max: 100, step: 1 },
   warmth: { min: -100, max: 100, step: 1 },
 };
-
-export const isNeutral = (adjust: Adjust | undefined) =>
-  !adjust || (Object.keys(NO_ADJUST) as (keyof Adjust)[]).every((key) => adjust[key] === 0);
 
 const toLinear = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 const toSrgb = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
