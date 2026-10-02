@@ -22,13 +22,21 @@ from etb_worker.sandbox import Limits
 
 
 def test_the_priced_length_has_a_margin_for_honest_files() -> None:
-    assert priced_seconds({"duration_ms": 60_000}) == 62.2
-    assert priced_seconds({"duration_ms": 1}) == 1.001
-    # Nothing to cap: an image, subtitles, a broken probe.
+    sound = {"audio": {"codec": "aac"}}
+    assert priced_seconds({**sound, "duration_ms": 60_000}) == 62.2
+    assert priced_seconds({**sound, "duration_ms": 1}) == 1.001
+    # Nothing to cap: no sound or picture (subtitles).
     assert priced_seconds({}) is None
-    assert priced_seconds({"duration_ms": 0}) is None
-    assert priced_seconds({"duration_ms": True}) is None
-    assert priced_seconds({"duration_ms": "60000"}) is None
+    assert priced_seconds({"duration_ms": 60_000, "subtitle": {"codec": "subrip"}}) is None
+
+
+def test_sound_or_picture_without_a_length_is_read_for_a_second_at_most() -> None:
+    # A still image, or a header that says 0 ms: the cap fails closed, never open.
+    picture = {"video": {"width": 640, "height": 480}}
+    assert priced_seconds({**picture, "duration_ms": 0}) == 1.0
+    assert priced_seconds(picture) == 1.0
+    assert priced_seconds({"audio": {"codec": "mp3"}, "duration_ms": True}) == 1.0
+    assert priced_seconds({"audio": {"codec": "mp3"}, "duration_ms": "60000"}) == 1.0
 
 
 def test_every_read_of_the_input_is_capped_and_nothing_else() -> None:
