@@ -34,6 +34,7 @@ import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
 import { DropZone } from './DropZone';
 import { FactGrid, type GridFact } from './FactGrid';
+import { FileOrder, type OrderedFile } from './FileOrder';
 import type { SwatchInfo } from './Swatches';
 import { accepts, handOff, takeHandoff } from './handoff';
 import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
@@ -393,6 +394,8 @@ export interface ShellPreset {
   maxFiles?: number;
   /** Runs as soon as a file arrives (P07), or waits for the primary action. */
   autoRun?: boolean;
+  /** Once there's a result, a changed setting runs it again (C05's intensity), when nothing blocks the run. */
+  rerun?: boolean;
   /** Primary action before a run: "Trim video". */
   runLabel?: string;
   /** Output file extension from the options. */
@@ -447,6 +450,28 @@ export interface ShellPreset {
   probe?: (file: File) => Promise<ProbeInfo>;
   /** The first selection on the timeline, from the clip's length (GIF: the first 5 s). */
   initialRange?: (durationSec: number) => TimelineRange;
+  /**
+   * A04, V12: several files become one. They are listed in order, to move,
+   * remove or add to, and the engine gets them all as `files`. `describe`
+   * reads each one's length and what it holds for the list.
+   */
+  combine?: {
+    min: number;
+    max: number;
+    describe?: (file: File) => Promise<{ durationSec: number; summary: string }>;
+  };
+  /**
+   * A11: the timeline's ranges are found in the file (the silences to cut),
+   * and found again when an option in `deps` changes. Each can be moved or
+   * dropped like any range. While searching the run waits and says `busy`;
+   * with none found, it says `empty`.
+   */
+  detect?: {
+    deps: string[];
+    run: (file: File, options: Record<string, string>) => Promise<TimelineRange[]>;
+    busy: string;
+    empty: string;
+  };
   /** A server tool: why it runs on our servers, for the offer ("Precise frame timing needs ffmpeg"). */
   serverReason?: string;
   /**
@@ -521,6 +546,9 @@ export interface OutputInfo {
 
 /** Characters of a text output shown in the preview. */
 const TEXT_PREVIEW_CHARS = 6000;
+
+/** How long a replaced result's file stays readable, ms: a download just started from it finishes. */
+const RESULT_GRACE_MS = 1000;
 
 export type ShellState =
   | { kind: 'empty' }
@@ -615,9 +643,77 @@ export function ToolShell({
     initialOptions ?? defaults(preset.options),
   );
   const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
+
   const [activeRange, setActiveRange] = useState(0);
+  /** A04, V12: the files to join, in order. */
+  const [queue, setQueue] = useState<(OrderedFile & { file: File })[]>([]);
+  const queued = useRef(0);
+  const addToQueue = useCallback(
+    (files: File[]) => {
+      const combine = preset.combine;
+      if (!combine) return;
+      const added = files.map((file) => ({
+        id: String((queued.current += 1)),
+        file,
+        name: file.name,
+        size: file.size,
+      }));
+      setQueue((current) => [...current, ...added].slice(0, combine.max));
+      const update = (id: string, patch: Partial<OrderedFile>) => {
+        setQueue((current) => current.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+      };
+      for (const item of added) {
+        combine.describe?.(item.file).then(
+          (info) => {
+            update(item.id, info);
+          },
+          (error: unknown) => {
+            update(item.id, {
+              error: error instanceof Error ? error.message : 'It can’t be read here.',
+            });
+          },
+        );
+      }
+    },
+    [preset.combine],
+  );
+  const moveQueued = useCallback((from: number, to: number) => {
+    setQueue((current) => {
+      const next = [...current];
+      const [item] = next.splice(from, 1);
+      if (item) next.splice(to, 0, item);
+      return next;
+    });
+  }, []);
+  /** A11: the ranges are being found in the file. */
+  const [detecting, setDetecting] = useState(false);
+  /** Which search is the latest, and the timer that waits for typing to stop. */
+  const detectRound = useRef(0);
+  const detectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Settings changed since the file arrived: what the file suggests doesn't override them. */
   const touched = useRef(new Set<string>());
+  /** C05: a run again after a setting changes, once the slider stops moving. */
+  const rerunTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const detectRanges = useCallback(
+    async (file: File, values: Record<string, string>) => {
+      const detect = preset.detect;
+      if (!detect) return;
+      const round = (detectRound.current += 1);
+      setDetecting(true);
+      try {
+        const found = await detect.run(file, values);
+        if (round !== detectRound.current) return;
+        setRanges(found);
+        setActiveRange(0);
+      } catch {
+        // Nothing to cut, then: the run waits and says why.
+        if (round === detectRound.current) setRanges([]);
+      } finally {
+        if (round === detectRound.current) setDetecting(false);
+      }
+    },
+    [preset.detect],
+  );
   const range = useMemo(
     () => ranges[activeRange] ?? ranges[0] ?? { start: 0, end: 12 },
     [ranges, activeRange],
@@ -673,6 +769,22 @@ export function ToolShell({
     };
   }, []);
 
+  // A result's file is let go once it's no longer shown: a new result
+  // replaced it (a LUT slider redoes it at every step), the run failed, or
+  // Start over. A second's grace lets a download just started from it finish
+  // reading it. "Use in another tool" hands over the blob, not the URL.
+  const resultUrl = state.kind === 'result' ? state.output.url : undefined;
+  useEffect(() => {
+    const owned = urls.current;
+    if (!resultUrl || !owned.includes(resultUrl)) return;
+    return () => {
+      owned.splice(owned.indexOf(resultUrl), 1);
+      setTimeout(() => {
+        URL.revokeObjectURL(resultUrl);
+      }, RESULT_GRACE_MS);
+    };
+  }, [resultUrl]);
+
   const run = useCallback(
     async (input: InputInfo, file: File, values: Record<string, string> = options) => {
       if (!engine) return;
@@ -698,6 +810,7 @@ export function ToolShell({
               flipV: edit.flipV,
               angle: edit.angle,
             }),
+            ...(preset.combine && { files: queue.map((q) => q.file) }),
             ...(tool.ui === 'timeline' && {
               start: range.start,
               end: range.end,
@@ -777,6 +890,7 @@ export function ToolShell({
       engineOptions,
       options,
       preset,
+      queue,
       range,
       ranges,
       server,
@@ -984,6 +1098,7 @@ export function ToolShell({
       if (suggested) setOptions((current) => ({ ...current, ...suggested }));
       setRanges([preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }]);
       setActiveRange(0);
+      if (preset.detect) void detectRanges(file, { ...options, ...suggested });
       const probed = { ...input, durationSec: info.durationSec };
       setServerReason(offer);
       setState({ kind: 'ready', input: probed, files });
@@ -1001,7 +1116,7 @@ export function ToolShell({
         .then(setPeaks)
         .catch(() => undefined);
     },
-    [preset, run, server],
+    [preset, run, server, options, detectRanges],
   );
 
   const intake = useCallback(
@@ -1043,6 +1158,13 @@ export function ToolShell({
         mime: file.type.split('/')[0] || 'unknown',
         size: sizeBucket(file.size),
       });
+      // Several files into one (A04, V12): listed in order, joined on run.
+      if (preset.combine) {
+        addToQueue(files);
+        setServerReason(null);
+        setState({ kind: 'ready', input, files });
+        return;
+      }
       // Batch tools, and form tools that take several files at once (T01).
       if (tool.ui === 'batch' || (preset.multiple && files.length > 1)) {
         batchOutputs.current.clear();
@@ -1066,7 +1188,7 @@ export function ToolShell({
       if (preset.autoRun && !offer) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [dropPreview, engine, inspect, preset, resetEditor, run, server, tool.ui, track],
+    [addToQueue, dropPreview, engine, inspect, preset, resetEditor, run, server, tool.ui, track],
   );
 
   // A result handed over from another tool arrives as if it were dropped here.
@@ -1168,6 +1290,7 @@ export function ToolShell({
     setServerReason(null);
     setState({ kind: 'empty' });
     setBatch([]);
+    setQueue([]);
     setBatchDone(false);
     batchOutputs.current.clear();
     resetEditor();
@@ -1175,6 +1298,17 @@ export function ToolShell({
     setThumbs([]);
     setPeaks([]);
   }, [dropPreview, resetEditor]);
+
+  const removeQueued = useCallback(
+    (index: number) => {
+      if (queue.length <= 1) {
+        cancel();
+        return;
+      }
+      setQueue((current) => current.filter((_, i) => i !== index));
+    },
+    [cancel, queue.length],
+  );
 
   /**
    * Sets an option; a new crop ratio refits the editor's box. Tools that run
@@ -1185,8 +1319,24 @@ export function ToolShell({
     const next = { ...options, [id]: value };
     setOptions(next);
     if (ratioOf) editor.applyRatio(ratioOf(next));
+    // A11: what's found depends on these options; look again once typing stops.
+    const readyFile = state.kind === 'ready' ? state.files?.[0] : undefined;
+    if (preset.detect?.deps.includes(id) && readyFile) {
+      if (detectTimer.current) clearTimeout(detectTimer.current);
+      setDetecting(true);
+      detectTimer.current = setTimeout(() => {
+        void detectRanges(readyFile, next);
+      }, 300);
+    }
     if (preset.autoRun && state.kind === 'result' && state.file) {
       void run(state.input, state.file, next);
+    }
+    if (preset.rerun && state.kind === 'result' && state.file && !preset.blocked?.(next, 1)) {
+      const { input, file } = state;
+      if (rerunTimer.current) clearTimeout(rerunTimer.current);
+      rerunTimer.current = setTimeout(() => {
+        void run(input, file, next);
+      }, 250);
     }
   };
 
@@ -1281,11 +1431,19 @@ export function ToolShell({
   const notesTitle = tool.ui === 'analyzer' ? 'Verdict' : undefined;
   // A server tool on a copy of the site with no server path (the static export) can't run.
   const blocked =
-    state.kind === 'ready'
-      ? !engine && !server
+    state.kind !== 'ready'
+      ? undefined
+      : !engine && !server
         ? 'This tool runs on our servers, and this copy of the site doesn’t connect to them.'
-        : preset.blocked?.(options, state.files?.length ?? 1)
-      : undefined;
+        : preset.combine && queue.length < preset.combine.min
+          ? `Add at least ${String(preset.combine.min)} files.`
+          : preset.combine && queue.some((q) => q.error)
+            ? `Remove ${queue.find((q) => q.error)?.name ?? 'the file'}: ${queue.find((q) => q.error)?.error ?? 'it can’t be read here.'}`
+            : preset.detect && detecting
+              ? preset.detect.busy
+              : preset.detect && ranges.length === 0
+                ? preset.detect.empty
+                : preset.blocked?.(options, state.files?.length ?? 1);
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
       {visibleOptions.map((option) => (
@@ -1547,6 +1705,18 @@ export function ToolShell({
       multiRange={preset.ranges ? { ranges, active: activeRange, onChange: changeRanges } : null}
       batch={batch}
       onDownloadItem={downloadItem}
+      combine={
+        preset.combine
+          ? {
+              items: queue,
+              onMove: moveQueued,
+              onRemove: removeQueued,
+              onAdd: addToQueue,
+              accept: preset.accept,
+              max: preset.combine.max,
+            }
+          : null
+      }
       editor={editor}
       ratio={ratio}
       media={media}
@@ -1630,7 +1800,7 @@ export function ToolShell({
   ) : (
     <DropZone
       accept={preset.accept}
-      multiple={preset.multiple}
+      multiple={preset.multiple ?? Boolean(preset.combine)}
       // With a server path, bigger files come in and get the server offer.
       maxBytes={server ? Math.max(preset.maxBytes, server.maxBytes.paid) : preset.maxBytes}
       noun={preset.noun}
@@ -1933,6 +2103,7 @@ function Workspace({
   multiRange,
   batch,
   onDownloadItem,
+  combine,
   editor,
   ratio,
   media,
@@ -1951,6 +2122,14 @@ function Workspace({
   multiRange: MultiRange | null;
   batch: BatchItem[];
   onDownloadItem: (id: string) => void;
+  combine: {
+    items: OrderedFile[];
+    onMove: (from: number, to: number) => void;
+    onRemove: (index: number) => void;
+    onAdd: (files: File[]) => void;
+    accept: string;
+    max: number;
+  } | null;
   editor: EditorState;
   ratio: number | null;
   media: ProbeInfo | null;
@@ -1983,6 +2162,14 @@ function Workspace({
       <Suspense fallback={null}>
         <ColorPicker src={state.input.url} {...picker} />
       </Suspense>
+    );
+  }
+
+  if (combine && state.kind === 'ready') {
+    return (
+      <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
+        <FileOrder {...combine} />
+      </div>
     );
   }
 

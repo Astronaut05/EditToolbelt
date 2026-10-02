@@ -1,6 +1,6 @@
 # Status
 
-**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter, Normalize Loudness, Fade In / Fade Out and Audio Channel Tools (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter, Normalize Loudness, Fade In / Fade Out, Audio Channel Tools, Rotate & Flip Video, Resize Video for Social, Extract Frames, Remove Silence, Add or Replace Audio in Video, Merge Audio and LUT Preview (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -72,6 +72,15 @@
 - M8: Social Media Image Resizer (beta). 14 sizes on Instagram, YouTube, TikTok, X, LinkedIn, Facebook and Pinterest, all from one image in one go. Each crop keeps the focal point you click in frame; or the whole image fits on a blurred copy of itself or a color. YouTube and X upload limits are kept by lowering the quality just enough. Each size is dated and reviewed every quarter (#56).
 - M8: Loudness Meter and Normalize Loudness (beta). Integrated, short-term and momentary LUFS, loudness range and 4× oversampled true peak to ITU-R BS.1770-4 and EBU R128. The meter shows a graph and pass or fail for YouTube, Spotify, Apple Music, podcasts, EBU R128 and US TV. The normaliser hits −14, −16, −23, −24 or any target with a −1 dBTP ceiling, adding a true-peak limiter only when the gain needs it, and measures the file it made. Our own implementation, checked against the EBU's test signals and pyloudnorm (#57).
 - M8: Fade In / Fade Out and Audio Channel Tools (beta). Fades with linear, exponential, logarithmic or S-curves, exact to their formulas. Channel tools: stereo to mono (mixed or one side), one side on both to fix a lav in one ear, swap, invert, split into two files, mono to stereo. A stereo file is checked on arrival for a silent side, dual-mono or an inverted side, and the fix is picked (#58).
+- M8: Rotate & Flip Video and Resize Video for Social (beta). Rotate 90°, 180° or 270° and flip, by turning every frame (plays upright everywhere) or fast by the rotation flag (instant, lossless). Resize to 9:16, 4:5, 1:1, 16:9 or any size: fill and crop with framing sliders, or fit on a blurred copy or a color (#63).
+- M8: Extract Frames / Thumbnail (beta). The exact frame at the In point, a frame every few seconds, a number of frames evenly spaced, or a 3 × 3 to 4 × 6 contact sheet with times; PNG, JPG or WebP at a chosen width; several frames as a ZIP named by time (#63).
+- M8: Remove Silence (beta). The pauses in a voiceover, podcast or lecture are found as it loads: below a threshold set from the noise floor or in dBFS, for at least a set length. They show as ranges on the timeline to adjust or drop, then are removed (keeping 0.1 s beside the sound) or shortened to a set pause. Download the shorter audio, or the cut list as CSV to make the same cuts to a video (#63).
+- M8: Add or Replace Audio in Video (beta). Replace a video's sound with music, or mix the music under it, each at its own level; fade in and out, start the music at any point, loop it or play it once. The picture is copied as it is; the new sound is AAC or Opus at 48 kHz, whatever the music's own rate (#63).
+- M8: Merge Audio (beta). Drop 2 to 20 files, put them in order (arrow buttons, keyboard too), and join them back to back, with equal-power crossfades or with gaps, or mix them together, lowered just enough not to clip. Files at different rates meet at 48 kHz; the result can be normalised to −14, −16 or −23 LUFS (#63).
+- M8: LUT Preview on Image (beta). Drop a still and a .cube LUT (1D or 3D), set the intensity, and compare before and after; download the graded image. Tetrahedral interpolation, matching the LUT within 1/255; a broken .cube says what's wrong and on which line (#63).
+- Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#63).
+- CI runs the browser tests against the production image too, through a stand-in Cloudflare Access (152 pass on Chromium). The server build's search index is fresh within 30 s, as tool status is (#65).
+- Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
 - M8: Noise Reduction (beta), on our servers: background noise, hiss and 50 or 60 Hz hum taken down by up to 12, 24 or 40 dB with ffmpeg's FFT noise filter set from the measured background (DeepFilterNet waits for a licence on its weights, see Parked for Astro), optional de-essing, exactly the same length, peaks under −1 dBTP. A free 10 s preview plays Original and Cleaned A/B; a video sends only its sound and gets it back in place.
 
 ## Next
@@ -83,9 +92,11 @@
 3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
 4. M5 (credits, payments, GPU tools) after Go public.
 
-## Parked for Astro
+## Waiting for Astro's approval
 
-- **DeepFilterNet for Noise Reduction (A10).** Its code is MIT / Apache-2.0, but nothing licenses the pretrained weights, and the author hasn't answered the two issues asking (#697, #700). A10 runs on ffmpeg's FFT filter until then. Options: (a) wait for the author, (b) take Intel's MIT republication on Hugging Face as enough, (c) stay on ffmpeg. **Recommended: (a), with (c) meanwhile.** It's a one-step swap in the worker when the answer comes; (b) rests on a third party's word.
+Applies of the Railway project (Actions → Railway → "Apply the plan", environment `railway`). Work goes on around them.
+
+- **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Approve at Actions → Railway → run 36946470385 → Review deployments. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
 
 ## Blocked
 
@@ -93,6 +104,12 @@
 - Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark (IoU on 5 photos with reference masks, desktop and 2 phones) needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
 - Housekeeping only: `docs/design-handover` can't be deleted from this session (HTTP 403); see `docs/DECISIONS.md`.
 - M4's `LocalGpu` backend (upscale, stems and transcription on the 1080 Ti): this build environment has no GPU and can't download models (huggingface.co is blocked). The queue, the processor interface and `gpu_seconds` are ready for it; the GPU image (pinned Pascal build), the models and the three tools are built where the GPU is: on Astro's PC, during the stress test, or with M5's backend.
+
+## Parked for Astro
+
+Each item has a recommended pick; nothing else waits on it.
+
+- **DeepFilterNet for Noise Reduction (A10).** Its code is MIT / Apache-2.0, but nothing licenses the pretrained weights, and the author hasn't answered the two issues asking (#697, #700). A10 runs on ffmpeg's FFT filter until then. Options: (a) wait for the author, (b) take Intel's MIT republication on Hugging Face as enough, (c) stay on ffmpeg. **Recommended: (a), with (c) meanwhile.** It's a one-step swap in the worker when the answer comes; (b) rests on a third party's word.
 
 ## Run it
 

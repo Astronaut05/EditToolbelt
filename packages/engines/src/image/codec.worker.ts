@@ -4,6 +4,8 @@
  * put back the metadata the user chose. Off the main thread, so the page
  * stays responsive while a 12 MP photo encodes.
  */
+import { applyLut } from '@etb/core/lut';
+
 import { encodeBmp } from './bmp';
 import { decodeImage, ImageReadError } from './decode';
 import { zipSync } from 'fflate';
@@ -359,6 +361,11 @@ async function run(job: ImageJob): Promise<Extract<WorkerMessage, { type: 'done'
     const done = applyGeometry(image, job.geometry);
     image = new ImageData(done.image.data, done.image.width, done.image.height);
     notes.push(...done.notes);
+  }
+  if (job.lut) {
+    post({ type: 'progress', fraction: 0.25, stage: 'Applying the LUT' });
+    applyLut(image.data, job.lut.lut, job.lut.intensity);
+    notes.push(`${job.lut.label} applied at ${String(Math.round(job.lut.intensity * 100))}%`);
   }
   if (job.tiles) return runTiles({ ...job, tiles: job.tiles }, image, notes);
   if (job.social) return runSocial({ ...job, social: job.social }, image, notes);

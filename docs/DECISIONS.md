@@ -1141,6 +1141,34 @@ _Server-only tools staying `soon`: superseded for CPU tools by "CPU server tools
 
 **Reverse:** move `gpu/` to its own project with its own lockfile; the worker would then depend on `modal` only.
 
+## 2026-10-02 · Approvals never stop the work
+
+**Decision:** Astro's instruction of 2026-10-02.
+- **The `railway` approval gate stays.** Every apply of `.railway/railway.ts` waits for Astro to approve it in GitHub, from a phone if Astro is away.
+- **Work never pauses for an approval.** Request it, carry on with other tasks, and pick the deploy back up once it's approved.
+- **What can't move until then** is listed in `STATUS.md` → "Waiting for Astro's approval"; everything else keeps being built.
+- **Custom domains are added in Railway's dashboard.** Railway's configuration can't register them: its plan says so. `.railway/railway.ts` declares them once they exist, so later plans match.
+
+**Why:** Astro's instruction; and Railway's own limit on custom domains.
+**Reverse:** remove the `railway` environment's required reviewer (Settings → Environments), and the apply runs without waiting.
+
+## 2026-10-02 · Grouped PRs for the finished tools
+
+**Decision:** The 29 finished tool commits for the rest of M8 and Wave 3 merge as five PRs, not 29. Each PR is a run of consecutive commits, so what one relies on is already merged:
+- A: Rotate & Flip Video and Resize Video for Social, Extract Frames, Remove Silence, Add or Replace Audio, Merge Audio, LUT Preview (with the shell fix that keeps a setting picked while a file is read).
+- B: Merge Videos, Change Speed & Pitch, Change Video Speed, Watermark Images, Batch Rename Files.
+- C: Draw on Image, Add Text to Image, Blur & Pixelate, Photo Editor, and the mobile work.
+- D: Wave 3, part 1: Shutter Angle and Recording Storage calculators, File Checksum, Reverse Audio and Video, Loop Video, Split Audio, Gradient Generator.
+- E: Wave 3, part 2: LUT Converter, Images to PDF, Collage Maker, Image to SVG, Audio to Video, Subtitle Editor.
+
+Each tool keeps its own tests and its own entry here; each PR lists what it gathers.
+
+**Why:**
+- A CI run takes 25 to 45 minutes, and every merge deploys. 29 runs one after another would take a day.
+- A group is still one topic: the tools of one milestone part.
+
+**Reverse:** nothing to reverse; later work goes back to one topic per PR.
+
 ## 2026-10-01 · Fade In / Fade Out and Audio Channel Tools (M8)
 
 **Decision:**
@@ -1205,3 +1233,281 @@ _Server-only tools staying `soon`: superseded for CPU tools by "CPU server tools
 - The same read listens for mains hum (Goertzel at 40, 50, 60 and 70 Hz in 1 s blocks, so a mains frequency a little off still counts; `HumMeter`, `humGuess`): 50 or 60 Hz at least 10 dB over 40 and 70 Hz and 6 dB over the other sets De-hum to it, and the page says so before anything is sent. De-hum stays a setting the person can turn off.
 **Why:** `tools/audio.md` → A10 ("Video input: the audio is extracted in the browser, cleaned on the server, and remuxed back into the video in the browser"). FLAC both ways avoids two lossy generations and any guesswork about AAC priming between two decoders.
 **Reverse:** `soundPlan` in `apps/web/src/tools/remove-noise-plan.ts` decides what goes up and comes back; `putSoundBack` in `packages/engines/src/audio/noise.ts` does the remux.
+
+## 2026-10-02 · The browser tests run against the production image, through Access
+
+**Decision:**
+- **The same browser tests (`apps/web/e2e/`) now also run against a running site:** `playwright.prod.config.ts`, with `E2E_BASE_URL`. Chromium only; the static build's job keeps covering Firefox, WebKit and the phone.
+- **Two places run them:**
+  - CI's "Production web image" job, against the image Railway runs, on every PR.
+  - The live site after a deploy (the Smoke workflow, once the service token exists).
+- **Access is checked for real both times.** `e2e-prod/global-setup.ts` gets one `CF_Authorization` cookie, and every page, worker and asset request carries it.
+  - **Live site:** the cookie comes from one request with CI's service token. Access answers a valid service token with that cookie.
+  - **CI:** a stand-in Access team on 127.0.0.1:9797 serves a signing key at `/cdn-cgi/access/certs` and signs the cookie itself. The image is started with that team domain and audience, and the setup first checks that a request without the cookie gets 403.
+- **Four tests skip themselves on a running site:**
+  - the three that use the local workshop;
+  - the one about the service worker, since the server build has none (see "The server build").
+- **The CSP test checks the server build's policy instead** (`src/lib/csp.ts`): a header with `'unsafe-inline'` on prerendered pages, and a nonce plus `private, no-store` on `/sign-in`.
+- **`/search-index.json` in the server build is now built per request** (`route.server.ts`), with `Cache-Control: public, max-age=30`, the same as `/api/v1/tools`. Next's ISR header gave it `s-maxage=30, stale-while-revalidate` for a year, which has two effects:
+  - a browser answered from its stale copy and fetched the new one behind it, so a tool an admin had just switched showed its old status for one more visit;
+  - the background fetch never finished in the browser's network log, so the home page never went idle and a keyboard test timed out.
+  - The static build's index is unchanged (`route.static.ts`).
+- **First run against a local server build:** 152 passed, 5 skipped. Before the fixes above, 3 failed: the search index, the static CSP expectation, and the service worker.
+
+**Why:** Astro's Phase 2 asks for Playwright smoke tests against production through Access after each deploy, and "every tool works live". Until now the tool tests ran only on the static export, never on the build production runs.
+**Reverse:** delete `playwright.prod.config.ts`, `e2e-prod/` and the CI step. `remote` is false without `E2E_BASE_URL`.
+
+## 2026-10-01 · Rotate & Flip Video and Resize Video for Social (M8)
+
+**Decision:**
+- **Rotate & Flip defaults to turning every frame** (re-encoded at high quality), as the spec asks for 90°: it plays upright in every player.
+  - Fast writes the container's rotation and flip flag instead: instant, every packet copied, and the notes say a few web players ignore it.
+  - WebM has no such flag, so Fast on WebM turns the frames and says so.
+  - Flips apply to the turned picture. Upside down is a mirror plus half a turn, which is how Mediabunny is asked for it.
+- **Resize Video for Social:**
+  - Presets: Reels, TikTok and Shorts 1080 × 1920; Instagram portrait 1080 × 1350; square 1080 × 1080; YouTube 1920 × 1080. Or a custom size in px, rounded to even numbers for H.264.
+  - Fill crops the largest window of the shape, placed by two framing sliders (0-100% across and down; 50% is the middle). This is P13's crop maths, done by Mediabunny's crop and resize. Framing stays fixed for the whole video; following the subject is a later idea.
+  - Fit on blur and Fit on color draw each frame on a canvas: the colour, or the frame filling the size, scaled down to a 40th and back up in three steps. That blur needs no canvas `filter` (Safari's is recent) and looks the same everywhere.
+  - The video is re-encoded at high quality in its own container; the sound is copied.
+- **Tests use the VP9 fixtures** for anything re-encoded: Playwright's Chromium has no H.264 encoder. The MP4 fixture shows Fast's lossless copy.
+
+**Why:** `tools/video.md` → V09, V11.
+**Reverse:** both engines are thin over Mediabunny's conversion (`video/rotate.ts`, `video/reframe.ts`).
+
+## 2026-10-01 · Extract Frames / Thumbnail (M8)
+
+**Decision:**
+- **One frame is the frame on screen at the timeline's In point.** The timeline snaps the In point to a frame and steps frame by frame, so the time picked is a frame's own. The engine decodes that exact frame (never a neighbour) and names the file by when it starts (`clip_00-00-05.400.png`).
+- **Every N seconds, N evenly spaced, and the contact sheet work inside the selection** between In and Out:
+  - Every N seconds starts at In and stops before Out.
+  - N frames take the middle of N equal parts, so the first and last aren't the edges.
+  - At most 500 frames a run.
+  - The end is the video track's own length, as the sound can run a few milliseconds longer.
+- **Several frames download as a stored ZIP,** each encoded as it is decoded (no hundred full-size canvases in memory) and named by time.
+  - Times closer together than a frame land on the same frame (500 frames from 10 s at 25 fps). That frame is encoded once, and the notes say how many repeats were skipped.
+  - The ZIP is written as the frames arrive, so only one encoded frame is held at a time. It holds up to 2 GB; past that the run stops and says to take fewer frames, a smaller width or JPG.
+- **The contact sheet:**
+  - 3 × 3, 4 × 4, 5 × 5 or 4 × 6 thumbnails, 320 px wide unless the video is narrower, with 8 px gaps on #111111.
+  - Each thumbnail carries its time in the system monospace font: a canvas draws only fonts it already has.
+- **PNG by default** (every pixel); JPG and WebP at quality 0.92. The width is Original, 1920, 1280 or 640 px, never wider than the video.
+
+**Why:** `tools/video.md` → V10.
+**Reverse:** `packages/engines/src/video/frames.ts`; `frameTimes` and `stamp` are pure, with tests.
+
+## 2026-10-01 · Remove Silence (M8)
+
+**Decision:**
+- **Silence is read from the level every 10 ms:** the loudest channel's RMS in dBFS. A silence is a run below the threshold lasting at least the minimum length (0.5 s by default).
+  - Reading n covers the samples from n × 10 ms to (n + 1) × 10 ms, each edge rounded to a whole sample. At 22.05 and 11.025 kHz, 10 ms isn't a whole number of samples, so the windows alternate between two lengths and the times stay exact over any length.
+- **Auto threshold:** the noise floor is the level the quietest tenth of the recording sits at; the threshold is 10 dB above it, kept between −60 and −30 dBFS. It fits room tone, a quiet studio and digital silence alike; a set dBFS is there for the rest.
+- **What is cut:**
+  - Remove keeps 0.1 s of quiet beside the sound on each side (a breath, a word's tail), changeable from 0 to 1 s.
+  - Shorten leaves a pause of a set length (0.3 s by default), half each side.
+  - A silence at the very start or end is cut to the edge.
+- **The silences are the timeline's ranges.** They are found as the file loads and again 0.3 s after a setting changes, without decoding again (the levels are kept per file). Each can be moved, removed or added like any range, which is the spec's "toggle each".
+- **The cut is Trim Audio's remove,** with its 10 ms crossfade at each join, so the file is exactly as much shorter as the cuts add up to.
+- **The cut list is CSV:** number, start and end as hh:mm:ss.mmm, length, start and end in seconds. Premiere XML is Wave 3, as the spec says.
+- **The tool shell gained `preset.detect`:** ranges found in the file, found again when one of its options changes, with the run held while searching or when none are found.
+
+**Why:** `tools/audio.md` → A11.
+**Reverse:** `packages/core/src/audio/silence.ts` is pure, with tests; the engine is `packages/engines/src/audio/silence.ts`.
+
+## 2026-10-01 · Add or Replace Audio in Video (M8)
+
+**Decision:**
+- **The picture is copied packet for packet,** never re-encoded; only the sound is new. That keeps it fast, lossless and possible on any video the browser can read, even one it can't decode.
+- **The new sound:**
+  - AAC in MP4 and MOV, Opus in WebM and MKV, at 48 kHz.
+  - 192 kbps stereo, or 128 kbps when both sources are mono.
+  - A browser that can't encode AAC (Playwright's Chromium among them) is told so for MP4 and MOV, rather than given an Opus track some players skip.
+- **Replace or Mix:**
+  - Replace: the music alone, at 0 dB by default.
+  - Mix: the music under the video's own sound, at −15 dB under 0 dB by default (a common start for music under speech).
+  - Levels from 0 to −24 dB. A mix that goes over 0 dBFS is clipped there, and the notes say so.
+- **Fitting the music to the video:**
+  - Music starts at a point in it (`Start the music at`).
+  - It is cut at the video's end. If it's shorter, it loops from its start (default), with a 10 ms dip at each repeat so there's no click, or plays once.
+  - A sound so short it would repeat over 1000 times is refused, with a hint to play it once.
+  - Fade in (none by default) from the video's start, and fade out (2 s by default) to where the music stops.
+- **Different sample rates:** both sources are brought to 48 kHz by `Resampler` in `@etb/core`. It is a streamed Kaiser-windowed sinc (β = 8, 16 zero crossings), cut off at 95% of the lower rate's Nyquist. It keeps a steady level exactly and rejects aliasing by more than 60 dB, at about 0.9 s per minute of stereo. Merge Audio will use it too.
+- **Mono and surround:** the output is stereo when either source is. Mono goes to both sides; past stereo, the front left and right are used.
+
+**Why:** `tools/video.md` → V14 ("duck under speech" is a Wave 3 idea, left out as the spec says).
+**Reverse:** `packages/engines/src/video/replace-audio.ts`; `musicParts`, `musicGain` and `Resampler` are pure, with tests.
+
+## 2026-10-01 · Merge Audio (M8)
+
+**Decision:**
+- **Several files into one is a shell mode (`preset.combine`),** not a batch:
+  - The files are listed in order (`FileOrder`), each with what it holds and its length.
+  - Arrow buttons move a file up or down; focus stays on it, so the keyboard can reorder a whole list. There's also Remove, and Add files.
+  - The run waits for 2 files, or while one can't be read. Up to 20.
+  - Merge Videos (V12) will use the same mode.
+- **One join for all joins:** back to back, a crossfade, or a gap, each 0.5 to 5 s. A different gap or crossfade per join is left for later: one setting covers the common cases and keeps the phone layout to two rows.
+- **Crossfades are equal-power** (cosine out, sine in), so the level holds through the join. Each one shortens the result by its length. A crossfade can be at most half the shortest file, so no more than two files ever overlap.
+- **Mix:**
+  - All tracks at the same level, from the start; the result is as long as the longest.
+  - A first pass measures the mix. If its peak would go over −1 dBFS, the whole mix is lowered just enough, and the notes say by how much.
+  - A level per track is left for later. The spec's "no clipping in mix (auto-gain)" is what this does.
+- **Normalize** is off by default, or −14, −16 or −23 LUFS with a −1 dBTP ceiling. It uses Normalize Loudness's own measure and plan (a true-peak limiter when the gain needs one); the notes give the result's measured loudness.
+- **One rate:**
+  - Files that share a sample rate keep it, so WAV and FLAC joins stay bit-exact outside the crossfades.
+  - Otherwise every file is brought to 48 kHz by the core `Resampler`. Opus always gets 48 kHz.
+  - The result is stereo if any file is.
+- **Format:** Keep (the first file's), MP3, WAV or FLAC. Lossy formats are written at 192 kbps stereo or 128 kbps mono.
+- **Housekeeping:** the "keep the format" table, which three engines each had a copy of, is now one export (`KEEP_FORMAT`). Decoding to a stream at a rate (`audio/stream.ts`) is shared with Add or Replace Audio.
+
+**Why:** `tools/audio.md` → A04.
+**Reverse:** the placement maths is `packages/core/src/audio/merge.ts` (pure, with tests); the engine is `packages/engines/src/audio/merge.ts`; the list is `packages/ui/src/tool/FileOrder.tsx`.
+
+## 2026-10-01 · LUT Preview (M8)
+
+**Decision:**
+- **The LUT is applied on the CPU, in the image worker, not in WebGL** (the spec's suggestion):
+  - Each channel's 256 levels are placed on the grid once, so the loop is plain arithmetic: a 24 MP frame takes under a second.
+  - It gives the same result in every browser and on every GPU, the same as in the unit tests. A WebGL 3D texture would vary with each driver's filtering and precision, and the "±1/255 of the reference" test would then depend on the machine.
+  - The spec's "if feasible" tetrahedral interpolation is what's used: the method grading apps use, exact on the grey axis.
+- **What's read:** Adobe/Resolve `.cube`: 3D (2³ to 256³) or 1D (up to 65,536 points), `TITLE`, `DOMAIN_MIN`/`DOMAIN_MAX`, `LUT_*_INPUT_RANGE`, comments. Anything else is refused with what's wrong and the line number (`Line 3: expected three numbers`), before the image is touched. Files over 32 MB are refused.
+- **Intensity** blends the graded colour with the original, 0-100% in 5% steps. Alpha is kept.
+- **A changed setting redoes the result** (the shell's new `preset.rerun`), 250 ms after the slider stops, so before and after can be compared straight away. Unlike `autoRun`, nothing runs before a LUT is chosen.
+- **Output:** the still's own format or JPG, PNG, WebP or AVIF; the metadata choice as in the other photo tools. One still at a time, so the result is the before-and-after compare.
+- **Colour:** the LUT is applied to the decoded sRGB values as they are. The FAQ says a LUT for log footage expects a log frame.
+
+**Why:** `tools/color.md` → C05.
+**Reverse:** `packages/core/src/color/lut.ts` (pure, with tests, also at `@etb/core/lut` so the worker loads only that); the engine is `packages/engines/src/image/lut-preview.ts`.
+
+## 2026-10-02 · Review fixes: Extract Frames' ZIP, Remove Silence's clock, result files let go
+
+**Decision:**
+- **A replaced result's file is let go.** The shell revokes a result's object URL once it's no longer shown: a newer result replaced it (LUT Preview redoes it at every slider step), the run failed, or Start over. It waits one second first, so a download just started from it still reads it. "Use in another tool" hands over the result's Blob, so it never depends on the URL.
+- **Extract Frames' ZIP is streamed** through fflate's `Zip` with stored entries. Each file's bytes go into the archive's Blob as soon as they're added (`StoredZip` in `@etb/engines`).
+  - Its entries carry their sizes after the data (a data descriptor), as a streamed ZIP must. Unzip tools read them from the archive's directory.
+  - It holds up to 2 GB in all. fflate writes no ZIP64, so 4 GB is a hard limit; 2 GB matches the browser limit for video.
+- **A frame picked twice is skipped before it's encoded.** The notes give the frames in the ZIP and the repeats skipped ("25 repeats skipped"). The contact sheet keeps its repeats, since its grid has a cell for each time.
+- **Remove Silence's level windows follow the samples' own times** (see Remove Silence above). Split Audio's "at silences" (Wave 3) reads the same levels.
+- **Add or Replace Audio's loop dips** check only the repeats next to each sample, found by halving the list, not all of them. The gain is the same to the last bit; an hour under a 4 s loop no longer costs minutes.
+
+**Why:** the M8 review (findings 1, 3, 5 and 11).
+**Reverse:** the shell's `resultUrl` effect in `ToolShell.tsx`; `packages/engines/src/zip.ts`; `LevelScan` in `packages/core/src/audio/silence.ts`; `musicGain` in `packages/core/src/audio/mix.ts`.
+
+## 2026-10-02 · Smoke-testing production after each deploy
+
+**Decision:**
+- **The Smoke workflow runs when Railway reports a successful deploy to GitHub** (`deployment_status`), and by hand. It waits until `/healthz` names the deployed commit (20 minutes at most), then runs the `site` check of `scripts/ops/verify.ts` through Access with the CI service token: private without a token, `/readyz` green, the security headers, `www` redirecting.
+- **Not on `push` or after CI (`workflow_run`).** Railway deploys a commit on `main` only once its check suites pass (`checkSuites`), so a check on the same commit that waits for the deploy would hold up the deploy it waits for, then fail and stop it.
+- **No hourly run.** A scheduled run lands on the newest commit on `main`; if the site is down at that moment, its failed check would stop Railway deploying the fix. The worker's own heartbeats and alerts watch production between deploys.
+- **It skips cleanly** until the service token is set (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`), like the Ops checks.
+- `docs/runbooks/production.md` names every setting and where it lives, never a value.
+
+**Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
+**Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
+
+## 2026-10-02 · Where sign-in goes next: resolved like a browser, same origin only (M6 fix)
+
+**Decision:**
+- **`safeNext` resolves the path against SITE_URL with the WHATWG URL parser** (`apps/web/src/server/next-path.ts`) and keeps only a same-origin result, as its path, query and fragment. A string check alone missed what browsers do to a `Location`: they drop tabs and newlines, so `/sign-in?next=/%09/evil.example` sent a signed-in person to `//evil.example`.
+- **Refused before that, and again once percent-decoded:** C0 and C1 control characters, backslashes, `%2F` and `%5C` in the path, and anything that collapses to `//` (`/.//evil.example`). This is Better Auth's own rule for relative callback URLs, so ours is never looser than the library's.
+- Every `next` goes through it: the sign-in page's redirect when already signed in, and the `callbackURL` both sign-in actions hand Better Auth. `/connect` and the account pages only ever send to `/sign-in?next=` with a fixed path, and the admin's two-factor pages redirect to fixed paths only.
+
+**Why:** a review of M6 found the open redirect (TAB in `next`).
+**Reverse:** nothing to undo; `safeNext` is the only gate, and its tests list what it refuses.
+
+## 2026-10-02 · One general rate limit in the API wrapper, and its headers on every answer (M6 fix)
+
+**Decision:**
+- **`route()` in `server/api.ts` owns the `RateLimit-*` headers.** Every limit a request is counted against is remembered for that request (`limit(request, key, max, windowSec)`), and the answer, errors included, gets the headers of the one it is closest to: the fewest calls left, then the longest wait. A 429 keeps its `Retry-After`.
+- **A general budget sits under the routes' own limits:**
+  - 600 calls a minute per key, or per account for the website, counted in `requireCaller` as soon as the caller is known, so a 403 for a missing scope carries it.
+  - 300 a minute per address for the anonymous routes (`publicRoute`: `/tools`, `/tools/:id`, `openapi.json`, both device endpoints) and for any call whose key or session is refused, so every 401 carries it too.
+  - The per-route limits stay as they were (uploads 30, quotes 60, jobs 30, …); cancel, complete and `DELETE /uploads/:id` have only the general one.
+- **The limiter's map is bounded:** expired windows are swept every 500 calls, and past 50,000 windows the oldest go first (down to 45,000, so a flood doesn't sweep on every call). Before, it swept only above 10,000 and never shrank below that.
+- **`readJson` refuses a body over its cap before reading it:** 413 at once when `Content-Length` says so, otherwise as soon as the bytes read pass the cap; the cap is in bytes, and a body that isn't UTF-8 is a 400.
+- Preflights (`OPTIONS`) aren't counted and carry no `RateLimit-*` headers: a browser never shows their answer to the page.
+
+**Why:** a review of M6 found the headers missing on `/tools`, `openapi.json`, cancel, complete, `DELETE /uploads/:id`, every 401 and 403, and any error thrown after a route's own limit, though `docs/06` promises them on every answer.
+**Reverse:** the budgets are `CALLER_LIMIT` and `ADDRESS_LIMIT` in `server/api.ts`; `publicRoute` is `route(name, handler, true)`.
+
+## 2026-10-02 · /connect: wrong codes lock out, and approving checks the account (M6 fix)
+
+**Decision:**
+- **A miss is any code that isn't waiting:** malformed, unknown, expired, used or declined, typed on `/connect` or sent to its approve and decline. Each gets the same "wrong or has expired" answer.
+- **10 misses in 10 minutes, per account and per address, lock that account and that address out until the window ends** (RFC 8628 §5.1). While locked out nothing is looked up, the right code included, and the page says how many minutes are left. Counted in the process's limiter (`strike` / `lockoutLeft` in `server/rate-limit.ts`), like the API's limits; the address is `sourceOf`'s.
+  - Fixed window, not sliding: simple, and 35 bits of code against 10 tries per 10 minutes per account and per address is out of reach either way.
+  - Misses are logged as `device.code_missed` with the account ref only, never the code.
+- **`decide()` refuses to approve (`full`) while the account has 10 live keys**, and leaves the code waiting, so the person can revoke one and come back; declining always works. The page already hid the button; a direct post could approve before.
+- **`collectKey` answers `ACCESS_DENIED` for an approved code whose account was disabled or deleted since**, instead of making a key for it.
+- **`@etb/db/testing` applies migrations under an advisory lock,** so the web app's database tests (`device.db.test.ts`) and `@etb/db`'s can run at once against one test database.
+
+**Why:** a review of M6: `/connect` had no limit on guessing live codes, which a signed-in attacker could approve into their own account.
+**Reverse:** `MISS_LIMIT` and `MISS_WINDOW_SEC` in `server/device.ts`.
+
+## 2026-10-02 · Answers show no more than the caller's scopes (M6 fix)
+
+**Decision:**
+- **A job's `result` is left out for a caller without `jobs:read`,** wherever `jobs:write` alone reaches a job: cancelling one that already ended, and repeating a start with the `Idempotency-Key` of a job that has finished. The field is optional in `Job` and absent (not `null`), so "no result yet" and "not yours to see" stay different.
+- **A quote's `balance`, `balance_after` and `free_jobs_left` are left out for a caller without `account:read`.** `can_start`, `blocked_by` and `funding` stay: they're what a key that may start jobs needs to decide, and they say nothing the start itself wouldn't.
+- One place decides (`server/scoped.ts`: `jobFor`, `quoteFor`, over `holds(caller, scope)`); the website's session holds every scope, so the site is unchanged. The schemas say which scope each field needs, so the OpenAPI document does too.
+- `run-tool.mjs` prints the balance only when the answer has it.
+
+**Why:** a review of M6 confirmed a `jobs:write`-only key could get a presigned download URL from cancel or a repeated start, and the balance from a quote.
+**Reverse:** have `jobFor` and `quoteFor` return what they're given.
+
+## 2026-10-02 · 5 progress streams at once per account (M6 fix)
+
+**Decision:**
+- **`GET /jobs/:id/events` holds one of 5 slots per account while it reads the job** (`server/streams.ts`, counted in this process). The 6th gets `429 RATE_LIMITED` with `Retry-After: 15`; polling `GET /jobs/:id` still works, and the site's own page falls back to it when its EventSource fails.
+- **Per account, not per key:** the database load is the account's, however many keys it has.
+- **The slot goes back when the stream stops reading the job** (`jobEvents`' `onClose`): the job ended, the 15 minutes ran out, or the client left (within a poll, at most 2 s).
+- **A stream reads a queued job every 2 s once it has waited 10 s** instead of every second; a running one, and the first 10 s, stay at 1 s, so a job that starts at once shows its progress as quickly as before.
+
+**Why:** a review of M6: each stream reads the database every second for up to 15 minutes, and only stream starts were limited (30 a minute per key), so one key could hold hundreds open against a pool of 10 connections.
+**Reverse:** `MAX_STREAMS` in `server/streams.ts`; `STREAM_POLL_QUEUED_MS` and `STREAM_QUEUED_AFTER_MS` in `server/jobs.ts`.
+
+## 2026-10-02 · An Idempotency-Key names one request body (M6 fix)
+
+**Decision:**
+- **The job keeps a SHA-256 of the request that first used its key** (`jobs.idempotency_hash`, migration `0009_job_idempotency_hash`, nullable). The body is hashed in a canonical form: `tool_id`, `upload_id`, `options` and `quote_credits`, object keys sorted at every level, no options the same as `{}` (`server/idempotency.ts`).
+- **The same key with the same body answers the same job (200); with another body, `422 IDEMPOTENCY_KEY_REUSED`**, a problem whose `type` links to `/developers#idempotency`. 422, not 409, is what the IETF draft on the header asks for a reused key; it's a new stable code, which `docs/06` allows (adding is non-breaking). Jobs from before the column (hash null) answer as they did.
+- **A retry that races the first try gets its job.** If starting fails with 409 `CONFLICT` (the upload already has a job, or the price changed) and the key now names a job, that job is the answer; the hash check still applies. Inside the create transaction the key is checked again under the account's lock, as before.
+- `@etb/db/testing`'s locked migrations let `jobs.db.test.ts` run the real `createJob` against the test database, six tries at once.
+
+**Why:** a review of M6 confirmed a reused key with a different body got the first job with 200, and found a retry arriving just before the first try committed could get "This upload already has a job".
+**Reverse:** to drop the check, stop writing `idempotency_hash` (the column can stay null); the race retry is the `catch` in `createJob`.
+
+## 2026-10-02 · The OpenAPI document lists every status a route answers (M6 fix)
+
+**Decision:**
+- **Each endpoint in `ENDPOINTS` names its problems by status** (`errors: { 409: ['CONFLICT', …] }`), and `problemsOf` adds what every endpoint of its kind answers: 429 `RATE_LIMITED` and 500 `INTERNAL` everywhere; 401 and 403 with a key or session; 400, 413 and 415 `BAD_REQUEST` with a JSON body. The document has one response per status, with its codes, and no `default`.
+- **Other successes are listed too** (`also`): a quote's 202 `QuoteProbing`, a repeated start's 200. `Quote`'s two variants are components of their own (`QuoteProbing`, `QuoteReady`); `Quote` stays as their union for clients.
+- **Corrected:** `DELETE /uploads/{id}` is 200 `UploadCancelled` (`{ status: "cancelled" }`), not 204; `/auth/device/token` can answer 409 `CONFLICT` (the account has 10 keys); both device endpoints document 429; cancelling a job never answers 409, so it no longer says so. Every response documents the `RateLimit-*` headers.
+- **Checked twice:** a unit test that each operation's responses are exactly `statusesOf(endpoint)`, and the end-to-end contract test, which now sends each answer it sees through `expectDocumented`: its status must be listed for the route, a problem's code listed under that status, and the `RateLimit-*` headers present.
+
+**Why:** a review of M6 found the document disagreeing with the routes (204 vs 200, the missing 202, 200, 409 and 429s).
+**Reverse:** nothing to undo; to loosen the contract test, drop `expectDocumented`.
+
+## 2026-10-02 · Absolute upload URLs, and what /developers says about browsers (M6 fix)
+
+**Decision:**
+- **`parts_url` and `complete_url` are absolute, from SITE_URL.** They were paths from the site's root (`/api/v1/uploads/…`), which a client that joins paths to its `/api/v1` base would double. Absolute URLs work whatever the client does; the schema says `url`.
+- **`/developers` and `docs/06` no longer say a key works from any web page.** The API answers any origin, but parts go straight to storage, and the bucket's CORS allows only the site, so a page on another origin can call the API but can't upload. Scripts, servers and the panel aren't browsers and can. The bucket's CORS stays as it is: opening it to every origin would only help keys sitting in web pages.
+- **The curl walkthrough's quote step loops while the answer is 202**, as the text says to.
+- **`run-tool.mjs` knows image and audio types too** (JPEG, PNG, WebP, GIF, AVIF, BMP, TIFF, HEIC/HEIF; MP3, WAV, FLAC, M4A, AAC, OGG/Opus, WebM audio, AIFF; and AVI, MPEG, MPEG-TS, 3GP, OGV, WMV, MXF beside the video ones), and prints the balance only when the key may see it.
+
+**Why:** a review of M6 (smaller items).
+**Reverse:** the URLs are built in `createUpload` (`server/uploads.ts`); the types are one table in the script.
+
+## 2026-10-02 · Tests read video results back with WebCodecs
+
+**Decision:**
+- **Browser tests decode a result's frames with WebCodecs in the page** (`framePixels` and `frameBands` in `apps/web/e2e/fixtures.ts`). They take the packets and decoder config from Node (`videoFrameSource` in `@etb/engines`). They no longer play the file in a `<video>` element.
+- **Why the old way failed:** Playwright's Linux WebKit plays media through GStreamer, unlike Safari. It crashed or errored on every result played back that way, while the tools themselves worked. Frames are drawn as they're decoded and closed at once.
+- **What it uncovered:** once WebKit's results could be read, Resize Video's Fill crop turned out wrong there. WebKit ignores the source rectangle when drawing a VideoFrame, so every crop was the whole picture squeezed into the size. Each frame is now drawn whole on a canvas and the window cut from that canvas.
+
+**Why:** a test that crashes the browser it checks says nothing about the tool, and the crop bug would have shipped to Safari.
+**Reverse:** the helpers are test-only; `cropper()` in `reframe.ts` can go back to Mediabunny's `crop` once WebKit honours the source rectangle for VideoFrames.
+
+## 2026-10-02 · Decoded audio is copied a whole block at a time (WebKit)
+
+**Decision:** `planesOf` (`packages/engines/src/audio/stream.ts`) copies each plane of a decoded block whole and cuts the frames it wants from that copy. It never asks `AudioData.copyTo` for a `frameOffset`. Loop Video's boomerang, Reverse Audio's selections and Replace and Merge Audio's parts all read through it. `dropStart` in `packages/engines/src/video/encode-audio.ts`, which trims an overlapping block for every video tool that re-encodes sound, does the same.
+**Why:** in WebKit (Playwright's WebKit 26.6 on Linux), `copyTo` from interleaved `f32`, which is what its Opus decoder gives, to `f32-planar` with a `frameOffset` above 0 never returns. The page hangs, then crashes a minute or more later. A boomerang's backward sound starts partway into a block, so in WebKit its Download never came on. A test page showed the call alone hangs. Offset 0 (whole or shorter), planar to planar and interleaved to interleaved all work, and Chromium and Firefox handle all five cases. A block is a few thousand frames, so copying it whole costs nothing.
+**Reverse:** pass `frameOffset` and `frameCount` to `copyTo` again once WebKit converts from an offset; `stream.test.ts` checks the cut either way.

@@ -5,16 +5,14 @@
  * makes its own users.
  */
 import { randomUUID } from 'node:crypto';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { eq, sql } from 'drizzle-orm';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDb, type Db } from './client';
 import { applyCredit, InsufficientCreditsError, ledgerMismatches } from './credits';
 import { adminAuditLog, creditTransactions, sessions, users } from './schema';
+import { migrateForTests } from './testing';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -26,9 +24,7 @@ describe.skipIf(!url)('database', () => {
     const made = createDb(url ?? '', { max: 20 });
     db = made.db;
     close = () => made.pool.end();
-    await migrate(db, {
-      migrationsFolder: join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations'),
-    });
+    await migrateForTests(made.pool);
   });
 
   afterAll(async () => {

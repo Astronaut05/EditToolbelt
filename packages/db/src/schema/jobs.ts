@@ -89,6 +89,11 @@ export const jobs = pgTable(
     finishedAt: tstz('finished_at'),
     filesDeletedAt: tstz('files_deleted_at'),
     idempotencyKey: text('idempotency_key'),
+    /**
+     * SHA-256 of the request that first used `idempotency_key`, hex: a repeat
+     * with another body is refused (422). Null on jobs from before it was kept.
+     */
+    idempotencyHash: text('idempotency_hash'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
