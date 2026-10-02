@@ -19,12 +19,7 @@ export const PROVIDER_IDS: readonly ProviderId[] = ['paddle', 'click', 'payme'];
 export type Currency = 'USD' | 'UZS';
 
 export type PurchaseStatus =
-  | 'pending'
-  | 'completed'
-  | 'cancelled'
-  | 'refunded'
-  | 'partially_refunded'
-  | 'chargeback';
+  'pending' | 'completed' | 'cancelled' | 'refunded' | 'partially_refunded' | 'chargeback';
 
 /** One purchase: created pending when the buyer starts checkout, our id is the order id providers see. */
 export interface PurchaseRecord {
