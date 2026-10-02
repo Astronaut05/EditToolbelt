@@ -40,8 +40,8 @@ function toneThenSilence(): Buffer {
 const SRT = '1\n00:00:00,000 --> 00:00:01,200\nHello world\n';
 
 interface Look {
-  /** Pink pixels where the bars are. */
-  bars: number;
+  /** The tallest bar: the longest run of pink down any one column, in rows of the thumbnail. */
+  tallestBar: number;
   /** White pixels where the title and the caption go. */
   title: number;
   caption: number;
@@ -68,8 +68,21 @@ async function looks(page: Page, bytes: Buffer, times: number[]): Promise<Look[]
     const pink = (r: number, g: number, b: number) => r > 150 && g < 110 && b > 40 && b < 160;
     // Bright on the black background: text, softened at this size.
     const white = (r: number, g: number, b: number) => r > 110 && g > 110 && b > 110;
+    // Bars are measured by height, not by counting pink pixels: at rest each of the 40 bars is a
+    // dot (14 px across, 1.4 px here), and how much of a dot survives a 10× shrink depends on the
+    // browser. Chromium averages it away; Firefox and WebKit sample the frame, so each dot stays a
+    // pink pixel or two, and the 40 of them count about as much as the tall bars do.
+    let tallest = 0;
+    for (let x = 0; x < 108; x += 1) {
+      let run = 0;
+      for (let y = 34; y < 72; y += 1) {
+        const i = (y * 108 + x) * 4;
+        run = pink(px[i] ?? 0, px[i + 1] ?? 0, px[i + 2] ?? 0) ? run + 1 : 0;
+        tallest = Math.max(tallest, run);
+      }
+    }
     return {
-      bars: count(34, 72, pink),
+      tallestBar: tallest,
       title: count(8, 29, white),
       caption: count(77, 100, white),
     };
@@ -142,9 +155,9 @@ test('a tone then silence: tall bars, then low ones; title throughout, caption w
   const bytes = readFileSync(await file.path());
 
   const [during, after] = await looks(page, bytes, [0.6, 2.6]);
-  // The tone fills the 1 kHz bars; in the silence they fall back to dots.
-  expect(during?.bars).toBeGreaterThan(40);
-  expect(during?.bars ?? 0).toBeGreaterThan(3 * (after?.bars ?? 0));
+  // The tone stands the 1 kHz bar up to the full height (38 rows here); in the silence every bar is back to a dot.
+  expect(during?.tallestBar).toBeGreaterThan(30);
+  expect(after?.tallestBar).toBeLessThanOrEqual(3);
   // The title shows all the way through; the caption only for its 1.2 s.
   expect(during?.title).toBeGreaterThan(20);
   expect(after?.title).toBeGreaterThan(20);
