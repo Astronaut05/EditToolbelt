@@ -34,6 +34,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import lighthouse from 'lighthouse';
 
+import { PAGE_SCRIPT_MAX, TOOL_SCRIPT_MAX } from '../apps/web/scripts/script-budget.ts';
+
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE_PORT = 4175;
 const DEBUG_PORT = 9333;
@@ -48,11 +50,11 @@ const PAGES = [
 ];
 /**
  * Pages whose working tool (ToolShell and the tool's own view, not its
- * engine) loads with them: script transfer up to 180 KB instead of 160 KB.
- * See docs/DECISIONS.md → "Script budget for working tool pages".
+ * engine) loads with them: script transfer up to TOOL_SCRIPT_MAX instead of
+ * PAGE_SCRIPT_MAX (apps/web/scripts/script-budget.ts). Every other page is
+ * held to the same budgets by apps/web/e2e/script-budget.spec.ts.
  */
 const TOOL_PAGES = new Set(['/remove-background', '/video-converter']);
-const TOOL_SCRIPT_MAX = 180_000;
 /** The router's prefetches of other pages (see the top of this file). */
 const BLOCKED = ['*_rsc=*'];
 /** Odd, so each median is one of the runs' values. */
@@ -103,7 +105,7 @@ export const BUDGETS: Budget[] = [
       (lhr.audits['resource-summary']?.details?.items ?? []).find(
         (item) => item.resourceType === 'script',
       )?.transferSize ?? 0,
-    max: 160_000,
+    max: PAGE_SCRIPT_MAX,
     unit: 'B',
   },
 ];
