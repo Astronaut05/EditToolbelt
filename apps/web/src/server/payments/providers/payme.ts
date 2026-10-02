@@ -306,6 +306,20 @@ async function createTransaction(params: Params, ctx: ProviderContext): Promise<
   return { create_time: now, transaction: purchase.id, state: PAYME_STATE.CREATED };
 }
 
+/** Payme's state as the store keeps it now: answers come from it, never from what this call meant to write. */
+function storedState(purchase: PurchaseRecord): PaymeTransactionState {
+  const state = paymeState(purchase);
+  if (!state) throw new Error('The purchase lost its Payme state');
+  return state;
+}
+
+/** The purchase as it is now, after a store call refused (another call for it got there first). */
+async function reread(purchase: PurchaseRecord, ctx: ProviderContext) {
+  const fresh = await ctx.store.get(purchase.id);
+  const state = fresh ? paymeState(fresh) : null;
+  return fresh && state ? { purchase: fresh, state } : null;
+}
+
 async function performTransaction(params: Params, ctx: ProviderContext): Promise<unknown> {
   const { purchase, state } = await transactionFor(params, ctx);
   if (state.state === PAYME_STATE.PERFORMED)
@@ -316,13 +330,50 @@ async function performTransaction(params: Params, ctx: ProviderContext): Promise
     throw new PaymeError(PAYME_ERRORS.CANNOT_PERFORM);
   }
   if (purchase.status !== 'pending') throw new PaymeError(PAYME_ERRORS.CANNOT_PERFORM);
-  const performTime = ctx.now().getTime();
-  await ctx.store.complete(purchase.id, {
-    ...state,
-    state: PAYME_STATE.PERFORMED,
-    perform_time: performTime,
-  });
-  return { transaction: purchase.id, perform_time: performTime, state: PAYME_STATE.PERFORMED };
+  let done: PurchaseRecord;
+  try {
+    done = await ctx.store.complete(purchase.id, {
+      ...state,
+      state: PAYME_STATE.PERFORMED,
+      perform_time: ctx.now().getTime(),
+    });
+  } catch (error) {
+    // A CancelTransaction got there first: the transaction is cancelled, as if
+    // it had arrived before this call.
+    const now = await reread(purchase, ctx);
+    if (now && now.state.state !== PAYME_STATE.CREATED && now.state.state !== PAYME_STATE.PERFORMED)
+      throw new PaymeError(PAYME_ERRORS.CANNOT_PERFORM);
+    throw error;
+  }
+  // A concurrent PerformTransaction may have completed it first: its perform_time is the one kept.
+  const performed = storedState(done);
+  if (performed.state !== PAYME_STATE.PERFORMED) throw new PaymeError(PAYME_ERRORS.CANNOT_PERFORM);
+  return { transaction: done.id, perform_time: performed.perform_time, state: performed.state };
+}
+
+/** A performed transaction cancelled: the money goes back, and so do the credits (the balance may go below zero). */
+async function cancelPerformed(
+  purchase: PurchaseRecord,
+  state: PaymeTransactionState,
+  paymeId: string,
+  reason: number,
+  ctx: ProviderContext,
+): Promise<unknown> {
+  if (purchase.status !== 'completed' && purchase.status !== 'partially_refunded')
+    throw new PaymeError(PAYME_ERRORS.CANNOT_CANCEL);
+  const done = await ctx.store.refund(
+    purchase.id,
+    { refundId: `payme:${paymeId}` },
+    {
+      ...state,
+      state: PAYME_STATE.CANCELLED_AFTER_PERFORM,
+      cancel_time: ctx.now().getTime(),
+      reason,
+    },
+  );
+  // A concurrent cancel may have refunded it first: its cancel_time is the one kept.
+  const cancelled = storedState(done);
+  return { transaction: done.id, cancel_time: cancelled.cancel_time, state: cancelled.state };
 }
 
 async function cancelTransaction(params: Params, ctx: ProviderContext): Promise<unknown> {
@@ -330,31 +381,28 @@ async function cancelTransaction(params: Params, ctx: ProviderContext): Promise<
   const { purchase, state, paymeId } = await transactionFor(params, ctx);
   if (state.state === PAYME_STATE.CANCELLED || state.state === PAYME_STATE.CANCELLED_AFTER_PERFORM)
     return { transaction: purchase.id, cancel_time: state.cancel_time, state: state.state };
+  if (state.state === PAYME_STATE.PERFORMED)
+    return cancelPerformed(purchase, state, paymeId, reason, ctx);
 
-  const cancelTime = ctx.now().getTime();
-  if (state.state === PAYME_STATE.CREATED) {
-    await ctx.store.cancel(purchase.id, {
+  let done: PurchaseRecord;
+  try {
+    done = await ctx.store.cancel(purchase.id, {
       ...state,
       state: PAYME_STATE.CANCELLED,
-      cancel_time: cancelTime,
+      cancel_time: ctx.now().getTime(),
       reason,
     });
-    return { transaction: purchase.id, cancel_time: cancelTime, state: PAYME_STATE.CANCELLED };
+  } catch (error) {
+    // A PerformTransaction got there first: cancel the performed transaction,
+    // as if this call had arrived after it.
+    const now = await reread(purchase, ctx);
+    if (now?.state.state === PAYME_STATE.PERFORMED)
+      return cancelPerformed(now.purchase, now.state, paymeId, reason, ctx);
+    throw error;
   }
-
-  // Performed: the money goes back, and so do the credits (the balance may go below zero).
-  if (purchase.status !== 'completed' && purchase.status !== 'partially_refunded')
-    throw new PaymeError(PAYME_ERRORS.CANNOT_CANCEL);
-  await ctx.store.refund(
-    purchase.id,
-    { refundId: `payme:${paymeId}` },
-    { ...state, state: PAYME_STATE.CANCELLED_AFTER_PERFORM, cancel_time: cancelTime, reason },
-  );
-  return {
-    transaction: purchase.id,
-    cancel_time: cancelTime,
-    state: PAYME_STATE.CANCELLED_AFTER_PERFORM,
-  };
+  // A concurrent cancel may have got there first: its cancel_time is the one kept.
+  const cancelled = storedState(done);
+  return { transaction: done.id, cancel_time: cancelled.cancel_time, state: cancelled.state };
 }
 
 async function checkTransaction(params: Params, ctx: ProviderContext): Promise<unknown> {

@@ -29,8 +29,7 @@ const ENV = {
 const STARTER = 6_300_000;
 const HOUR = 60 * 60 * 1000;
 
-function setup(store?: MemoryPurchaseStore) {
-  const clock = new Clock();
+function setup(store?: MemoryPurchaseStore, clock = new Clock()) {
   const db = store ?? new MemoryPurchaseStore(clock.now);
   const ctx = testContext({ store: db, env: ENV, clock });
   const sim = new PaymeSimulator({
@@ -104,6 +103,60 @@ describe('Payme, played by the simulator', () => {
     clock.advance(5_000);
     expect((await sim.cancel(create.paymeId, 5)).result).toEqual(cancel.result);
     expect(store.ledgerFor(purchase.id)).toHaveLength(2);
+  });
+
+  it('answers concurrent Performs and Cancels with the times it kept', async () => {
+    // Each store write takes a second, so calls that overlap see different clocks.
+    const clock = new Clock();
+    class SlowStore extends MemoryPurchaseStore {
+      override complete(id: string, data?: Record<string, unknown>): Promise<PurchaseRecord> {
+        clock.advance(1_000);
+        return super.complete(id, data);
+      }
+      override refund(
+        id: string,
+        opts: { refundId: string },
+        data?: Record<string, unknown>,
+      ): Promise<PurchaseRecord> {
+        clock.advance(1_000);
+        return super.refund(id, opts, data);
+      }
+    }
+    const { store, sim, purchase } = setup(new SlowStore(clock.now), clock);
+    const create = await sim.create(purchase.id, STARTER);
+    const performs = await Promise.all([sim.perform(create.paymeId), sim.perform(create.paymeId)]);
+    const kept = store.peek(purchase.id).providerData.perform_time;
+    expect(performs.map((answer) => answer.result?.perform_time)).toEqual([kept, kept]);
+    expect(store.ledgerFor(purchase.id)).toHaveLength(1);
+
+    const cancels = await Promise.all([
+      sim.cancel(create.paymeId, 5),
+      sim.cancel(create.paymeId, 5),
+    ]);
+    const cancelTime = store.peek(purchase.id).providerData.cancel_time;
+    expect(cancels.map((answer) => answer.result)).toEqual([
+      { transaction: purchase.id, cancel_time: cancelTime, state: -2 },
+      { transaction: purchase.id, cancel_time: cancelTime, state: -2 },
+    ]);
+    expect(store.ledgerFor(purchase.id).map((row) => row.credits)).toEqual([200, -200]);
+  });
+
+  it('settles a Perform racing a Cancel as if one came after the other', async () => {
+    const { store, sim, purchase } = setup();
+    const create = await sim.create(purchase.id, STARTER);
+    // Both read state 1; the Perform writes first, so the Cancel refunds it.
+    const [perform, cancel] = await Promise.all([
+      sim.perform(create.paymeId),
+      sim.cancel(create.paymeId, 5),
+    ]);
+    expect(perform.result).toMatchObject({ state: 2 });
+    expect(cancel.result).toMatchObject({ state: -2 });
+    expect(store.peek(purchase.id)).toMatchObject({
+      status: 'refunded',
+      providerData: { state: -2, reason: 5 },
+    });
+    expect(store.ledgerFor(purchase.id).map((row) => row.credits)).toEqual([200, -200]);
+    expect((await sim.check(create.paymeId)).result).toMatchObject({ state: -2 });
   });
 
   it('cancels before perform: state -1, the order is cancelled and can’t be performed', async () => {
