@@ -48,6 +48,7 @@ export const VIEW_IDS = {
     'loudness-meter',
     'merge-audio',
     'normalize-audio',
+    'remove-noise',
     'remove-silence',
     'transcribe-audio',
     'trim-audio',

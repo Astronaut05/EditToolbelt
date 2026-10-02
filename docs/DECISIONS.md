@@ -790,6 +790,8 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 ## 2026-10-01 · VFR to CFR, server-only tools, the admin's Jobs page and job stats (M4)
 
+_Server-only tools staying `soon`: superseded for CPU tools by "CPU server tools ship `beta`; GPU tools wait for an admin" below._
+
 **Decision:**
 - **Server-only tools stay `soon` in the registry; an admin switches each one on** (Admin → Tools → status `beta` or `live`) in the server build, the way a hybrid tool's server path is switched on. The static export has no API, so it never offers a server path, and its pages for these tools stay "coming soon".
 - **The ToolShell runs server-only tools:** a tool view with no browser engine gets the server offer as soon as a file is in, with the tool's own reason ("Precise frame timing needs ffmpeg"), and no browser button.

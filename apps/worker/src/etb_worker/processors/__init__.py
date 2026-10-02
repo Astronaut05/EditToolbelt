@@ -183,6 +183,7 @@ from etb_worker.processors import (  # noqa: E402
     burn_subtitles,
     compress_video,
     object_eraser,
+    remove_noise,
     transcribe,
     upscale_image,
     upscale_video,
@@ -196,6 +197,7 @@ PROCESSORS: dict[str, Processor] = {
         compress_video.PROCESSOR,
         vfr_to_cfr.PROCESSOR,
         burn_subtitles.PROCESSOR,
+        remove_noise.PROCESSOR,
         # GPU tools: they run where GPU_BACKEND is set, and fail cleanly (credits back) where not.
         upscale_image.PROCESSOR,
         transcribe.TRANSCRIBE_AUDIO,

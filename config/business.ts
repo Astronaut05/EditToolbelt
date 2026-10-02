@@ -126,6 +126,11 @@ export const freeAllowance = {
   welcomeGrantCredits: 30,
   /** Small server jobs per day for signed-in users who never paid. */
   signedInDailyServerJobs: 3,
+  /**
+   * Free previews a day (A10's 10 s snippet) for accounts that have paid. A
+   * never-paid account spends one of its daily jobs on each instead (docs/05).
+   */
+  paidDailyPreviews: 10,
 } as const;
 
 export const maxConcurrentServerJobs = {
