@@ -34,7 +34,7 @@ import {
   type Queryable,
 } from '@etb/db';
 import { costOf, hasServerPath, isAvailable, limitsOf, priceOf, tools } from '@etb/registry';
-import { parseServerOptions, uploadOptions } from '@etb/registry/options';
+import { parseServerOptions } from '@etb/registry/options';
 import type { ToolDef } from '@etb/registry/schema';
 
 import { log } from '../lib/log';
@@ -42,8 +42,17 @@ import type { CurrentUser } from './account';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
 import { ApiError } from './problem';
+import {
+  checkCrossfade,
+  checkHasVideo,
+  checkInputs,
+  checkKind,
+  namedUploads,
+  SUBTITLE_TYPES,
+  type Probe,
+} from './inputs';
 import { deleteObject, presignDownload, StorageError } from './storage';
-import { ownUpload, SUBTITLE_TYPES, tierOf, type Tier, type Upload } from './uploads';
+import { ownUpload, tierOf, type Tier, type Upload } from './uploads';
 
 export type Job = typeof jobs.$inferSelect;
 export type Funding = 'daily' | 'credits' | 'none';
@@ -55,11 +64,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROBE_WAIT_MS = 8000;
 /** Outputs are deleted this long after the job ends (docs/01 → Retention). */
 const OUTPUT_TTL_MS = 60 * 60 * 1000;
-
-interface Probe {
-  duration_ms?: number;
-  video?: { width?: number; height?: number; fps?: number; vfr?: boolean | null } | null;
-}
 
 /**
  * A tool's own reason not to run a file, read from the probe before any job
@@ -175,28 +179,6 @@ function checkUpload(upload: Upload, tool: ToolDef): void {
   }
 }
 
-function checkLimits(tool: ToolDef, tier: Tier, probe: Probe): void {
-  const limit = limitsOf(tool)?.server?.[tier];
-  if (!limit)
-    throw new ApiError(409, 'TOOL_UNAVAILABLE', `${tool.name} doesn’t run on our servers yet`);
-  const seconds = (probe.duration_ms ?? 0) / 1000;
-  if (limit.maxDurationSec !== undefined && seconds > limit.maxDurationSec) {
-    throw new ApiError(
-      413,
-      'FILE_TOO_LARGE',
-      'Too long',
-      `This is ${(seconds / 60).toFixed(1)} min; the limit for ${tool.name} is ${String(limit.maxDurationSec / 60)} min.`,
-      { max_duration_sec: limit.maxDurationSec },
-    );
-  }
-  const pixels = (probe.video?.width ?? 0) * (probe.video?.height ?? 0);
-  if (limit.maxPixels !== undefined && pixels > limit.maxPixels) {
-    throw new ApiError(413, 'FILE_TOO_LARGE', 'Too many pixels', undefined, {
-      max_pixels: limit.maxPixels,
-    });
-  }
-}
-
 /** The price and what pays for it: nothing, a free daily job, or credits. */
 async function funding(
   user: CurrentUser,
@@ -235,35 +217,50 @@ interface Prepared {
   tier: Tier;
   upload: Upload;
   probe: Probe;
-  /** The other files the tool takes (Burn Subtitles: the subtitles), in order. */
-  extras: { upload: Upload; probe: Probe }[];
+  /**
+   * The other files the tool takes, in order: Burn Subtitles' subtitle
+   * file, or Merge Videos' other clips.
+   */
+  extras: { upload: Upload; probe: Probe; kind: 'subtitles' | 'video' }[];
   credits: number;
   options: Record<string, unknown>;
 }
 
 /**
- * The uploads a tool's options name (`uploadOptions` in the registry): the
- * caller's own, made for this tool, a subtitle file, unused, and probed.
- * Null while one is still being probed.
+ * The uploads a tool's options name (`uploadOptions` in the registry), in
+ * order: each the caller's own, made for this tool, the kind of file its
+ * option takes, unused by any job, and probed. Null while one is still
+ * being probed.
  */
 async function extraUploads(
   user: CurrentUser,
   tool: ToolDef,
+  main: Upload,
   options: Record<string, unknown>,
 ): Promise<Prepared['extras'] | null> {
-  const extras: Prepared['extras'] = [];
-  for (const name of uploadOptions[tool.id as keyof typeof uploadOptions] ?? []) {
-    const extra = await ownUpload(user, String(options[name]));
-    checkUpload(extra, tool);
-    if (!SUBTITLE_TYPES.has(extra.mimeClaimed)) {
-      throw new ApiError(400, 'BAD_REQUEST', 'Not a subtitle file', `${name}: SRT, VTT or ASS.`);
-    }
-    await checkUnused(extra);
-    const probed = await waitForProbe(extra);
-    if (!probed) return null;
-    extras.push({ upload: probed, probe: probeOf(probed) });
+  const named = namedUploads(tool.id, options);
+  if (named.some((extra) => extra.id === main.id)) {
+    throw new ApiError(400, 'BAD_REQUEST', 'A file is named twice', 'Each upload goes in once.');
   }
-  return extras;
+  // Checked in order, so the answer names the first clip that's wrong.
+  const extras: Prepared['extras'] = [];
+  let probing = false;
+  for (const extra of named) {
+    const upload = await ownUpload(user, extra.id);
+    checkUpload(upload, tool);
+    checkKind(extra, upload.mimeClaimed);
+    await checkUnused(upload);
+    const probed = probing ? (upload.probedAt ? upload : null) : await waitForProbe(upload);
+    if (!probed) {
+      // The rest are still checked for the caller's mistakes, without waiting again.
+      probing = true;
+      continue;
+    }
+    const probe = probeOf(probed);
+    if (extra.kind === 'video') checkHasVideo(probe, extra.label);
+    extras.push({ upload: probed, probe, kind: extra.kind });
+  }
+  return probing ? null : extras;
 }
 
 /** Everything a quote and a job both need; null while the worker is still probing. */
@@ -286,14 +283,28 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   const probed = await waitForProbe(upload);
   if (!probed) return null;
   const probe = probeOf(probed);
-  const tier = await tierOf(user.id);
-  checkLimits(tool, tier, probe);
   const reason = PRECHECKS[tool.id]?.(probe);
   if (reason) throw new ApiError(422, 'NOTHING_TO_DO', 'Nothing to fix', reason);
-  const extras = await extraUploads(user, tool, parsed.options);
+  const extras = await extraUploads(user, tool, probed, parsed.options);
   if (!extras) return null;
-  const megapixels = ((probe.video?.width ?? 0) * (probe.video?.height ?? 0)) / 1e6;
-  const credits = priceOf(costOf(tool), { durationMs: probe.duration_ms ?? 0, megapixels });
+  const videos = extras.filter((extra) => extra.kind === 'video');
+  if (videos.length > 0) checkHasVideo(probe, 'clip 1');
+  // The files that count toward the limits and the price: the job's own, and any more videos.
+  const counted = [
+    { bytes: probed.bytes, probe },
+    ...videos.map((extra) => ({
+      bytes: extra.upload.bytes,
+      probe: extra.probe,
+    })),
+  ];
+  const tier = await tierOf(user.id);
+  const measured = checkInputs(tool, tier, counted);
+  checkCrossfade(
+    tool.id,
+    parsed.options,
+    counted.map((input) => input.probe),
+  );
+  const credits = priceOf(costOf(tool), measured);
   return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options };
 }
 
@@ -398,9 +409,17 @@ export async function createJob(
         // Paid credits go before free jobs (docs/01 → Queue).
         priority: paying.funding === 'credits' ? 1 : 0,
         options: prepared.options,
-        inputMeta: prepared.extras.length
-          ? { ...prepared.probe, extras: prepared.extras.map((extra) => extra.probe) }
-          : prepared.probe,
+        // What the worker needs besides the files: each one's probe and the type it came as.
+        inputMeta: {
+          ...prepared.probe,
+          mime: prepared.upload.mimeClaimed,
+          ...(prepared.extras.length > 0 && {
+            extras: prepared.extras.map((extra) => ({
+              ...extra.probe,
+              mime: extra.upload.mimeClaimed,
+            })),
+          }),
+        },
         inputKey: prepared.upload.storageKey,
         extraInputKeys: prepared.extras.map((extra) => extra.upload.storageKey),
         funding: paying.funding,
@@ -479,7 +498,11 @@ const ERROR_TEXT: Record<string, string> = {
   STORAGE_UNAVAILABLE: 'Storage wasn’t answering. Try again.',
   INTERNAL: 'Something went wrong on our side.',
 };
-const PROCESSOR_CODES: ReadonlySet<string> = new Set(['TARGET_TOO_SMALL', 'NO_VIDEO']);
+const PROCESSOR_CODES: ReadonlySet<string> = new Set([
+  'TARGET_TOO_SMALL',
+  'NO_VIDEO',
+  'CROSSFADE_TOO_LONG',
+]);
 
 function errorText(job: Job): string {
   const code = job.errorCode ?? '';

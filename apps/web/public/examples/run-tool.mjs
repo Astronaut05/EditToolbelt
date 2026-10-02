@@ -7,10 +7,12 @@
 //
 //   node run-tool.mjs compress-video clip.mov '{"mode":"size","targetMb":25}'
 //   node run-tool.mjs burn-subtitles clip.mp4 '{"subtitles":"@clip.srt"}'
+//   node run-tool.mjs merge-videos a.mp4 '{"clips":["@b.mp4","@c.mp4"]}'
 //
 // An option written "@path" is a file that goes up as its own upload, its id
-// in its place. Options for each tool: GET /tools/<tool-id>. Node 20 or
-// newer; no packages. Prints the result's file name.
+// in its place; so is each "@path" in a list, in order. Options for each
+// tool: GET /tools/<tool-id>. Node 20 or newer; no packages. Prints the
+// result's file name.
 
 /* global console, fetch, process, setTimeout */
 import { randomUUID } from 'node:crypto';
@@ -116,9 +118,17 @@ async function upload(path) {
 async function main() {
   const uploadId = await upload(input);
   const options = JSON.parse(optionsJson);
+  const file = async (value) =>
+    typeof value === 'string' && value.startsWith('@') ? upload(value.slice(1)) : value;
   for (const [name, value] of Object.entries(options)) {
-    if (typeof value === 'string' && value.startsWith('@'))
-      options[name] = await upload(value.slice(1));
+    if (!Array.isArray(value)) {
+      options[name] = await file(value);
+      continue;
+    }
+    // One after another: an account may have only a few uploads open at once.
+    const ids = [];
+    for (const item of value) ids.push(await file(item));
+    options[name] = ids;
   }
 
   say('checking the file…');

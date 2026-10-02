@@ -55,4 +55,39 @@ describe('parseServerOptions', () => {
     expect(parseServerOptions('vfr-to-cfr', { fps: '29.97' }).ok).toBe(true);
     expect(parseServerOptions('vfr-to-cfr', { fps: '29' }).ok).toBe(false);
   });
+
+  it('takes Merge Videos’ settings as the browser does, and 1 to 19 more clips in order', () => {
+    const ids = Array.from(
+      { length: 20 },
+      (_, i) => `0190f0c8-3f4a-7b6c-9d8e-${String(i).padStart(12, '0')}`,
+    );
+    expect(parseServerOptions('merge-videos', { clips: [ids[1]] })).toEqual({
+      ok: true,
+      options: {
+        clips: [ids[1]],
+        transition: 'none',
+        transitionLength: '1',
+        size: 'first',
+        fps: 'first',
+      },
+    });
+    const crossfade = { transition: 'crossfade', transitionLength: '0.5', size: '720', fps: '25' };
+    expect(parseServerOptions('merge-videos', { clips: ids.slice(1), ...crossfade })).toMatchObject(
+      {
+        ok: true,
+        options: crossfade,
+      },
+    );
+    // 2 to 20 clips in all: the job's own upload is the first.
+    expect(parseServerOptions('merge-videos', { clips: [] }).ok).toBe(false);
+    expect(parseServerOptions('merge-videos', {}).ok).toBe(false);
+    expect(parseServerOptions('merge-videos', { clips: ids }).ok).toBe(false);
+    expect(parseServerOptions('merge-videos', { clips: [ids[1], ids[1]] })).toEqual({
+      ok: false,
+      error: 'clips: each clip once',
+    });
+    expect(parseServerOptions('merge-videos', { clips: ['clip.mp4'] }).ok).toBe(false);
+    expect(parseServerOptions('merge-videos', { clips: [ids[1]], fps: '29.97' }).ok).toBe(false);
+    expect(parseServerOptions('merge-videos', { clips: [ids[1]], size: '1440' }).ok).toBe(false);
+  });
 });

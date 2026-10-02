@@ -22,6 +22,7 @@ import type { CurrentUser } from './account';
 import { ApiError } from './problem';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
+import { formatBytes, SUBTITLE_TYPES } from './inputs';
 import {
   abortMultipart,
   completeMultipart,
@@ -37,12 +38,6 @@ import {
 export const UPLOAD_TTL_MS = 60 * 60 * 1000;
 /** Unfinished uploads one account may have at once. */
 export const MAX_OPEN_UPLOADS = 5;
-/** Subtitle files that go beside a video (Burn Subtitles); small, so capped on their own. */
-export const SUBTITLE_TYPES: ReadonlySet<string> = new Set([
-  'application/x-subrip',
-  'text/vtt',
-  'text/x-ssa',
-]);
 const MAX_SUBTITLE_BYTES = 5_000_000;
 
 export type Upload = typeof uploads.$inferSelect;
@@ -316,15 +311,4 @@ export async function cancelUpload(user: CurrentUser, id: string): Promise<void>
     .set({ multipartId: null, deletedAt: new Date() })
     .where(eq(uploads.id, upload.id));
   log.info({ upload_id: upload.id }, 'upload.cancelled');
-}
-
-function formatBytes(bytes: number): string {
-  const units = ['bytes', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000;
-    unit += 1;
-  }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit] ?? ''}`;
 }

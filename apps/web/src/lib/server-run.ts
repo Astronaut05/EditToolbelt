@@ -47,6 +47,8 @@ const STAGES: Record<string, string> = {
   processing: 'Working',
   analysing: 'Analysing',
   compressing: 'Compressing',
+  joining: 'Joining',
+  encoding: 'Re-encoding',
   uploading: 'Saving the result',
   done: 'Saving the result',
 };
@@ -68,12 +70,16 @@ async function api<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Uploads the file in parts, several at once, straight to storage. */
+/**
+ * Uploads the file in parts, several at once, straight to storage. One of
+ * several files (`batch`) shows the bytes sent of them all, and which file.
+ */
 async function upload(
   file: File,
   toolId: string,
   ctx: ServerRunContext,
   stage = 'Uploading',
+  batch?: { before: number; total: number; step: string },
 ): Promise<string> {
   // By extension first: browsers type subtitle files inconsistently, if at all.
   const type = TYPE_BY_EXTENSION[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? file.type;
@@ -82,14 +88,17 @@ async function upload(
       client.uploadFile(file, toolId, type, {
         signal: ctx.signal,
         parallel: PARALLEL_PARTS,
-        onProgress: ({ sent, total }) => {
+        onProgress: ({ sent: own, total: size }) => {
+          const sent = (batch?.before ?? 0) + own;
+          const total = batch?.total ?? size;
           ctx.progress(
-            sent === total && total > 0
-              ? { stage: 'Finishing the upload' }
+            own === size && size > 0
+              ? { stage: 'Finishing the upload', step: batch?.step }
               : {
                   stage,
                   fraction: total ? sent / total : 0,
                   amount: `${formatBytes(sent)} of ${formatBytes(total)}`,
+                  step: batch?.step,
                 },
           );
         },
@@ -205,7 +214,9 @@ async function download(job: Job, ctx: ServerRunContext): Promise<Blob> {
  * The ToolShell's server path for one tool: `toServer` turns the shell's
  * options into the tool's API options (@etb/registry/options). `files` are
  * `file` options whose file goes up as its own upload, its id in their place
- * (Burn Subtitles: `subtitles`).
+ * (Burn Subtitles: `subtitles`). `joined` is the option that takes the
+ * shell's other files to join, in order, by their upload ids (Merge Videos:
+ * `clips`); the first file is the job's own upload.
  */
 export function serverPath(
   toolId: string,
@@ -213,6 +224,7 @@ export function serverPath(
   toServer: (options: Record<string, string>) => Record<string, unknown>,
   here: string,
   files: readonly { option: string; label: string }[] = [],
+  joined?: string,
 ): ShellServer {
   return {
     price: info.price,
@@ -237,12 +249,26 @@ export function serverPath(
           throw new ServerRunError(`Choose the ${extra.label} first`, 'Something’s missing');
         }
       }
-      const uploadId = await upload(file, toolId, ctx);
+      const all = joined && ctx.files?.length ? ctx.files : [file];
+      const total = all.reduce((sum, one) => sum + one.size, 0);
       const values = { ...shellOptions };
+      // Every upload made, so a failure or a "Not now" deletes them all.
       const extras: string[] = [];
+      let uploadId = '';
       let offer: ReadyQuote & ServerQuote;
       let options: Record<string, unknown>;
       try {
+        // One after another: an account may have only a few uploads open at once.
+        let before = 0;
+        for (const [i, one] of all.entries()) {
+          const step = `File ${String(i + 1)} of ${String(all.length)}`;
+          const batch = all.length > 1 ? { before, total, step } : undefined;
+          const id = await upload(one, toolId, ctx, 'Uploading', batch);
+          if (i === 0) uploadId = id;
+          else extras.push(id);
+          before += one.size;
+        }
+        const clips = [...extras];
         for (const extra of files) {
           const chosen = fileOptionFile(shellOptions[extra.option] ?? '');
           if (!chosen)
@@ -251,7 +277,7 @@ export function serverPath(
           values[extra.option] = id;
           extras.push(id);
         }
-        options = toServer(values);
+        options = { ...toServer(values), ...(joined && { [joined]: clips }) };
         offer = await quote(toolId, uploadId, options, ctx);
         if (!offer.can_start) {
           throw new ServerRunError(
@@ -266,7 +292,9 @@ export function serverPath(
           (!ctx.offered.free && ctx.offered.credits === offer.credits);
         if (!asExpected && !(await ctx.confirm(offer))) throw aborted();
       } catch (error) {
-        for (const id of [uploadId, ...extras]) forget(`/api/v1/uploads/${id}`, 'DELETE');
+        for (const id of [uploadId, ...extras].filter(Boolean)) {
+          forget(`/api/v1/uploads/${id}`, 'DELETE');
+        }
         throw error;
       }
       const started = await api(() =>

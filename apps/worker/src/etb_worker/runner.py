@@ -202,14 +202,23 @@ class JobRunner:
         log.warning("job.failed", error_code=code)
 
     def _delete_input(self, job: jobqueue.Job) -> None:
+        """Every input goes, each tried even when one fails (Merge Videos has up to 20)."""
         keys = jobqueue.input_keys(job)
         if not keys:
             return
-        try:
-            for key in keys:
+        gone = []
+        for key in keys:
+            try:
                 self.storage.delete(key)
+            except StorageError as error:
+                # The sweeper removes it within the hour; say so loudly.
+                get_logger(job_id=str(job["id"])).warning(
+                    "job.input_not_deleted", error_code=error.code
+                )
+                continue
+            gone.append(key)
+        try:
             with self.connect() as conn:
-                jobqueue.input_gone(conn, job)
-        except (StorageError, psycopg.Error):
-            # The sweeper removes it within the hour; say so loudly.
-            get_logger(job_id=str(job["id"])).exception("job.input_not_deleted")
+                jobqueue.input_gone(conn, job, gone)
+        except psycopg.Error:
+            get_logger(job_id=str(job["id"])).exception("job.input_not_recorded")

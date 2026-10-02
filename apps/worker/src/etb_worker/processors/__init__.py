@@ -55,7 +55,8 @@ class JobContext:
     limits: Limits
     cancel: threading.Event
     progress: Callable[[int, str], None]
-    #: The tool's other inputs, in order (Burn Subtitles: the subtitle file), named extra-0, ...
+    #: The tool's other inputs, in order (Burn Subtitles: the subtitle file; Merge Videos: the
+    #: clips after the first), named extra-0, extra-1, ...
     extra_paths: list[Path] = field(default_factory=list)
 
     def run(self, args: list[str], on_line: Callable[[str], None] | None = None) -> str:
@@ -86,9 +87,19 @@ def ffmpeg_progress(
 
 
 # The tool modules import the helpers above, so they come last.
-from etb_worker.processors import burn_subtitles, compress_video, vfr_to_cfr  # noqa: E402
+from etb_worker.processors import (  # noqa: E402
+    burn_subtitles,
+    compress_video,
+    merge_videos,
+    vfr_to_cfr,
+)
 
 PROCESSORS: dict[str, Processor] = {
     processor.tool_id: processor
-    for processor in (compress_video.PROCESSOR, vfr_to_cfr.PROCESSOR, burn_subtitles.PROCESSOR)
+    for processor in (
+        compress_video.PROCESSOR,
+        vfr_to_cfr.PROCESSOR,
+        burn_subtitles.PROCESSOR,
+        merge_videos.PROCESSOR,
+    )
 }

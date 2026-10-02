@@ -49,6 +49,8 @@ export interface ServerResult {
 
 export interface ServerRunContext {
   signal: AbortSignal;
+  /** A04, V12: every file to join, in order (the first is the run's `file`). */
+  files?: readonly File[];
   /** What the offer said: about this many credits (null: not known yet), or free. */
   offered: { credits: number | null; free: boolean };
   progress: (stage: ServerStage) => void;

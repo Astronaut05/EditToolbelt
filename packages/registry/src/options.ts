@@ -7,6 +7,8 @@
  */
 import { z } from 'zod';
 
+import { MERGE_VIDEOS } from './choices';
+
 /**
  * V02 on the server: the browser tool's settings (tools/video.md → V02), so
  * one set of choices works either way. A size is MB of 10⁶ bytes.
@@ -63,15 +65,46 @@ const burnSubtitles = z.strictObject({
   width: z.enum(['full', 'narrow']).default('full'),
 });
 
+/**
+ * V12: the browser tool's settings (`MERGE_VIDEOS` in ./choices), and the
+ * clips after the first, in order. The first clip is the job's own upload.
+ */
+const mergeVideos = z.strictObject({
+  /** The other clips' upload ids, in the order they play after the first: 1 to 19. */
+  clips: z
+    .array(z.uuid())
+    .min(MERGE_VIDEOS.minClips - 1)
+    .max(MERGE_VIDEOS.maxClips - 1)
+    .refine((ids) => new Set(ids).size === ids.length, 'each clip once'),
+  transition: z.enum(MERGE_VIDEOS.transitions).default('none'),
+  /** Crossfade seconds, at every join. */
+  transitionLength: z.enum(MERGE_VIDEOS.crossfades).default('1'),
+  /** `first`: the first clip's size; or a height, with the first clip's shape. */
+  size: z.enum(MERGE_VIDEOS.sizes).default('first'),
+  /** `first`: the first clip's rate, as the nearest standard one. */
+  fps: z.enum(MERGE_VIDEOS.fps).default('first'),
+});
+
 export const serverOptions = {
   'compress-video': compressVideo,
   'vfr-to-cfr': vfrToCfr,
   'burn-subtitles': burnSubtitles,
+  'merge-videos': mergeVideos,
 } satisfies Record<string, z.ZodType>;
 
-/** Options that name another upload, by tool: the job takes those files too, in this order. */
-export const uploadOptions: Partial<Record<keyof typeof serverOptions, readonly string[]>> = {
-  'burn-subtitles': ['subtitles'],
+/** What an option's uploads must be: a subtitle file, or a video. */
+export type UploadKind = 'subtitles' | 'video';
+
+/**
+ * Options that name other uploads, by tool: the job takes those files too,
+ * in this order, after its own upload. An option holds one upload id, or a
+ * list of them (Merge Videos' `clips`).
+ */
+export const uploadOptions: Partial<
+  Record<keyof typeof serverOptions, readonly { option: string; kind: UploadKind }[]>
+> = {
+  'burn-subtitles': [{ option: 'subtitles', kind: 'subtitles' }],
+  'merge-videos': [{ option: 'clips', kind: 'video' }],
 };
 
 export type ServerToolId = keyof typeof serverOptions;

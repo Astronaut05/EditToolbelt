@@ -44,6 +44,8 @@ export function toolDetail(tool: ToolDef): ToolDetail {
     options: isServerTool(tool.id)
       ? z.toJSONSchema(serverOptions[tool.id], { io: 'input', unrepresentable: 'any' })
       : null,
-    extra_uploads: isServerTool(tool.id) ? [...(uploadOptions[tool.id] ?? [])] : [],
+    extra_uploads: isServerTool(tool.id)
+      ? (uploadOptions[tool.id] ?? []).map((upload) => upload.option)
+      : [],
   };
 }

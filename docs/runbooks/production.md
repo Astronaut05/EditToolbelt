@@ -7,7 +7,7 @@ The private live site (`docs/01-architecture.md` → Hosting): only Astro, throu
 | Part | Where | Notes |
 |---|---|---|
 | Web (Next.js server build) | Railway, project `edittoolbelt`, service `web`, EU West (Amsterdam) | `apps/web/Dockerfile`, port 8080. Pre-deploy runs the migrations; Railway's health check is `/readyz`. |
-| Worker (jobs, alerts, sweeper) | Railway, service `worker` | `apps/worker/Dockerfile`, 2 job slots, container disk only (100 GB, the largest input is 10 GiB). |
+| Worker (jobs, alerts, sweeper) | Railway, service `worker` | `apps/worker/Dockerfile`, 2 job slots, container disk only (100 GB: the largest input is 10 GiB, and a Merge Videos job holds up to 10 GiB of clips and a result about as large). |
 | Postgres 18 | Railway, service `postgres` | Private network only. Restoring: [restore-database.md](restore-database.md). |
 | Files | Cloudflare R2, bucket `edittoolbelt-files`, EU jurisdiction | Lifecycle: delete after 1 day, abort multipart after 1 day (the backstop; the sweeper deletes outputs after 60 min). CORS: the site's origin only. |
 | DNS, TLS, Access | Cloudflare | Access (Zero Trust, free) covers the site and `www`: one email allowed, plus CI's service token. |
