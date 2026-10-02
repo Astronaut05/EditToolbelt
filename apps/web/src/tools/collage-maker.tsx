@@ -1,6 +1,6 @@
 'use client';
 
-import { collageEngine, COLLAGE_SIZES } from '@etb/engines';
+import { collageEngine, COLLAGE_SIZES, imageHeader, IMAGE_FORMAT_LABELS } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
@@ -55,14 +55,16 @@ const OPTIONS: ShellOption[] = [
 
 const EXT: Record<string, string> = { jpeg: 'jpg', png: 'png', webp: 'webp' };
 
-/** Each photo's size, read as it's added, so the list says what it holds. */
+/**
+ * Each photo's size, read from its header as it's added, so the list says
+ * what it holds; one over the limits is marked before anything decodes it.
+ */
 async function describe(file: File) {
-  const bitmap = await createImageBitmap(file).catch(() => {
-    throw new Error('this browser can’t read it.');
-  });
-  const summary = `${String(bitmap.width)} × ${String(bitmap.height)} px`;
-  bitmap.close();
-  return { summary };
+  const { format, width, height } = await imageHeader(file);
+  return {
+    summary:
+      width === null ? IMAGE_FORMAT_LABELS[format] : `${String(width)} × ${String(height)} px`,
+  };
 }
 
 const PRESET: ShellPreset = {

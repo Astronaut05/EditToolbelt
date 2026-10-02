@@ -1687,3 +1687,32 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** M8 review, findings 4, 13 and 14, and the overlap marked plausible under finding 2 (confirmed: the copy kept packets up to the cut and every packet's own length). H.264 and HEVC encoders refuse odd sizes: Safari stopped, Chrome fell back to AV1 in MP4.
 **Reverse:** `even`, `encoderSize` and `steadyRate` in `packages/engines/src/video/clip-frames.ts`, `audioSeam` in `loop-video.ts`, `parseSpeed` in `packages/core/src/calc/shutter.ts`. The test clip is `fixtures/video/clip-vfr-odd.mkv`.
+
+## 2026-10-02 · Collage Maker and Images to PDF: limits from the header, ICC profiles kept
+
+**Decision:**
+- **The 100 MP limit is checked before anything decodes:** each image's first half megabyte (more for a JPEG whose metadata runs longer) gives its format and size, with `checkImage`'s 200 MB and 100 MP limits. The list's line under each file comes from the same header, so adding an image no longer decodes it, and one over the limit is marked there and stops the run until it's removed. The engines check every header again before drawing any.
+- AVIF, HEIC and TIFF don't say their size in the header we read: the list shows their format only, and the size is checked once decoded.
+- The decoding stays on the main thread, as before. Moving it to the image worker would bring nothing more for these limits.
+- **ICC profiles:** a JPEG's embedded profile (APP2 "ICC_PROFILE", in pieces) becomes its image's `ICCBased` colour space, with DeviceRGB or DeviceGray as the alternate, so Display P3 phone photos keep their colours. A profile with a piece missing, or not for the JPEG's colours (RGB or grey), is left out as before. A version 4 profile, as Display P3 is, makes the file PDF 1.5, the version that reads them. Other images are decoded to sRGB by the browser, so they stay DeviceRGB.
+
+**Why:** M8 review, finding 7, and the rule gap under finding 15 (the photo rules keep embedded profiles). A 20000 × 20000 PNG of a few KB took about 1.6 GB per copy and crashed the tab instead of showing the limit.
+**Reverse:** `packages/engines/src/image/image-header.ts`; `jpegInfo`'s `icc` and `writePdf` in `packages/core/src/image/pdf.ts`.
+
+## 2026-10-02 · Subtitle Editor: Read as, fixes with no room, one-word cues, and its own cue strip
+
+**Decision:**
+- **Read as** (the shared T rules' override): the file's encoding is found as before and shown with the file when it isn't UTF-8. A "Read as" choice in the editor's bar (UTF-8, Windows-1251, Windows-1252, as the converter offers) reads the text again: each cue still as it came from the file goes back to its bytes and is decoded again, and cues typed or replaced since keep their text. UTF-8 is strict, so a file that isn't refuses it with a note instead of losing characters. UTF-16 files aren't offered it: their timing lines wouldn't read the same.
+  - How: each cue carries the encoding it was read in (`read`) until it's edited. The ToolShell's probe can't read the file again when a setting changes, and doing it there would also throw away the edits.
+- **Gaps and overlaps:** when the next cue can't start later without dropping under the minimum length, neither cue moves and the issue stays marked. The fix said "fixed" before and left a 1 ms cue.
+- **Split** refuses a cue of one word, and says so, instead of making an empty cue.
+- **The cue strip stays the editor's own,** not the shared `Timeline` named in T03. `Timeline` edits in/out ranges that never overlap, with I/O keys and frame steps. Cues overlap (that's one of the checks), carry text, and are moved or retimed one at a time by drag or keyboard. The strip uses the same timecode helpers and look.
+
+**Why:** M8 review, findings 9 and 15.
+**Reverse:** `rereadCues`, `markRead` and `fixIssue` in `packages/core/src/subtitles/edit.ts`, "Read as" in `packages/ui/src/tool/SubtitleEditor.tsx`. To use `Timeline`, it would need overlapping, labelled blocks.
+
+## 2026-10-02 · LUT Converter: a .3dl's depth from its Mesh line
+
+**Decision:** a `.3dl` with Lustre's `Mesh N B` header is read at the B-bit depth it states. Without that line, or when the values don't fit it, the depth is still taken from the largest value.
+**Why:** M8 review, finding 12. A 12-bit darkening LUT whose largest value is 1023 was read as 10-bit, so white stayed white instead of going to a quarter.
+**Reverse:** `parse3dl` in `packages/core/src/color/lut-convert.ts`.

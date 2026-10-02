@@ -2,24 +2,39 @@
 
 import {
   checkCues,
+  editedCue,
+  ENCODING_LABELS,
   findInCues,
   fixAll,
   fixIssue,
   ISSUE_LABELS,
   mergeCues,
+  readEncoding,
   readingSpeed,
   replaceInCues,
+  REREAD_ENCODINGS,
+  rereadCues,
   sortCues,
   splitCue,
   type CheckRules,
   type Cue,
   type Issue,
   type IssueKind,
+  type RereadEncoding,
 } from '@etb/core/subtitles';
 import { Minus, Plus, Redo2, Scissors, Trash2, Undo2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 
 import { cn } from '../cn';
+import { Select } from '../primitives/fields';
 import { formatTimecode, parseTimecode } from './format';
 
 /** Zoom steps: pixels a second on the timeline. */
@@ -70,6 +85,10 @@ function TimeInput({
   );
 }
 
+/** Whether a fix changed anything: it hands back the same cues when there was no room. */
+const unchanged = (next: readonly Cue[], cues: readonly Cue[]) =>
+  next.length === cues.length && next.every((cue, i) => cue === cues[i]);
+
 const toolButton =
   'inline-flex min-h-11 items-center gap-1.5 rounded-control border border-border px-3 text-14 text-text hover:border-text disabled:opacity-38 disabled:hover:border-border';
 
@@ -79,8 +98,9 @@ const toolButton =
  * move it, its edges to retime it; or focus it and use the arrow keys. Split
  * at the playhead, merge, add and delete; find and replace; and the checks
  * (line length, reading speed, duration, gaps, overlaps) with their fixes.
- * Every change is one step to undo. The cues live in the page's options, so
- * the download is always what's on screen.
+ * "Read as" reads the file's text again in another encoding (the shared T
+ * rules' override). Every change is one step to undo. The cues live in the
+ * page's options, so the download is always what's on screen.
  */
 export function SubtitleEditor({
   cues,
@@ -110,6 +130,7 @@ export function SubtitleEditor({
     /** The cue being typed in: more typing there joins the same undo step. */
     typing: number | null;
   }>({ past: [], future: [], typing: null });
+  const readAsId = useId();
   const player = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const strip = useRef<HTMLDivElement>(null);
   const rows = useRef<(HTMLLIElement | null)[]>([]);
@@ -254,7 +275,29 @@ export function SubtitleEditor({
       setStatus('Put the playhead inside the selected cue to split it');
       return;
     }
-    commit(splitCue(cues, selected, ms, rules), `Split cue ${String(selected + 1)}`);
+    const next = splitCue(cues, selected, ms, rules);
+    if (next.length === cues.length) {
+      setStatus(`Cue ${String(selected + 1)} is one word: there’s nothing to split`);
+      return;
+    }
+    commit(next, `Split cue ${String(selected + 1)}`);
+  }
+
+  /** The encoding the file's text is read in, while any cue is still as read. */
+  const encoding = readEncoding(cues);
+  function readAs(to: RereadEncoding) {
+    const next = rereadCues(cues, to);
+    if (!next) {
+      setStatus(`This file’s text isn’t ${ENCODING_LABELS[to]}, so it stays as it is`);
+      return;
+    }
+    commit(next, `Read as ${ENCODING_LABELS[to]}. Cues you edited keep their text.`);
+  }
+
+  /** A fix, or a note when there was no room for it. */
+  function fix(next: Cue[], done: string, none: string) {
+    if (unchanged(next, cues)) setStatus(none);
+    else commit(next, done);
   }
 
   function merge() {
@@ -303,7 +346,11 @@ export function SubtitleEditor({
       wholeWord,
     });
     if (count === 0) return;
-    commit(next, `Replaced ${String(count)} ${count === 1 ? 'match' : 'matches'}`);
+    // A replaced text is the user's now: "Read as" leaves it alone.
+    commit(
+      next.map((cue, i) => (cue === cues[i] ? cue : editedCue(cue))),
+      `Replaced ${String(count)} ${count === 1 ? 'match' : 'matches'}`,
+    );
   }
 
   // Timeline drags: the cue's body moves it, its edges retime it.
@@ -450,6 +497,26 @@ export function SubtitleEditor({
           <Redo2 size={16} aria-hidden="true" />
           Redo
         </button>
+        {encoding && (
+          <span className="inline-flex items-center gap-2">
+            <label htmlFor={readAsId} className="text-14 text-text-muted">
+              Read as
+            </label>
+            <Select
+              id={readAsId}
+              value={encoding}
+              onChange={(event) => {
+                readAs(event.target.value as RereadEncoding);
+              }}
+            >
+              {REREAD_ENCODINGS.map((option) => (
+                <option key={option} value={option}>
+                  {ENCODING_LABELS[option]}
+                </option>
+              ))}
+            </Select>
+          </span>
+        )}
         <span className="ml-auto inline-flex items-center rounded-control border border-border text-text-muted">
           <button
             type="button"
@@ -650,9 +717,10 @@ export function SubtitleEditor({
                   <button
                     type="button"
                     onClick={() => {
-                      commit(
+                      fix(
                         fixAll(cues, kind, rules),
                         `${ISSUE_LABELS[kind]}: fixed where there was room`,
+                        `${ISSUE_LABELS[kind]}: no room to fix any without making a cue too short`,
                       );
                     }}
                     className={toolButton}
@@ -727,7 +795,7 @@ export function SubtitleEditor({
                   setSelected(i);
                 }}
                 onChange={(event) => {
-                  commit(replaceCue(i, { ...cue, text: event.target.value }), '', i);
+                  commit(replaceCue(i, editedCue({ ...cue, text: event.target.value })), '', i);
                 }}
                 className="col-span-2 min-h-16 w-full rounded-control border border-border bg-bg px-3 py-2 text-15 leading-snug hover:border-text focus-visible:border-text lg:col-span-1"
               />
@@ -744,7 +812,11 @@ export function SubtitleEditor({
                     <button
                       type="button"
                       onClick={() => {
-                        commit(fixIssue(cues, issue, rules), `Cue ${String(i + 1)}: fixed`);
+                        fix(
+                          fixIssue(cues, issue, rules),
+                          `Cue ${String(i + 1)}: fixed`,
+                          `Cue ${String(i + 1)}: no room to fix this without making a cue too short`,
+                        );
                       }}
                       className="min-h-11 text-text underline-offset-2 hover:underline"
                     >

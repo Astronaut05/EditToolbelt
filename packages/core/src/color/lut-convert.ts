@@ -6,8 +6,9 @@
  *
  * `.3dl` is Autodesk's (Lustre, Flame, Nuke): an input mesh line (the grid,
  * as 10-bit codes 0–1023), then one line of integer RGB per grid point with
- * blue changing fastest. Its output depth is read from the largest value
- * (10, 12 or 16 bit) and written as 12 bit, the common choice.
+ * blue changing fastest. Its output depth is the one Lustre's `Mesh N B`
+ * header states (B bits), or else read from the largest value (10, 12 or
+ * 16 bit), and it's written as 12 bit, the common choice.
  */
 import { LutError, lookup, type Lut } from './lut';
 
@@ -20,13 +21,19 @@ const DEPTHS = [10, 12, 16] as const;
 /** Reads an Autodesk `.3dl`: an input mesh line (optional), then N³ integer RGB lines, blue fastest. */
 export function parse3dl(text: string): Lut {
   const rows: { values: number[]; line: number }[] = [];
+  /** The output depth Lustre's "Mesh N B" line states, in bits. */
+  let stated: number | null = null;
   for (const [i, raw] of text
     .replace(/^\uFEFF/, '')
     .split(/\r\n|\r|\n/)
     .entries()) {
     const hash = raw.indexOf('#');
     const content = (hash >= 0 ? raw.slice(0, hash) : raw).trim();
-    // Lustre's "3DMESH" and "Mesh 4 12" lines say the same as the mesh line; skip them.
+    // Lustre's "Mesh 4 12": a 2⁴ + 1 point input mesh (the mesh line says it too) and 12-bit output.
+    const mesh = /^Mesh\s+\d+\s+(\d+)\b/i.exec(content);
+    const bits = Number(mesh?.[1]);
+    if (mesh && Number.isInteger(bits) && bits >= 8 && bits <= 16) stated = bits;
+    // That line, "3DMESH" and the rest of Lustre's header are skipped.
     if (!content || /^(3DMESH|Mesh|LUT8|gamma)\b/i.test(content)) continue;
     const values = content.split(/\s+/).map(Number);
     if (values.some((v) => !Number.isFinite(v))) {
@@ -63,7 +70,11 @@ export function parse3dl(text: string): Lut {
     if (row.values.length !== 3) throw new LutError('expected three numbers', row.line);
     max = Math.max(max, ...row.values);
   }
-  const depth = DEPTHS.find((bits) => max <= 2 ** bits - 1) ?? 16;
+  // The stated depth, unless the values don't fit it; then the depth they fit, as without one.
+  const depth =
+    stated !== null && max <= 2 ** stated - 1
+      ? stated
+      : (DEPTHS.find((bits) => max <= 2 ** bits - 1) ?? 16);
   const scale = 2 ** depth - 1;
   const table = new Float32Array(size ** 3 * 3);
   // File order: red slowest, blue fastest. Table order: red fastest.

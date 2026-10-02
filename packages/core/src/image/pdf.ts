@@ -2,7 +2,9 @@
  * P18 Images to PDF (tools/photo.md): a PDF of one image per page, written
  * here rather than with a library, since images on pages are all it needs.
  * JPEGs go in byte for byte (DCTDecode), so nothing is re-compressed; their
- * EXIF orientation is applied by the matrix that places them. Other images
+ * EXIF orientation is applied by the matrix that places them, and an
+ * embedded ICC profile (a Display P3 phone photo's) becomes the image's
+ * ICCBased colour space, so its colours show as they were. Other images
  * arrive as deflated 8-bit RGB (FlateDecode), with any transparency as a
  * soft mask. Each image is scaled to fit the page inside its margins,
  * centred, keeping its shape.
@@ -21,6 +23,8 @@ export interface PdfImage {
   alpha?: Uint8Array;
   /** EXIF orientation 1–8: how the stored image turns to stand upright. */
   orientation?: number;
+  /** jpeg: its embedded ICC profile, for an ICCBased colour space; without one, DeviceRGB or DeviceGray. */
+  icc?: Uint8Array;
 }
 
 export interface PdfPage {
@@ -114,12 +118,20 @@ export interface JpegInfo {
   /** 8 for nearly every JPEG; 12 is rare and isn't passed through. */
   precision: number;
   orientation: number;
+  /** The embedded ICC profile, whole, when it's one for the JPEG's colours (RGB or grey). */
+  icc?: Uint8Array;
 }
 
-/** A JPEG's size, components and EXIF orientation, read from its markers; null if it isn't one. */
+/**
+ * A JPEG's size, components, EXIF orientation and ICC profile, read from its
+ * markers; null if it isn't one.
+ */
 export function jpegInfo(bytes: Uint8Array): JpegInfo | null {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   let orientation = 1;
+  /** The ICC profile's pieces (APP2 "ICC_PROFILE"), by their number from 1. */
+  const pieces = new Map<number, Uint8Array>();
+  let count = 0;
   let at = 2;
   while (at + 4 <= bytes.length) {
     if (bytes[at] !== 0xff) return null;
@@ -131,19 +143,61 @@ export function jpegInfo(bytes: Uint8Array): JpegInfo | null {
     const length = ((bytes[at + 2] ?? 0) << 8) | (bytes[at + 3] ?? 0);
     // Baseline, extended and progressive frames; not lossless, hierarchical or arithmetic.
     if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      const components = bytes[at + 9] ?? 0;
+      const icc = iccProfile(pieces, count, components);
       return {
         precision: bytes[at + 4] ?? 0,
         height: ((bytes[at + 5] ?? 0) << 8) | (bytes[at + 6] ?? 0),
         width: ((bytes[at + 7] ?? 0) << 8) | (bytes[at + 8] ?? 0),
-        components: bytes[at + 9] ?? 0,
+        components,
         orientation,
+        ...(icc && { icc }),
       };
     }
     if (marker === 0xe1) orientation = exifOrientation(bytes.subarray(at + 4, at + 2 + length));
+    if (marker === 0xe2) {
+      // "ICC_PROFILE\0", the piece's number, how many pieces, then the piece.
+      const segment = bytes.subarray(at + 4, at + 2 + length);
+      if (
+        segment.length > 14 &&
+        String.fromCharCode(...segment.subarray(0, 12)) === 'ICC_PROFILE\0'
+      ) {
+        pieces.set(segment[12] ?? 0, segment.subarray(14));
+        count = segment[13] ?? 0;
+      }
+    }
     if (marker === 0xda || marker === 0xd9) return null;
     at += 2 + length;
   }
   return null;
+}
+
+/**
+ * The ICC profile from its numbered pieces, when they're all there and it's
+ * a profile for `components` colours (RGB for 3, grey for 1); else none, and
+ * the image goes in as DeviceRGB or DeviceGray as before.
+ */
+function iccProfile(
+  pieces: ReadonlyMap<number, Uint8Array>,
+  count: number,
+  components: number,
+): Uint8Array | undefined {
+  if (count < 1 || pieces.size !== count) return undefined;
+  const parts: Uint8Array[] = [];
+  for (let n = 1; n <= count; n += 1) {
+    const part = pieces.get(n);
+    if (!part) return undefined;
+    parts.push(part);
+  }
+  const profile = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    profile.set(part, at);
+    at += part.length;
+  }
+  const text = (from: number) => String.fromCharCode(...profile.subarray(from, from + 4));
+  const space = components === 3 ? 'RGB ' : components === 1 ? 'GRAY' : '';
+  return profile.length >= 132 && text(36) === 'acsp' && text(16) === space ? profile : undefined;
 }
 
 function exifOrientation(app1: Uint8Array): number {
@@ -196,19 +250,24 @@ export function writePdf(pages: readonly PdfPage[], title = ''): Uint8Array<Arra
     push('endobj\n');
   };
 
+  // ICC v4 profiles (Display P3 from phones) came in with PDF 1.5; v2 ones are PDF 1.4's.
+  const v4 = pages.some((page) => (page.image.icc?.[8] ?? 0) >= 4);
   // The second line's bytes above 127 tell file tools this is binary.
-  push('%PDF-1.4\n');
+  push(v4 ? '%PDF-1.5\n' : '%PDF-1.4\n');
   push(Uint8Array.from([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
-  // 1 catalog, 2 pages, 3 info; then per page: page, contents, image, and its mask if any.
+  // 1 catalog, 2 pages, 3 info; then per page: page, contents, image, its mask and its ICC profile if any.
   let next = 4;
   const plan = pages.map((page) => {
-    const ids = {
-      page: next,
-      contents: next + 1,
-      image: next + 2,
-      mask: page.image.alpha ? next + 3 : 0,
-    };
-    next += page.image.alpha ? 4 : 3;
+    const ids = { page: next, contents: next + 1, image: next + 2, mask: 0, icc: 0 };
+    next += 3;
+    if (page.image.alpha) {
+      ids.mask = next;
+      next += 1;
+    }
+    if (page.image.icc) {
+      ids.icc = next;
+      next += 1;
+    }
     return { page, ids };
   });
   object(1, '<< /Type /Catalog /Pages 2 0 R >>');
@@ -228,7 +287,8 @@ export function writePdf(pages: readonly PdfPage[], title = ''): Uint8Array<Arra
       `q ${placement(page.box, image.orientation).map(n).join(' ')} cm /Im0 Do Q\n`,
     );
     object(ids.contents, `<< /Length ${String(content.length)} >>`, content);
-    const space = image.colors === 1 ? '/DeviceGray' : '/DeviceRGB';
+    const device = image.colors === 1 ? '/DeviceGray' : '/DeviceRGB';
+    const space = ids.icc ? `[/ICCBased ${String(ids.icc)} 0 R]` : device;
     const filter = image.kind === 'jpeg' ? '/DCTDecode' : '/FlateDecode';
     object(
       ids.image,
@@ -240,6 +300,13 @@ export function writePdf(pages: readonly PdfPage[], title = ''): Uint8Array<Arra
         ids.mask,
         `<< /Type /XObject /Subtype /Image /Width ${String(image.width)} /Height ${String(image.height)} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ${String(image.alpha.length)} >>`,
         image.alpha,
+      );
+    }
+    if (ids.icc && image.icc) {
+      object(
+        ids.icc,
+        `<< /N ${String(image.colors)} /Alternate ${device} /Length ${String(image.icc.length)} >>`,
+        image.icc,
       );
     }
   }
