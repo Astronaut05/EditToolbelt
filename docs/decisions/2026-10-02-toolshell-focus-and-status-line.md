@@ -1,0 +1,12 @@
+# 2026-10-02 · Where the ToolShell puts focus, and what its status line says
+
+**Decision:** the ToolShell moves focus only when a change leaves it nowhere (on the page itself, or on a control that went away or turned disabled), and a visually hidden status line says each step of a run.
+- **Focus:** a file in, to the first setting (its row on a phone; Start when there is none). A result, to the Download button, also from the bar's Cancel. An error, to its first action ("Try another file"). Start over or Cancel, to the button that chooses a file. A finished batch, to its download. During a run focus stays where it fell: moving it to Cancel would let a held Enter cancel the run it just started.
+- **Not a heading:** the first setting, not a "Settings" heading: there is no visible one, and a hidden one would take focus with no ring on screen.
+- **Status line:** "face.jpg loaded" ("3 files loaded"), the progress title as a run starts ("Working", "Reading the file", the preset's words), "Done: JPG, 11.7 KB" ("Done: 3 files, 1 failed"), and the error's title. Never the percent or a later stage.
+- **Timeline:** arrow keys, Home, End, I and O say the new time ("Playhead 00:00:01.500", "In 00:00:01.500") 0.3 s after the last key, so a held arrow says one time, not one per step. The playhead moves out of the timeline's label into its description (the visible "Playhead" line), so it isn't said twice.
+- **Hubs:** a filter change says the count ("12 tools"); the list itself is no longer a live region.
+- **Phones with a file:** the breadcrumb is hidden (it was screen-reader-only, so its link took a Tab with nothing on screen). The H1 stays for screen readers.
+
+**Why:** the review found focus on `<body>` after choosing a file, after Start and after the result, and no live region changing during a whole run (WCAG 2.4.3, 4.1.3). Measured on the static build: on /compress-image focus now goes from "Choose images" to the Quality setting, and from Start to "Download JPG"; the status line said nothing before, and says "face.jpg loaded", "Working", "Done: JPG, 11.7 KB" now. Moving focus only when it is lost keeps a slider being dragged, or a field being typed in, where the person left it while a run repeats.
+**Reverse:** remove the transition effects and the `announcer` line in `packages/ui/src/tool/ToolShell.tsx`, the `spoken` line in `Timeline.tsx` and the `said` line in `apps/web/src/components/HubList.tsx` (and put `aria-live="polite"` back on its list); `e2e/shell-a11y.spec.ts` tests all of it.

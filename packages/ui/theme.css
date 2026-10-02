@@ -155,6 +155,29 @@
     outline-offset: 2px;
   }
 
+  /* WCAG 2.4.11: what has focus never scrolls under the sticky header, nor,
+     below 1024 px, under ToolShell's action bar. The page gets the bar's
+     height at its end, so the last links can scroll clear of it too. */
+  html {
+    scroll-padding-top: calc(var(--header-h-phone) + 8px);
+  }
+
+  @media (width >= 64rem) {
+    html {
+      scroll-padding-top: calc(var(--header-h) + 8px);
+    }
+  }
+
+  @media (width < 64rem) {
+    html:has([data-action-bar]) {
+      scroll-padding-bottom: calc(var(--action-bar-h) + 8px);
+    }
+
+    html:has([data-action-bar]) body {
+      padding-bottom: var(--action-bar-h);
+    }
+  }
+
   [hidden] {
     display: none !important;
   }

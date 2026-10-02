@@ -733,6 +733,29 @@ function isImage(preset: ShellPreset) {
   return preset.noun === 'image';
 }
 
+/** The progress line's title: the preset's words for the stage, the stage, or "Working". */
+function progressTitle(preset: ShellPreset, stage: string | undefined): string {
+  return preset.progressTitle?.(stage) ?? stage ?? 'Working';
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]';
+
+/** The first control in `root` that Tab reaches and that is on screen. */
+function firstFocusable(root: HTMLElement | null): HTMLElement | null {
+  if (!root) return null;
+  for (const node of root.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+    if (node.tabIndex >= 0 && node.getClientRects().length > 0) return node;
+  }
+  return null;
+}
+
+/** Focus is nowhere: on the page itself, or on a control that just went away or off. */
+function focusLost(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body || !active.isConnected || active.matches(':disabled');
+}
+
 /**
  * Renders every tool page from its registry entry and preset (docs/02 → The
  * ToolShell): header block, settings, actions and the workspace for the tool's
@@ -751,6 +774,21 @@ export function ToolShell({
   server,
 }: ToolShellProps) {
   const [state, setState] = useState<ShellState>(initialState ?? { kind: 'empty' });
+  // One status line says what a run is doing (WCAG 4.1.3): a file loaded, a
+  // run started, done or failed, never each percent. Written straight to the
+  // node, so the same words twice are still news.
+  const announcer = useRef<HTMLParagraphElement>(null);
+  const announce = useCallback((line: string) => {
+    const node = announcer.current;
+    if (node) node.textContent = node.textContent === line ? `${line}\u00a0` : line;
+  }, []);
+  /** A file just came in: "loaded" is said, and focus moves to the settings, once it's ready. */
+  const arrived = useRef(false);
+  // Where focus goes when a change leaves it nowhere (WCAG 2.4.3).
+  const settingsPanel = useRef<HTMLDivElement>(null);
+  const phoneRows = useRef<HTMLDivElement>(null);
+  const actionBar = useRef<HTMLDivElement>(null);
+  const workspace = useRef<HTMLElement>(null);
   // The server path: why it's offered for this file, the account, and a price to confirm.
   // Its notice, terms and errors load with a tool whose server path is on.
   const [serverPath, setServerPath] = useState<typeof ServerPath | null>(null);
@@ -1316,6 +1354,7 @@ export function ToolShell({
     (files: File[]) => {
       const file = files[0];
       if (!file) return;
+      arrived.current = true;
       touched.current.clear();
       resetEditor();
       setRefining(false);
@@ -1435,6 +1474,7 @@ export function ToolShell({
         }),
       );
     };
+    announce(progressTitle(preset, undefined));
     for (const [index, file] of files.entries()) {
       const id = batch[index]?.id ?? String(index);
       const update = (patch: Partial<BatchItem>) => {
@@ -1671,6 +1711,52 @@ export function ToolShell({
     };
   }, [cancel, download, state.kind]);
 
+  // Each step of a run: what the status line says, and where focus goes when
+  // the control it was on has gone (the drop zone, Start, Cancel). Focus the
+  // person moved elsewhere stays where it is.
+  const shownKind = useRef(state.kind);
+  useEffect(() => {
+    const was = shownKind.current;
+    shownKind.current = state.kind;
+    const loaded = state.kind === 'ready' && arrived.current;
+    if (state.kind !== 'running') arrived.current = false;
+    if (was === state.kind && !loaded) return;
+    if (state.kind === 'running') announce(progressTitle(preset, state.stage));
+    else if (state.kind === 'result')
+      announce(`Done: ${state.output.ext.toUpperCase()}, ${formatBytes(state.output.size)}`);
+    else if (state.kind === 'error') announce(state.title);
+    else if (loaded) {
+      const count = state.files?.length ?? 1;
+      announce(`${count > 1 ? plural(count, 'file') : state.input.name} loaded`);
+    }
+    // A result takes focus from the bar too (Cancel turned into Start over).
+    const fromBar = state.kind === 'result' && actionBar.current?.contains(document.activeElement);
+    if (!focusLost() && !fromBar) return;
+    const target =
+      state.kind === 'ready'
+        ? (firstFocusable(settingsPanel.current) ??
+          firstFocusable(phoneRows.current) ??
+          firstFocusable(actionBar.current))
+        : state.kind === 'result'
+          ? firstFocusable(actionBar.current)
+          : state.kind === 'running'
+            ? null
+            : firstFocusable(workspace.current);
+    target?.focus();
+  }, [announce, preset, state]);
+
+  // A batch is done: say how it went, and offer its download.
+  const batchSeen = useRef(batchDone);
+  useEffect(() => {
+    const was = batchSeen.current;
+    batchSeen.current = batchDone;
+    if (!batchDone || was) return;
+    const done = batch.filter((item) => item.status === 'done').length;
+    const failed = batch.filter((item) => item.status === 'failed').length;
+    announce(`Done: ${plural(done, 'file')}${failed > 0 ? `, ${String(failed)} failed` : ''}`);
+    if (focusLost()) firstFocusable(actionBar.current)?.focus();
+  }, [announce, batch, batchDone]);
+
   const hasFile = state.kind === 'running' || state.kind === 'result' || state.kind === 'ready';
   const ext = (
     state.kind === 'result' ? state.output.ext : preset.outputExt(options)
@@ -1690,7 +1776,8 @@ export function ToolShell({
     <div className={cn(hasFile && 'max-lg:sr-only')}>
       <Breadcrumb
         items={[{ label: tool.category.name, href: tool.category.href }, { label: tool.name }]}
-        className="px-4 pt-5.5 lg:px-0 lg:pt-0"
+        // Out of the way on a phone with a file: an unseen link would still take a Tab.
+        className={cn('px-4 pt-5.5 lg:px-0 lg:pt-0', hasFile && 'max-lg:hidden')}
       />
       <h1 className="px-4 pt-3 text-34 leading-display font-display tracking-display text-balance lg:mt-4.5 lg:max-w-120 lg:px-0 lg:pt-0 lg:text-46">
         {tool.h1}
@@ -1759,7 +1846,7 @@ export function ToolShell({
                     : 'Reading the files…'
                   : preset.blocked?.(options, state.files?.length ?? 1);
   const settings = (
-    <OptionsPanel className="mt-6.5 hidden lg:block">
+    <OptionsPanel ref={settingsPanel} className="mt-6.5 hidden lg:block">
       {visibleOptions.map((option) => (
         <OptionLine key={option.id} option={option}>
           <OptionControl
@@ -1885,9 +1972,17 @@ export function ToolShell({
   const running = state.kind === 'running' || batchRunning;
   const result = state.kind === 'result';
   const actions = hasFile && (
-    <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-border bg-bg px-4 pt-3 pb-6.5 lg:static lg:mt-6.5 lg:gap-3 lg:border-0 lg:bg-transparent lg:p-0">
+    // Below 1024 px a bar fixed to the bottom; theme.css keeps focus clear of it
+    // (data-action-bar). Each primary button has its own key: Start never turns
+    // into a disabled Download under the keyboard.
+    <div
+      ref={actionBar}
+      data-action-bar
+      className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-border bg-bg px-4 pt-3 pb-6.5 lg:static lg:mt-6.5 lg:gap-3 lg:border-0 lg:bg-transparent lg:p-0"
+    >
       {inBatch && folder && renaming ? (
         <renaming.FolderAction
+          key="folder"
           folder={folder}
           plan={namesPlan}
           renamed={renamed}
@@ -1899,6 +1994,7 @@ export function ToolShell({
         batchDone ? (
           preset.batchList ? (
             <Button
+              key="download-list"
               variant="primary"
               className="flex-1"
               disabled={batchResults.length === 0}
@@ -1909,6 +2005,7 @@ export function ToolShell({
             </Button>
           ) : (
             <Button
+              key="download-all"
               variant="primary"
               className="flex-1"
               disabled={batch.every((item) => item.status !== 'done')}
@@ -1920,6 +2017,7 @@ export function ToolShell({
           )
         ) : (
           <Button
+            key="run-batch"
             variant="primary"
             className="flex-1"
             disabled={batchRunning || Boolean(blocked)}
@@ -1932,6 +2030,7 @@ export function ToolShell({
         )
       ) : state.kind === 'ready' && serverOffer ? (
         <Button
+          key="run-server"
           variant="primary"
           className="flex-1"
           disabled={Boolean(blocked) || !serverOffer.ok}
@@ -1943,6 +2042,7 @@ export function ToolShell({
         </Button>
       ) : state.kind === 'ready' ? (
         <Button
+          key="run"
           variant="primary"
           className="flex-1"
           disabled={Boolean(blocked)}
@@ -1954,6 +2054,7 @@ export function ToolShell({
         </Button>
       ) : (
         <Button
+          key="download"
           variant="primary"
           className="flex-1"
           disabled={!result}
@@ -2287,6 +2388,7 @@ export function ToolShell({
       </section>
 
       <section
+        ref={workspace}
         aria-label="Workspace"
         className={cn('relative lg:min-h-0', hasFile ? 'max-lg:order-1' : 'max-lg:pb-8')}
       >
@@ -2310,7 +2412,7 @@ export function ToolShell({
           {result && state.output.notes && state.output.notes.length > 0 && (
             <Notes notes={state.output.notes} title={notesTitle} className="mx-4 mt-4" />
           )}
-          <div className="mx-4 mt-4 rounded-card border border-border">
+          <div ref={phoneRows} className="mx-4 mt-4 rounded-card border border-border">
             {showCrop && editor.edit.crop && (
               <button
                 type="button"
@@ -2406,6 +2508,8 @@ export function ToolShell({
           {preset.tempo && !wide && tempoTools}
         </div>
       )}
+
+      <p ref={announcer} role="status" className="sr-only" />
     </div>
   );
 }
@@ -2694,7 +2798,7 @@ function Workspace({
         {state.kind === 'running' && (
           <ProgressBar
             className="max-lg:inset-x-4 max-lg:bottom-4"
-            title={preset.progressTitle?.(state.stage) ?? state.stage ?? 'Working'}
+            title={progressTitle(preset, state.stage)}
             fraction={state.fraction}
             meta={{ amount: state.amount, step: state.step, elapsedSec: state.elapsedSec }}
           />
