@@ -100,6 +100,27 @@ describe('Noise Reduction', () => {
   });
 });
 
+describe('every server tool', () => {
+  it('refuses video past 240 fps before anything is charged, and takes slow motion at 240', () => {
+    const clip = (fps: number) => ({
+      duration_ms: 3000,
+      video: { width: 1920, height: 1080, fps },
+    });
+    for (const id of ['compress-video', 'vfr-to-cfr', 'upscale-video']) {
+      expect(refusal(id, clip(10_000), {})).toMatchObject({
+        status: 422,
+        title: 'Too many frames a second',
+        detail: expect.stringContaining('runs at 10000 fps') as string,
+      });
+    }
+    expect(refusal('compress-video', clip(240), {})).toBeNull();
+    // A still image says 25 fps and has no length.
+    expect(
+      refusal('upscale-image', { duration_ms: 0, video: { width: 100, height: 100, fps: 25 } }, {}),
+    ).toBeNull();
+  });
+});
+
 describe('gpuRate', () => {
   it('writes the GPU function’s price a second on GPU jobs only', () => {
     expect(gpuRate(getTool('upscale-image'))).toBe(gpuRateUsd('T4').toFixed(8));
