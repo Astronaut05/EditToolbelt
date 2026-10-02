@@ -1,7 +1,7 @@
 'use client';
 
-import type { CheckRules, Cue } from '@etb/core/subtitles';
-import { activeAreas, cuesFromJson, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
+import type { CheckRules } from '@etb/core/subtitles';
+import { activeAreas, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
 import { ChevronRight, Download, Monitor } from 'lucide-react';
 import {
   lazy,
@@ -69,8 +69,8 @@ const CanvasEditor = lazy(() =>
   import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
 );
 const ColorPicker = lazy(() => import('./ColorPicker').then((m) => ({ default: m.ColorPicker })));
-const SubtitleEditor = lazy(() =>
-  import('./SubtitleEditor').then((m) => ({ default: m.SubtitleEditor })),
+const SubtitleWorkspace = lazy(() =>
+  import('./SubtitleEditor').then((m) => ({ default: m.SubtitleWorkspace })),
 );
 const FocusPicker = lazy(() => import('./FocusPicker').then((m) => ({ default: m.FocusPicker })));
 const LineGraph = lazy(() => import('./LineGraph').then((m) => ({ default: m.LineGraph })));
@@ -751,9 +751,6 @@ export function ToolShell({
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
-  /** T03: the cues the subtitle editor shows, parsed once per change. */
-  const cuesJson = preset.subtitles ? options[preset.subtitles.cues] : undefined;
-  const subtitleCues = useMemo(() => cuesFromJson(cuesJson), [cuesJson]);
   const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
 
   const [activeRange, setActiveRange] = useState(0);
@@ -1915,11 +1912,11 @@ export function ToolShell({
       subtitles={
         preset.subtitles
           ? {
-              cues: subtitleCues,
+              cues: options[preset.subtitles.cues],
               media: fileOptionFile(options[preset.subtitles.media] ?? ''),
               rules: preset.subtitles.rules(options),
-              onChange: (next) => {
-                if (preset.subtitles) changeOption(preset.subtitles.cues, JSON.stringify(next));
+              onChange: (json) => {
+                if (preset.subtitles) changeOption(preset.subtitles.cues, json);
               },
             }
           : null
@@ -2306,11 +2303,12 @@ function Workspace({
     history: string | undefined;
     onPick: (hexes: string[]) => void;
   } | null;
+  /** T03: the cues as the option's JSON; the editor parses them. */
   subtitles: {
-    cues: Cue[];
+    cues: string | undefined;
     media: File | undefined;
     rules: CheckRules;
-    onChange: (cues: Cue[]) => void;
+    onChange: (json: string) => void;
   } | null;
   focus: {
     value: string | undefined;
@@ -2341,7 +2339,7 @@ function Workspace({
   if (subtitles) {
     return (
       <Suspense fallback={null}>
-        <SubtitleEditor {...subtitles} />
+        <SubtitleWorkspace {...subtitles} />
       </Suspense>
     );
   }

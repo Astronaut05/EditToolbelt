@@ -1,4 +1,6 @@
-import { joinUrl } from '@etb/core';
+// The entry point, not the package: pages that only need a URL don't load the
+// modules @etb/core runs code in when it loads (timecode's rates, social sizes).
+import { joinUrl } from '@etb/core/urls';
 
 // Both are validated in next.config.ts and inlined at build time, so these
 // work in server and client components alike.

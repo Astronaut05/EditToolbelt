@@ -22,6 +22,7 @@ import {
   type IssueKind,
   type RereadEncoding,
 } from '@etb/core/subtitles';
+import { cuesFromJson } from '@etb/engines';
 import { Minus, Plus, Redo2, Scissors, Trash2, Undo2 } from 'lucide-react';
 import {
   useEffect,
@@ -91,6 +92,32 @@ const unchanged = (next: readonly Cue[], cues: readonly Cue[]) =>
 
 const toolButton =
   'inline-flex min-h-11 items-center gap-1.5 rounded-control border border-border px-3 text-14 text-text hover:border-text disabled:opacity-38 disabled:hover:border-border';
+
+/**
+ * The ToolShell's way in: the cues arrive as the option's JSON and go back as
+ * JSON. The parsing loads here, with the editor, and not with the shell.
+ */
+export function SubtitleWorkspace({
+  cues,
+  onChange,
+  ...rest
+}: {
+  cues: string | undefined;
+  onChange: (json: string) => void;
+  media?: File;
+  rules: CheckRules;
+}) {
+  const list = useMemo(() => cuesFromJson(cues), [cues]);
+  return (
+    <SubtitleEditor
+      cues={list}
+      onChange={(next) => {
+        onChange(JSON.stringify(next));
+      }}
+      {...rest}
+    />
+  );
+}
 
 /**
  * T03 Subtitle Editor (tools/subtitles-and-time.md): cues on a timeline under

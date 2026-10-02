@@ -222,7 +222,6 @@ function exifOrientation(app1: Uint8Array): number {
   return 1;
 }
 
-const encoder = new TextEncoder();
 const n = (v: number) => {
   const s = (Math.round(v * 1000) / 1000).toString();
   return s === '-0' ? '0' : s;
@@ -230,6 +229,9 @@ const n = (v: number) => {
 
 /** The PDF's bytes: one page per entry, each with its image placed upright in its box. */
 export function writePdf(pages: readonly PdfPage[], title = ''): Uint8Array<ArrayBuffer> {
+  // Made here, not when the module loads: nothing runs on import, so pages
+  // that only reach @etb/core for something else leave this module out.
+  const encoder = new TextEncoder();
   const parts: Uint8Array[] = [];
   const offsets: number[] = [];
   let length = 0;
