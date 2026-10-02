@@ -95,16 +95,26 @@ export function cuesFromJson(json: string | undefined): subtitles.Cue[] {
   }
 }
 
-/** A subtitle file read for the editor: its cues, its format and its length. */
-export async function readSubtitleFile(
-  file: File,
-): Promise<{ cues: subtitles.Cue[]; format: Exclude<subtitles.SubtitleFormat, 'txt'> }> {
-  const { text } = subtitles.decodeBytes(new Uint8Array(await file.arrayBuffer()));
+/**
+ * A subtitle file read for the editor: its cues, its format and the encoding
+ * found. Each cue is marked with that encoding, so "Read as" can read its
+ * text again in another (`rereadCues`).
+ */
+export async function readSubtitleFile(file: File): Promise<{
+  cues: subtitles.Cue[];
+  format: Exclude<subtitles.SubtitleFormat, 'txt'>;
+  encoding: subtitles.Encoding;
+}> {
+  const { text, encoding } = subtitles.decodeBytes(new Uint8Array(await file.arrayBuffer()));
   const format = subtitles.detectFormat(text, file.name);
   if (!format || format === 'txt') {
     throw new Error('this isn’t SRT, VTT, ASS, SSA or SBV.');
   }
-  return { cues: subtitles.parseSubtitles(text, format).cues, format };
+  return {
+    cues: subtitles.markRead(subtitles.parseSubtitles(text, format).cues, encoding),
+    format,
+    encoding,
+  };
 }
 
 /**

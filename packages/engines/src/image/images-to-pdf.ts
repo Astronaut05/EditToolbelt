@@ -1,9 +1,11 @@
 /**
  * `image-geometry` for P18 Images to PDF (tools/photo.md): the images, in
  * the order given, one to a page. JPEGs go in as they are, so nothing is
- * re-compressed; anything else is decoded by the browser (upright, as it
- * shows it) and stored losslessly, deflated by fflate, with its transparency
- * kept. @etb/core writes the PDF.
+ * re-compressed, with their ICC profile; anything else is decoded by the
+ * browser (upright, as it shows it) and stored losslessly, deflated by
+ * fflate, with its transparency kept. Every image's header is checked
+ * first, so one over the 100 MP limit stops the run before any is decoded.
+ * @etb/core writes the PDF.
  */
 import { pdf } from '@etb/core';
 import { zlibSync } from 'fflate';
@@ -11,6 +13,7 @@ import { zlibSync } from 'fflate';
 import { EngineAbortError } from '../dummy';
 import type { Engine, EngineOutput } from '../types';
 import { ImageInputError } from './image-codec';
+import { checkDecoded, imageHeader } from './image-header';
 
 export interface ImagesToPdfOptions {
   /** a4, letter or fit (each page the image's own size). */
@@ -42,6 +45,7 @@ async function prepare(file: Blob, name: string): Promise<pdf.PdfImage> {
       height: jpeg.height,
       colors: jpeg.components,
       orientation: jpeg.orientation,
+      ...(jpeg.icc && { icc: jpeg.icc }),
     };
   }
   let bitmap: ImageBitmap;
@@ -54,6 +58,12 @@ async function prepare(file: Blob, name: string): Promise<pdf.PdfImage> {
     );
   }
   const { width, height } = bitmap;
+  try {
+    checkDecoded(width, height, name);
+  } catch (error) {
+    bitmap.close();
+    throw error;
+  }
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('No 2D canvas in this browser');
@@ -100,6 +110,10 @@ export const imagesToPdfEngine: Engine<ImagesToPdfOptions> = {
         ? opts.orientation
         : 'auto';
     const margin = (MARGIN_MM[opts.margin ?? 'small'] ?? 10) * pdf.PT_PER_MM;
+    for (const [i, file] of files.entries()) {
+      if (ctx.signal.aborted) throw new EngineAbortError();
+      await imageHeader(file, nameOf(file, i));
+    }
     const pages: pdf.PdfPage[] = [];
     let copied = 0;
     for (const [i, file] of files.entries()) {

@@ -3,15 +3,22 @@ import { describe, expect, it } from 'vitest';
 import {
   checkCues,
   DEFAULT_RULES,
+  editedCue,
   findInCues,
   fixAll,
+  fixIssue,
+  markRead,
   mergeCues,
+  readEncoding,
   readingSpeed,
   replaceInCues,
+  rereadCues,
   rewrap,
   sortCues,
   splitCue,
 } from './edit';
+import { decodeBytes } from './encoding';
+import { parseSubtitles } from './parse';
 import type { Cue } from './types';
 
 const cue = (start: number, end: number, text: string): Cue => ({ start, end, text });
@@ -80,6 +87,28 @@ describe('fixIssue and fixAll', () => {
     expect(checkCues(fixed)).toEqual([]);
   });
 
+  it('starts the next cue later when the first would be too short, unless that one would be', () => {
+    // The first can't end 83 ms before the next without dropping under 5/6 s: the next starts later.
+    const moved = fixAll([cue(0, 850, 'One'), cue(900, 3000, 'Two')], 'gap');
+    expect(moved.map((c) => [c.start, c.end])).toEqual([
+      [0, 850],
+      [933, 3000],
+    ]);
+    // Neither has room: the list stays as it was, and the issue stays marked.
+    const tight = [cue(0, 850, 'One'), cue(900, 1600, 'Two')];
+    expect(fixAll(tight, 'gap')).toEqual(tight);
+    expect(checkCues(tight).some((i) => i.kind === 'gap')).toBe(true);
+  });
+
+  it('leaves an overlap it can’t fix without making a cue too short', () => {
+    // A runs right over B: B can't start after A and still last 5/6 s.
+    const cues = [cue(0, 5000, 'A long cue over the next'), cue(500, 1000, 'B')];
+    const [issue] = checkCues(cues).filter((i) => i.kind === 'overlap');
+    if (!issue) throw new Error('no overlap found');
+    expect(fixIssue(cues, issue)).toEqual(cues);
+    expect(fixAll(cues, 'overlap')).toEqual(cues);
+  });
+
   it('rewraps long lines, trims long cues and drops empty ones', () => {
     const cues = [
       cue(0, 9000, 'This sentence is long enough that it needs two lines here'),
@@ -123,6 +152,18 @@ describe('split, merge and sort', () => {
     expect(splitCue([cue(0, 4000, 'x y')], 0, 5000)).toHaveLength(1);
   });
 
+  it('won’t split a cue of one word into an empty cue', () => {
+    for (const text of ['Hello', '<i>Hello</i>', 'Hello\n', '  Hello  ']) {
+      const cues = [cue(0, 4000, text)];
+      expect(splitCue(cues, 0, 2000), JSON.stringify(text)).toEqual(cues);
+    }
+    // Two lines, one of them empty, split by words.
+    expect(splitCue([cue(0, 4000, 'One two\n')], 0, 2000).map((c) => c.text)).toEqual([
+      'One',
+      'two',
+    ]);
+  });
+
   it('merges a cue with the next, and sorts by start', () => {
     expect(
       mergeCues([cue(0, 1000, 'One'), cue(1100, 2000, 'Two'), cue(3000, 4000, 'Three')], 0),
@@ -154,5 +195,65 @@ describe('find and replace', () => {
     expect(out.map((c) => c.text)).toEqual(['The $1 dog sat.', 'Concatenate the $1 dog', 'Dog']);
     // Regex characters in the query are just characters.
     expect(replaceInCues([cue(0, 1, 'a.b axb')], '.', '!').cues[0]?.text).toBe('a!b axb');
+  });
+});
+
+describe('reading the text again in another encoding', () => {
+  /** An SRT of `lines` written in `encoding`'s bytes. */
+  const srt = (lines: string[], encoding: 'windows-1251' | 'utf-8') => {
+    const text = lines
+      .map(
+        (line, i) =>
+          `${String(i + 1)}\n00:00:0${String(i)},000 --> 00:00:0${String(i)},900\n${line}\n`,
+      )
+      .join('\n');
+    if (encoding === 'utf-8') return new TextEncoder().encode(text);
+    // Cyrillic in Windows-1251: а-я are 0xE0-0xFF, А-Я 0xC0-0xDF.
+    return Uint8Array.from(text, (c) => {
+      const code = c.charCodeAt(0);
+      if (code >= 0x410 && code <= 0x44f) return code - 0x410 + 0xc0;
+      return code;
+    });
+  };
+  /** The file read as a page reads it, in a given encoding, each cue marked with it. */
+  const read = (bytes: Uint8Array, encoding: 'windows-1251' | 'windows-1252' | 'utf-8') => {
+    const { text } = decodeBytes(bytes, encoding);
+    return markRead(parseSubtitles(text, 'srt').cues, encoding);
+  };
+
+  it('turns a Cyrillic file read as Western back into Cyrillic, and back again', () => {
+    const bytes = srt(['Привет, мир', 'Как дела?'], 'windows-1251');
+    const wrong = read(bytes, 'windows-1252');
+    expect(wrong[0]?.text).toBe('Ïðèâåò, ìèð');
+    expect(readEncoding(wrong)).toBe('windows-1252');
+    const right = rereadCues(wrong, 'windows-1251');
+    expect(right?.map((c) => c.text)).toEqual(['Привет, мир', 'Как дела?']);
+    expect(right?.map((c) => [c.start, c.end])).toEqual(wrong.map((c) => [c.start, c.end]));
+    expect(readEncoding(right ?? [])).toBe('windows-1251');
+    // And back: nothing is lost either way.
+    expect(rereadCues(right ?? [], 'windows-1252')?.map((c) => c.text)).toEqual(
+      wrong.map((c) => c.text),
+    );
+  });
+
+  it('reads UTF-8 shown as Western as UTF-8 again', () => {
+    const wrong = read(srt(['Café crème'], 'utf-8'), 'windows-1252');
+    expect(wrong[0]?.text).toBe('CafÃ© crÃ¨me');
+    expect(rereadCues(wrong, 'utf-8')?.[0]?.text).toBe('Café crème');
+  });
+
+  it('refuses UTF-8 for text that isn’t, rather than lose it', () => {
+    const cues = read(srt(['Привет'], 'windows-1251'), 'windows-1251');
+    expect(rereadCues(cues, 'utf-8')).toBeNull();
+  });
+
+  it('leaves cues typed or edited since as they are', () => {
+    const cues = read(srt(['Ïðèâåò', 'Ïîêà'], 'windows-1251'), 'windows-1252');
+    const typed = [editedCue({ ...cues[0], text: 'Hello' } as Cue), ...cues.slice(1)];
+    expect(rereadCues(typed, 'windows-1251')?.map((c) => c.text)).toEqual(['Hello', 'Пока']);
+    // A cue with no mark: nothing to read again.
+    expect(readEncoding([cue(0, 1000, 'Typed')])).toBeNull();
+    // UTF-16 files aren't offered: their timing lines wouldn't read the same.
+    expect(readEncoding(markRead([cue(0, 1000, 'Text')], 'utf-16le'))).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { DEFAULT_RULES, type CheckRules } from '@etb/core/subtitles';
+import { DEFAULT_RULES, ENCODING_LABELS, type CheckRules } from '@etb/core/subtitles';
 import { readSubtitleFile, subtitleEditEngine } from '@etb/engines';
 import {
   ToolShell,
@@ -68,16 +68,21 @@ const LABELS: Record<string, string> = {
   sbv: 'SBV',
 };
 
-/** Reads the subtitles as they arrive: the cues go into the editor, the format into "Save as". */
+/**
+ * Reads the subtitles as they arrive: the cues go into the editor, the
+ * format into "Save as". The encoding is found from the bytes; the editor's
+ * "Read as" changes it.
+ */
 async function probe(file: File): Promise<ProbeInfo> {
-  const { cues, format } = await readSubtitleFile(file);
+  const { cues, format, encoding } = await readSubtitleFile(file);
   const end = cues.reduce((max, c) => Math.max(max, c.end), 0) / 1000;
   const minutes = Math.floor(end / 60);
   const seconds = Math.round(end % 60);
+  const read = encoding === 'utf-8' ? '' : ` · ${ENCODING_LABELS[encoding]}`;
   return {
     durationSec: Math.max(1, end),
     fps: 1000,
-    summary: `${LABELS[format] ?? format.toUpperCase()} · ${String(cues.length)} cues · ${String(minutes)}:${String(seconds).padStart(2, '0')}`,
+    summary: `${LABELS[format] ?? format.toUpperCase()}${read} · ${String(cues.length)} cues · ${String(minutes)}:${String(seconds).padStart(2, '0')}`,
     values: { cues: JSON.stringify(cues), format: format === 'ssa' ? 'ass' : format },
   };
 }

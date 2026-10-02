@@ -189,3 +189,28 @@ test('Big left with rounded corners: the first photo large, the corners show the
   expect(near(second, [0x22, 0x66, 0xcc], 6)).toBe(true);
   expect(near(third, [0xcc, 0x66, 0x22], 6)).toBe(true);
 });
+
+test('a photo over 100 MP is marked from its header, before anything decodes it', async ({
+  page,
+}) => {
+  await page.goto('/collage-maker');
+  // A PNG header that says 20000 × 20000 px: a few bytes, 1.6 GB once decoded.
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4);
+  ihdr.writeUInt32BE(20_000, 8);
+  ihdr.writeUInt32BE(20_000, 12);
+  ihdr.set([8, 6, 0, 0, 0], 16);
+  const huge = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ihdr]);
+  await add(page, [
+    { name: 'red.png', buffer: await image(page, 300, 300, '#ff0000') },
+    { name: 'huge.png', buffer: huge },
+  ]);
+  const limit = 'This image is 20000 × 20000 px (400 MP); the browser limit is 100 MP.';
+  const list = page.getByRole('list', { name: 'Files, in order' });
+  await expect(list).toContainText(limit);
+  await expect(list).toContainText('300 × 300 px');
+  await expect(
+    page.getByRole('status').filter({ hasText: `Remove huge.png: ${limit}` }),
+  ).toBeVisible();
+});

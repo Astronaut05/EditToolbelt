@@ -104,6 +104,35 @@ describe('.3dl', () => {
     expect(() => parse3dl('LUT_3D_SIZE 2')).toThrow(/this isn’t a .3dl/);
   });
 
+  it('takes the output depth from Lustre’s Mesh line when there is one', () => {
+    // A 12-bit darkening LUT on a 2-point grid (2⁰ + 1): white goes to 1023 of 4095, a quarter.
+    const values = [
+      '0 0 0',
+      '0 0 1023',
+      '0 1023 0',
+      '0 1023 1023',
+      '1023 0 0',
+      '1023 0 1023',
+      '1023 1023 0',
+      '1023 1023 1023',
+    ];
+    const white = (lut: Lut) => lut.table[lut.table.length - 1];
+    const twelve = parse3dl(['3DMESH', 'Mesh 0 12', '0 1023', ...values].join('\n'));
+    expect(white(twelve)).toBeCloseTo(1023 / 4095, 6);
+    // Without the line, the largest value says 10-bit: white stays white.
+    expect(white(parse3dl(['0 1023', ...values].join('\n')))).toBeCloseTo(1, 6);
+    // A stated depth the values don't fit is ignored for the one they do.
+    const wrong = parse3dl(
+      ['Mesh 0 10', '0 1023', ...values.map((v) => v.replace(/1023/g, '4095'))].join('\n'),
+    );
+    expect(white(wrong)).toBeCloseTo(1, 6);
+    // 16-bit stated, as Flame writes too.
+    expect(white(parse3dl(['Mesh 0 16', '0 1023', ...values].join('\n')))).toBeCloseTo(
+      1023 / 65535,
+      6,
+    );
+  });
+
   it('clips values outside 0–1 and counts them', () => {
     const hot = cubeOf(2, (r, g, b) => [r * 1.2, g, b]);
     expect(format3dl(hot).clipped).toBe(4);

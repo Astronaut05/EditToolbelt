@@ -86,7 +86,9 @@ test('three images become three pages in the order set, JPEGs untouched', async 
       { name: 'sideways.jpg', mimeType: 'image/jpeg', buffer: sideways },
     ]);
   const list = page.getByRole('list', { name: 'Files, in order' });
-  await expect(list).toContainText('400 × 200 px · JPEG');
+  await expect(list).toContainText('400 × 200 px · JPG');
+  // Read from the header, upright: the sideways photo stands 200 × 300.
+  await expect(list).toContainText('200 × 300 px · JPG');
   // The logo goes last.
   await page.getByRole('button', { name: 'Move logo.png down' }).click();
   await page.getByRole('button', { name: 'Move logo.png down' }).click();
@@ -139,4 +141,83 @@ test('"Fit image" makes each page the image’s own size, plus the margins', asy
   // 96 px to the inch: 800 × 600 px is 600 × 450 pt.
   expect(pdf.pages).toEqual([[600, 450]]);
   expect(pdf.matrices[0]).toEqual([600, 0, 0, 450, 0, 0]);
+});
+
+/** A PNG whose header says 20000 × 20000 px: a few bytes here, 1.6 GB once decoded. */
+function huge(): Buffer {
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4);
+  ihdr.writeUInt32BE(20_000, 8);
+  ihdr.writeUInt32BE(20_000, 12);
+  ihdr.set([8, 6, 0, 0, 0], 16);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ihdr]);
+}
+
+/** The JPEG without the APP2 "ICC_PROFILE" segments it has (Chrome's encoder writes sRGB). */
+function untagged(jpeg: Buffer): Buffer {
+  const kept: Buffer[] = [jpeg.subarray(0, 2)];
+  let at = 2;
+  while (at + 4 <= jpeg.length && jpeg[at] === 0xff && jpeg[at + 1] !== 0xda) {
+    const end = at + 2 + jpeg.readUInt16BE(at + 2);
+    const icc = jpeg[at + 1] === 0xe2 && jpeg.toString('latin1', at + 4, at + 15) === 'ICC_PROFILE';
+    if (!icc) kept.push(jpeg.subarray(at, end));
+    at = end;
+  }
+  kept.push(jpeg.subarray(at));
+  return Buffer.concat(kept);
+}
+
+/** The JPEG with a made-up v4 RGB ICC profile in an APP2 segment, as phones embed Display P3. */
+function tagged(jpeg: Buffer): { bytes: Buffer; icc: Buffer } {
+  const icc = Buffer.alloc(132);
+  icc.writeUInt32BE(132, 0);
+  icc[8] = 4;
+  icc.write('mntrRGB XYZ ', 12, 'latin1');
+  icc.write('acsp', 36, 'latin1');
+  const body = Buffer.concat([Buffer.from('ICC_PROFILE\0', 'latin1'), Buffer.from([1, 1]), icc]);
+  const app2 = Buffer.concat([
+    Buffer.from([0xff, 0xe2, (body.length + 2) >> 8, (body.length + 2) & 0xff]),
+    body,
+  ]);
+  const plain = untagged(jpeg);
+  return { bytes: Buffer.concat([plain.subarray(0, 2), app2, plain.subarray(2)]), icc };
+}
+
+test('an image over 100 MP is marked from its header, and the PDF waits for it to go', async ({
+  page,
+}) => {
+  await page.goto('/images-to-pdf');
+  const small = await image(page, 'image/jpeg', 120, 80);
+  const { bytes, icc } = tagged(small);
+  await page
+    .locator('input[type=file][data-hydrated]')
+    .first()
+    .setInputFiles([
+      { name: 'p3.jpg', mimeType: 'image/jpeg', buffer: bytes },
+      { name: 'huge.png', mimeType: 'image/png', buffer: huge() },
+    ]);
+  const list = page.getByRole('list', { name: 'Files, in order' });
+  const limit = 'This image is 20000 × 20000 px (400 MP); the browser limit is 100 MP.';
+  await expect(list).toContainText(limit);
+  await expect(
+    page.getByRole('status').filter({ hasText: `Remove huge.png: ${limit}` }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Remove huge.png' }).click();
+  await expect(list.getByRole('listitem')).toHaveCount(1);
+  // The JPEG goes in as it is, its ICC profile as the image's colour space.
+  const out = (await make(page)).bytes;
+  const pdf = readPdf(out);
+  expect(pdf.count).toBe(1);
+  expect(pdf.images[0]?.data.equals(bytes)).toBe(true);
+  const space = /\/ColorSpace \[\/ICCBased (\d+) 0 R\]/.exec(pdf.images[0]?.dict ?? '');
+  expect(space).not.toBeNull();
+  const object = out.indexOf(
+    `${space?.[1] ?? ''} 0 obj\n<< /N 3 /Alternate /DeviceRGB /Length 132 >>\nstream\n`,
+  );
+  expect(object).toBeGreaterThan(0);
+  const start = out.indexOf('stream\n', object) + 'stream\n'.length;
+  expect(out.subarray(start, start + 132).equals(icc)).toBe(true);
+  // A v4 profile, as Display P3 is: PDF 1.5.
+  expect(out.subarray(0, 8).toString('latin1')).toBe('%PDF-1.5');
 });

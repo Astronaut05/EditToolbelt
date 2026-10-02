@@ -3,13 +3,15 @@
  * in the order set, each filling its box of a layout template (cropped to
  * fit, centred). The boxes come from @etb/core, in whole pixels; the
  * photos are drawn on a canvas, which the image worker then encodes, the
- * same encoders as every other image tool.
+ * same encoders as every other image tool. Every photo's header is checked
+ * first, so one over the 100 MP limit stops the run before any is decoded.
  */
 import { collage } from '@etb/core';
 
 import { EngineAbortError } from '../dummy';
 import type { Engine, EngineOutput } from '../types';
 import { ImageInputError, runImageJob } from './image-codec';
+import { checkDecoded, imageHeader } from './image-header';
 import { OUTPUT_EXT, OUTPUT_MIME, type OutputFormat } from './protocol';
 
 export interface CollageOptions {
@@ -86,6 +88,11 @@ export const collageEngine: Engine<CollageOptions> = {
       });
     }
 
+    for (const [i, file] of files.entries()) {
+      if (ctx.signal.aborted) throw new EngineAbortError();
+      await imageHeader(file, nameOf(file, i));
+    }
+
     const canvas = new OffscreenCanvas(size.width, size.height);
     const g = canvas.getContext('2d');
     if (!g) throw new Error('No 2D canvas in this browser');
@@ -108,6 +115,12 @@ export const collageEngine: Engine<CollageOptions> = {
           `${nameOf(file, cell.index)} can’t be read in this browser. HEIC opens only in Safari; try JPG, PNG or WebP.`,
           { cause: error },
         );
+      }
+      try {
+        checkDecoded(bitmap.width, bitmap.height, nameOf(file, cell.index));
+      } catch (error) {
+        bitmap.close();
+        throw error;
       }
       const crop = collage.coverCrop(bitmap.width, bitmap.height, cell.width, cell.height);
       g.save();

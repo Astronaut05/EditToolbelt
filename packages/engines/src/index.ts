@@ -28,6 +28,7 @@ export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './im
 export { collageEngine, COLLAGE_SIZES, type CollageOptions } from './image/collage';
 export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
 export { imagesToPdfEngine, type ImagesToPdfOptions } from './image/images-to-pdf';
+export { imageHeader, type ImageHeader } from './image/image-header';
 export { imageToSvgEngine, type ImageToSvgOptions } from './image/vector/image-to-svg';
 export { socialResizeEngine, type SocialResizeOptions } from './image/social-resize';
 export { lutPreviewEngine, type LutPreviewOptions } from './image/lut-preview';

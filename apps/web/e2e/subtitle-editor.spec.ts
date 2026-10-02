@@ -184,3 +184,69 @@ test('the audio picked plays along: a cue takes the player to its start', async 
     .toBeCloseTo(3.04, 1);
   await expect(page.getByText(/^Playhead 00:00:03\.040/i)).toBeVisible();
 });
+
+/** Text in Windows-1251's bytes: Cyrillic а-я and А-Я are 0xC0-0xFF, the rest ASCII. */
+const cp1251 = (text: string) =>
+  Buffer.from(
+    Array.from(text, (c) => {
+      const code = c.charCodeAt(0);
+      return code >= 0x410 && code <= 0x44f ? code - 0x410 + 0xc0 : code;
+    }),
+  );
+
+test('Read as fixes a misread encoding; an overlap with no room and a one-word cue stay as they are', async ({
+  page,
+}) => {
+  await page.goto('/subtitle-editor');
+  // Mostly Latin letters, so the Cyrillic word is taken for Western accents.
+  const srt = [
+    '1\n00:00:00,000 --> 00:00:02,000\nHello there my friend, Привет\n',
+    '2\n00:00:03,000 --> 00:00:06,000\nWord\n',
+    '3\n00:00:03,500 --> 00:00:04,000\nInside\n',
+  ].join('\n');
+  await page
+    .locator('input[type=file][data-hydrated]')
+    .first()
+    .setInputFiles({ name: 'old.srt', mimeType: 'application/x-subrip', buffer: cp1251(srt) });
+  await expect(
+    page.getByText('SRT · Windows-1252 (Western) · 3 cues · 0:06').filter({ visible: true }),
+  ).toBeVisible();
+  const first = page.getByRole('textbox', { name: 'Cue 1 text' });
+  await expect(first).toHaveValue('Hello there my friend, Ïðèâåò');
+  const readAs = page.getByRole('combobox', { name: 'Read as' });
+  await expect(readAs).toHaveValue('windows-1252');
+  await readAs.selectOption('windows-1251');
+  await expect(first).toHaveValue('Hello there my friend, Привет');
+  // UTF-8 can't read these bytes: the text stays, and the page says why.
+  await readAs.selectOption('utf-8');
+  await expect(page.getByRole('status').filter({ hasText: /isn’t UTF-8/ })).toBeVisible();
+  await expect(readAs).toHaveValue('windows-1251');
+  await expect(first).toHaveValue('Hello there my friend, Привет');
+
+  // Cue 3 sits inside cue 2: neither can move without being under 5/6 s, so nothing moves.
+  await expect(checks(page)).toContainText('Overlaps: 1');
+  await checks(page).getByRole('button', { name: 'Fix all overlaps' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /Overlaps: no room/ })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Cue 2 end' })).toHaveValue('00:00:06.000');
+  await expect(page.getByRole('textbox', { name: 'Cue 3 start' })).toHaveValue('00:00:03.500');
+
+  // A one-word cue isn't split into an empty one.
+  await page.getByRole('button', { name: 'Play from cue 2' }).click();
+  // Over the time labels, 4.5 s in at 40 px a second: the playhead moves inside cue 2.
+  await page
+    .getByRole('group', { name: /^Cue timeline/ })
+    .click({ position: { x: 4.5 * 40, y: 8 } });
+  await expect(page.getByText(/^Playhead 00:00:04\./i)).toBeVisible();
+  await page.getByRole('button', { name: 'Split at playhead' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /one word/ })).toBeVisible();
+  await expect(cueCount(page)).toHaveCount(3);
+
+  await page.getByRole('button', { name: 'Save subtitles', exact: true }).click();
+  const button = page.getByRole('button', { name: /^Download/ }).first();
+  await expect(button).toBeEnabled({ timeout: 15_000 });
+  const saved = page.waitForEvent('download');
+  await button.click();
+  expect(readFileSync(await (await saved).path(), 'utf8')).toContain(
+    'Hello there my friend, Привет',
+  );
+});

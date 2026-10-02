@@ -4,8 +4,10 @@
  * subtitler runs before delivery (characters per line, lines per cue,
  * reading speed, duration, the gap between cues, overlaps), each with a fix
  * that changes as little as it can, and the edits themselves: split, merge,
- * find and replace. Cues are kept in order of their start; times in ms.
+ * find and replace, and reading the file's text again in another encoding.
+ * Cues are kept in order of their start; times in ms.
  */
+import type { Encoding } from './encoding';
 import type { Cue } from './types';
 
 export interface CheckRules {
@@ -235,7 +237,8 @@ export function fixIssue(
       return replaceAt(cues, i, { ...cue, end: cue.start + rules.maxDuration });
     case 'gap':
     case 'overlap': {
-      // The first cue ends earlier; if that would leave it too short, the next starts later.
+      // The first cue ends earlier; if that would leave it too short, the next starts later;
+      // if that would leave the next one too short, neither moves.
       const next = cues[i + 1];
       if (!next) return [...cues];
       const end = next.start - rules.minGap;
@@ -243,7 +246,8 @@ export function fixIssue(
         return replaceAt(cues, i, { ...cue, end });
       }
       const start = cue.end + rules.minGap;
-      return replaceAt(cues, i + 1, { ...next, start: Math.min(start, next.end - 1) });
+      if (next.end - start < Math.min(rules.minDuration, next.end - next.start)) return [...cues];
+      return replaceAt(cues, i + 1, { ...next, start });
     }
   }
 }
@@ -265,6 +269,7 @@ export function fixAll(
 /**
  * Cue i split at `at` ms: its words shared by time (a two-line cue splits
  * between its lines), the first ending a minimum gap before the second.
+ * A cue of one word has nothing to share, so the list comes back as it was.
  */
 export function splitCue(
   cues: readonly Cue[],
@@ -278,10 +283,11 @@ export function splitCue(
   const parts = cue.text.split('\n');
   let first: string;
   let second: string;
-  if (parts.length === 2) {
+  if (parts.length === 2 && parts.every((part) => visibleText(part).trim())) {
     [first, second] = [parts[0] ?? '', parts[1] ?? ''];
   } else {
     const words = cue.text.split(/\s+/).filter(Boolean);
+    if (words.length < 2) return [...cues];
     const cut = Math.min(words.length - 1, Math.max(1, Math.round(words.length * share)));
     first = words.slice(0, cut).join(' ');
     second = words.slice(cut).join(' ');
@@ -362,4 +368,88 @@ export function replaceInCues(
     return text === cue.text ? cue : { ...cue, text };
   });
   return { cues: out, count };
+}
+
+/**
+ * The encodings the editor can read a file's text again in ("Read as", the
+ * shared T rules' override): the ones the converter offers, whose timing
+ * lines read the same in each, so only the cues' text changes.
+ */
+export const REREAD_ENCODINGS = ['utf-8', 'windows-1251', 'windows-1252'] as const;
+export type RereadEncoding = (typeof REREAD_ENCODINGS)[number] & Encoding;
+
+/** A cue as the editor holds it: `read` is the encoding its text came from the file in, until it's edited. */
+export interface ReadCue extends Cue {
+  read?: RereadEncoding;
+}
+
+const isReread = (value: unknown): value is RereadEncoding =>
+  (REREAD_ENCODINGS as readonly unknown[]).includes(value);
+
+/** The cues as read from a file in `encoding`, each marked with it so "Read as" can read it again. */
+export function markRead(cues: readonly Cue[], encoding: Encoding): Cue[] {
+  return isReread(encoding) ? cues.map((cue): ReadCue => ({ ...cue, read: encoding })) : [...cues];
+}
+
+/** The encoding the file's text is read in now: that of the first cue still as read, or null. */
+export function readEncoding(cues: readonly Cue[]): RereadEncoding | null {
+  for (const cue of cues) {
+    const read = (cue as ReadCue).read;
+    if (isReread(read)) return read;
+  }
+  return null;
+}
+
+/** A cue whose text is the user's now: no longer marked as read from the file. */
+export function editedCue(cue: Cue): Cue {
+  return { start: cue.start, end: cue.end, text: cue.text };
+}
+
+/** Each code page's characters back to its bytes; filled on first use. */
+const codePages = new Map<string, Map<number, number>>();
+
+/** The bytes `text` was decoded from in `encoding`, or null when it can't have been. */
+function bytesOf(text: string, encoding: RereadEncoding): Uint8Array | null {
+  if (encoding === 'utf-8') return new TextEncoder().encode(text);
+  let table = codePages.get(encoding);
+  if (!table) {
+    // Every byte is one character in these code pages, so the table runs both ways.
+    const all = new TextDecoder(encoding).decode(Uint8Array.from({ length: 256 }, (_, i) => i));
+    table = new Map(Array.from(all, (char, i) => [char.charCodeAt(0), i]));
+    codePages.set(encoding, table);
+  }
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i += 1) {
+    const byte = table.get(text.charCodeAt(i));
+    if (byte === undefined) return null;
+    out[i] = byte;
+  }
+  return out;
+}
+
+/**
+ * The cues' text read again in another encoding: each cue still as it came
+ * from the file goes back to the bytes it was read from and is decoded in
+ * `to`; a cue typed or edited since keeps its text. Null when the file's
+ * text isn't valid in `to` (UTF-8 is strict), so nothing is lost by trying:
+ * reading it back in the first encoding gives the same text again.
+ */
+export function rereadCues(cues: readonly Cue[], to: RereadEncoding): Cue[] | null {
+  const decoder = new TextDecoder(to, { fatal: true });
+  const out: Cue[] = [];
+  for (const cue of cues) {
+    const read = (cue as ReadCue).read;
+    if (!isReread(read) || read === to) {
+      out.push(cue);
+      continue;
+    }
+    const bytes = bytesOf(cue.text, read);
+    if (!bytes) return null;
+    try {
+      out.push({ ...cue, text: decoder.decode(bytes), read: to } as ReadCue);
+    } catch {
+      return null;
+    }
+  }
+  return out;
 }
