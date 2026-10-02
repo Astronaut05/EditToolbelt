@@ -2,15 +2,16 @@
  * V10 Extract Frames / Thumbnail (tools/video.md): the frame on screen at a
  * time (the In point), a frame every N seconds, N frames evenly spaced, or a
  * contact sheet, from the timeline's selection. Frames are decoded exactly:
- * the one shown at a time, never a neighbour.
+ * the one shown at a time, never a neighbour. Times closer than a frame land
+ * on the same frame twice; the ZIP holds each frame once.
  */
-import { zipSync } from 'fflate';
 import { CanvasSink } from 'mediabunny';
 
 import { EngineAbortError } from '../dummy';
 import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput } from '../types';
 import { safeStem } from '../names';
+import { StoredZip, ZIP_MAX_BYTES } from '../zip';
 import { MediaInputError, openInput } from './media';
 
 export interface FramesOptions {
@@ -180,7 +181,13 @@ export const framesEngine: Engine<FramesOptions> = {
       const sink = new CanvasSink(track, { width, height, fit: 'fill', poolSize: 0 });
       const stem = stemOf(file instanceof File ? file.name : 'video');
       const thumbs: { canvas: OffscreenCanvas | HTMLCanvasElement; time: number }[] = [];
-      const files: { name: string; bytes: Uint8Array<ArrayBuffer>; time: number }[] = [];
+      // Frames go into the ZIP as they are encoded; the first waits, in case it's the only one.
+      let firstFrame: { name: string; bytes: Uint8Array; time: number } | null = null;
+      let zip: StoredZip | null = null;
+      let count = 0;
+      let lastTime = 0;
+      let repeats = 0;
+      const taken = new Set<number>();
       let index = 0;
       for await (const frame of sink.canvasesAtTimestamps(times)) {
         if (ctx.signal.aborted) throw new EngineAbortError();
@@ -189,15 +196,38 @@ export const framesEngine: Engine<FramesOptions> = {
         if (!frame) continue;
         if (sheetMode) {
           thumbs.push({ canvas: frame.canvas, time: frame.timestamp });
-        } else {
-          files.push({
-            name: `${stem}_${stamp(frame.timestamp).replaceAll(':', '-')}.${type.ext}`,
-            bytes: new Uint8Array(await (await encode(frame.canvas, type.mime)).arrayBuffer()),
-            time: frame.timestamp,
-          });
+          continue;
         }
+        // Two times inside one frame give that frame twice: it's encoded once.
+        if (taken.has(frame.timestamp)) {
+          repeats += 1;
+          continue;
+        }
+        taken.add(frame.timestamp);
+        const picked = {
+          name: `${stem}_${stamp(frame.timestamp).replaceAll(':', '-')}.${type.ext}`,
+          bytes: new Uint8Array(await (await encode(frame.canvas, type.mime)).arrayBuffer()),
+          time: frame.timestamp,
+        };
+        count += 1;
+        lastTime = frame.timestamp;
+        if (!firstFrame) {
+          firstFrame = picked;
+          continue;
+        }
+        if (!zip) {
+          zip = new StoredZip();
+          zip.add(firstFrame.name, firstFrame.bytes);
+          firstFrame.bytes = new Uint8Array(0);
+        }
+        if (!zip.fits(picked.bytes.byteLength)) {
+          throw new MediaInputError(
+            `These frames come to more than ${String(ZIP_MAX_BYTES / 1024 ** 3)} GB, the most a ZIP made here holds. Take fewer frames, a smaller width, or JPG.`,
+          );
+        }
+        zip.add(picked.name, picked.bytes);
       }
-      if (thumbs.length + files.length === 0) {
+      if (thumbs.length === 0 && !firstFrame) {
         throw new MediaInputError('No frames could be read there.');
       }
       if (sheetMode) {
@@ -216,31 +246,40 @@ export const framesEngine: Engine<FramesOptions> = {
           details: [{ label: 'Sheet', value: `${String(out.width)} × ${String(out.height)} px` }],
         };
       }
-      const [only] = files;
-      if (files.length === 1 && only) {
+      const skipped =
+        repeats > 0
+          ? [
+              `${String(repeats)} ${repeats === 1 ? 'repeat' : 'repeats'} skipped: there are fewer frames there than asked for, and each is in once`,
+            ]
+          : [];
+      if (!zip && firstFrame) {
         return {
-          blob: new Blob([only.bytes], { type: type.mime }),
+          blob: new Blob([firstFrame.bytes as Uint8Array<ArrayBuffer>], { type: type.mime }),
           ext: type.ext,
           width,
           height,
-          nameSuffix: stamp(only.time).replaceAll(':', '-'),
+          nameSuffix: stamp(firstFrame.time).replaceAll(':', '-'),
           path: 'Browser · WebCodecs',
-          notes: [`The frame on screen at ${stamp(start)}: it starts at ${stamp(only.time)}`],
+          notes: [
+            `The frame on screen at ${stamp(start)}: it starts at ${stamp(firstFrame.time)}`,
+            ...skipped,
+          ],
           details: [{ label: 'Frame', value: `${String(width)} × ${String(height)} px` }],
         };
       }
-      const zip = zipSync(
-        Object.fromEntries(files.map((f) => [f.name, [f.bytes, { level: 0 }] as const])),
-      );
       return {
-        blob: new Blob([zip.slice().buffer], { type: 'application/zip' }),
+        blob: (zip as StoredZip).finish(),
         ext: 'zip',
         nameSuffix: 'frames',
         path: 'Browser · WebCodecs',
         notes: [
-          `${String(files.length)} frames from ${stamp(files[0]?.time ?? 0)} to ${stamp(files.at(-1)?.time ?? 0)}, each ${String(width)} × ${String(height)} px`,
+          `${String(count)} frames from ${stamp(firstFrame?.time ?? 0)} to ${stamp(lastTime)}, each ${String(width)} × ${String(height)} px`,
+          ...skipped,
         ],
-        details: [{ label: 'Frames', value: String(files.length) }],
+        details: [
+          { label: 'Frames', value: String(count) },
+          ...(repeats > 0 ? [{ label: 'Repeats skipped', value: String(repeats) }] : []),
+        ],
       };
     } finally {
       input.dispose();

@@ -1215,6 +1215,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
   - At most 500 frames a run.
   - The end is the video track's own length, as the sound can run a few milliseconds longer.
 - **Several frames download as a stored ZIP,** each encoded as it is decoded (no hundred full-size canvases in memory) and named by time.
+  - Times closer together than a frame land on the same frame (500 frames from 10 s at 25 fps). That frame is encoded once, and the notes say how many repeats were skipped.
+  - The ZIP is written as the frames arrive, so only one encoded frame is held at a time. It holds up to 2 GB; past that the run stops and says to take fewer frames, a smaller width or JPG.
 - **The contact sheet:**
   - 3 × 3, 4 × 4, 5 × 5 or 4 × 6 thumbnails, 320 px wide unless the video is narrower, with 8 px gaps on #111111.
   - Each thumbnail carries its time in the system monospace font: a canvas draws only fonts it already has.
@@ -1227,6 +1229,7 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Decision:**
 - **Silence is read from the level every 10 ms:** the loudest channel's RMS in dBFS. A silence is a run below the threshold lasting at least the minimum length (0.5 s by default).
+  - Reading n covers the samples from n × 10 ms to (n + 1) × 10 ms, each edge rounded to a whole sample. At 22.05 and 11.025 kHz, 10 ms isn't a whole number of samples, so the windows alternate between two lengths and the times stay exact over any length.
 - **Auto threshold:** the noise floor is the level the quietest tenth of the recording sits at; the threshold is 10 dB above it, kept between −60 and −30 dBFS. It fits room tone, a quiet studio and digital silence alike; a set dBFS is there for the rest.
 - **What is cut:**
   - Remove keeps 0.1 s of quiet beside the sound on each side (a breath, a word's tail), changeable from 0 to 1 s.
@@ -1303,6 +1306,20 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** `tools/color.md` → C05.
 **Reverse:** `packages/core/src/color/lut.ts` (pure, with tests, also at `@etb/core/lut` so the worker loads only that); the engine is `packages/engines/src/image/lut-preview.ts`.
+
+## 2026-10-02 · Review fixes: Extract Frames' ZIP, Remove Silence's clock, result files let go
+
+**Decision:**
+- **A replaced result's file is let go.** The shell revokes a result's object URL once it's no longer shown: a newer result replaced it (LUT Preview redoes it at every slider step), the run failed, or Start over. It waits one second first, so a download just started from it still reads it. "Use in another tool" hands over the result's Blob, so it never depends on the URL.
+- **Extract Frames' ZIP is streamed** through fflate's `Zip` with stored entries. Each file's bytes go into the archive's Blob as soon as they're added (`StoredZip` in `@etb/engines`).
+  - Its entries carry their sizes after the data (a data descriptor), as a streamed ZIP must. Unzip tools read them from the archive's directory.
+  - It holds up to 2 GB in all. fflate writes no ZIP64, so 4 GB is a hard limit; 2 GB matches the browser limit for video.
+- **A frame picked twice is skipped before it's encoded.** The notes give the frames in the ZIP and the repeats skipped ("25 repeats skipped"). The contact sheet keeps its repeats, since its grid has a cell for each time.
+- **Remove Silence's level windows follow the samples' own times** (see Remove Silence above). Split Audio's "at silences" (Wave 3) reads the same levels.
+- **Add or Replace Audio's loop dips** check only the repeats next to each sample, found by halving the list, not all of them. The gain is the same to the last bit; an hour under a 4 s loop no longer costs minutes.
+
+**Why:** the M8 review (findings 1, 3, 5 and 11).
+**Reverse:** the shell's `resultUrl` effect in `ToolShell.tsx`; `packages/engines/src/zip.ts`; `LevelScan` in `packages/core/src/audio/silence.ts`; `musicGain` in `packages/core/src/audio/mix.ts`.
 
 ## 2026-10-02 · Smoke-testing production after each deploy
 
