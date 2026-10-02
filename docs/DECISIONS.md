@@ -1564,3 +1564,30 @@ _What a call is billed, and the gate: superseded by "What a GPU call is billed" 
 
 **Why:** the 2026-10-02 entry on M5's GPU tools (off until an admin switches them on); `tools/README.md` prices; the brief ("reuse A10's generic preview mechanism if it exists on main … or leave the preview for later and log it").
 **Reverse:** status in Admin → Tools; prices in Admin → Tools or the registry entries.
+
+## 2026-10-02 · The Wave 3 GPU tools under the M5 review's fixes (P17, V20, V21)
+
+**Decision:**
+- **Nothing tool-specific was needed in the worker.** Object Eraser, Upscale Video and Video Background Remover all go through `processors/remote.run_on_gpu`, so the review's fixes reach them as they reach P08, A12 and V17: GPU slots of their own (`claim_gpu`), the call and its output key on the job before the URLs leave the worker (`start_call`: `gpu_call_at`, `output_key`, `gpu_output_keys`, `gpu_put_expires_at`), Modal's id as soon as the call exists (`call_spawned`), the reaper cancelling and billing a dead worker's call, the sweeper deleting every key until its URL expires, and the billing of cold, failed and unreported calls. The merge kept Wave 3's one addition to that step (the mask's presigned GET, `extra_urls`) beside the new hooks. Tests drive each of the three through the hooks without a database, and through the reaper and a call in flight against Postgres.
+- **Modal functions:** each catches `Exception` and answers `GPU_FAILED` through `_unexpected()`; idle windows stay 10 s (under `MAX_IDLE_TAIL_SEC`, 30 s, so `config/business.ts` is unchanged); `max_containers` 2 each, the `maxConcurrent` of the one tool each serves. The consistency tests list the three tools, so both rules hold for them.
+- **Images:** all on the digest-pinned `BASE_IMAGE`.
+  - V20 reuses P08's image (`requirements-upscale.txt`, hashed) with Debian's ffmpeg on top: no file of its own.
+  - P17 and V21 share a new `gpu/requirements-onnx.in` → `.txt`: ONNX Runtime GPU 1.26.0, the CUDA 12.8 and cuDNN wheels PyTorch 2.10 pins, NumPy 2.3.5, Pillow 12.3.0. V21's image adds Debian's ffmpeg. One file for both because they need the same packages; a test fails if an image installs a package by name, if a requirements file is unused, or if any entry lacks a hash.
+  - **The hashes are real:** compiled here with `uv pip compile --generate-hashes` from `apps/worker` (PyPI reachable, `exclude-newer = "1 day"` applied); 203 hashes, the `onnxruntime_gpu` cp312 manylinux wheel's checked against PyPI's JSON. `pip-audit --require-hashes` on it: no known vulnerabilities (2026-10-02). CI's GPU pip-audit step already loops over every `requirements-*.txt`; its comment now names the three.
+  - **`nvidia-nvjitlink-cu12` is pinned to 12.8.93** in the `.in`, PyTorch 2.10's version; left free, the resolver picked 12.9.86 for cuFFT, a CUDA 12.9 library beside the 12.8 ones.
+  - New packages from the compile: flatbuffers 25.12.19 (Apache-2.0), protobuf 7.36.2 (BSD-3-Clause), packaging 26.3 (Apache-2.0 OR BSD-2-Clause), ONNX Runtime's own dependencies, read from PyPI; recorded in the ONNX Runtime rows of `docs/13` and `licenses.json` as the GPU images' other permissive dependencies are.
+- **Model licences under the 2026-10-02 rule:** training data recorded for MI-GAN (Places2, distilled from a Co-Mod-GAN teacher), LaMa (Places) and RobustVideoMatting (VideoMatte240K, Distinctions-646, Adobe Image Matting, crawled backgrounds; its `documentation/training.md`), read from the authors' repositories. LaMa and RobustVideoMatting stay out on their weights' licence alone.
+- **Gaps, as for M5's images:** Debian's ffmpeg in the video images isn't version-pinned (apt's signatures only); nothing here can build the images or reach Modal, so CI's first deploy is the real test of the ONNX image's hashed install.
+
+**Why:** the M5 review's fixes (#66) and their notes for new functions (idle window ≤ 30 s, containers ≥ the tools' `maxConcurrent`, tools in `test_gpu_consistency.py`, images from hashed requirement files); `docs/11` → Supply chain.
+**Reverse:** `inpaint_env` and `matte_env` in `gpu/modal_app.py` back to `pip_install(...)` of the `.in`'s pins, and delete `requirements-onnx.*`.
+
+## 2026-10-02 · A video GPU job's worst case is more than the default daily budget
+
+**Decision:**
+- **Kept V20's and V21's 95-minute job limit** (90 for the function), so the gate counts a running video job at (5,700 + 30) s × the L4 rate, about **$1.52**: more than the default $1 a day on its own. It still starts like any GPU job, while today's committed spend is under the budget; then no other GPU job, of any tool, starts until it ends, and spend can pass the budget by up to that $1.52 if it runs to its limit. This is the gate's own rule (at most one job's worst case over), as for a transcription ($1.13); Object Eraser's worst case is about $0.13.
+- **Not done:** shortening the limit to fit under $1 (about 62 minutes): the slowest clip (18,000 frames at 4K) was estimated at about an hour, which would leave no room for a cold start or a slow encode. A per-job estimate in the gate is the review's next step, once real runs measure the tools.
+- **docs/05 says it**, and a test holds its numbers to the registry's limits and `config/business.ts`'s prices; another drives the gate against Postgres (a video job running: nothing else starts; it ends: two erasers start).
+
+**Why:** the gate counts running jobs at their worst case (2026-10-02, review of #66, finding 8); Astro's spending cap; the brief's "extend the budget/worst-case tests".
+**Reverse:** lower `timeoutSec` in `packages/registry/src/tools/video/upscale-video.ts` and `video-background-remover.ts` (and `SPECS` in `modal_app.py`, 5 min under it), or raise the budget in Admin → Dashboard → GPU.

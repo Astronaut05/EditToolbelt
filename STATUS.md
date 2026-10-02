@@ -90,6 +90,7 @@
   - Upscale Video (V20): Real-ESRGAN on every frame on an L4, 2× or 4× up to 4K, General with noise cleanup or Animation, H.264 MP4 with the sound. 10 credits a minute, up to 10 min.
   - Video Background Remover (V21): BiRefNet_lite on every frame on an L4, with a flicker filter; ProRes 4444 or WebM with transparency, or MP4 on green or a color. 8 credits a minute, up to 10 min and 4K.
   - Licences: LaMa (P17) and RobustVideoMatting (V21) are not used, their weights have no stated licence; MI-GAN's weights are MIT from its authors, BiRefNet's MIT. Each tool stays `soon` until an admin sets it to beta.
+  - Up to date with the M5 review's fixes (`claude/m5-gpu` at 5e74484 merged in): GPU slots of their own, each call's Modal id and output key on its job (a dead worker's call is cancelled and billed, its key swept until the URL expires), the worst-case budget gate, the billing of cold and failed calls, and `GPU_FAILED` for anything unexpected in the functions. Object Eraser and Video Background Remover install `gpu/requirements-onnx.txt` (hashed, compiled from PyPI); Upscale Video reuses Upscale Image's image. A video job's worst case (95 min on an L4, about $1.52) is over the default $1 budget, so one runs alone; raise the budget for more.
 
 ## Next
 
