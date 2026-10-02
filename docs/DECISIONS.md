@@ -1316,6 +1316,100 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
 **Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
 
+## 2026-10-02 · Where sign-in goes next: resolved like a browser, same origin only (M6 fix)
+
+**Decision:**
+- **`safeNext` resolves the path against SITE_URL with the WHATWG URL parser** (`apps/web/src/server/next-path.ts`) and keeps only a same-origin result, as its path, query and fragment. A string check alone missed what browsers do to a `Location`: they drop tabs and newlines, so `/sign-in?next=/%09/evil.example` sent a signed-in person to `//evil.example`.
+- **Refused before that, and again once percent-decoded:** C0 and C1 control characters, backslashes, `%2F` and `%5C` in the path, and anything that collapses to `//` (`/.//evil.example`). This is Better Auth's own rule for relative callback URLs, so ours is never looser than the library's.
+- Every `next` goes through it: the sign-in page's redirect when already signed in, and the `callbackURL` both sign-in actions hand Better Auth. `/connect` and the account pages only ever send to `/sign-in?next=` with a fixed path, and the admin's two-factor pages redirect to fixed paths only.
+
+**Why:** a review of M6 found the open redirect (TAB in `next`).
+**Reverse:** nothing to undo; `safeNext` is the only gate, and its tests list what it refuses.
+
+## 2026-10-02 · One general rate limit in the API wrapper, and its headers on every answer (M6 fix)
+
+**Decision:**
+- **`route()` in `server/api.ts` owns the `RateLimit-*` headers.** Every limit a request is counted against is remembered for that request (`limit(request, key, max, windowSec)`), and the answer, errors included, gets the headers of the one it is closest to: the fewest calls left, then the longest wait. A 429 keeps its `Retry-After`.
+- **A general budget sits under the routes' own limits:**
+  - 600 calls a minute per key, or per account for the website, counted in `requireCaller` as soon as the caller is known, so a 403 for a missing scope carries it.
+  - 300 a minute per address for the anonymous routes (`publicRoute`: `/tools`, `/tools/:id`, `openapi.json`, both device endpoints) and for any call whose key or session is refused, so every 401 carries it too.
+  - The per-route limits stay as they were (uploads 30, quotes 60, jobs 30, …); cancel, complete and `DELETE /uploads/:id` have only the general one.
+- **The limiter's map is bounded:** expired windows are swept every 500 calls, and past 50,000 windows the oldest go first (down to 45,000, so a flood doesn't sweep on every call). Before, it swept only above 10,000 and never shrank below that.
+- **`readJson` refuses a body over its cap before reading it:** 413 at once when `Content-Length` says so, otherwise as soon as the bytes read pass the cap; the cap is in bytes, and a body that isn't UTF-8 is a 400.
+- Preflights (`OPTIONS`) aren't counted and carry no `RateLimit-*` headers: a browser never shows their answer to the page.
+
+**Why:** a review of M6 found the headers missing on `/tools`, `openapi.json`, cancel, complete, `DELETE /uploads/:id`, every 401 and 403, and any error thrown after a route's own limit, though `docs/06` promises them on every answer.
+**Reverse:** the budgets are `CALLER_LIMIT` and `ADDRESS_LIMIT` in `server/api.ts`; `publicRoute` is `route(name, handler, true)`.
+
+## 2026-10-02 · /connect: wrong codes lock out, and approving checks the account (M6 fix)
+
+**Decision:**
+- **A miss is any code that isn't waiting:** malformed, unknown, expired, used or declined, typed on `/connect` or sent to its approve and decline. Each gets the same "wrong or has expired" answer.
+- **10 misses in 10 minutes, per account and per address, lock that account and that address out until the window ends** (RFC 8628 §5.1). While locked out nothing is looked up, the right code included, and the page says how many minutes are left. Counted in the process's limiter (`strike` / `lockoutLeft` in `server/rate-limit.ts`), like the API's limits; the address is `sourceOf`'s.
+  - Fixed window, not sliding: simple, and 35 bits of code against 10 tries per 10 minutes per account and per address is out of reach either way.
+  - Misses are logged as `device.code_missed` with the account ref only, never the code.
+- **`decide()` refuses to approve (`full`) while the account has 10 live keys**, and leaves the code waiting, so the person can revoke one and come back; declining always works. The page already hid the button; a direct post could approve before.
+- **`collectKey` answers `ACCESS_DENIED` for an approved code whose account was disabled or deleted since**, instead of making a key for it.
+- **`@etb/db/testing` applies migrations under an advisory lock,** so the web app's database tests (`device.db.test.ts`) and `@etb/db`'s can run at once against one test database.
+
+**Why:** a review of M6: `/connect` had no limit on guessing live codes, which a signed-in attacker could approve into their own account.
+**Reverse:** `MISS_LIMIT` and `MISS_WINDOW_SEC` in `server/device.ts`.
+
+## 2026-10-02 · Answers show no more than the caller's scopes (M6 fix)
+
+**Decision:**
+- **A job's `result` is left out for a caller without `jobs:read`,** wherever `jobs:write` alone reaches a job: cancelling one that already ended, and repeating a start with the `Idempotency-Key` of a job that has finished. The field is optional in `Job` and absent (not `null`), so "no result yet" and "not yours to see" stay different.
+- **A quote's `balance`, `balance_after` and `free_jobs_left` are left out for a caller without `account:read`.** `can_start`, `blocked_by` and `funding` stay: they're what a key that may start jobs needs to decide, and they say nothing the start itself wouldn't.
+- One place decides (`server/scoped.ts`: `jobFor`, `quoteFor`, over `holds(caller, scope)`); the website's session holds every scope, so the site is unchanged. The schemas say which scope each field needs, so the OpenAPI document does too.
+- `run-tool.mjs` prints the balance only when the answer has it.
+
+**Why:** a review of M6 confirmed a `jobs:write`-only key could get a presigned download URL from cancel or a repeated start, and the balance from a quote.
+**Reverse:** have `jobFor` and `quoteFor` return what they're given.
+
+## 2026-10-02 · 5 progress streams at once per account (M6 fix)
+
+**Decision:**
+- **`GET /jobs/:id/events` holds one of 5 slots per account while it reads the job** (`server/streams.ts`, counted in this process). The 6th gets `429 RATE_LIMITED` with `Retry-After: 15`; polling `GET /jobs/:id` still works, and the site's own page falls back to it when its EventSource fails.
+- **Per account, not per key:** the database load is the account's, however many keys it has.
+- **The slot goes back when the stream stops reading the job** (`jobEvents`' `onClose`): the job ended, the 15 minutes ran out, or the client left (within a poll, at most 2 s).
+- **A stream reads a queued job every 2 s once it has waited 10 s** instead of every second; a running one, and the first 10 s, stay at 1 s, so a job that starts at once shows its progress as quickly as before.
+
+**Why:** a review of M6: each stream reads the database every second for up to 15 minutes, and only stream starts were limited (30 a minute per key), so one key could hold hundreds open against a pool of 10 connections.
+**Reverse:** `MAX_STREAMS` in `server/streams.ts`; `STREAM_POLL_QUEUED_MS` and `STREAM_QUEUED_AFTER_MS` in `server/jobs.ts`.
+
+## 2026-10-02 · An Idempotency-Key names one request body (M6 fix)
+
+**Decision:**
+- **The job keeps a SHA-256 of the request that first used its key** (`jobs.idempotency_hash`, migration `0009_job_idempotency_hash`, nullable). The body is hashed in a canonical form: `tool_id`, `upload_id`, `options` and `quote_credits`, object keys sorted at every level, no options the same as `{}` (`server/idempotency.ts`).
+- **The same key with the same body answers the same job (200); with another body, `422 IDEMPOTENCY_KEY_REUSED`**, a problem whose `type` links to `/developers#idempotency`. 422, not 409, is what the IETF draft on the header asks for a reused key; it's a new stable code, which `docs/06` allows (adding is non-breaking). Jobs from before the column (hash null) answer as they did.
+- **A retry that races the first try gets its job.** If starting fails with 409 `CONFLICT` (the upload already has a job, or the price changed) and the key now names a job, that job is the answer; the hash check still applies. Inside the create transaction the key is checked again under the account's lock, as before.
+- `@etb/db/testing`'s locked migrations let `jobs.db.test.ts` run the real `createJob` against the test database, six tries at once.
+
+**Why:** a review of M6 confirmed a reused key with a different body got the first job with 200, and found a retry arriving just before the first try committed could get "This upload already has a job".
+**Reverse:** to drop the check, stop writing `idempotency_hash` (the column can stay null); the race retry is the `catch` in `createJob`.
+
+## 2026-10-02 · The OpenAPI document lists every status a route answers (M6 fix)
+
+**Decision:**
+- **Each endpoint in `ENDPOINTS` names its problems by status** (`errors: { 409: ['CONFLICT', …] }`), and `problemsOf` adds what every endpoint of its kind answers: 429 `RATE_LIMITED` and 500 `INTERNAL` everywhere; 401 and 403 with a key or session; 400, 413 and 415 `BAD_REQUEST` with a JSON body. The document has one response per status, with its codes, and no `default`.
+- **Other successes are listed too** (`also`): a quote's 202 `QuoteProbing`, a repeated start's 200. `Quote`'s two variants are components of their own (`QuoteProbing`, `QuoteReady`); `Quote` stays as their union for clients.
+- **Corrected:** `DELETE /uploads/{id}` is 200 `UploadCancelled` (`{ status: "cancelled" }`), not 204; `/auth/device/token` can answer 409 `CONFLICT` (the account has 10 keys); both device endpoints document 429; cancelling a job never answers 409, so it no longer says so. Every response documents the `RateLimit-*` headers.
+- **Checked twice:** a unit test that each operation's responses are exactly `statusesOf(endpoint)`, and the end-to-end contract test, which now sends each answer it sees through `expectDocumented`: its status must be listed for the route, a problem's code listed under that status, and the `RateLimit-*` headers present.
+
+**Why:** a review of M6 found the document disagreeing with the routes (204 vs 200, the missing 202, 200, 409 and 429s).
+**Reverse:** nothing to undo; to loosen the contract test, drop `expectDocumented`.
+
+## 2026-10-02 · Absolute upload URLs, and what /developers says about browsers (M6 fix)
+
+**Decision:**
+- **`parts_url` and `complete_url` are absolute, from SITE_URL.** They were paths from the site's root (`/api/v1/uploads/…`), which a client that joins paths to its `/api/v1` base would double. Absolute URLs work whatever the client does; the schema says `url`.
+- **`/developers` and `docs/06` no longer say a key works from any web page.** The API answers any origin, but parts go straight to storage, and the bucket's CORS allows only the site, so a page on another origin can call the API but can't upload. Scripts, servers and the panel aren't browsers and can. The bucket's CORS stays as it is: opening it to every origin would only help keys sitting in web pages.
+- **The curl walkthrough's quote step loops while the answer is 202**, as the text says to.
+- **`run-tool.mjs` knows image and audio types too** (JPEG, PNG, WebP, GIF, AVIF, BMP, TIFF, HEIC/HEIF; MP3, WAV, FLAC, M4A, AAC, OGG/Opus, WebM audio, AIFF; and AVI, MPEG, MPEG-TS, 3GP, OGV, WMV, MXF beside the video ones), and prints the balance only when the key may see it.
+
+**Why:** a review of M6 (smaller items).
+**Reverse:** the URLs are built in `createUpload` (`server/uploads.ts`); the types are one table in the script.
+
 ## 2026-10-02 · Tests read video results back with WebCodecs
 
 **Decision:**

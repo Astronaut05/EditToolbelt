@@ -5,7 +5,7 @@
  */
 import { DeviceStart, type DeviceCode } from '@etb/core/api';
 
-import { json, preflight, rateLimit, readJson, route, sourceOf } from '../../../../../server/api';
+import { json, preflight, limit, readJson, publicRoute, sourceOf } from '../../../../../server/api';
 import {
   CODE_TTL_SEC,
   formatUserCode,
@@ -17,8 +17,8 @@ import { serverEnv } from '../../../../../server/env';
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
 
-export const POST = route('auth.device', async (request) => {
-  const limits = rateLimit(`device:${sourceOf(request)}`, 20, 60);
+export const POST = publicRoute('auth.device', async (request) => {
+  limit(request, `device:${sourceOf(request)}`, 20, 60);
   const body = await readJson(request, DeviceStart);
   const { deviceCode, userCode } = await startDevice(body.client_name ?? 'Premiere panel');
   const connect = new URL('/connect', serverEnv().SITE_URL);
@@ -31,5 +31,5 @@ export const POST = route('auth.device', async (request) => {
     expires_in: CODE_TTL_SEC,
     interval: POLL_INTERVAL_SEC,
   };
-  return json(answer, { headers: limits });
+  return json(answer);
 });

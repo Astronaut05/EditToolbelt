@@ -5,7 +5,7 @@
  */
 import { Upload, UploadCreate } from '@etb/core/api';
 
-import { json, rateLimit, readJson, preflight, requireCaller, route } from '../../../../server/api';
+import { json, limit, readJson, preflight, requireCaller, route } from '../../../../server/api';
 import { createUpload } from '../../../../server/uploads';
 
 export const dynamic = 'force-dynamic';
@@ -13,12 +13,12 @@ export const OPTIONS = preflight;
 
 export const POST = route('uploads.create', async (request) => {
   const { user, ref } = await requireCaller(request, 'jobs:write');
-  const limits = rateLimit(`uploads:${ref}`, 30, 60);
+  limit(request, `uploads:${ref}`, 30, 60);
   const body = await readJson(request, UploadCreate);
   const upload = await createUpload(user, {
     toolId: body.tool_id,
     bytes: body.bytes,
     mime: body.mime,
   });
-  return json(upload satisfies Upload, { status: 201, headers: limits });
+  return json(upload satisfies Upload, { status: 201 });
 });

@@ -7,7 +7,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { apiKeys, eq } from '@etb/db';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
-import { closeTestDb, newEmail, signIn, testDb } from './helpers';
+import { closeTestDb, newEmail, setScheme, signIn, testDb } from './helpers';
 
 const db = testDb();
 
@@ -144,7 +144,7 @@ test('the account page passes axe with a new key and the list on it', async ({ p
   await expect(page).toHaveTitle(/Your account/);
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    await setScheme(page, scheme);
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();
