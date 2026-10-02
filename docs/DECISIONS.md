@@ -166,6 +166,8 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 
 ## 2026-09-30 · Tool views load per page
 
+_The one client map of every view: superseded by "Tool views load through their category's index" (2026-10-02) below._
+
 **Decision:** Each tool view is a client component loaded with `next/dynamic` from one small client map (`apps/web/src/tools/index.tsx`), typed against the id list in `tools/ids.ts` that server code checks. The view is still prerendered, but its code is a separate chunk that only its own page loads: a static map put every tool's code on every hub and tool page (+8.6 KB with three calculators). The shell stays at 143–146 KB on every page type; a calculator's own chunk adds about 6 KB after it, which counts as the tool, not the shell. The JS budget and Lighthouse now include `/timecode-calculator` (Lighthouse drops `/privacy`, keeping five pages). The build also writes `/favicon.ico` (browsers ask for it even with an SVG icon, and the 404 was a console error on every first visit).
 **Why:** `10` → Budgets (initial JS before the engine loads); `CLAUDE.md` rule 1 (speed).
 **Reverse:** import the views statically in `src/app/[slug]/page.tsx` (every page pays for every tool).
@@ -1957,3 +1959,29 @@ _What a call is billed, and the gate: superseded by "What a GPU call is billed" 
 **Decision:** the shell's result `<audio>` (every tool whose result is audio) has `preload="metadata"`, like the input player on timeline tools. It reads the header and shows the length; the rest loads when the person presses play. The result `<video>` is unchanged.
 **Why:** Merge Audio's join test hung in WebKit on main (CI runs 36960698035, 36963706269). Stage logs and a 250 ms page heartbeat on a debug branch showed the merge itself always finished (the 2,688,044-byte WAV was written). The page then froze right after the result player's `loadstart`, before `loadedmetadata`, for about 90 s, so Download never came on. With the default preload (auto), the join hung in 2 of 12 and 3 of 12 runs, and the player errored in 2 more. With `metadata`, `none`, or no player, there were no failures in 12 runs each (debug runs 36977764969, 36979041409). Playwright's Linux WebKit plays media through GStreamer, and the stall comes only with `auto`, which lets the browser buffer the whole file. Safari uses AVFoundation instead, and Chromium and Firefox never stalled. The header is all the player needs to show before anyone listens, and it doesn't read a large result into memory unasked.
 **Reverse:** drop `preload` from the result `<audio>` in `ToolShell.tsx` and the `toHaveAttribute('preload', 'metadata')` check in `merge-audio.spec.ts`.
+
+## 2026-10-02 · Tool views load through their category's index
+
+**Decision:**
+- `ToolView` (`apps/web/src/tools/index.tsx`) knows only the six categories. It loads the tool's category index (`src/tools/views/<category>.tsx`) with `next/dynamic`, and the index loads the tool's view the same way, so each is its own chunk. The ids are listed by category in `src/tools/ids.ts` (`VIEW_IDS`); each index is typed against its list, and a unit test checks every id sits under its tool's registry category, which the page passes to `ToolView`.
+- A new end-to-end test hands Extract Frames' frame to Resize Image: a soft navigation from a video tool to a photo tool, which loads the other category's index on the way (Remove Background's test covers the handoff within one category).
+- The script every hub and tool page loads (the `[slug]` route's chunk) no longer holds a loader for every tool, so their initial JS doesn't grow with the number of tools. A tool page also loads its own category's index: about 35-45 B gzip per tool in that category.
+- **The trade:** Turbopack preloads only a page's own `next/dynamic` imports (they're the only ones in its loadable manifest), so the view's chunks are no longer preloaded with the HTML; they're requested when the index runs, during hydration. Under slow 4G and a 4× slower CPU (Playwright, median of 5 runs), the drop zone hydrates at the same time within the noise: Remove Background 2554 ms (was 2598), Video Converter 2542 (2660), Timecode Calculator 2466 (2337). The bundle, not the view, sets that time, and the view no longer shares the bandwidth with it.
+- **Measured** (initial JS from `js-budget`; script transfer from Lighthouse, the value 5 runs share: in some runs the home page's chunk, prefetched from the header logo, also lands inside Lighthouse's window and adds 3.5-4.3 KB, before and after alike):
+
+  | | main (50 views) before | main after | tools-e (67 views) before | tools-e after |
+  |---|---|---|---|---|
+  | Initial JS, hubs and tool pages | 148.3 KB | 146.4 KB | 149.9 KB | 147.2 KB |
+  | Initial JS, home / privacy | 144.7 / 144.0 KB | 144.9 / 144.1 KB | 145.5 / 144.8 KB | 145.6 / 144.9 KB |
+  | Script transfer, `/remove-background` | 180,821 B | 180,386 B | 178,609 B | 177,714 B |
+  | Script transfer, `/video-converter` | 178,570 B | 178,339 B | 178,106 B | 177,203 B |
+  | Script transfer, `/timecode-calculator` | 155,708 B | 155,058 B | 157,172 B | 155,964 B |
+  | Script transfer, `/photo`, `/upscale-image` | 148,441 B | 146,598 B | 149,896 B | 147,356 B |
+
+  On this machine main's `/remove-background` is already over the 180,000 B tool-page gate (180,821 B), and stays over by 386 B with this change alone; tools-e is under it. Home and privacy gain 0.1-0.2 KB because Turbopack moved a module between two framework chunks. With 27 more views added to main (then 47 views), the old map put 1.1 KB more on every hub and tool page (148.2 → 149.3 KB); with the indexes, the `[slug]` chunk keeps its size to the byte, the photo and video indexes are the same files, and only the 27 tools' own category index grew (536 → 1,494 B gzip).
+- **Not taken** (built and measured):
+  - **Choosing the view in the server page** (the views imported into `[slug]/view.tsx`, statically or with `next/dynamic`, also through server wrappers): Turbopack puts every client component a page segment imports into one chunk group, emitted as `<script>` tags on every page of the route, so every hub and tool page loaded all 47 views: 252.6 KB initial JS.
+  - **A route per tool** (`app/(tool)/<slug>/page.tsx` binding the shared page to that tool's view): a tool page's initial JS drops to 145.3 KB, but Next prefetches the route chunk of every tool link on screen, and each route chunk repeats the header's client components (SiteFrame is rendered by the page, not the layout), so `/photo` loaded 182 KB of script (budget 160 KB) and `/upscale-image` 161 KB. Even with the header in a shared chunk, each tool on screen would still be one more script request on a hub.
+**Why:** `10` → Budgets. The initial-JS budget read 149.9 KB on tools-e, and every view added about 42 B gzip to every hub and tool page, so the views still to come would have broken it.
+**Reverse:** one map of `next/dynamic` imports in `src/tools/index.tsx` again (git history before this entry): the view is preloaded with the page, and every tool's loader is on every hub and tool page.
+
