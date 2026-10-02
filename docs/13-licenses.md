@@ -100,7 +100,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 
 ## GPU images (Modal, server only)
 
-Installed only inside the images Modal builds for our GPU functions (`apps/worker/src/etb_worker/gpu/modal_app.py`), at the pinned versions below; never in the worker's own environment or the browser. Their own dependencies are permissive unless listed here.
+Installed only inside the images Modal builds for our GPU functions (`apps/worker/src/etb_worker/gpu/modal_app.py`), at the pinned versions below; never in the worker's own environment or the browser. The full set, dependencies included, is in `gpu/requirements-upscale.txt` and `gpu/requirements-whisper.txt`, every package pinned by version and hash (compiled from the `.in` files beside them) and installed with `--require-hashes`; CI's pip-audit reads both. Their own dependencies are permissive unless listed here; `certifi` and `tqdm` are MPL-2.0 (allowed), used unmodified. The base image is `python:3.12.14-slim-bookworm`, pinned by digest (Container images).
 
 | Package | Use | License | Status |
 |---|---|---|---|
@@ -111,6 +111,7 @@ Installed only inside the images Modal builds for our GPU functions (`apps/worke
 | spandrel | loads the Real-ESRGAN networks (RRDBNet, SRVGGNetCompact) from their weights, without basicsr | MIT | ✅ 0.4.2, checked 2026-10-02 |
 | NumPy | arrays | BSD-3-Clause | ✅ 2.3.5, checked 2026-10-02 |
 | ffmpeg (Debian's package, in the Whisper image) | Whisper decodes audio with it | LGPL/GPL (no nonfree) | ⚠️ server only, checked 2026-10-02 |
+| gcc and libc6-dev (Debian's packages, in the Whisper image) | Triton compiles the launcher of Whisper's word-timing kernels with them at run time (Modal's `debian_slim` had them; the pinned base doesn't) | GPL-3.0-or-later with the GCC Runtime Library Exception; LGPL-2.1 | ⚠️ server only, nothing we distribute is compiled with them; checked 2026-10-02 |
 
 ## Development, build and CI (never shipped)
 
@@ -153,7 +154,7 @@ Pinned by digest (`11-security.md`). Base images also contain Debian/Alpine pack
 | Versity S3 Gateway (`versity/versitygw` image) | S3-compatible storage standing in for R2 locally (replaces MinIO, see Banned) | Apache-2.0 | ✅ v1.8.0, checked 2026-09-29 |
 | Mailpit (`axllent/mailpit` image) | catches the local stack's sign-in emails in a web inbox (local only) | MIT | ✅ v1.31.3, checked 2026-09-30 |
 | Node.js (`node` image) | base of the web dev container | MIT | ✅ 24-bookworm-slim, checked 2026-09-29 |
-| Python (`python` image) | base of the worker image | PSF-2.0 | ✅ 3.12-slim-trixie, checked 2026-09-29 |
+| Python (`python` image) | base of the worker image; as 3.12.14-slim-bookworm (what Modal's `debian_slim` builds on), base of the Modal GPU images | PSF-2.0 | ✅ 3.12-slim-trixie, checked 2026-09-29; 3.12.14-slim-bookworm, checked 2026-10-02 |
 
 ## Banned (don't use, with reason)
 

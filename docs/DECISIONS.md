@@ -1348,3 +1348,18 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** review of #66, finding 14 (first two points).
 **Reverse:** `_unexpected` and `SPECS` in `gpu/modal_app.py`.
+
+## 2026-10-02 · The GPU images are pinned: base by digest, packages by hash
+
+**Decision:**
+- **Base image:** `python:3.12.14-slim-bookworm@sha256:392307d2…` (Docker Hub's index digest, read 2026-10-02 from the registry and Docker Hub's API, which agree), through `modal.Image.from_registry`. It's what Modal's `debian_slim` builds on (the official Python image on bookworm), so the images change as little as possible; 3.12.14 (last pushed 2026-09-19) rather than 3.12.15, whose tag was pushed hours before (our package managers wait a day too).
+- **Python packages:** `gpu/requirements-upscale.txt` and `gpu/requirements-whisper.txt`, compiled by `uv pip compile --generate-hashes` (from `apps/worker`, so `exclude-newer = "1 day"` applies) from the `.in` files beside them, which keep the versions `docs/13` approved. Modal installs them with `pip_install_from_requirements(..., extra_options="--require-hashes")`, so a package that changes, or one that isn't listed, fails the build.
+- **pip-audit reads them in CI** (Dependency audit). It flags two PyTorch 2.10 advisories, both local-only and out of our reach, so they're ignored by id with the reason beside them: CVE-2026-4538 (PYSEC-2026-139) is in loading `.pt2` archives, and we load only our own SHA-256-pinned `.pth` weights; CVE-2025-3000 (PYSEC-2025-194) is in `torch.jit.script`, which nothing calls. Its fix is PyTorch 2.13, whose wheels need CUDA 13 drivers.
+- **gcc and libc6-dev are now listed** in the Whisper image (`docs/13`, `licenses.json`): `debian_slim` installed gcc, and Triton compiles the launcher of Whisper's word-timing kernels with it (without one, Whisper falls back to slower kernels).
+- **Gaps, logged:**
+  - Debian packages (ffmpeg, gcc, libc6-dev) are installed from bookworm and checked by apt's signatures, but their versions aren't pinned: `snapshot.debian.org` and `deb.debian.org` aren't reachable from here to pick and test a snapshot. Next step: point apt at a snapshot date, or take ffmpeg from a hashed wheel (`imageio-ffmpeg`).
+  - `openai-whisper` publishes only an sdist. Its hash is checked; the setuptools pip fetches to build it isn't (pip doesn't hash-check build dependencies).
+  - Nothing here could build the images: the first deploy after this merges (CI's Modal workflow) is the real test of the digest form and the hashed install.
+
+**Why:** review of #66, finding 10; `docs/11` → Supply chain (lockfiles, images by digest).
+**Reverse:** `image = modal.Image.debian_slim(python_version="3.12")` and `pip_install(...)` with the `.in` files' versions in `gpu/modal_app.py`; drop the CI step.
