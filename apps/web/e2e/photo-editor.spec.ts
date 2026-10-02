@@ -218,6 +218,26 @@ test('a rectangle drawn on a flipped photo lands where it was drawn', async ({
   expect(Math.abs((image.box?.height ?? 0) - 74)).toBeLessThanOrEqual(4);
 });
 
+test('on a flipped photo, a mark added from the keyboard moves the way the arrow keys point', async ({
+  page,
+}) => {
+  await open(page, await white(page));
+  await mode(page, 'Flip').click();
+  await mode(page, 'Draw').click();
+  await page.locator('input[type=color][aria-label="Colour"]').fill('#ff0000');
+  // A level arrow in the middle, pointing right on screen, then 20 px right.
+  await page.getByRole('button', { name: 'Add arrow' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('group', { name: /^Arrow 1/ })).toBeFocused();
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
+  const image = await read(page, (await save(page)).bytes, [], 'red');
+  // Saved flipped, as shown: from 170 to its tip at 270, level across the middle.
+  expect(Math.abs((image.box?.x ?? 0) - 170)).toBeLessThanOrEqual(2);
+  expect(Math.abs((image.box?.x ?? 0) + (image.box?.width ?? 0) - 270)).toBeLessThanOrEqual(2);
+  expect(Math.abs((image.box?.y ?? 0) + (image.box?.height ?? 0) / 2 - 150)).toBeLessThanOrEqual(2);
+});
+
 test('the modes are a rail on the left, or a bar at the bottom on a phone, and the photo stays in view', async ({
   page,
   isMobile,

@@ -221,3 +221,138 @@ export function readableOn(hex: string): string {
 /** The next marker's number: one more than the highest so far. */
 export const nextMarker = (marks: readonly Mark[]) =>
   marks.reduce((n, mark) => (mark.tool === 'marker' ? Math.max(n, mark.n ?? 0) : n), 0) + 1;
+
+/** A mark's extent in image pixels, its stroke, arrowhead or circle included: what its focus box covers. */
+export function markBounds(mark: Mark): { x: number; y: number; width: number; height: number } {
+  const xs = mark.points.map((p) => p[0]);
+  const ys = mark.points.map((p) => p[1]);
+  const pad =
+    mark.tool === 'marker'
+      ? markerRadius(mark.size)
+      : mark.tool === 'highlighter'
+        ? (mark.size * HIGHLIGHTER_WIDTH) / 2
+        : mark.tool === 'arrow'
+          ? Math.max(5, mark.size * 2.5) / 2 + mark.size / 2
+          : mark.size / 2;
+  const x0 = Math.min(...xs, Infinity);
+  const y0 = Math.min(...ys, Infinity);
+  if (!Number.isFinite(x0) || !Number.isFinite(y0)) return { x: 0, y: 0, width: 0, height: 0 };
+  return {
+    x: x0 - pad,
+    y: y0 - pad,
+    width: Math.max(...xs) - x0 + 2 * pad,
+    height: Math.max(...ys) - y0 + 2 * pad,
+  };
+}
+
+/**
+ * Where "Add" puts a new mark of `tool`, from the keyboard: a box or ellipse
+ * a quarter of the image across, in its middle; a line, arrow or stroke a
+ * quarter of its longer side long, through the middle along `along` (the
+ * screen's left-to-right in image pixels, so it shows level in a turned
+ * photo); a marker in the centre.
+ */
+export function centredPoints(
+  tool: MarkTool,
+  natural: { width: number; height: number },
+  along: readonly [number, number] = [1, 0],
+): Point[] {
+  const cx = natural.width / 2;
+  const cy = natural.height / 2;
+  if (tool === 'marker') return [[Math.round(cx), Math.round(cy)]];
+  if (tool === 'rect' || tool === 'ellipse') {
+    const w = Math.round(natural.width / 4);
+    const h = Math.round(natural.height / 4);
+    const x = Math.round((natural.width - w) / 2);
+    const y = Math.round((natural.height - h) / 2);
+    return [
+      [x, y],
+      [x + w, y + h],
+    ];
+  }
+  const half = Math.round(Math.max(natural.width, natural.height) / 8);
+  const norm = Math.hypot(along[0], along[1]) || 1;
+  const ux = along[0] / norm;
+  const uy = along[1] / norm;
+  return [
+    [Math.round(cx - ux * half), Math.round(cy - uy * half)],
+    [Math.round(cx + ux * half), Math.round(cy + uy * half)],
+  ];
+}
+
+const tenth = (v: number) => Math.round(v * 10) / 10;
+
+/** The mark moved by (dx, dy) image pixels, every point kept inside the image. */
+export function moveMark(
+  mark: Mark,
+  dx: number,
+  dy: number,
+  natural: { width: number; height: number },
+): Mark {
+  if (mark.points.length === 0) return mark;
+  const xs = mark.points.map((p) => p[0]);
+  const ys = mark.points.map((p) => p[1]);
+  const mx = Math.min(natural.width - Math.max(...xs), Math.max(-Math.min(...xs), dx));
+  const my = Math.min(natural.height - Math.max(...ys), Math.max(-Math.min(...ys), dy));
+  return { ...mark, points: mark.points.map(([x, y]) => [tenth(x + mx), tenth(y + my)] as const) };
+}
+
+/**
+ * The mark resized from the keyboard by (dx, dy) image pixels, kept inside
+ * the image: a line or arrow moves its end (the arrow's tip); a box or
+ * ellipse its far corner, at least 2 px across; a stroke is stretched from
+ * its top left corner. A marker's size is its own step (`grow`, ±), from 1
+ * to `maxSize`.
+ */
+export function resizeMark(
+  mark: Mark,
+  dx: number,
+  dy: number,
+  natural: { width: number; height: number },
+  grow = 0,
+  maxSize = Infinity,
+): Mark {
+  const clampX = (x: number) => tenth(Math.min(natural.width, Math.max(0, x)));
+  const clampY = (y: number) => tenth(Math.min(natural.height, Math.max(0, y)));
+  switch (mark.tool) {
+    case 'marker':
+      return { ...mark, size: Math.min(maxSize, Math.max(1, mark.size + grow)) };
+    case 'line':
+    case 'arrow': {
+      const [start] = mark.points;
+      const [x, y] = last(mark);
+      return start ? { ...mark, points: [start, [clampX(x + dx), clampY(y + dy)]] } : mark;
+    }
+    case 'rect':
+    case 'ellipse': {
+      const [a, b] = [first(mark), last(mark)];
+      const x0 = Math.min(a[0], b[0]);
+      const y0 = Math.min(a[1], b[1]);
+      const x1 = Math.max(a[0], b[0]);
+      const y1 = Math.max(a[1], b[1]);
+      return {
+        ...mark,
+        points: [
+          [x0, y0],
+          [clampX(Math.max(x0 + 2, x1 + dx)), clampY(Math.max(y0 + 2, y1 + dy))],
+        ],
+      };
+    }
+    case 'brush':
+    case 'highlighter': {
+      const xs = mark.points.map((p) => p[0]);
+      const ys = mark.points.map((p) => p[1]);
+      const x0 = Math.min(...xs);
+      const y0 = Math.min(...ys);
+      const w = Math.max(...xs) - x0;
+      const h = Math.max(...ys) - y0;
+      // An axis the stroke doesn't span (a level line) has nothing to stretch.
+      const sx = w > 0 ? Math.max(2, Math.min(natural.width - x0, w + dx)) / w : 1;
+      const sy = h > 0 ? Math.max(2, Math.min(natural.height - y0, h + dy)) / h : 1;
+      return {
+        ...mark,
+        points: mark.points.map(([x, y]) => [tenth(x0 + (x - x0) * sx), tenth(y0 + (y - y0) * sy)]),
+      };
+    }
+  }
+}

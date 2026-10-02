@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
 import { cspViolations, expect, test } from './fixtures';
@@ -189,4 +190,64 @@ test('shapes take two clicks, markers count up, and undo takes the last off', as
   // The first marker is red around its number; the second was undone.
   expect(first?.[0]).toBeGreaterThan(200);
   expect(second).toEqual([255, 255, 255]);
+});
+
+/** axe's serious and critical issues on the page as it is (WCAG 2.2 AA). */
+async function seriousViolations(page: Page) {
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  return results.violations
+    .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
+    .map((violation) => violation.id);
+}
+
+test('marks are added, moved, resized and removed from the keyboard', async ({ page }) => {
+  await open(page);
+  // The tools are a radio group: the arrow keys pick one.
+  await page.getByRole('radio', { name: 'Arrow' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('radio', { name: 'Rectangle' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'Rectangle' })).toBeFocused();
+  await page.getByRole('slider', { name: 'Size' }).fill('4');
+  // "Add rectangle": a quarter of the image across, in its middle, focused to move.
+  await page.getByRole('button', { name: 'Add rectangle' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(
+    page.getByRole('group', { name: /^Rectangle 1, 100 × 75 px at 150, 113$/ }),
+  ).toBeFocused();
+  // 20 px right and 10 down, then 10 px wider from its far corner.
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Alt+Shift+ArrowRight');
+  const box = page.getByRole('group', { name: /^Rectangle 1, 110 × 75 px at 170, 123$/ });
+  await expect(box).toBeFocused();
+  await expect(box).toHaveAccessibleDescription(/Arrow keys move it/);
+
+  // A marker, then Delete: the drawing is back to one mark, and focus goes back to it.
+  await page.getByRole('radio', { name: 'Rectangle' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('radio', { name: 'Numbered marker' })).toBeChecked();
+  await page.getByRole('button', { name: 'Add marker' }).focus();
+  await page.keyboard.press('Enter');
+  const marker = page.getByRole('group', { name: /^Numbered marker 2, number 1 at 200, 150$/ });
+  await expect(marker).toBeFocused();
+  // The marks and their focus boxes pass axe, light and dark.
+  expect(await seriousViolations(page)).toEqual([]);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  expect(await seriousViolations(page)).toEqual([]);
+  await page.keyboard.press('Delete');
+  await expect(page.getByRole('img', { name: 'Drawing area, 1 mark' })).toBeVisible();
+  await expect(box).toBeFocused();
+
+  // The saved file has the rectangle where the keys put it: 170-280 by 123-198, a 4 px stroke.
+  const out = await save(page);
+  const found = await red(page, out.bytes, [[225, 160]]);
+  expect(Math.abs((found.box?.x ?? 0) - 168)).toBeLessThanOrEqual(2);
+  expect(Math.abs((found.box?.y ?? 0) - 121)).toBeLessThanOrEqual(2);
+  expect(Math.abs((found.box?.width ?? 0) - 114)).toBeLessThanOrEqual(3);
+  expect(Math.abs((found.box?.height ?? 0) - 79)).toBeLessThanOrEqual(3);
+  expect(found.colors[0]).toEqual([255, 255, 255]);
 });

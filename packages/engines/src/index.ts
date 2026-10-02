@@ -130,10 +130,14 @@ export { takenDate } from './files/taken';
 export { trackEnds } from './video/merge-videos';
 export {
   arrowHead,
+  centredPoints,
   drawMark,
   drawMarks,
   MARK_TOOLS,
+  markBounds,
+  moveMark,
   nextMarker,
+  resizeMark,
   type Mark,
   type MarkTool,
   type Point,
