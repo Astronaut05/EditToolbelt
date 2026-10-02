@@ -1199,3 +1199,13 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
 **Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
+
+## 2026-10-02 · Where sign-in goes next: resolved like a browser, same origin only (M6 fix)
+
+**Decision:**
+- **`safeNext` resolves the path against SITE_URL with the WHATWG URL parser** (`apps/web/src/server/next-path.ts`) and keeps only a same-origin result, as its path, query and fragment. A string check alone missed what browsers do to a `Location`: they drop tabs and newlines, so `/sign-in?next=/%09/evil.example` sent a signed-in person to `//evil.example`.
+- **Refused before that, and again once percent-decoded:** C0 and C1 control characters, backslashes, `%2F` and `%5C` in the path, and anything that collapses to `//` (`/.//evil.example`). This is Better Auth's own rule for relative callback URLs, so ours is never looser than the library's.
+- Every `next` goes through it: the sign-in page's redirect when already signed in, and the `callbackURL` both sign-in actions hand Better Auth. `/connect` and the account pages only ever send to `/sign-in?next=` with a fixed path, and the admin's two-factor pages redirect to fixed paths only.
+
+**Why:** a review of M6 found the open redirect (TAB in `next`).
+**Reverse:** nothing to undo; `safeNext` is the only gate, and its tests list what it refuses.
