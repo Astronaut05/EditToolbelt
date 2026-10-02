@@ -3,7 +3,7 @@
 import { shutter } from '@etb/core';
 import { CalculatorShell, MonoLabel, OptionRow, type ShellTool } from '@etb/ui';
 
-import { ChoiceRow, fmt, num, NumberField, Results, Rows, TextField } from './calc-ui';
+import { ChoiceRow, fmt, num, NumberField, Results, Rows, TextField, useReady } from './calc-ui';
 import { oneOf, useQueryState } from './url-state';
 
 const MODES = ['angle', 'speed'] as const;
@@ -20,6 +20,7 @@ function fpsValue(text: string): number {
 /** T07 Shutter Angle Calculator (tools/subtitles-and-time.md). */
 export default function ShutterAngleCalculator({ tool }: { tool: ShellTool }) {
   const [state, set] = useQueryState(DEFAULTS);
+  const ready = useReady();
   const mode = oneOf(state.mode, MODES, 'angle');
   const hz = Number(oneOf(state.hz, MAINS, '50'));
   const fps = fpsValue(state.fps);
@@ -85,6 +86,7 @@ export default function ShutterAngleCalculator({ tool }: { tool: ShellTool }) {
             <button
               key={rate.label}
               type="button"
+              disabled={!ready}
               aria-pressed={state.fps === rate.label}
               onClick={() => {
                 set('fps', rate.label);

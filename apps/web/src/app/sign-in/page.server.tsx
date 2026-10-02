@@ -24,6 +24,8 @@ const ERRORS: Record<string, string> = {
   INVALID_TOKEN: 'That link has expired or was already used. Ask for a new one below.',
   EXPIRED_TOKEN: 'That link has expired or was already used. Ask for a new one below.',
   ACCOUNT_DISABLED: 'This account is disabled. Write to us if you think that’s a mistake.',
+  account_not_linked:
+    'Google hasn’t verified that email address, so it can’t open the account that uses it. Ask for an email link instead.',
 };
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };

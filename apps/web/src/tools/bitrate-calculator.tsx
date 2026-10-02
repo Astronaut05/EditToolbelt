@@ -186,10 +186,25 @@ export default function BitrateCalculator({ tool }: { tool: ShellTool }) {
         <caption className="sr-only">
           Typical bitrates. Not rules: the right bitrate depends on the content.
         </caption>
+        <thead>
+          <tr className="border-b border-border text-text-muted">
+            <th scope="col" className="py-2 font-normal">
+              Use
+            </th>
+            <th scope="col" className="py-2 font-normal">
+              Codec
+            </th>
+            <th scope="col" className="py-2 text-right font-normal">
+              Bitrate
+            </th>
+          </tr>
+        </thead>
         <tbody>
           {bitrate.TYPICAL_BITRATES.map((row) => (
             <tr key={`${row.use}-${row.codec}`} className="border-b border-border">
-              <td className="py-2">{row.use}</td>
+              <th scope="row" className="py-2 font-normal">
+                {row.use}
+              </th>
               <td className="py-2 text-text-muted">{row.codec}</td>
               <td className="py-2 text-right font-mono text-12.5">
                 {row.kbps >= 1000 ? `${fmt(row.kbps / 1000)} Mbps` : `${fmt(row.kbps)} kbps`}

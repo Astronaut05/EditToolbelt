@@ -91,6 +91,15 @@ def test_standard_rates_and_sizes() -> None:
     assert target([clip(2.0, video={"avg_frame_rate": "30000/1001"})], {"fps": "25"}).rate == "25"
 
 
+def test_a_rotate_tag_that_isnt_a_number_is_no_rotation() -> None:
+    # The tag is whatever the uploader wrote; the probe reads it the same way.
+    for value in ("abc", "nan", "1e400"):
+        odd = clip(2.0, video={"tags": {"rotate": value}})
+        assert odd.shown == (1920, 1080)
+        assert odd.video_key() == clip(2.0).video_key()
+    assert clip(2.0, video={"tags": {"rotate": "-90"}}).shown == (1080, 1920)
+
+
 def test_each_clip_takes_its_frames_and_a_crossfade_overlaps_them() -> None:
     clips = [clip(2.0), clip(1.52, video={"avg_frame_rate": "25/1"}), clip(3.0)]
     cut = target(clips, {"fps": "first"})

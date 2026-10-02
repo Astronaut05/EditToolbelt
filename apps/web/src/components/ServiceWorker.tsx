@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react';
 
+import { expireShared } from '../lib/shared-files';
+
 /**
  * Registers /sw.js in production builds, after the page has loaded so it
  * never competes with first paint. The static build's worker (written by
@@ -16,6 +18,8 @@ export function ServiceWorker() {
       navigator.serviceWorker.register('/sw.js').catch(() => {
         // No worker (dev server, private mode): the site works without it.
       });
+      // Files shared from another app that /share never read go after an hour.
+      expireShared().catch(() => undefined);
     };
     if (document.readyState === 'complete') register();
     else window.addEventListener('load', register, { once: true });

@@ -5,13 +5,29 @@
 /* Class names in the shared packages (Tailwind scans apps/web on its own). */
 @source '../../../../packages/ui/src';
 
+/* Onest's metric-matched fallback for systems without Arial. next/font makes
+   one from local(Arial) alone (fonts.ts), which Android and Linux don't have,
+   so before Onest arrived they drew the text in a wider face: a long title
+   wrapped, then unwrapped, moving the page (layout shift up to 0.07). The
+   same overrides as next/font's, on Arial's metric twins and near kin. */
+@font-face {
+  font-family: 'Onest Fallback';
+  src:
+    local('Arial'), local('ArialMT'), local('Liberation Sans'), local('LiberationSans-Regular'),
+    local('Arimo'), local('Helvetica'), local('Helvetica Neue'), local('Roboto');
+  ascent-override: 91.42%;
+  descent-override: 28.75%;
+  line-gap-override: 0%;
+  size-adjust: 106.1%;
+}
+
 /* Self-hosted font stacks (src/app/fonts.ts): narrow subsets first, Latin
-   with its metric-matched fallback last. Overrides the plain family names in
+   with its metric-matched fallbacks last. Overrides the plain family names in
    tokens.css, which other surfaces (the Premiere panel) use as they are. */
 :root {
   --font-sans:
     var(--font-onest-cyrillic-ext), var(--font-onest-cyrillic), var(--font-onest-latin-ext),
-    var(--font-onest-latin), system-ui, sans-serif;
+    var(--font-onest-latin), 'Onest Fallback', system-ui, sans-serif;
   --font-mono:
     var(--font-plex-cyrillic-ext), var(--font-plex-cyrillic), var(--font-plex-latin-ext),
     var(--font-plex-latin), ui-monospace, monospace;

@@ -11,6 +11,7 @@ import {
   took,
   when,
 } from '../../../../../components/admin/AdminFrame';
+import { requireAdmin } from '../../../../../server/admin';
 import { db } from '../../../../../server/db';
 import { cancelJobAsAdmin, retryJob } from '../../actions';
 
@@ -45,6 +46,7 @@ function Json({ value }: { value: unknown }) {
  * admin gets no link to either file.
  */
 export default async function AdminJob({ params, searchParams }: Props) {
+  await requireAdmin();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const query = await searchParams;

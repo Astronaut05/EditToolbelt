@@ -14,7 +14,7 @@ import {
   type ShellTool,
 } from '@etb/ui';
 
-import { ChoiceRow, Results, Rows, TextField } from './calc-ui';
+import { ChoiceRow, Results, Rows, TextField, useReady } from './calc-ui';
 import { oneOf, useQueryState } from './url-state';
 
 // The lightest grey that passes AA on white: the page meets AA as it opens.
@@ -55,6 +55,7 @@ function Chip({ hex }: { hex: string }) {
 /** C04 Contrast Checker (tools/color.md): the WCAG 2.2 ratio, what it passes, and a fix. */
 export default function ContrastChecker({ tool }: { tool: ShellTool }) {
   const [state, set] = useQueryState(DEFAULTS);
+  const ready = useReady();
   const aim = oneOf(state.aim, AIMS, 'aa');
   const text = color.parseColor(state.t);
   const background = color.parseColor(state.b);
@@ -100,6 +101,7 @@ export default function ContrastChecker({ tool }: { tool: ShellTool }) {
       <OptionRow label="Swap">
         <Button
           type="button"
+          disabled={!ready}
           onClick={() => {
             set('t', state.b);
             set('b', state.t);
@@ -252,6 +254,7 @@ export default function ContrastChecker({ tool }: { tool: ShellTool }) {
                     <CopyButton text={hex} label={`Copy ${hex}`} />
                     <Button
                       type="button"
+                      disabled={!ready}
                       onClick={() => {
                         set(side === 'text' ? 't' : 'b', hex);
                       }}

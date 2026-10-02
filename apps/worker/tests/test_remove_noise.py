@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from etb_worker import processors
 from etb_worker.probe import probe_json, summarize
 from etb_worker.processors import PROCESSORS, JobContext, JobFailed, Output
 from etb_worker.processors.remove_noise import (
@@ -27,8 +28,9 @@ from etb_worker.processors.remove_noise import (
     prefilter,
     target,
 )
-from etb_worker.sandbox import Limits, ToolError
+from etb_worker.sandbox import Limits, ToolError, run
 from tests.noisy_speech import mix, noise, speech, write_wav
+from tests.test_sandbox import assert_every_input_reads_local_files_only
 
 RATE = 48000
 FIXTURE = Path(__file__).parents[3] / "fixtures" / "audio" / "noisy-speech.wav"
@@ -415,3 +417,21 @@ def test_a_file_without_sound_or_a_broken_one_fails_cleanly(tmp_path: Path) -> N
     with pytest.raises(JobFailed) as long:
         processor.run(ctx)
     assert long.value.code == "TOO_LARGE"
+
+
+def test_every_input_of_every_run_reads_local_files_only(
+    noisy: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+
+    def spy(args: list[str], **kwargs: Any) -> str:
+        commands.append(list(args))
+        return run(args, **kwargs)
+
+    monkeypatch.setattr(processors, "run", spy)
+    clean(noisy, tmp_path, {"format": "mp3"})
+    encodes = [args for args in commands if args[0] == "ffmpeg" and args.count("-i") == 2]
+    assert encodes, "the encode reads the source's tags as a second input"
+    for args in commands:
+        if args[0] == "ffmpeg":
+            assert_every_input_reads_local_files_only(args)

@@ -122,8 +122,16 @@ def _rotation(stream: dict[str, Any]) -> int:
     for side in stream.get("side_data_list") or []:
         if "rotation" in side:
             # A display matrix's angle is counter-clockwise; ffmpeg turns by its negative.
-            return round(-float(side["rotation"])) % 360
-    return round(float((stream.get("tags") or {}).get("rotate", 0) or 0)) % 360
+            return _degrees(side["rotation"], -1)
+    # The tag is whatever the uploader wrote: anything that isn't a number is no rotation.
+    return _degrees((stream.get("tags") or {}).get("rotate", 0), 1)
+
+
+def _degrees(value: object, sign: int) -> int:
+    try:
+        return round(sign * float(str(value))) % 360
+    except (ValueError, OverflowError):
+        return 0
 
 
 _TURNS = {90: "transpose=clock", 180: "hflip,vflip", 270: "transpose=cclock"}

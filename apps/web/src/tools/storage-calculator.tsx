@@ -3,7 +3,7 @@
 import { storage } from '@etb/core';
 import { CalculatorShell, MonoLabel, type ShellTool } from '@etb/ui';
 
-import { ChoiceRow, fmt, num, NumberField, Results, Rows, SelectField } from './calc-ui';
+import { ChoiceRow, fmt, num, NumberField, Results, Rows, SelectField, useReady } from './calc-ui';
 import { oneOf, useQueryState } from './url-state';
 
 const MODES = ['hours', 'space'] as const;
@@ -21,6 +21,7 @@ const DEFAULTS = {
 /** T08 Recording Storage Calculator (tools/subtitles-and-time.md). */
 export default function StorageCalculator({ tool }: { tool: ShellTool }) {
   const [state, set] = useQueryState(DEFAULTS);
+  const ready = useReady();
   const mode = oneOf(state.mode, MODES, 'hours');
   const unit = oneOf(state.unit, UNITS, 'TB');
   const mbps = num(state.mbps);
@@ -142,14 +143,30 @@ export default function StorageCalculator({ tool }: { tool: ShellTool }) {
         <caption className="sr-only">
           Typical bitrates for common camera codecs. Your camera’s settings decide the real figure.
         </caption>
+        <thead>
+          <tr className="border-b border-border text-text-muted">
+            <th scope="col" className="py-2 font-normal">
+              Codec
+            </th>
+            <th scope="col" className="py-2 text-right font-normal">
+              Bitrate
+            </th>
+            <th scope="col" className="py-2 pl-3 text-right font-normal">
+              <span className="sr-only">Use it</span>
+            </th>
+          </tr>
+        </thead>
         <tbody>
           {storage.CODECS.map((row) => (
             <tr key={row.id} className="border-b border-border">
-              <td className="py-2">{row.name}</td>
+              <th scope="row" className="py-2 font-normal">
+                {row.name}
+              </th>
               <td className="py-2 text-right font-mono text-12.5">{fmt(row.mbps)} Mbps</td>
               <td className="py-2 pl-3 text-right">
                 <button
                   type="button"
+                  disabled={!ready}
                   aria-label={`Use ${row.name}`}
                   aria-pressed={state.codec === row.id}
                   onClick={() => {

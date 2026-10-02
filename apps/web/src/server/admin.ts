@@ -4,8 +4,10 @@
  * a reason for every write.
  *
  * TOTP is a step-up: after a code, a signed cookie (12 hours, /admin only,
- * SameSite=Strict) says this browser passed it for this user. Every admin page
- * and every admin action checks it; a layout alone doesn't protect actions.
+ * SameSite=Strict) says this browser passed it for this user. Every admin page,
+ * route and action checks it itself: a layout protects neither pages nor
+ * actions, since a client navigation can render a page without its layout.
+ * src/app/admin/(gated)/gate.test.ts fails if one doesn't.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
