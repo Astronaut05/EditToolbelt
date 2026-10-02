@@ -94,7 +94,6 @@
   - Video Background Remover (V21): BiRefNet_lite on every frame on an L4, with a flicker filter; ProRes 4444 or WebM with transparency, or MP4 on green or a color. 8 credits a minute, up to 10 min and 4K.
   - Licences: LaMa (P17) and RobustVideoMatting (V21) are not used, their weights have no stated licence; MI-GAN's weights are MIT from its authors, BiRefNet's MIT. Each tool stays `soon` until an admin sets it to beta.
   - Up to date with the M5 review's fixes (`claude/m5-gpu` at 5e74484 merged in): GPU slots of their own, each call's Modal id and output key on its job (a dead worker's call is cancelled and billed, its key swept until the URL expires), the worst-case budget gate, the billing of cold and failed calls, and `GPU_FAILED` for anything unexpected in the functions. Object Eraser and Video Background Remover install `gpu/requirements-onnx.txt` (hashed, compiled from PyPI); Upscale Video reuses Upscale Image's image. A video job's worst case (95 min on an L4, about $1.52) is over the default $1 budget, so one runs alone; raise the budget for more.
-- M8: Noise Reduction (beta), on our servers: background noise, hiss and 50 or 60 Hz hum taken down by up to 12, 24 or 40 dB with ffmpeg's FFT noise filter set from the measured background (DeepFilterNet waits for a licence on its weights, see Parked for Astro), optional de-essing, exactly the same length, peaks under −1 dBTP. A free 10 s preview plays Original and Cleaned A/B; a video sends only its sound and gets it back in place.
 
 ## Next
 
@@ -123,12 +122,6 @@ Applies of the Railway project (Actions → Railway → "Apply the plan", enviro
 - M4's `LocalGpu` backend (the 1080 Ti): this build environment has no GPU. M5's tools run on Modal instead (`GPU_BACKEND=modal`); `LocalGpu` is a stub that says it isn't set up.
 - M5's and Wave 3's GPU tools have never run on a real GPU: this environment has no GPU and no Modal token, and can reach neither huggingface.co nor Modal. The processors, the backend and the budget are tested with a stand-in GPU against real Postgres; the functions need Actions → Modal → Run workflow → "smoke" once the token is in GitHub's secrets. Three of the Real-ESRGAN hashes were read from Hugging Face's listings of copies of the files, not the release itself; CI's pins check confirms or corrects them before any image is built.
 
-## Parked for Astro
-
-Each item has a recommended pick; nothing else waits on it.
-
-- **DeepFilterNet for Noise Reduction (A10).** Its code is MIT / Apache-2.0, but nothing licenses the pretrained weights, and the author hasn't answered the two issues asking (#697, #700). A10 runs on ffmpeg's FFT filter until then. Options: (a) wait for the author, (b) take Intel's MIT republication on Hugging Face as enough, (c) stay on ffmpeg. **Recommended: (a), with (c) meanwhile.** It's a one-step swap in the worker when the answer comes; (b) rests on a third party's word.
-
 ## Run it
 
 ```sh
@@ -145,6 +138,6 @@ docker compose exec worker python -m etb_worker --task daily_digest   # send the
 
 GPU tools (Upscale Image, Transcribe Audio, Auto Subtitles, Object Eraser, Upscale Video, Video Background Remover): the worker needs `GPU_BACKEND=modal` and a Modal token (`MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`), and the Modal app deployed (`cd apps/worker && uv run modal deploy -m etb_worker.gpu.modal_app`; `uv run python -m etb_worker.gpu.check --smoke` calls each function once on a tiny input). Then in Admin → Tools set each one's status to beta. Admin → Dashboard → GPU shows today's GPU spend and sets the daily budget.
 
-Server Compress Video on the stack: in Admin → Tools → Compress Video, tick "Server path on" and save. Within 30 s, /compress-video offers "Use our servers instead" after you add a video. Signed in, you get 3 free server jobs a day. VFR to CFR, Burn Subtitles and Noise Reduction run on the worker as they are (beta). The GPU tools wait until an admin sets their status in Admin → Tools. Admin → Jobs lists every server job.
+Server Compress Video on the stack: in Admin → Tools → Compress Video, tick "Server path on" and save. Within 30 s, /compress-video offers "Use our servers instead" after you add a video. Signed in, you get 3 free server jobs a day. VFR to CFR and Burn Subtitles: in Admin → Tools, set each one's status to beta; its page works within 30 s. Admin → Jobs lists every server job.
 
 API docs on the stack: http://localhost:3000/developers and /api/v1/openapi.json. With a key: `ETB_API=http://localhost:3000/api/v1 ETB_KEY=etb_live_… node apps/web/public/examples/run-tool.mjs compress-video clip.mp4 '{"targetMb":25}'`. API keys: sign in, open /account → API keys, make one, then `curl -H "Authorization: Bearer etb_live_…" http://localhost:3000/api/v1/me`. The panel's connect flow by hand: `curl -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:3000/api/v1/auth/device`, open its `verification_uri_complete`, approve, then post its `device_code` to `/api/v1/auth/device/token`.
