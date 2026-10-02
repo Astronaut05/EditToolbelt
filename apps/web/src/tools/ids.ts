@@ -1,62 +1,80 @@
-/**
- * Ids of the tools that have a view in src/tools. A plain module, so server
- * code can read it (exports of the 'use client' map are client references).
- * The map in ./index.tsx is typed against this list, so the two can't drift.
- */
-export const TOOL_IDS = [
-  'aspect-ratio-calculator',
-  'audio-channels',
-  'audio-converter',
-  'auto-subtitles',
-  'bitrate-calculator',
-  'bpm-key-finder',
-  'burn-subtitles',
-  'color-converter',
-  'color-palette-from-image',
-  'color-picker-from-image',
-  'compress-image',
-  'compress-video',
-  'contrast-checker',
-  'crop-image',
-  'dpi-calculator',
-  'exif-remover',
-  'extract-audio',
-  'extract-frames',
-  'fade-audio',
-  'gif-to-mp4',
-  'image-converter',
-  'loudness-meter',
-  'lut-preview',
-  'merge-audio',
-  'mute-video',
-  'normalize-audio',
-  'object-eraser',
-  'qr-code-generator',
-  'remove-background',
-  'remove-silence',
-  'replace-audio',
-  'resize-image',
-  'resize-video',
-  'rotate-image',
-  'rotate-video',
-  'social-media-image-resizer',
-  'split-image',
-  'subtitle-converter',
-  'subtitle-shift',
-  'timecode-calculator',
-  'transcribe-audio',
-  'trim-audio',
-  'trim-video',
-  'upscale-image',
-  'upscale-video',
-  'vfr-to-cfr',
-  'video-background-remover',
-  'video-converter',
-  'video-info',
-  'video-to-gif',
-] as const;
+import type { CategoryId } from '@etb/registry';
 
-export type ToolId = (typeof TOOL_IDS)[number];
+/**
+ * Ids of the tools that have a view in src/tools, by registry category. A
+ * plain module, so server code can read it (exports of the 'use client'
+ * modules are client references). Each category's index in ./views is typed
+ * against its list here, so the two can't drift; lib/tool.test.ts checks that
+ * every id sits under its tool's registry category.
+ */
+export const VIEW_IDS = {
+  photo: [
+    'compress-image',
+    'crop-image',
+    'exif-remover',
+    'image-converter',
+    'object-eraser',
+    'remove-background',
+    'resize-image',
+    'rotate-image',
+    'social-media-image-resizer',
+    'split-image',
+    'upscale-image',
+  ],
+  video: [
+    'auto-subtitles',
+    'burn-subtitles',
+    'compress-video',
+    'extract-audio',
+    'extract-frames',
+    'gif-to-mp4',
+    'mute-video',
+    'replace-audio',
+    'resize-video',
+    'rotate-video',
+    'trim-video',
+    'upscale-video',
+    'vfr-to-cfr',
+    'video-background-remover',
+    'video-converter',
+    'video-info',
+    'video-to-gif',
+  ],
+  audio: [
+    'audio-channels',
+    'audio-converter',
+    'bpm-key-finder',
+    'fade-audio',
+    'loudness-meter',
+    'merge-audio',
+    'normalize-audio',
+    'remove-silence',
+    'transcribe-audio',
+    'trim-audio',
+  ],
+  color: [
+    'color-converter',
+    'color-palette-from-image',
+    'color-picker-from-image',
+    'contrast-checker',
+    'lut-preview',
+  ],
+  'subtitles-time': [
+    'aspect-ratio-calculator',
+    'bitrate-calculator',
+    'subtitle-converter',
+    'subtitle-shift',
+    'timecode-calculator',
+  ],
+  utility: ['dpi-calculator', 'qr-code-generator'],
+} as const satisfies Record<CategoryId, readonly string[]>;
+
+/** The ids of one category's views. */
+export type ViewIds<Category extends CategoryId> = (typeof VIEW_IDS)[Category][number];
+
+export type ToolId = ViewIds<CategoryId>;
+
+export const TOOL_IDS: readonly ToolId[] = Object.values(VIEW_IDS).flat();
 
 export function hasView(id: string): id is ToolId {
   return (TOOL_IDS as readonly string[]).includes(id);

@@ -110,7 +110,7 @@ function LiveTool({ tool }: { tool: ToolDef }) {
           <CapabilityNotice title="Maintenance">{maintenance}</CapabilityNotice>
         </div>
       )}
-      <ToolView tool={shellTool(tool)} />
+      <ToolView category={tool.category} tool={shellTool(tool)} />
       <ToolDetails
         name={tool.name}
         howTo={tool.seo.howTo ?? []}
