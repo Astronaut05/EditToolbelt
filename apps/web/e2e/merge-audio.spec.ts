@@ -88,6 +88,9 @@ test('joins 3 × 10 s with 1 s crossfades into 28 s, in the order set with the k
   await expect(page.getByRole('button', { name: 'Move c.wav up' })).toBeFocused();
   await expect(list.getByRole('listitem').nth(1)).toContainText('c.wav');
   const out = await merged(page);
+  // The result's player reads only the header until it's played. Loading the
+  // whole 28 s result froze WebKit's page (docs/DECISIONS.md, 2026-10-02).
+  await expect(page.locator('audio[aria-label="Result"]')).toHaveAttribute('preload', 'metadata');
   expect(out.name).toBe('a_merged.wav');
   const { rate, frames, first } = readWav(out.bytes);
   expect(rate).toBe(48_000);
