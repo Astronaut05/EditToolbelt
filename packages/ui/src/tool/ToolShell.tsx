@@ -817,11 +817,14 @@ export function ToolShell({
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
-  // The timeline's ranges and the selected one change together (see changeRanges).
-  const [timeline, setTimeline] = useState<{ ranges: TimelineRange[]; active: number }>({
-    ranges: [{ start: 0, end: 12 }],
-    active: 0,
-  });
+  // The timeline's ranges and the selected one change together. `found` counts the
+  // times a file or a search set them, so an edit can tell it was made from older ones
+  // (see changeRanges).
+  const [timeline, setTimeline] = useState<{
+    ranges: TimelineRange[];
+    active: number;
+    found: number;
+  }>({ ranges: [{ start: 0, end: 12 }], active: 0, found: 0 });
   const { ranges, active: activeRange } = timeline;
   /** A04, V12: the files to join, in order. */
   const [queue, setQueue] = useState<(OrderedFile & { file: File })[]>([]);
@@ -883,10 +886,11 @@ export function ToolShell({
       try {
         const found = await detect.run(file, values);
         if (round !== detectRound.current) return;
-        setTimeline({ ranges: found, active: 0 });
+        setTimeline((current) => ({ ranges: found, active: 0, found: current.found + 1 }));
       } catch {
         // Nothing to cut, then: the run waits and says why.
-        if (round === detectRound.current) setTimeline({ ranges: [], active: 0 });
+        if (round === detectRound.current)
+          setTimeline((current) => ({ ranges: [], active: 0, found: current.found + 1 }));
       } finally {
         if (round === detectRound.current) setDetecting(false);
       }
@@ -908,13 +912,17 @@ export function ToolShell({
    * after that drawing and before the edit (A14: "By hand" picked, In typed as
    * its one part arrives); the edit, made from the old parts, would bring them
    * all back and keep them. So it's dropped, and the parts found stand, as
-   * they do over any edit made before they came.
+   * they do over any edit made before they came. Edits made from the same
+   * parts (a drag's moves between two renders) all apply.
    */
+  const drawnFrom = timeline.found;
   const changeRanges = useCallback(
     (next: TimelineRange[], active: number) => {
-      setTimeline((current) => (current.ranges === ranges ? { ranges: next, active } : current));
+      setTimeline((current) =>
+        current.found === drawnFrom ? { ...current, ranges: next, active } : current,
+      );
     },
-    [ranges],
+    [drawnFrom],
   );
   const [batch, setBatch] = useState<BatchItem[]>([]);
   const [batchDone, setBatchDone] = useState(false);
@@ -1338,10 +1346,13 @@ export function ToolShell({
         ? Object.fromEntries(Object.entries(info.values).filter(([id]) => !touched.current.has(id)))
         : undefined;
       if (suggested) setOptions((current) => ({ ...current, ...suggested }));
-      setTimeline({
+      // A search a setting change was about to start would read the file before this one.
+      if (detectTimer.current) clearTimeout(detectTimer.current);
+      setTimeline((current) => ({
         ranges: [preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }],
         active: 0,
-      });
+        found: current.found + 1,
+      }));
       if (preset.detect) void detectRanges(file, { ...options, ...suggested });
       const probed = { ...input, durationSec: info.durationSec };
       setServerReason(offer);
