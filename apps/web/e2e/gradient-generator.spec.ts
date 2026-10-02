@@ -72,6 +72,15 @@ test('stops can be added, edited and removed, and the state lives in the URL', a
   );
   // The URL is written once typing pauses.
   await expect(page).toHaveURL(/00ff00/);
+  // Firefox puts fields' old values back on reload unless they say not to, and the page
+  // would take those in as edits.
+  expect(
+    await page
+      .locator('main input, main select, main textarea')
+      .evaluateAll((fields) =>
+        fields.filter((field) => field.getAttribute('autocomplete') !== 'off').map((f) => f.id),
+      ),
+  ).toEqual([]);
   await page.reload();
   await expect(css(page)).toContainText('#00ff00 50%');
   await page.getByRole('button', { name: 'Remove stop 2' }).click();
