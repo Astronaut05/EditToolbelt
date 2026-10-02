@@ -7,19 +7,19 @@ import { injectCsp, inlineScriptHashes, originOf } from './csp';
 
 const sha = (body: string) => `'sha256-${createHash('sha256').update(body).digest('base64')}'`;
 
-const page = `<!DOCTYPE html><html><head><meta charSet="utf-8"/><meta name="etb-csp" content="wasm"/><script>a()</script><script src="/x.js" async=""></script></head><body><script type="application/ld+json">{"a":1}</script><script>b()</script></body></html>`;
+const page = `<!DOCTYPE html><html><head><meta charSet="utf-8"/><script>a()</script><script src="/x.js" async=""></script></head><body><script type="application/ld+json">{"a":1}</script><script>b()</script></body></html>`;
 
 describe('CSP', () => {
   it('hashes executable inline scripts only', () => {
     expect(inlineScriptHashes(page)).toEqual([sha('a()'), sha('b()')]);
   });
 
-  it('puts the policy right after the charset and drops the marker', () => {
+  it('puts the policy right after the charset, WebAssembly allowed on every page', () => {
     const out = injectCsp(page);
     expect(out).toMatch(
       /^<!DOCTYPE html><html><head><meta charSet="utf-8"\/><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-/,
     );
-    expect(out).not.toContain('etb-csp');
+    expect(out).not.toContain("'unsafe-inline' 'sha256");
   });
 
   it('adds wasm-unsafe-eval only when asked, and extra connect origins', () => {

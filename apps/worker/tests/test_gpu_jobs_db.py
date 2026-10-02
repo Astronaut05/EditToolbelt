@@ -78,8 +78,7 @@ class FakeStorage:
         dest.write_bytes(self.objects[key][0])
         return dest.stat().st_size
 
-    def upload(self, source: Path, content_type: str) -> str:
-        key = f"out/{uuid.uuid4()}"
+    def upload(self, source: Path, content_type: str, key: str) -> str:
         self.objects[key] = (source.read_bytes(), content_type)
         return key
 
@@ -276,6 +275,7 @@ def test_upscale_presigns_calls_and_finishes_like_any_job(db: Conn) -> None:
         "model": "general",
         "denoise": 0.5,
         "format": "png",
+        "max_pixels": 100 * 50,  # the probe's picture, priced: no bigger one is decoded
     }
     assert key_of(call.kwargs["input_url"]) == input_key
     assert ("PUT", row["output_key"], "image/png") in storage.presigned

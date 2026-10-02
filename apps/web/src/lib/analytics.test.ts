@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { collector, EVENT_NAMES, optedOut, payload } from './analytics';
+import { collector, EVENT_NAMES, optedOut, payload, reportedPath } from './analytics';
 
 const page = {
   hostname: 'edit.example.com',
@@ -48,5 +48,67 @@ describe('analytics', () => {
     expect(EVENT_NAMES).toContain('tool_run_failed');
     expect(EVENT_NAMES).toContain('signup_completed');
     expect(new Set(EVENT_NAMES).size).toBe(EVENT_NAMES.length);
+  });
+
+  it('reports public pages and no personal page', () => {
+    for (const path of ['/', '/photo', '/remove-background', '/convert/png-to-jpg', '/privacy']) {
+      expect(reportedPath(path)).toBe(path);
+    }
+    for (const path of [
+      '/admin',
+      '/admin/users/0199a0d4-7c2e-7000-8000-000000000000',
+      '/admin/jobs/0199a0d4-7c2e-7000-8000-000000000001',
+      '/account',
+      '/account/data',
+      '/connect',
+      '/credits/buy',
+      '/credits/return',
+      '/sign-in',
+    ]) {
+      expect(reportedPath(path), path).toBeNull();
+    }
+    // Only whole segments: a public page that starts with the same letters is reported.
+    expect(reportedPath('/admins-guide')).toBe('/admins-guide');
+  });
+});
+
+describe('analytics in the browser, with a collector configured', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  /** The bodies sent for one page view and one Web Vital on `pathname`. */
+  async function sentFrom(pathname: string): Promise<string[]> {
+    vi.stubEnv('ANALYTICS_URL', 'https://stats.example.com');
+    vi.stubEnv('ANALYTICS_WEBSITE_ID', 'site');
+    const bodies: string[] = [];
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('location', { hostname: 'edit.example.com', pathname });
+    vi.stubGlobal('navigator', { language: 'en-GB', doNotTrack: null });
+    vi.stubGlobal('document', { referrer: '' });
+    vi.stubGlobal('screen', { width: 1440, height: 900 });
+    vi.stubGlobal('fetch', (_url: string, init: { body: string }) => {
+      bodies.push(init.body);
+      return Promise.resolve(new Response(null));
+    });
+    vi.resetModules();
+    const { analyticsEnabled, track, trackPageview } = await import('./analytics');
+    expect(analyticsEnabled).toBe(true);
+    trackPageview();
+    track('web_vital', { name: 'LCP', rating: 'good', page: pathname });
+    return bodies;
+  }
+
+  it('sends page views and vitals from public pages', async () => {
+    const bodies = await sentFrom('/remove-background');
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toContain('"url":"/remove-background"');
+  });
+
+  it('sends nothing from an admin page that names a user', async () => {
+    expect(await sentFrom('/admin/users/0199a0d4-7c2e-7000-8000-000000000000')).toEqual([]);
+    expect(await sentFrom('/account')).toEqual([]);
   });
 });

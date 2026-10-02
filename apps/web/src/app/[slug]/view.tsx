@@ -10,7 +10,6 @@ import {
   isAvailable,
   isListed,
   maintenanceMessage,
-  needsWasm,
   toolPath,
   tools,
   toolsInCategory,
@@ -63,17 +62,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
   const tool = findToolBySlug(slug);
   if (!tool) return {};
-  return {
-    // Placeholders stay out of search (docs/09 → Quality rules).
-    ...pageMetadata({
-      title: tool.seo.title,
-      description: tool.seo.description,
-      path: toolPath(tool),
-      noindex: !isAvailable(tool),
-    }),
-    // Read and removed by scripts/postbuild.ts: adds 'wasm-unsafe-eval' to this page's CSP.
-    other: needsWasm(tool) ? { 'etb-csp': 'wasm' } : undefined,
-  };
+  // Placeholders stay out of search (docs/09 → Quality rules).
+  return pageMetadata({
+    title: tool.seo.title,
+    description: tool.seo.description,
+    path: toolPath(tool),
+    noindex: !isAvailable(tool),
+  });
 }
 
 function Hub({ category }: { category: Category }) {

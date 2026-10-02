@@ -465,7 +465,8 @@
       "condition": "LAME inside is LGPL-2.0-or-later: imported only when MP3 is picked, so it ships as its own lazy-loaded file that can be swapped; source offer on /licenses",
       "version": "1.60.0",
       "source": "https://github.com/Vanilagy/mediabunny/tree/main/packages/mp3-encoder",
-      "sourceOffer": "https://lame.sourceforge.io/download.php",
+      "sourceOffer": "https://sourceforge.net/projects/lame/files/lame/3.100/",
+      "buildSource": "https://github.com/Vanilagy/mediabunny/tree/v1.60.0/packages/mp3-encoder",
       "checked": "2026-09-30"
     },
     {

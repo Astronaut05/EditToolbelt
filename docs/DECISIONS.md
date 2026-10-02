@@ -112,6 +112,8 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Why:** `11` → CSP ("M1 must prove a static tool page loads with zero CSP violations").
 **Reverse:** drop the postbuild step and set a header CSP with `'unsafe-inline'` in `headers.ts`.
 
+Updated by [2026-10-02-server-build-csp.md](decisions/2026-10-02-server-build-csp.md): every page gets `'wasm-unsafe-eval'`, since a client-side navigation keeps the first page's CSP; `needsWasm` is gone.
+
 ## 2026-09-29 · SEO scaffolding
 
 **Decision:** Every page's metadata comes from the registry through one helper (title, description, canonical, Open Graph, `summary_large_image` Twitter card); `soon` tools are `noindex`. JSON-LD: `WebSite` on home, `BreadcrumbList` on hubs and tool pages, and for working tools `WebApplication` (+ `FAQPage` when the page has an FAQ); placeholders get only the breadcrumb. `robots.txt` allows everything but `/admin`, `/api`, `/account` and points at the sitemap; the sitemap lists home, hubs, legal pages, working tools and their conversion pairs, so in M1 it has no tool pages. Open Graph images (1200 × 630) are rendered at build for home, every hub and every tool from one dark Signal template whose colours are read from `tokens.css`; `@fontsource/onest` supplies static Onest weights, because the renderer can't read WOFF2 or variable fonts. The export writes the images without an extension, so the post-build step renames them to `.png` and fixes the references. No `SearchAction` in the `WebSite` data until the home page reads `?q=`. The host check ignores the `https://schema.org` vocabulary, like XML namespaces.
@@ -589,6 +591,8 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - **Tests:** `pnpm --filter @etb/web e2e:server` migrates `TEST_DATABASE_URL`, builds the server target and runs Playwright on desktop Chromium, Firefox and WebKit. It covers sign-in with a one-use link, no IP or user agent stored, nonce CSP with zero violations, profile save, data export, delete and restore, disabled accounts, and the health checks. CI runs it in the required JS job against the Postgres service. The stack smoke test checks `/readyz` and the sign-in page.
 **Why:** `docs/12` → M3 (sign in, export and delete an account on the local stack), `docs/11` → Auth, `docs/04` → Account deletion, Data export, `docs/08` → minimal data and self-serve rights.
 **Reverse:** unset `ETB_TARGET` and the site is the static export again. `apps/web/src/server/auth.ts` holds every auth choice.
+
+Updated by [2026-10-02-server-build-csp.md](decisions/2026-10-02-server-build-csp.md): public pages keep `'unsafe-inline'` at launch, and why build-time hashes can't follow them.
 
 ## 2026-09-30 · Tool status from the database, and the admin (M3)
 
