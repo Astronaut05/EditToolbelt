@@ -17,6 +17,7 @@ from typing import Any
 from etb_worker.gpu.inpaint import mask_fits
 from etb_worker.processors import Estimate, JobContext, JobFailed, Output
 from etb_worker.processors.remote import run_on_gpu
+from etb_worker.processors.upscale_image import priced_pixels
 
 CONTENT_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
 #: Loading MI-GAN, reading and writing the photo; a fill is milliseconds. For progress only.
@@ -61,7 +62,7 @@ class ObjectEraser:
         outcome = run_on_gpu(
             ctx,
             function="erase_object",
-            options={"format": fmt},
+            options={"format": fmt, "max_pixels": priced_pixels(ctx.meta)},
             content_type=CONTENT_TYPES[fmt],
             estimate_sec=self.estimate(ctx.meta, ctx.options).seconds,
             stage="erasing",
