@@ -73,17 +73,51 @@ function aborted(): DOMException {
   return new DOMException('Cancelled', 'AbortError');
 }
 
+/** Answers that more credits would fix: the error then offers "Buy credits" (if on sale). */
+const SHORT = new Set(['INSUFFICIENT_CREDITS', 'QUOTA_EXCEEDED']);
+
+/** A problem answer as a ServerRunError in its own words; anything else as it is. */
+function runError(error: unknown): unknown {
+  if (!(error instanceof ApiError)) return error;
+  if (error.status === 401) {
+    return new ServerRunError('Sign in again to use our servers', 'You’re signed out');
+  }
+  return new ServerRunError(error.detail ?? error.title, error.title, false, SHORT.has(error.code));
+}
+
 /** A call to our API; a problem answer becomes a ServerRunError in its own words. */
 async function api<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (error) {
-    if (!(error instanceof ApiError)) throw error;
-    if (error.status === 401) {
-      throw new ServerRunError('Sign in again to use our servers', 'You’re signed out');
-    }
-    throw new ServerRunError(error.detail ?? error.title, error.title);
+    throw runError(error);
   }
+}
+
+/**
+ * The job was refused because its price or what pays changed since the quote
+ * (409 with the new `credits`): today's free jobs ran out, say. The site then
+ * shows the new quote and asks again, never charges unasked.
+ */
+function quoteChanged(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.code === 'CONFLICT' &&
+    'credits' in error.problem
+  );
+}
+
+/** A quote that can't start: the words to say why. */
+function cantStart(offer: ReadyQuote): ServerRunError {
+  return new ServerRunError(
+    offer.blocked_by === 'QUOTA_EXCEEDED'
+      ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`
+      : `This needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`,
+    'Not enough credits',
+    false,
+    true,
+  );
 }
 
 /** Uploads the file in parts, several at once, straight to storage. */
@@ -284,7 +318,12 @@ export function serverPath(
     async account(): Promise<ServerAccount | null> {
       try {
         const me = await client.me();
-        return { tier: me.tier, balance: me.credit_balance, freeJobsLeft: me.free_jobs_left };
+        return {
+          tier: me.tier,
+          balance: me.credit_balance,
+          freeJobsLeft: me.free_jobs_left,
+          buyHref: me.buy_url,
+        };
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) return null;
         throw error;
@@ -325,14 +364,7 @@ export function serverPath(
         }
         options = toServer(values);
         offer = await quote(toolId, uploadId, options, ctx);
-        if (!offer.can_start) {
-          throw new ServerRunError(
-            offer.blocked_by === 'QUOTA_EXCEEDED'
-              ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`
-              : `This needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`,
-            'Not enough credits',
-          );
-        }
+        if (!offer.can_start) throw cantStart(offer);
         const asExpected =
           offer.funding !== 'credits' ||
           (!ctx.offered.free && ctx.offered.credits === offer.credits);
@@ -341,13 +373,31 @@ export function serverPath(
         for (const id of [uploadId, ...extras]) forget(`/api/v1/uploads/${id}`, 'DELETE');
         throw error;
       }
-      const started = await api(() =>
-        client.createJob(
-          { tool_id: toolId, upload_id: uploadId, options, quote_credits: offer.credits },
-          crypto.randomUUID(),
-          ctx.signal,
-        ),
-      );
+      let started: Job | null = null;
+      for (let attempt = 1; !started; attempt += 1) {
+        try {
+          started = await client.createJob(
+            {
+              tool_id: toolId,
+              upload_id: uploadId,
+              options,
+              quote_credits: offer.credits,
+              quote_funding: offer.funding,
+            },
+            crypto.randomUUID(),
+            ctx.signal,
+          );
+        } catch (error) {
+          if (!quoteChanged(error) || attempt > 2) throw runError(error);
+          // The price or what pays changed since the quote: show the new one, ask again.
+          offer = await quote(toolId, uploadId, options, ctx);
+          if (!offer.can_start) throw cantStart(offer);
+          if (!(await ctx.confirm(offer))) {
+            for (const id of [uploadId, ...extras]) forget(`/api/v1/uploads/${id}`, 'DELETE');
+            throw aborted();
+          }
+        }
+      }
       const job = await follow(started.id, ctx);
       if (job.status !== 'succeeded') {
         throw new ServerRunError(

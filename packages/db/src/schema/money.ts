@@ -1,13 +1,19 @@
 /**
- * Money (docs/04 → Money, docs/05): the append-only credit ledger, purchases
- * and the payment webhooks they come from.
+ * Money (docs/04 → Money, docs/05): the append-only credit ledger, purchases,
+ * the payment webhooks they come from and the admin's payment switches.
  *
  * `credit_transactions` is never updated or deleted: a trigger raises on
  * UPDATE, DELETE and TRUNCATE (migrations/0002_ledger_append_only.sql). Check
  * constraints keep each kind's sign. Every write goes through `applyCredit`.
+ *
+ * Only a `refund_purchase` row may take a balance below zero (docs/05: a
+ * refunded pack's credits come off even when some were spent); a negative
+ * balance then blocks paid jobs until it's topped up. Rows that add or keep
+ * credits may leave it below zero; nothing else may push it further down.
  */
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   char,
   check,
   index,
@@ -47,18 +53,29 @@ export const webhookEvents = pgTable(
     payload: jsonb('payload').notNull(),
     receivedAt: tstz('received_at').notNull().defaultNow(),
     processedAt: tstz('processed_at'),
+    /** Something a person must look at (it alerts at once): a payment not credited, a store failure. */
     error: text('error'),
+    /**
+     * Click and Payme, which wait for an answer: the one we gave (their error
+     * code and its note, or `result`). A refusal their protocol expects is an
+     * answer, not an `error`.
+     */
+    answer: text('answer'),
   },
   (t) => [uniqueIndex('webhook_events_provider_event_key').on(t.provider, t.eventId)],
 );
 
-export const purchaseStatus = pgEnum('purchase_status', [
+export const PURCHASE_STATUSES = [
   'pending',
   'completed',
+  'cancelled',
   'refunded',
   'partially_refunded',
   'chargeback',
-]);
+] as const;
+export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
+
+export const purchaseStatus = pgEnum('purchase_status', PURCHASE_STATUSES);
 
 export const purchases = pgTable(
   'purchases',
@@ -67,9 +84,14 @@ export const purchases = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id),
+    /** `paddle`, `click` or `payme`. */
     provider: text('provider').notNull(),
-    /** Idempotency for webhooks. */
-    providerTxnId: text('provider_txn_id').notNull().unique(),
+    /**
+     * The provider's own transaction id, once it has one (unique per
+     * provider): Paddle's txn_…, Click's click_trans_id, Payme's id. Null
+     * while the buyer is still at checkout.
+     */
+    providerTxnId: text('provider_txn_id'),
     /** A pack id from config/business.ts. */
     packId: text('pack_id').notNull(),
     credits: integer('credits').notNull(),
@@ -77,12 +99,35 @@ export const purchases = pgTable(
     amountMinor: integer('amount_minor').notNull(),
     currency: char('currency', { length: 3 }).notNull(),
     status: purchaseStatus('status').notNull().default('pending'),
+    /** Provider-specific state: Payme's times and reason, Click's prepare id, Paddle's refunds. */
+    providerData: jsonb('provider_data')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     rawEventId: uuid('raw_event_id').references(() => webhookEvents.id),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('purchases_user_id_idx').on(t.userId, t.createdAt)],
+  (t) => [
+    index('purchases_user_id_idx').on(t.userId, t.createdAt),
+    index('purchases_provider_created_idx').on(t.provider, t.createdAt),
+    uniqueIndex('purchases_provider_txn_key').on(t.provider, t.providerTxnId),
+    check('purchases_positive', sql`${t.credits} > 0 and ${t.amountMinor} > 0`),
+  ],
 );
+
+/**
+ * The admin's switch per payment provider (docs/05 → Payments). A provider
+ * takes money only while this is on, PAYMENTS_ENABLED=true and its keys are
+ * set; no row means off. Every change is also in the admin audit log.
+ */
+export const paymentSettings = pgTable('payment_settings', {
+  provider: text('provider').primaryKey(),
+  enabled: boolean('enabled').notNull().default(false),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+  updatedBy: uuid('updated_by').references(() => users.id),
+  reason: text('reason'),
+});
 
 export const creditTransactions = pgTable(
   'credit_transactions',
@@ -107,7 +152,11 @@ export const creditTransactions = pgTable(
   (t) => [
     index('credit_transactions_user_idx').on(t.userId, t.createdAt),
     index('credit_transactions_job_idx').on(t.jobId),
-    check('credit_transactions_balance_after_nonnegative', sql`${t.balanceAfter} >= 0`),
+    // Below zero only by a refund; a row that adds or keeps credits may leave it there.
+    check(
+      'credit_transactions_balance_after',
+      sql`${t.balanceAfter} >= 0 or ${t.amount} >= 0 or ${t.kind} = 'refund_purchase'`,
+    ),
     check(
       'credit_transactions_sign',
       sql`case ${t.kind}
@@ -126,5 +175,16 @@ export const creditTransactions = pgTable(
       'credit_transactions_job_ref',
       sql`${t.kind} not in ('reserve', 'capture', 'release') or ${t.jobId} is not null`,
     ),
+    check(
+      'credit_transactions_purchase_ref',
+      sql`${t.kind} not in ('purchase', 'refund_purchase') or ${t.purchaseId} is not null`,
+    ),
+    // One `purchase` row per purchase, and one refund row per refund id (in `reason`).
+    uniqueIndex('credit_transactions_purchase_once')
+      .on(t.purchaseId)
+      .where(sql`${t.kind} = 'purchase'`),
+    uniqueIndex('credit_transactions_refund_once')
+      .on(t.purchaseId, t.reason)
+      .where(sql`${t.kind} = 'refund_purchase'`),
   ],
 );

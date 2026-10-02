@@ -18,13 +18,20 @@ export type PackId = 'starter' | 'creator' | 'studio';
 export interface Pack {
   id: PackId;
   credits: number;
+  /** Paddle, everywhere but Uzbekistan. Tax-inclusive; Paddle shows it in local currency. */
   priceUsd: number;
+  /**
+   * Click and Payme, for Uzbek cards (Uzcard, Humo). Whole sums. Set near the
+   * USD price at about 12,700 UZS per dollar, rounded; their fees are lower
+   * than Paddle's, so the same pack nets more. Review with the exchange rate.
+   */
+  priceUzs: number;
 }
 
 export const packs: readonly Pack[] = [
-  { id: 'starter', credits: 200, priceUsd: 5 },
-  { id: 'creator', credits: 700, priceUsd: 15 },
-  { id: 'studio', credits: 2000, priceUsd: 40 },
+  { id: 'starter', credits: 200, priceUsd: 5, priceUzs: 63_000 },
+  { id: 'creator', credits: 700, priceUsd: 15, priceUzs: 189_000 },
+  { id: 'studio', credits: 2000, priceUsd: 40, priceUzs: 499_000 },
 ];
 
 export const MIN_PACK_PRICE_USD = 5;
@@ -126,8 +133,59 @@ export const maxConcurrentServerJobs = {
   paid: 4,
 } as const;
 
-/** Domains refused for the welcome grant. Filled in before M5. */
-export const disposableEmailDomains: readonly string[] = [];
+/**
+ * Throwaway-inbox domains refused for the welcome grant (docs/05 → Fraud and
+ * abuse). A subdomain of one counts too. Sign-in still works; only the grant
+ * is refused. Add domains as they show up in Admin → Users.
+ */
+export const disposableEmailDomains: readonly string[] = [
+  '10minutemail.com',
+  '20minutemail.com',
+  'anonbox.net',
+  'discard.email',
+  'dispostable.com',
+  'dropmail.me',
+  'emailondeck.com',
+  'fakeinbox.com',
+  'getairmail.com',
+  'getnada.com',
+  'guerrillamail.biz',
+  'guerrillamail.com',
+  'guerrillamail.de',
+  'guerrillamail.info',
+  'guerrillamail.net',
+  'guerrillamail.org',
+  'guerrillamailblock.com',
+  'harakirimail.com',
+  'inboxbear.com',
+  'mail.tm',
+  'maildrop.cc',
+  'mailinator.com',
+  'mailinator.net',
+  'mailnesia.com',
+  'mintemail.com',
+  'mohmal.com',
+  'moakt.com',
+  'mytemp.email',
+  'nada.email',
+  'sharklasers.com',
+  'spam4.me',
+  'spamgourmet.com',
+  'temp-mail.io',
+  'temp-mail.org',
+  'tempail.com',
+  'tempmail.dev',
+  'tempmail.net',
+  'tempmailo.com',
+  'tempr.email',
+  'throwawaymail.com',
+  'tmail.ws',
+  'trashmail.com',
+  'trashmail.de',
+  'yopmail.com',
+  'yopmail.fr',
+  'yopmail.net',
+];
 
 // ---------------------------------------------------------------------------
 // Retention (docs/01 → Retention, CLAUDE.md rule 4). The sweeper is the
@@ -186,3 +244,19 @@ export const paddlePriceIds: Record<'sandbox' | 'live', Record<PackId, string>> 
   sandbox: { starter: '', creator: '', studio: '' },
   live: { starter: '', creator: '', studio: '' },
 };
+
+// ---------------------------------------------------------------------------
+// Uzbek fiscal receipts (Click and Payme send the receipt to the tax service's
+// OFD). Each line needs the product's MXIK (IKPU) code and package code from
+// the tax catalogue. Empty until Astro has them (docs/runbooks/turn-on-payments.md);
+// a provider that needs them refuses to switch on while they're empty.
+// ---------------------------------------------------------------------------
+
+export const fiscalReceipt = {
+  /** MXIK / IKPU code of "credits for online services", from tasnif.soliq.uz. */
+  mxik: '',
+  /** Package code (o'lchov birligi) for one pack, from the same catalogue. */
+  packageCode: '',
+  /** VAT in percent: 0 while the seller isn't a VAT payer. */
+  vatPercent: 0,
+} as const;

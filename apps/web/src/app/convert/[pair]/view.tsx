@@ -72,7 +72,7 @@ export default async function PairPage({ params }: Props) {
   return (
     <SiteFrame current={tool.category}>
       <JsonLd data={pairJsonLd({ path: conversionPath(pair), title }, copy, tool, category)} />
-      <ToolView tool={shell} to={pair.to} />
+      <ToolView category={tool.category} tool={shell} to={pair.to} />
       <ToolDetails
         name={copy.h1}
         about={{

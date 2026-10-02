@@ -35,4 +35,12 @@ describe('headersForPath', () => {
     );
     expect(names).not.toContain('Content-Security-Policy');
   });
+
+  it('never isolates the credits pages: Paddle and the providers load cross-origin (docs/01)', () => {
+    for (const path of ['/credits/buy', '/credits/return']) {
+      const names = headersForPath(path).map(([name]) => name);
+      expect(names).not.toContain('Cross-Origin-Embedder-Policy');
+      expect(names).not.toContain('Cross-Origin-Opener-Policy');
+    }
+  });
 });

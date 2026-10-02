@@ -1,13 +1,20 @@
 import { getTool, isAvailable, tools, type ToolDef } from '@etb/registry';
 import { describe, expect, it } from 'vitest';
 
-import { hasView } from '../tools/ids';
+import { hasView, VIEW_IDS } from '../tools/ids';
 import { relatedLinks, shellTool, whyPoints } from './tool';
 
 describe('live tool pages', () => {
   it('every live or beta tool has a view', () => {
     const missing = tools.filter((tool) => isAvailable(tool) && !hasView(tool.id));
     expect(missing.map((tool) => tool.id)).toEqual([]);
+  });
+
+  it("lists every view under its tool's registry category, which picks its index", () => {
+    const misplaced = Object.entries(VIEW_IDS).flatMap(([category, ids]) =>
+      ids.filter((id) => getTool(id).category !== category),
+    );
+    expect(misplaced).toEqual([]);
   });
 
   it('maps the registry entry to the shell', () => {

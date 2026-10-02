@@ -25,6 +25,8 @@ export interface JobBody {
   uploadId: string;
   options?: unknown;
   quoteCredits: number;
+  /** How the quote said it would be paid; left out of the hash when not sent. */
+  quoteFunding?: string | undefined;
 }
 
 /** The SHA-256 of a start request's body, hex. */
@@ -36,6 +38,7 @@ export function requestHash(body: JobBody): string {
         upload_id: body.uploadId,
         options: body.options ?? {},
         quote_credits: body.quoteCredits,
+        quote_funding: body.quoteFunding,
       }),
     )
     .digest('hex');

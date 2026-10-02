@@ -110,13 +110,14 @@ while :; do
 done
 jq '{credits, funding, can_start}' quote.json`}</Code>
         <p id="idempotency">
-          5. Start the job at that price. The <Mono>Idempotency-Key</Mono> makes a retry safe: the
-          same key with the same body answers the same job (200 instead of 201). A key is for one
-          request only: sent again with a different body, it gets{' '}
-          <Mono>422 IDEMPOTENCY_KEY_REUSED</Mono>.
+          5. Start the job at that price, paid as quoted. If the price or what pays changed since
+          (today&apos;s free jobs ran out, say), the answer is a 409: get a new quote. The{' '}
+          <Mono>Idempotency-Key</Mono> makes a retry safe: the same key with the same body answers
+          the same job (200 instead of 201). A key is for one request only: sent again with a
+          different body, it gets <Mono>422 IDEMPOTENCY_KEY_REUSED</Mono>.
         </p>
         <Code label="Start the job">{`curl -s -X POST "$API/jobs" -H "$H" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \\
-  -d "{\\"tool_id\\":\\"compress-video\\",\\"upload_id\\":\\"$UPLOAD\\",\\"options\\":$OPTIONS,\\"quote_credits\\":$(jq .credits quote.json)}" > job.json
+  -d "{\\"tool_id\\":\\"compress-video\\",\\"upload_id\\":\\"$UPLOAD\\",\\"options\\":$OPTIONS,\\"quote_credits\\":$(jq .credits quote.json),\\"quote_funding\\":$(jq .funding quote.json)}" > job.json
 JOB=$(jq -r .job.id job.json)`}</Code>
         <p>
           6. Follow it until it ends, then download. The link lasts 10 minutes (ask for the job

@@ -42,16 +42,17 @@ Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, st
 | `POST /uploads/:id/complete` | `{ parts: [{ n, etag }] }` → completes multipart. |
 | `DELETE /uploads/:id` | Give up on an upload: its parts or file are deleted now → `200 { status: "cancelled" }` (twice answers the same). |
 | `POST /jobs/quote` | `{ tool_id, upload_id, options }` → `{ credits, funding, can_start, free_jobs_left, balance, balance_after, estimate_seconds, options }` after server probe; `202 { status: "probing" }` with `Retry-After` while the probe runs. |
-| `POST /jobs` | `{ tool_id, upload_id, options, quote_credits }` + `Idempotency-Key` header → `{ job }`. Rejects if the quote changed. A repeat with the same key and body answers the same job (200); the same key with another body gets `422 IDEMPOTENCY_KEY_REUSED`. A tool that takes a second file names its upload in an option (Burn Subtitles: `subtitles`, an SRT, VTT or ASS upload of up to 5 MB). |
+| `POST /jobs` | `{ tool_id, upload_id, options, quote_credits, quote_funding }` + `Idempotency-Key` header → `{ job }`. 409 if the price or what pays changed since the quote (`quote_funding` is optional for older clients, which then get whatever pays at that moment). A repeat with the same key and body answers the same job (200); the same key with another body gets `422 IDEMPOTENCY_KEY_REUSED`. 402 with `shortfall` and `buy_url` (while credits are on sale) when the balance is short. A tool that takes a second file names its upload in an option (Burn Subtitles: `subtitles`, an SRT, VTT or ASS upload of up to 5 MB). |
 | `GET /jobs/:id` | Job status, progress, result (when done: `download_url` presigned, expires in 10 min, `expires_at` of the object). |
 | `GET /jobs/:id/events` | SSE progress stream. 5 open at once per account; past that `429 RATE_LIMITED` with `Retry-After` (polling `GET /jobs/:id` works too). |
 | `POST /jobs/:id/cancel` | Cancel queued/running; releases credits. |
 | `GET /jobs` | Caller's recent jobs (metadata only), paginated by cursor. |
-| `GET /me` | Profile, tier, balance, free allowance left today. |
+| `GET /me` | Profile, tier, balance (below zero after a refunded pack), free allowance left today, and `buy_url`: the website's `/credits/buy` while credits are on sale, else null. The panel's "Buy credits" opens it and hides while it's null. |
 | `GET /me/credits` | Ledger, newest first, 50 a page by cursor: kind, amount, balance after, job id. No admin notes or purchase ids. |
-| `POST /credits/checkout` | `{ pack_id }` → Paddle checkout data. Web only. |
+| `POST /credits/checkout` | `{ pack_id, provider }` (`paddle`, `click`, `payme`) → `201 { purchase_id, checkout }`: `{ kind: "redirect", url }` or Paddle's overlay `{ kind: "paddle-overlay", transactionId, clientToken, environment }`. A pending purchase at the pack's price in the provider's currency. Web only: the session cookie from our origin, never an API key (403); 404 while payments or that provider are off; 502 `PROVIDER_UNAVAILABLE` if the provider fails (the purchase is cancelled). Not in the public docs. |
+| `GET /credits/purchases/:id` | One of the caller's purchases (status, pack, credits, amount, currency), for `/credits/return`. Web only, not in the public docs. |
 | `POST /auth/device`, `POST /auth/device/token` | Panel connect flow. |
-| `POST /webhooks/paddle` | Payment webhooks (not under the public docs). |
+| `/api/webhooks/paddle`, `/api/webhooks/click`, `/api/webhooks/payme` | The providers' server calls (outside `/api/v1`, not in the public docs): the raw request goes to the provider untouched. 404 unless that provider is on. |
 
 Client-only tools have no processing endpoint — they run in the browser. Calculators the panel needs come from `packages/core` directly, not the API.
 

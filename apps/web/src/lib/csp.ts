@@ -7,6 +7,8 @@
  *   fresh nonce per response, set by the proxy, which Next puts on its scripts.
  * - Server build, prerendered pages: 'unsafe-inline' for scripts, the fallback
  *   docs/11 allows (we render no user HTML). Local stack only until M5.
+ * - /credits/buy adds Paddle's script, style and frame origins for its
+ *   overlay checkout (src/lib/paddle-js.ts); no other page has them.
  */
 export interface CspOptions {
   /** sha256 sources of the page's inline scripts. */
@@ -20,7 +22,11 @@ export interface CspOptions {
   /** 'unsafe-eval' for React's development build (next dev only). */
   dev?: boolean;
   /** Extra origins for connect-src (models host, analytics), e.g. "https://models.example.com". */
-  connect?: string[];
+  connect?: readonly string[];
+  /** Third-party script, style and frame origins: Paddle's overlay on /credits/buy only. */
+  scripts?: readonly string[];
+  styles?: readonly string[];
+  frames?: readonly string[];
   /** Add frame-ancestors, which only works as a header, not in a <meta> tag. */
   header?: boolean;
 }
@@ -31,20 +37,21 @@ export function buildCsp(options: CspOptions = {}): string {
   if (options.inline) script.push("'unsafe-inline'");
   if (options.wasm) script.push("'wasm-unsafe-eval'");
   if (options.dev) script.push("'unsafe-eval'");
-  script.push(...(options.hashes ?? []));
+  script.push(...(options.hashes ?? []), ...(options.scripts ?? []));
   const connect = ["'self'", ...(options.connect ?? [])].join(' ');
+  const frames = options.frames?.length ? options.frames.join(' ') : "'none'";
   return [
     "default-src 'self'",
     `script-src ${script.join(' ')}`,
     // React sets style attributes (before/after split, progress); we render no user HTML.
-    "style-src 'self' 'unsafe-inline'",
+    ["style-src 'self' 'unsafe-inline'", ...(options.styles ?? [])].join(' '),
     "img-src 'self' blob: data:",
     "media-src 'self' blob:",
     "font-src 'self'",
     `connect-src ${connect}`,
     "worker-src 'self' blob:",
     "manifest-src 'self'",
-    "frame-src 'none'",
+    `frame-src ${frames}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
