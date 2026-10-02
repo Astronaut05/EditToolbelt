@@ -122,7 +122,59 @@ const NO_SOUND: Refusal = {
   detail: 'This file has no sound, so there is nothing to transcribe. Nothing was charged.',
 };
 
+/** More channels than this is not speech (Noise Reduction, tools/audio.md → A10). */
+export const MAX_NOISE_CHANNELS = 8;
+
+/**
+ * Noise Reduction keeps two working copies on the worker's disk, the decoded
+ * and the cleaned sound, as raw 32-bit float at the file's own rate and
+ * channels. Together they stay within what a job slot's disk holds for one
+ * upload (docs/01 → worker): about 3 h 6 min of stereo at 48 kHz.
+ */
+export const MAX_NOISE_WORK_BYTES = 8 * 1024 ** 3;
+
+/** Bytes of Noise Reduction's two working copies for this file. */
+export function noiseWorkBytes(probe: Probe): number {
+  const rate = probe.audio?.sample_rate ?? 0;
+  const channels = probe.audio?.channels ?? 0;
+  return ((probe.duration_ms ?? 0) / 1000) * rate * channels * 4 * 2;
+}
+
+function hoursAndMinutes(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60
+    ? `${String(minutes)} min`
+    : `${String(Math.floor(minutes / 60))} h ${String(minutes % 60)} min`;
+}
+
 const RULES: Record<string, (probe: Probe, options: Record<string, unknown>) => Refusal | null> = {
+  'remove-noise': (probe) => {
+    const audio = probe.audio;
+    if (!audio?.sample_rate || !audio.channels) {
+      return {
+        status: 422,
+        code: 'NOTHING_TO_DO',
+        title: 'Nothing to clean',
+        detail: 'This file has no sound, so there is nothing to clean. Nothing was charged.',
+      };
+    }
+    if (audio.channels > MAX_NOISE_CHANNELS) {
+      return {
+        status: 422,
+        code: 'UNSUPPORTED_FORMAT',
+        title: 'Too many channels',
+        detail: `This file has ${String(audio.channels)} channels; noise reduction takes up to ${String(MAX_NOISE_CHANNELS)}. Mix it down to stereo or mono first.`,
+      };
+    }
+    if (noiseWorkBytes(probe) <= MAX_NOISE_WORK_BYTES) return null;
+    const perSecond = audio.sample_rate * audio.channels * 4 * 2;
+    return {
+      status: 413,
+      code: 'FILE_TOO_LARGE',
+      title: 'Too long to clean at once',
+      detail: `At ${String(audio.sample_rate / 1000)} kHz with ${String(audio.channels)} channels we clean up to ${hoursAndMinutes(MAX_NOISE_WORK_BYTES / perSecond)} at once; this file is ${hoursAndMinutes((probe.duration_ms ?? 0) / 1000)}. Split it into parts, or mix it down to fewer channels.`,
+    };
+  },
   'vfr-to-cfr': (probe) =>
     probe.video?.vfr === false
       ? {

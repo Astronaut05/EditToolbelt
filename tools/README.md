@@ -86,7 +86,7 @@ Totals: 75 tools · Wave 1: 26 · Wave 2: 32 · Wave 3: 17.
 | A07 | Fade In / Fade Out | `fade-audio` | 2 | client | audio-dsp | — | W M |
 | A08 | Change Speed & Pitch | `change-pitch` | 2 | client | audio-dsp | — | W M |
 | A09 | Stem Splitter | `stem-splitter` | 2 | gpu | audio-ml-server | 3/min, min 3 | W M P A |
-| A10 | Noise Reduction | `remove-noise` | 2 | cpu | audio-ml-server | 1/min, min 1 | W M P A |
+| A10 | Noise Reduction | `remove-noise` | 2 | cpu | video-ffmpeg-server (afftdn; audio-ml-server once a model is licensed) | 1/min, min 1 | W M P A |
 | A11 | Remove Silence | `remove-silence` | 2 | client | audio-dsp | — | W P |
 | A12 | Transcribe Audio | `transcribe-audio` | 2 | gpu | audio-ml-server | 2/min, min 2 | W M P A |
 | A13 | Audio Channel Tools | `audio-channels` | 2 | client | audio-dsp | — | W P |

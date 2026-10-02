@@ -6,14 +6,17 @@ its noise setting, or the authors' anime video model) and writes H.264 MP4
 with the sound straight to storage. The result is 4K at most (3840 x 2160
 either way round), and a clip is 18,000 frames at most (10 minutes at
 30 fps, 5 at 60): the web refuses bigger before charging, and so does this.
+The function decodes no more than the probe priced (``caps``): a clip whose
+header says it's shorter than it is gets cut there.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from etb_worker.processors import Estimate, JobContext, JobFailed, Output
-from etb_worker.processors.remote import run_on_gpu
+from etb_worker.processors.remote import length_cap, length_sec, run_on_gpu
 from etb_worker.processors.upscale_image import DENOISE
 
 #: tools/video.md -> V20: 4K output, 10 minutes (at 30 fps).
@@ -43,6 +46,33 @@ def frame_count(meta: dict[str, Any]) -> int:
     """Frames the GPU will see: the length at the clip's rate (30 when it doesn't say)."""
     fps = float((meta.get("video") or {}).get("fps") or 30)
     return round(float(meta.get("duration_ms") or 0) / 1000 * min(fps, 120))
+
+
+def reading_fps(meta: dict[str, Any]) -> float:
+    """At least the rate the GPU function reads the clip at (gpu/video.pick_fps).
+
+    The probe's rate when it's 1 to 120 fps, 30 when it has none; otherwise
+    (under 1 fps, or over 120) the function picks the header's other rate,
+    which the probe didn't keep, or 120 at most: 120.
+    """
+    fps = float((meta.get("video") or {}).get("fps") or 0)
+    if fps <= 0:
+        return 30.0
+    return fps if 1 <= fps <= 120 else 120.0
+
+
+def frame_cap(meta: dict[str, Any]) -> int:
+    """``max_frames``: the clip's frames as priced and checked, plus a second's worth.
+
+    The second covers an honest clip's rounding; 18,000 frames at most.
+    """
+    fps = reading_fps(meta)
+    return min(MAX_FRAMES, round(length_sec(meta) * fps) + math.ceil(fps))
+
+
+def caps(meta: dict[str, Any]) -> dict[str, Any]:
+    """The most the GPU may decode of this clip (gpu/modal_app.py reads them)."""
+    return {"max_frames": frame_cap(meta), "max_seconds": length_cap(meta)}
 
 
 def too_long(meta: dict[str, Any]) -> str | None:
@@ -75,6 +105,7 @@ class UpscaleVideo:
         width, height = picture(ctx.meta)
         if width <= 0 or height <= 0:
             raise JobFailed("NO_VIDEO", "This file has no video in it.")
+        limits = caps(ctx.meta)
         scale = _scale(ctx.options)
         out_width, out_height = width * scale, height * scale
         if not fits_4k(out_width, out_height):
@@ -90,6 +121,7 @@ class UpscaleVideo:
             "scale": scale,
             "model": "anime" if ctx.options.get("model") == "anime" else "general",
             "denoise": DENOISE.get(str(ctx.options.get("denoise")), DENOISE["medium"]),
+            **limits,
         }
         outcome = run_on_gpu(
             ctx,

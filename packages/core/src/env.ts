@@ -150,6 +150,13 @@ export const webServerEnvSchema = z
      * is true, an admin switched the provider on and its keys are set.
      */
     PAYMENTS_ENABLED: flag(false),
+    /**
+     * Click's Merchant API base URL, ending in `/`: where Click's fiscal
+     * receipts go (`payment/ofd_data/submit_items`). No default, since no host
+     * is written in the code; the value is in docs/runbooks/turn-on-payments.md.
+     * Click's keys are read by name like every provider's (`requiredEnv`).
+     */
+    CLICK_MERCHANT_API_URL: z.url({ protocol: /^https?$/ }).optional(),
     /** test only: a stand-in for one provider (paddle, click or payme) that pays without money. */
     PAYMENTS_STUB: z.enum(['paddle', 'click', 'payme']).optional(),
     /**
@@ -179,6 +186,17 @@ export const webServerEnvSchema = z
         code: 'custom',
         path: ['MAIL_OUTBOX_DIR'],
         message: 'is for local and test only; set SMTP_URL',
+      });
+    }
+    if (
+      env.CLICK_MERCHANT_API_URL &&
+      DEPLOYED.includes(env.APP_ENV) &&
+      !env.CLICK_MERCHANT_API_URL.startsWith('https:')
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CLICK_MERCHANT_API_URL'],
+        message: `must be an https URL when APP_ENV=${env.APP_ENV}`,
       });
     }
     if (env.PAYMENTS_STUB && env.APP_ENV !== 'test') {

@@ -50,7 +50,7 @@ test.beforeAll(async () => {
     .insert(toolFlags)
     .values({ toolId: 'compress-video', serverEnabled: true })
     .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
-  // A server tool waits for an admin to set its status (it's `soon` in the registry).
+  // The server tools are beta in the registry; undo any status an earlier spec set.
   for (const toolId of ['vfr-to-cfr', 'burn-subtitles']) {
     await db
       .insert(toolFlags)
