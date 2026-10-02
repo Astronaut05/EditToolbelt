@@ -289,11 +289,15 @@ export class CleanedReader {
     }
   }
 
-  /** Frames `from` to `from + count`, per channel; null where the cleaned sound has none. */
+  /**
+   * Frames `from` to `from + count`, per channel: fewer where the cleaned
+   * sound ends first, null where it has none (or they were let go).
+   */
   async read(from: number, count: number, channels: number): Promise<Float32Array[] | null> {
     await this.fill(from + count, channels);
     const first = this.chunks[0];
-    if (!first || from < first.at || from + count > this.end) return null;
+    if (!first || from < first.at || from >= this.end) return null;
+    count = Math.min(count, this.end - from);
     const out = Array.from({ length: channels }, () => new Float32Array(count));
     for (const chunk of this.chunks) {
       const length = chunk.planes[0]?.length ?? 0;
@@ -315,6 +319,29 @@ export class CleanedReader {
     }
     return out;
   }
+}
+
+/**
+ * One block of the video's sound with the cleaned sound in it, frame for
+ * frame: `at` is its first frame on the sound's timeline. Frames before 0
+ * (an encoder's priming) and past the cleaned sound's end stay as they were.
+ */
+export async function cleanedBlock(
+  original: Float32Array[],
+  at: number,
+  reader: Pick<CleanedReader, 'read'>,
+): Promise<{ planes: Float32Array[]; replaced: number }> {
+  const frames = original[0]?.length ?? 0;
+  const skip = Math.min(frames, Math.max(0, -at));
+  const cleaned =
+    skip < frames ? await reader.read(at + skip, frames - skip, original.length) : null;
+  if (!cleaned) return { planes: original, replaced: 0 };
+  const planes = original.map((plane, c) => {
+    const out = plane.slice();
+    out.set(cleaned[c] ?? new Float32Array(0), skip);
+    return out;
+  });
+  return { planes, replaced: cleaned[0]?.length ?? 0 };
 }
 
 /**
@@ -366,13 +393,17 @@ export async function putSoundBack(
                   if (signal.aborted) throw new EngineAbortError();
                   const frames = sample.numberOfFrames;
                   const channels = sample.numberOfChannels;
+                  const original = Array.from({ length: channels }, (_, planeIndex) => {
+                    const plane = new Float32Array(frames);
+                    sample.copyTo(plane, { planeIndex, format: 'f32-planar' });
+                    return plane;
+                  });
                   const at = Math.round(sample.timestamp * sample.sampleRate);
-                  const planes = at >= 0 ? await reader.read(at, frames, channels) : null;
-                  if (!planes) {
-                    kept += frames;
-                    return sample;
-                  }
-                  replaced += frames;
+                  const block = await cleanedBlock(original, at, reader);
+                  replaced += block.replaced;
+                  kept += frames - block.replaced;
+                  if (block.replaced === 0) return sample;
+                  const planes = block.planes;
                   const data = new Float32Array(frames * channels);
                   planes.forEach((plane, c) => {
                     data.set(plane, c * frames);

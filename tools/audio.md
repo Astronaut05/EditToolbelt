@@ -78,6 +78,7 @@ Read with `docs/02-tool-framework.md`. Shared rules for every audio tool:
 **Controls:** strength (Light / Medium / Strong), de-hum (off/50/60 Hz), output format; A/B preview on a 10 s snippet free.
 **Tests:** noisy speech fixture → SNR improves by ≥ a recorded baseline; duration unchanged; no clipping.
 **SEO:** "remove background noise from audio" · "noise reduction online", "clean up voice recording".
+**Built (2026-10-02, beta):** not a model yet. DeepFilterNet's code is MIT / Apache-2.0, but nothing licenses its weights (`13` → Pending review), so A10 runs on ffmpeg's own filters: the background is measured in the quiet gaps (level and tilt), then a 60 Hz high-pass, notches at 50 or 60 Hz and 7 harmonics, afftdn (FFT noise filter; Light / Medium / Strong = up to 12 / 24 / 40 dB less, its floor set from the measured noise), ffmpeg's de-esser when asked. Same sample count, true peak ≤ −1 dBTP by gain only. The page and copy say "FFT noise filter", never "AI". Swapping in the model later changes the worker's denoise step only (`docs/DECISIONS.md` → A10).
 
 ### A11 · Remove Silence — `remove-silence`
 **Does:** Detect and cut (or shorten) silences — voiceovers, podcasts, lectures.

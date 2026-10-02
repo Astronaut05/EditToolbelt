@@ -1,7 +1,7 @@
 import { ALL_FORMATS, AudioSample, AudioSampleSink, BlobSource, Input } from 'mediabunny';
 import { describe, expect, it } from 'vitest';
 
-import { CleanedReader, previewSnippet, probeNoise } from './noise';
+import { CleanedReader, cleanedBlock, previewSnippet, probeNoise } from './noise';
 
 /**
  * A 16-bit mono WAV: one second of "speech" (a 200 Hz tone switching on and
@@ -141,7 +141,9 @@ describe('CleanedReader', () => {
     expect(across?.[1]?.[299]).toBeCloseTo(-1899 / 1e6, 9);
     // A block that overlaps the last one a little.
     expect((await reader.read(1890, 20, 2))?.[0]?.[0]).toBeCloseTo(1890 / 1e6, 9);
-    expect(await reader.read(3990, 20, 2)).toBeNull();
+    // The cleaned sound ends at frame 4000: the last request gets what there is.
+    expect((await reader.read(3990, 20, 2))?.[0]).toHaveLength(10);
+    expect(await reader.read(4000, 20, 2)).toBeNull();
   });
 
   it('holds only a second or so behind the reads', async () => {
@@ -167,5 +169,31 @@ describe('CleanedReader', () => {
     }
     const planes = await new CleanedReader(mono()).read(0, 3, 2);
     expect(Array.from(planes?.[1] ?? [])).toEqual(Array.from(new Float32Array([0.1, 0.2, 0.3])));
+  });
+});
+
+describe('cleanedBlock', () => {
+  const reader = (end: number) => ({
+    read: (from: number, count: number) => {
+      const n = Math.min(count, end - from);
+      return Promise.resolve(n > 0 ? [new Float32Array(n).fill(1)] : null);
+    },
+  });
+
+  it('replaces a block frame for frame', async () => {
+    const block = await cleanedBlock([new Float32Array(4)], 10, reader(100));
+    expect(Array.from(block.planes[0] ?? [])).toEqual([1, 1, 1, 1]);
+    expect(block.replaced).toBe(4);
+  });
+
+  it('keeps frames before 0 and past the cleaned sound’s end as they were', async () => {
+    const start = await cleanedBlock([new Float32Array(4)], -2, reader(100));
+    expect(Array.from(start.planes[0] ?? [])).toEqual([0, 0, 1, 1]);
+    expect(start.replaced).toBe(2);
+    const end = await cleanedBlock([new Float32Array(4)], 98, reader(100));
+    expect(Array.from(end.planes[0] ?? [])).toEqual([1, 1, 0, 0]);
+    const past = await cleanedBlock([new Float32Array(4)], 100, reader(100));
+    expect(past.replaced).toBe(0);
+    expect((await cleanedBlock([new Float32Array(4)], -9, reader(100))).replaced).toBe(0);
   });
 });

@@ -6,21 +6,24 @@ author's issues #697 and #700 asking about them are unanswered), so they
 aren't used (docs/13 -> Models, CLAUDE.md rule 6). Until that changes this is
 classic DSP, all ffmpeg filters, and the copy says so:
 
-1. decode the first audio track to 32-bit float at its own rate and channels;
-2. measure the background in 50 ms windows after the fixed filters below: the
-   quietest tenth is the noise, its level sets afftdn's noise floor and its
-   tilt (more hiss than rumble, or the other way) picks the noise model;
-3. clean: a gentle 60 Hz high-pass for rumble, notches at the mains frequency
+1. decode the first audio track to 32-bit float at its own rate and channels,
+   and in the same pass measure the background in 100 ms windows (mixed to
+   mono, after the fixed filters below): the quietest tenth is the noise, its
+   level sets afftdn's noise floor and its tilt (more hiss than rumble, or
+   the other way) picks the noise model;
+2. clean: a gentle 60 Hz high-pass for rumble, notches at the mains frequency
    and its harmonics when de-hum is on, afftdn (an FFT noise gate whose
    attenuation is the strength), and ffmpeg's de-esser when asked. afftdn
    delays its output by half its window; the delay is measured once per
    sample rate and taken off, so the sound stays where it was (a video's
    lips stay in sync), and the result is padded or cut to the exact sample
-   count of the input;
-4. measure the true peak (ebur128, 4x oversampled) and turn the whole file
-   down just enough to stay at or under -1 dBTP: a gain, never a limiter;
-5. encode in the asked format (by default the input's, at its bitrate) with
-   the input's tags, and measure a lossy result again (codecs can overshoot).
+   count of the input. The same pass measures the true peak (ebur128, 4x
+   oversampled);
+3. turn the whole file down just enough to stay at or under -1 dBTP: a
+   gain, never a limiter;
+4. encode in the asked format (by default the input's, at its bitrate) with
+   the input's tags; a lossy result near the ceiling is measured again
+   (codecs can overshoot) and, if it went over, encoded once more.
 
 A preview (``preview: true``) is the same run on a snippet the page cut, and
 always comes back as WAV for the page's A/B player.
@@ -55,7 +58,7 @@ HUM_Q = 25
 #: ffmpeg's de-esser, gently: about 5 dB off the sibilant band, nothing below 3 kHz.
 DEESS = "deesser=i=0.4:m=0.5:f=0.5"
 #: The background is measured in windows this long; the quietest share of them is the noise.
-WINDOW_SEC = 0.05
+WINDOW_SEC = 0.1
 QUIET_SHARE = 0.1
 #: Quieter than this is digital silence, not background.
 SILENCE_DB = -90.0
@@ -64,6 +67,11 @@ FLOOR_MIN, FLOOR_MAX = -80.0, -20.0
 #: True peak at or under this (dBTP), with a little room for rounding.
 CEILING_DB = -1.0
 HEADROOM_DB = 0.1
+#: MP3, AAC and Opus can overshoot by a dB or so: a lossy result whose sound
+#: peaked closer than this to the ceiling is measured again after encoding.
+OVERSHOOT_DB = 2.5
+#: Where ebur128 prints the true peak, on the way through.
+PEAK_METER = "ebur128=peak=true:metadata=1,ametadata=mode=print:key=lavfi.r128.true_peak:file={}"
 #: More channels than this is not speech.
 MAX_CHANNELS = 8
 #: The probe's container and codec -> the format a "keep" writes.
@@ -366,6 +374,19 @@ def clock(seconds: float) -> str:
     return f"{minutes}:{rest:06.3f}"
 
 
+def analysis_graph(options: dict[str, Any], channels: int, rate: int) -> str:
+    """Decoding's second output: the background's level per window, total and in two bands."""
+    mono = "+".join(f"{1 / channels:.6f}*c{c}" for c in range(channels))
+    window = max(1, round(rate * WINDOW_SEC))
+    return (
+        f"[0:a:0]asplit=2[pcm][an];[an]pan=mono|c0={mono},{','.join(prefilter(options))},"
+        "asplit=3[t][l][h];[l]lowpass=f=1000[lo];[h]highpass=f=3000[hi];"
+        f"[t][lo][hi]amerge=inputs=3,asetnsamples=n={window}:p=0,"
+        "astats=metadata=1:reset=1:measure_perchannel=RMS_level:measure_overall=none,"
+        "ametadata=mode=print:file=levels.txt,anullsink"
+    )
+
+
 @dataclass(frozen=True)
 class Sound:
     """The decoded sound of one job: raw 32-bit float at the source's rate and channels."""
@@ -382,23 +403,24 @@ class Sound:
     def raw(self, path: Path) -> list[str]:
         return _raw(self.rate, self.channels, path.name)
 
-    def true_peak(self, source: list[str], start: int, end: int) -> float:
-        """The highest true peak of ``source`` (an ffmpeg input), in dBTP."""
-        ctx, peaks = self.ctx, self.ctx.workdir / "peaks.txt"
-        ctx.run(
-            ffmpeg(
-                *source,
-                *("-map", "0:a:0", "-af"),
-                "ebur128=peak=true:metadata=1,"
-                "ametadata=mode=print:key=lavfi.r128.true_peak:file=peaks.txt",
-                *("-f", "null", "-"),
-            ),
-            on_line=ffmpeg_progress(self.length_ms, ctx.progress, "checking peaks", start, end),
-        )
+    def read_peak(self) -> float:
+        peaks = self.ctx.workdir / "peaks.txt"
         try:
             return parse_peak(peaks.read_text(errors="replace"))
         finally:
             peaks.unlink(missing_ok=True)
+
+    def true_peak(self, source: list[str], start: int, end: int) -> float:
+        """The highest true peak of ``source`` (an ffmpeg input), in dBTP."""
+        ctx = self.ctx
+        ctx.run(
+            ffmpeg(
+                *source,
+                *("-map", "0:a:0", "-af", PEAK_METER.format("peaks.txt"), "-f", "null", "-"),
+            ),
+            on_line=ffmpeg_progress(self.length_ms, ctx.progress, "checking peaks", start, end),
+        )
+        return self.read_peak()
 
     def encode(self, cleaned: Path, plan: Target, gain: float, span: tuple[int, int]) -> Path:
         """Writes the result in its format, turned down by ``gain`` dB, with the source's tags."""
@@ -472,24 +494,29 @@ class RemoveNoise:
         depth = source_depth(ctx) if codec.startswith(LOSSLESS) else 16
         plan = target(ctx.meta, options, depth)
 
-        # 1. Decode, at the file's own rate and channels.
+        # 1. Decode, at the file's own rate and channels, and measure the background.
         decoded = ctx.workdir / "decoded.f32"
         ctx.run(
             ffmpeg(
-                *("-i", ctx.input_path.name, "-map", "0:a:0", "-vn", "-sn", "-dn"),
-                *("-ar", str(rate), "-ac", str(channels), "-f", "f32le", decoded.name),
+                *("-i", ctx.input_path.name, "-filter_complex"),
+                analysis_graph(options, channels, rate),
+                *("-map", "[pcm]", "-ar", str(rate), "-ac", str(channels)),
+                *("-f", "f32le", decoded.name),
             ),
             on_line=ffmpeg_progress(
-                int(ctx.meta.get("duration_ms") or 0), ctx.progress, "reading", 0, 15
+                int(ctx.meta.get("duration_ms") or 0), ctx.progress, "reading", 0, 20
             ),
         )
         frames = decoded.stat().st_size // (4 * channels) if decoded.exists() else 0
         if frames == 0:
             raise JobFailed("DECODE_FAILED", "No sound could be decoded from this file.")
         sound = Sound(ctx, rate, channels, frames)
-        noise = self._background(sound, decoded)
+        levels = ctx.workdir / "levels.txt"
+        noise = background(parse_levels(levels.read_text(errors="replace")), rate)
+        levels.unlink(missing_ok=True)
 
-        # 3. Clean, with afftdn's delay taken off and the length kept to the sample.
+        # 2. Clean, with afftdn's delay taken off and the length kept to the sample;
+        #    the true peak is measured on the way out.
         delay = denoise_delay(ctx, rate)
         chain = [
             *prefilter(options),
@@ -500,22 +527,27 @@ class RemoveNoise:
         ]
         if options.get("deess"):
             chain.append(DEESS)
-        chain += [f"apad=whole_len={frames}", f"atrim=end_sample={frames}"]
+        chain += [
+            f"apad=whole_len={frames}",
+            f"atrim=end_sample={frames}",
+            PEAK_METER.format("peaks.txt"),
+        ]
         cleaned = ctx.workdir / "cleaned.f32"
         ctx.run(
             ffmpeg(*sound.raw(decoded), *("-af", ",".join(chain), "-f", "f32le", cleaned.name)),
-            on_line=ffmpeg_progress(sound.length_ms, ctx.progress, "cleaning", 22, 75),
+            on_line=ffmpeg_progress(sound.length_ms, ctx.progress, "cleaning", 20, 80),
         )
         decoded.unlink(missing_ok=True)
         if cleaned.stat().st_size != frames * 4 * channels:
             raise JobFailed("TOOL_FAILED", "The cleaned sound came out the wrong length.")
 
-        # 4. The true peak, and the gain that keeps it under the ceiling.
-        gain = gain_for(sound.true_peak(sound.raw(cleaned), 75, 80))
+        # 3. The gain that keeps the true peak under the ceiling.
+        peak = sound.read_peak()
+        gain = gain_for(peak)
 
-        # 5. Encode; codecs can overshoot, so a lossy result is measured again.
+        # 4. Encode; a lossy result near the ceiling is measured again, as codecs overshoot.
         out = sound.encode(cleaned, plan, gain, (80, 95))
-        if plan.lossy:
+        if plan.lossy and peak + gain > CEILING_DB - OVERSHOOT_DB:
             encoded = sound.true_peak(["-i", out.name], 95, 97)
             if encoded > CEILING_DB:
                 gain -= encoded - CEILING_DB + 2 * HEADROOM_DB
@@ -528,32 +560,6 @@ class RemoveNoise:
             ext=plan.ext,
             meta={"notes": notes(options, noise, gain, sound, plan)},
         )
-
-    @staticmethod
-    def _background(sound: Sound, decoded: Path) -> Background:
-        """2. The background: 50 ms windows after the fixed filters, mixed to mono."""
-        ctx = sound.ctx
-        ctx.progress(16, "measuring")
-        window = max(1, round(sound.rate * WINDOW_SEC))
-        graph = (
-            f"[0:a]{','.join(prefilter(ctx.options))},aformat=channel_layouts=mono,"
-            "asplit=3[t][l][h];[l]lowpass=f=1000[lo];[h]highpass=f=3000[hi];"
-            f"[t][lo][hi]amerge=inputs=3,asetnsamples=n={window}:p=0,"
-            "astats=metadata=1:reset=1:measure_perchannel=RMS_level:measure_overall=none,"
-            "ametadata=mode=print:file=levels.txt[out]"
-        )
-        ctx.run(
-            ffmpeg(
-                *sound.raw(decoded),
-                *("-filter_complex", graph, "-map", "[out]", "-f", "null", "-"),
-            ),
-            on_line=ffmpeg_progress(sound.length_ms, ctx.progress, "measuring", 16, 22),
-        )
-        levels = ctx.workdir / "levels.txt"
-        try:
-            return background(parse_levels(levels.read_text(errors="replace")), sound.rate)
-        finally:
-            levels.unlink(missing_ok=True)
 
 
 PROCESSOR: RemoveNoise = RemoveNoise()

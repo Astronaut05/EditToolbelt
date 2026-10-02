@@ -78,7 +78,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Real-ESRGAN | image/video upscale | BSD-3-Clause | BSD-3-Clause | 🔍 |
 | Demucs (htdemucs) | stem separation | MIT | MIT | 🔍 |
 | Whisper / faster-whisper | transcription, auto subtitles | MIT | MIT | 🔍 |
-| DeepFilterNet | noise reduction | MIT / Apache-2.0 | same | 🔍 |
+| DeepFilterNet (DeepFilterNet3) | noise reduction (A10) | MIT / Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`; the README: "All code in this repository is dual-licensed") | 🔍 unclear: no statement covers the checkpoints in `models/` (`DeepFilterNet3.zip`, `DeepFilterNet3_onnx.tar.gz`); issues #697 (2026-07-15) and #700 ask exactly this and are unanswered | 🔍 not used, checked 2026-10-02 from github.com/Rikorose/DeepFilterNet. A10 runs on ffmpeg's own filters until the author states a licence for the weights (see Pending review) |
 | LaMa | object eraser (inpainting) | Apache-2.0 | 🔍 check weights | 🔍 |
 | YuNet (OpenCV zoo) | face detection for face blur | 🔍 | 🔍 | 🔍 |
 | Face-restoration models (CodeFormer, GFPGAN-class) | "face-friendly" upscale | 🔍 | 🔍 — CodeFormer's licence is understood to be non-commercial; don't add any face model without a verified commercial licence | 🔍 |
@@ -88,7 +88,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 
 | Package | Use | License | Status |
 |---|---|---|---|
-| ffmpeg / ffprobe | server media processing | LGPL/GPL (Debian's package in the worker image: a GPL build, no nonfree) | ⚠️ server only, checked 2026-09-30 |
+| ffmpeg / ffprobe | server media processing; A10 Noise Reduction is its own filters (afftdn, bandreject, deesser, ebur128) | LGPL/GPL (Debian's package in the worker image: a GPL build, no nonfree) | ⚠️ server only, checked 2026-09-30 |
 | Noto fonts (fonts-noto-core) | the fonts Burn Subtitles draws text with: Noto Sans, Serif and Sans Mono (Latin, Cyrillic, Greek); Debian's package in the worker image | OFL-1.1 | ✅ checked 2026-10-01 |
 | librosa | analysis helpers | ISC | 🔍 |
 | pyloudnorm | loudness (reference/tests) | MIT | 🔍 |
@@ -156,4 +156,8 @@ Pinned by digest (`11-security.md`). Base images also contain Debian/Alpine pack
 
 ## Pending review
 
-(Empty. Add rows here instead of installing when unsure.)
+Rows here are not installed until the question is answered.
+
+| What | Question | Where it stands |
+|---|---|---|
+| DeepFilterNet3 weights (Rikorose/DeepFilterNet, `models/`) | Are the pretrained checkpoints under the repository's MIT / Apache-2.0 licence? | Asked upstream by others in issues #697 and #700, no answer as of 2026-10-02. Intel republished DeepFilterNet 2 and 3 on Hugging Face under MIT, but a republisher can't grant what the author didn't; not checked from here (Hugging Face is unreachable). If the author confirms, A10 swaps afftdn for the model (`docs/DECISIONS.md` → A10). |

@@ -72,6 +72,7 @@
 - M8: Social Media Image Resizer (beta). 14 sizes on Instagram, YouTube, TikTok, X, LinkedIn, Facebook and Pinterest, all from one image in one go. Each crop keeps the focal point you click in frame; or the whole image fits on a blurred copy of itself or a color. YouTube and X upload limits are kept by lowering the quality just enough. Each size is dated and reviewed every quarter (#56).
 - M8: Loudness Meter and Normalize Loudness (beta). Integrated, short-term and momentary LUFS, loudness range and 4× oversampled true peak to ITU-R BS.1770-4 and EBU R128. The meter shows a graph and pass or fail for YouTube, Spotify, Apple Music, podcasts, EBU R128 and US TV. The normaliser hits −14, −16, −23, −24 or any target with a −1 dBTP ceiling, adding a true-peak limiter only when the gain needs it, and measures the file it made. Our own implementation, checked against the EBU's test signals and pyloudnorm (#57).
 - M8: Fade In / Fade Out and Audio Channel Tools (beta). Fades with linear, exponential, logarithmic or S-curves, exact to their formulas. Channel tools: stereo to mono (mixed or one side), one side on both to fix a lav in one ear, swap, invert, split into two files, mono to stereo. A stereo file is checked on arrival for a silent side, dual-mono or an inverted side, and the fix is picked (#58).
+- M8: Noise Reduction (beta), on our servers: background noise, hiss and 50 or 60 Hz hum taken down by up to 12, 24 or 40 dB with ffmpeg's FFT noise filter set from the measured background (DeepFilterNet waits for a licence on its weights, see Parked for Astro), optional de-essing, exactly the same length, peaks under −1 dBTP. A free 10 s preview plays Original and Cleaned A/B; a video sends only its sound and gets it back in place.
 
 ## Next
 
@@ -81,6 +82,10 @@
 2. M6 sign-off once parts 1 to 4 merge.
 3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
 4. M5 (credits, payments, GPU tools) after Go public.
+
+## Parked for Astro
+
+- **DeepFilterNet for Noise Reduction (A10).** Its code is MIT / Apache-2.0, but nothing licenses the pretrained weights, and the author hasn't answered the two issues asking (#697, #700). A10 runs on ffmpeg's FFT filter until then. Options: (a) wait for the author, (b) take Intel's MIT republication on Hugging Face as enough, (c) stay on ffmpeg. **Recommended: (a), with (c) meanwhile.** It's a one-step swap in the worker when the answer comes; (b) rests on a third party's word.
 
 ## Blocked
 

@@ -9,11 +9,11 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { and, desc, eq, isNotNull, jobs, uploads, users } from '@etb/db';
-import { expect, test, type Page } from '@playwright/test';
+import { and, desc, eq, isNotNull, jobs, purchases, uploads, users } from '@etb/db';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { AwsClient } from 'aws4fetch';
 
-import { TEST_STORAGE } from '../scripts/server-env.ts';
+import { SERVER_PORT, TEST_STORAGE } from '../scripts/server-env.ts';
 import { closeTestDb, newEmail, signIn, testDb } from './helpers';
 
 const db = testDb();
@@ -188,4 +188,105 @@ test('a free 10 s preview plays A/B, then the whole file is cleaned on our serve
   for (const key of [snippetKey, resultKey]) {
     await storage.fetch(objectUrl(key), { method: 'DELETE' });
   }
+});
+
+/** A completed upload of a mono WAV this long, probed as the worker would. */
+async function wavUpload(owner: string, durationMs: number): Promise<string> {
+  const [row] = await db
+    .insert(uploads)
+    .values({
+      userId: owner,
+      storageKey: `in/${randomUUID()}`,
+      bytes: 96 * durationMs,
+      mimeClaimed: 'audio/wav',
+      toolId: 'remove-noise',
+      partSize: 8 * 1024 * 1024,
+      partCount: 1,
+      expiresAt: new Date(Date.now() + 3_600_000),
+      completedAt: new Date(),
+      probe: {
+        container: 'wav',
+        duration_ms: durationMs,
+        video: null,
+        audio: { codec: 'pcm_s16le', sample_rate: 48000, channels: 1, bit_rate: 768000 },
+      },
+      probedAt: new Date(),
+    })
+    .returning();
+  if (!row) throw new Error('upload not written');
+  return row.id;
+}
+
+function quote(request: APIRequestContext, uploadId: string, options: Record<string, unknown>) {
+  return request.post('/api/v1/jobs/quote', {
+    data: { tool_id: 'remove-noise', upload_id: uploadId, options },
+    headers: { Origin: `http://localhost:${String(SERVER_PORT)}` },
+  });
+}
+
+/** Jobs this account already ran today, as the worker would have left them. */
+async function ranToday(owner: string, n: number, values: Partial<typeof jobs.$inferInsert>) {
+  for (let i = 0; i < n; i += 1) {
+    await db.insert(jobs).values({
+      toolId: 'remove-noise',
+      userId: owner,
+      source: 'web',
+      status: 'succeeded',
+      ...values,
+    });
+  }
+}
+
+test('a preview costs no credits, is at most 10 s, and is counted', async ({ page }) => {
+  const email = newEmail();
+  await signIn(page, email);
+  const owner = await userId(email);
+  const preview = { preview: true };
+
+  const snippet = await wavUpload(owner, 10_200);
+  expect(await (await quote(page.request, snippet, preview)).json()).toMatchObject({
+    status: 'ready',
+    credits: 0,
+    funding: 'daily',
+    can_start: true,
+    free_jobs_left: 3,
+    options: { strength: 'medium', dehum: 'off', deess: false, format: 'keep', preview: true },
+  });
+  // The whole file is priced a minute at a time.
+  const whole = await wavUpload(owner, 90_000);
+  expect(await (await quote(page.request, whole, {})).json()).toMatchObject({ credits: 2 });
+  // A "preview" of the whole file is refused.
+  const tooLong = await quote(page.request, whole, preview);
+  expect(tooLong.status()).toBe(413);
+  expect(await tooLong.json()).toMatchObject({ code: 'FILE_TOO_LARGE', max_duration_sec: 10 });
+
+  // A never-paid account spends its daily jobs on previews (docs/05).
+  await ranToday(owner, 3, { funding: 'daily' });
+  expect(await (await quote(page.request, snippet, preview)).json()).toMatchObject({
+    credits: 0,
+    can_start: false,
+    blocked_by: 'QUOTA_EXCEEDED',
+  });
+
+  // Once paid: free previews, ten a day.
+  await db.insert(purchases).values({
+    userId: owner,
+    provider: 'test',
+    providerTxnId: `txn_${randomUUID()}`,
+    packId: 'starter',
+    credits: 200,
+    amountMinor: 500,
+    currency: 'USD',
+    status: 'completed',
+  });
+  expect(await (await quote(page.request, snippet, preview)).json()).toMatchObject({
+    credits: 0,
+    funding: 'none',
+    can_start: true,
+  });
+  await ranToday(owner, 10, { funding: 'none', options: { preview: true } });
+  expect(await (await quote(page.request, snippet, preview)).json()).toMatchObject({
+    can_start: false,
+    blocked_by: 'QUOTA_EXCEEDED',
+  });
 });
