@@ -1315,3 +1315,13 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
 **Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
+
+## 2026-10-02 · Tests read video results back with WebCodecs
+
+**Decision:**
+- **Browser tests decode a result's frames with WebCodecs in the page** (`framePixels` and `frameBands` in `apps/web/e2e/fixtures.ts`). They take the packets and decoder config from Node (`videoFrameSource` in `@etb/engines`). They no longer play the file in a `<video>` element.
+- **Why the old way failed:** Playwright's Linux WebKit plays media through GStreamer, unlike Safari. It crashed or errored on every result played back that way, while the tools themselves worked. Frames are drawn as they're decoded and closed at once.
+- **What it uncovered:** once WebKit's results could be read, Resize Video's Fill crop turned out wrong there. WebKit ignores the source rectangle when drawing a VideoFrame, so every crop was the whole picture squeezed into the size. Each frame is now drawn whole on a canvas and the window cut from that canvas.
+
+**Why:** a test that crashes the browser it checks says nothing about the tool, and the crop bug would have shipped to Safari.
+**Reverse:** the helpers are test-only; `cropper()` in `reframe.ts` can go back to Mediabunny's `crop` once WebKit honours the source rectangle for VideoFrames.
