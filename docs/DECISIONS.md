@@ -786,6 +786,8 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 ## 2026-10-01 · VFR to CFR, server-only tools, the admin's Jobs page and job stats (M4)
 
+_Server-only tools staying `soon`: superseded for CPU tools by "CPU server tools ship `beta`; GPU tools wait for an admin" below._
+
 **Decision:**
 - **Server-only tools stay `soon` in the registry; an admin switches each one on** (Admin → Tools → status `beta` or `live`) in the server build, the way a hybrid tool's server path is switched on. The static export has no API, so it never offers a server path, and its pages for these tools stay "coming soon".
 - **The ToolShell runs server-only tools:** a tool view with no browser engine gets the server offer as soon as a file is in, with the tool's own reason ("Precise frame timing needs ffmpeg"), and no browser button.
@@ -1188,11 +1190,11 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 **Why:** `docs/05` and the 2026-09-30 decision ("Free previews (Wave 2) will count as daily jobs too") settle never-paid accounts; nothing settled paid ones, and an uncapped free preview would let anyone clean a long file 10 s at a time.
 **Reverse:** `funding()` in `apps/web/src/server/jobs.ts` (the `preview` branch) and `freeAllowance.paidDailyPreviews` in `config/business.ts`.
 
-## 2026-10-02 · A10 is `beta` in the registry, and a server-only tool without a server says so
+## 2026-10-02 · CPU server tools ship `beta`; GPU tools wait for an admin
 
-**Decision:** `remove-noise` is `beta` in code, unlike VFR to CFR and Burn Subtitles, which stay `soon` until an admin switches them on (2026-10-01). Production is now the server build, so a merge puts it on the private live site without a step in Admin. On a copy with no server path (the static export), the page loads and reads the file, and the run button is held with "This tool runs on our servers, and this copy of the site doesn’t connect to them." instead of doing nothing.
-**Why:** the A10 brief asks for `beta`; the static export isn't deployed while the site is private (2026-10-01 → Cloudflare Pages not used), and the held button keeps it honest there.
-**Reverse:** set `status: 'soon'` in `packages/registry/src/tools/audio/remove-noise.ts`; the admin can then switch it on like the others.
+**Decision:** Server-only tools whose backend is the worker are `beta` in code: Noise Reduction (A10), VFR to CFR (V15) and Burn Subtitles (V16). The worker deploys with every merge, so a merge puts them on the private live site without a step in Admin. GPU tools stay `soon` until an admin switches each on, once Modal runs it (2026-10-02, GPU tools on Modal). On a copy of the site with no server path (the static export), a server-only tool's page loads and reads the file, and the run button is held with "This tool runs on our servers, and this copy of the site doesn’t connect to them." instead of doing nothing. This replaces the 2026-10-01 rule that every server-only tool stays `soon`. Compress Video's server path (a hybrid tool's) is unchanged: off until an admin switches it on, because browser first.
+**Why:** production is now the server build (2026-10-01, Hosting), and the static export isn't deployed while the site is private, so `soon` only added a manual step for tools that already work. A GPU tool needs Modal's tokens and its own check, so its switch stays with the admin.
+**Reverse:** set `status: 'soon'` in a tool's file under `packages/registry/src/tools/`; the admin can then switch it on in Admin → Tools as before.
 
 ## 2026-10-02 · A10 with a video: only the sound travels, as FLAC, and goes back sample for sample
 
