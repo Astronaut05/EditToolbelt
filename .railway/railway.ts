@@ -89,14 +89,19 @@ export default defineRailway((ctx) => {
     deploy: { restartPolicyType: 'ALWAYS', drainingSeconds: 60 },
     env: {
       ...common,
-      // Two jobs at once. Each needs at most 10 GiB in and its output on the
+      // Two CPU jobs at once. Each needs at most 10 GiB in and its output on the
       // container's own disk (100 GB on Railway's paid plans): no volume.
       WORKER_SLOTS: '2',
+      // GPU jobs run in slots of their own (each only waits on Modal); the daily GPU
+      // budget and each tool's maxConcurrent cap them further.
+      WORKER_GPU_SLOTS: '2',
       // Alerts: Telegram first, email to ALERT_EMAIL as the backup (docs/07).
       ALERT_EMAIL: shared('ALERT_EMAIL'),
       TELEGRAM_BOT_TOKEN: shared('TELEGRAM_BOT_TOKEN'),
       TELEGRAM_CHAT_ID: shared('TELEGRAM_CHAT_ID'),
-      // GPU jobs on Modal (ServerlessGpu).
+      // GPU jobs on Modal (ServerlessGpu). Without the token the worker runs
+      // with its GPU tools off; each GPU tool also waits for an admin to switch it on.
+      GPU_BACKEND: 'modal',
       MODAL_TOKEN_ID: shared('MODAL_TOKEN_ID'),
       MODAL_TOKEN_SECRET: shared('MODAL_TOKEN_SECRET'),
     },

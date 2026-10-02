@@ -1,0 +1,50 @@
+{
+  "$comment": "Model weights for the GPU images, pinned by SHA-256 (docs/13-licenses.md -> Models). Modal downloads each group while it builds that function's image and fails the build on any mismatch (weights.py). Only approved models belong here. `hashFrom` says where the hash was read; the image build is what proves it.",
+  "files": {
+    "RealESRGAN_x4plus.pth": {
+      "group": "upscale",
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+      "sha256": "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1",
+      "bytes": 67040989,
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "hashFrom": "the same file's SHA-256 as Hugging Face lists it for several copies (e.g. lllyasviel/Annotators); its size from GitHub's release API"
+    },
+    "RealESRGAN_x4plus_anime_6B.pth": {
+      "group": "upscale",
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+      "sha256": "f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f155e99da",
+      "bytes": null,
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "hashFrom": "the same file's SHA-256 as Hugging Face lists it for several copies (e.g. nateraw/real-esrgan)"
+    },
+    "realesr-general-x4v3.pth": {
+      "group": "upscale",
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+      "sha256": "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292",
+      "bytes": null,
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "hashFrom": "the same file's SHA-256 as Hugging Face lists it for several copies"
+    },
+    "realesr-general-wdn-x4v3.pth": {
+      "group": "upscale",
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth",
+      "sha256": "1641f8c4464b9f097c9fdda5589273713f67cf59f3d909e0bd688f0cee269dca",
+      "bytes": null,
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "hashFrom": "the same file's SHA-256 as Hugging Face lists it for a copy (cgfgui/upscale)"
+    },
+    "large-v3.pt": {
+      "group": "whisper",
+      "url": "https://openaipublic.azureedge.net/main/whisper/models/e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb/large-v3.pt",
+      "sha256": "e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb",
+      "bytes": null,
+      "license": "MIT",
+      "source": "https://github.com/openai/whisper/blob/main/README.md",
+      "hashFrom": "openai-whisper 20250625 (whisper/__init__.py): OpenAI's download path is the file's SHA-256"
+    }
+  }
+}

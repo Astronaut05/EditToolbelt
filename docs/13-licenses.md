@@ -42,7 +42,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Umami (self-hosted) | cookieless analytics | MIT | 🔍 |
 | Sentry SDKs / GlitchTip | error tracking | MIT / MIT | 🔍 |
 | Paddle.js | checkout | vendor terms | ⚠️ checkout route only |
-| Pillow | server image probe/ops | HPND (MIT-style) | ✅ |
+| Pillow | server image probe/ops; reads and writes images in the Upscale Image GPU image | HPND (MIT-style) | ✅ 12.3.0 in the GPU image, checked 2026-10-02 |
 
 ## Browser processing
 
@@ -68,16 +68,18 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 
 ## Models
 
+**The rule (2026-10-02, `DECISIONS.md`):** a model's own weights licence decides. It must be an explicitly commercial-use licence, stated by whoever publishes the weights (CLAUDE.md rule 6: no non-commercial weights; unclear means no). Training-data provenance does not decide: what each model was trained on is recorded in its row, and research-only or scraped training data is a known risk, not a blocker. Candidates (🔍) get their training data recorded when they're checked.
+
 | Model | Use | Code license | Weights license | Status |
 |---|---|---|---|---|
-| BiRefNet (general / lite / HR / dynamic / portrait) | background removal | MIT | MIT | ✅ checked 2026-09-29 — primary candidate. Browser: `onnx-community/BiRefNet_lite-ONNX` is 224 MB fp32 / **115 MB fp16** — fits the 120 MB budget in `10` (fp16, WebGPU only). Server: BiRefNet general (1024) or HR (2048) |
+| BiRefNet (general / lite / HR / dynamic / portrait) | background removal | MIT | MIT | ✅ checked 2026-09-29 — primary candidate. Browser: `onnx-community/BiRefNet_lite-ONNX` is 224 MB fp32 / **115 MB fp16** — fits the 120 MB budget in `10` (fp16, WebGPU only). Server: BiRefNet general (1024) or HR (2048). Training data (README's model table): DIS5K-TR and DIS-TEs, DUTS, HRSOD, UHRSD, HRS10K, P3M-10k and a humans set for the general and lite weights; academic datasets, a known risk only |
 | BEN2 base (PramaLLC) | background removal | MIT | MIT (base model only — their "full" model is a paid API) | 🔍 — server candidate, 94.6 M params |
 | InSPyReNet (`transparent-background`) | background removal | MIT | 🔍 — the MIT LICENSE covers the code; the checkpoint licence isn't stated there | 🔍 — only after the weights licence is confirmed |
 | ISNet (DIS) general-use | background removal | Apache-2.0 | Apache-2.0 | 🔍 — candidate |
-| U²-Net / u2netp | background removal, Light mode (P07) | Apache-2.0 | Apache-2.0 | ✅ checked 2026-09-30: the weights are published in the authors' repo (xuebinqin/U-2-Net) under its Apache-2.0 licence; the ONNX export is the one `rembg` (MIT) ships as a release asset, pinned by SHA-256 in `packages/engines/src/image/rmbg/models.ts`. 4.6 MB, WASM |
-| Real-ESRGAN | image/video upscale | BSD-3-Clause | BSD-3-Clause | 🔍 |
-| Demucs (htdemucs) | stem separation | MIT | MIT | 🔍 |
-| Whisper / faster-whisper | transcription, auto subtitles | MIT | MIT | 🔍 |
+| U²-Net / u2netp | background removal, Light mode (P07) | Apache-2.0 | Apache-2.0 | ✅ checked 2026-09-30: the weights are published in the authors' repo (xuebinqin/U-2-Net) under its Apache-2.0 licence; the ONNX export is the one `rembg` (MIT) ships as a release asset, pinned by SHA-256 in `packages/engines/src/image/rmbg/models.ts`. 4.6 MB, WASM. Training data: DUTS-TR (the README; a saliency dataset for research), a known risk only |
+| Real-ESRGAN | image upscale (P08), on our GPU servers only | BSD-3-Clause | BSD-3-Clause | ✅ checked 2026-10-02 from [the LICENSE](https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE) ("Copyright (c) 2021, Xintao Wang") and the README. The weights we use are the repository's own release assets, published by the author with the code (`RealESRGAN_x4plus.pth` v0.1.0, `RealESRGAN_x4plus_anime_6B.pth` v0.2.2.4, `realesr-general-x4v3.pth` and `realesr-general-wdn-x4v3.pth` v0.2.5.0); no separate weights licence and no use restriction is stated anywhere, so the repository's BSD-3-Clause covers them (the same reading as U²-Net). Each file is pinned by SHA-256 in `apps/worker/src/etb_worker/gpu/pins.json` and checked when Modal builds the image. No face-restoration model (GFPGAN) is used. Training data: DF2K (DIV2K and Flickr2K) and OST for `RealESRGAN_x4plus` (`docs/Training.md`; academic datasets, Flickr2K of Flickr photos); not stated for `anime_6B` or `general-x4v3`. A known risk only: the weights' own licence decides |
+| Demucs (htdemucs) | stem separation (A09) | MIT | 🔍 unclear | 🔍 checked 2026-10-02, **not used**: the code is MIT ([LICENSE](https://github.com/facebookresearch/demucs/blob/main/LICENSE), Meta; archived 2025-01-01, maintained fork adefossez/demucs), but the weights live outside the repository (dl.fbaipublicfiles.com), neither README nor LICENSE states their licence, and htdemucs was trained on MUSDB18-HQ (research use) plus 800 in-house songs. Under the 2026-10-02 rule the training data is a known risk only; what keeps A09 `soon` is the weights' own licence, until the author (Alexandre Défossez, or Meta) confirms it. Parked for Astro in `STATUS.md` |
+| Whisper / faster-whisper | transcription (A12), auto subtitles (V17), on our GPU servers only | MIT | MIT | ✅ checked 2026-10-02: the [README](https://github.com/openai/whisper/blob/main/README.md) says "Whisper's code and model weights are released under the MIT License" ([LICENSE](https://github.com/openai/whisper/blob/main/LICENSE), Copyright (c) 2022 OpenAI). We run OpenAI's own `openai-whisper` 20250625 with `large-v3`, downloaded from OpenAI's URL whose path is the file's SHA-256 (the package pins it; so does `pins.json`). faster-whisper (code MIT, SYSTRAN) and its CTranslate2 conversions (model cards say MIT) are not used: huggingface.co can't be reached from the build environment to pin them. Training data: audio and transcripts collected from the internet, 680,000 hours for the original models (OpenAI's [model card](https://github.com/openai/whisper/blob/main/model-card.md)); for large-v3, OpenAI's release notes give about 1 million hours weakly labelled plus 4 million hours labelled by large-v2 (not re-read here: those pages aren't reachable from this environment). A known risk only |
 | DeepFilterNet | noise reduction | MIT / Apache-2.0 | same | 🔍 |
 | LaMa | object eraser (inpainting) | Apache-2.0 | 🔍 check weights | 🔍 |
 | YuNet (OpenCV zoo) | face detection for face blur | 🔍 | 🔍 | 🔍 |
@@ -97,6 +99,21 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Pydantic, pydantic-settings | worker env and job payload validation (the Python side of the Zod rule) | MIT | ✅ 2.13.5 / 2.15.0, checked 2026-09-29 |
 | psycopg 3 (`psycopg[binary]`) | Postgres driver for the worker | LGPL-3.0-only | ⚠️ server only (not distributed), used unmodified; 3.3.6 checked 2026-09-29 |
 | boto3 | S3/R2 client for the worker | Apache-2.0 | ✅ 1.43.103, checked 2026-09-29 |
+
+## GPU images (Modal, server only)
+
+Installed only inside the images Modal builds for our GPU functions (`apps/worker/src/etb_worker/gpu/modal_app.py`), at the pinned versions below; never in the worker's own environment or the browser. The full set, dependencies included, is in `gpu/requirements-upscale.txt` and `gpu/requirements-whisper.txt`, every package pinned by version and hash (compiled from the `.in` files beside them) and installed with `--require-hashes`; CI's pip-audit reads both. Their own dependencies are permissive unless listed here; `certifi` and `tqdm` are MPL-2.0 (allowed), used unmodified. The base image is `python:3.12.14-slim-bookworm`, pinned by digest (Container images).
+
+| Package | Use | License | Status |
+|---|---|---|---|
+| PyTorch (`torch`, `torchvision`) | runs the models on the GPU (the last release whose PyPI wheels use CUDA 12.8) | BSD-3-Clause | ✅ 2.10.0 / 0.25.0, checked 2026-10-02 |
+| NVIDIA CUDA runtime wheels (`nvidia-*-cu12`, `cuda-bindings`) | CUDA, cuDNN and cuBLAS libraries that PyTorch's wheels pull in | NVIDIA proprietary (CUDA EULA: the runtime libraries may be used and redistributed with an application) | ⚠️ server only, inside the Modal images, never distributed; checked 2026-10-02 |
+| openai-whisper | Whisper's reference implementation (A12, V17) | MIT | ✅ 20250625, checked 2026-10-02 |
+| numba | Whisper's word timing (dynamic time warping) | BSD-2-Clause | ✅ 0.68.0, checked 2026-10-02 |
+| spandrel | loads the Real-ESRGAN networks (RRDBNet, SRVGGNetCompact) from their weights, without basicsr | MIT | ✅ 0.4.2, checked 2026-10-02 |
+| NumPy | arrays | BSD-3-Clause | ✅ 2.3.5, checked 2026-10-02 |
+| ffmpeg (Debian's package, in the Whisper image) | Whisper decodes audio with it | LGPL/GPL (no nonfree) | ⚠️ server only, checked 2026-10-02 |
+| gcc and libc6-dev (Debian's packages, in the Whisper image) | Triton compiles the launcher of Whisper's word-timing kernels with them at run time (Modal's `debian_slim` had them; the pinned base doesn't) | GPL-3.0-or-later with the GCC Runtime Library Exception; LGPL-2.1 | ⚠️ server only, nothing we distribute is compiled with them; checked 2026-10-02 |
 
 ## Development, build and CI (never shipped)
 
@@ -139,7 +156,7 @@ Pinned by digest (`11-security.md`). Base images also contain Debian/Alpine pack
 | Versity S3 Gateway (`versity/versitygw` image) | S3-compatible storage standing in for R2 locally (replaces MinIO, see Banned) | Apache-2.0 | ✅ v1.8.0, checked 2026-09-29 |
 | Mailpit (`axllent/mailpit` image) | catches the local stack's sign-in emails in a web inbox (local only) | MIT | ✅ v1.31.3, checked 2026-09-30 |
 | Node.js (`node` image) | base of the web dev container | MIT | ✅ 24-bookworm-slim, checked 2026-09-29 |
-| Python (`python` image) | base of the worker image | PSF-2.0 | ✅ 3.12-slim-trixie, checked 2026-09-29 |
+| Python (`python` image) | base of the worker image; as 3.12.14-slim-bookworm (what Modal's `debian_slim` builds on), base of the Modal GPU images | PSF-2.0 | ✅ 3.12-slim-trixie, checked 2026-09-29; 3.12.14-slim-bookworm, checked 2026-10-02 |
 
 ## Banned (don't use, with reason)
 

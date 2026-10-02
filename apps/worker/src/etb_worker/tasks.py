@@ -165,6 +165,14 @@ def digest_stats(conn: Conn, day: date) -> dict[str, Any]:
         "select count(*)::int as n from alerts where created_at >= %s and created_at < %s", span
     ).fetchone() or {"n": 0}
     checks = conn.execute("select name from system_checks where not ok order by name").fetchall()
+    gpu = conn.execute(
+        """
+        select coalesce(sum(gpu_seconds), 0)::float8 as seconds,
+               coalesce(sum(gpu_cost_usd), 0)::float8 as usd
+        from jobs where started_at >= %s and started_at < %s and gpu_rate_usd is not null
+        """,
+        span,
+    ).fetchone() or {"seconds": 0.0, "usd": 0.0}
     return {
         "day": day.isoformat(),
         "jobs": jobs["finished"],
@@ -176,6 +184,8 @@ def digest_stats(conn: Conn, day: date) -> dict[str, Any]:
         "new_users": users["n"],
         "alerts": alerts["n"],
         "failing_checks": [row["name"] for row in checks],
+        "gpu_seconds": float(gpu["seconds"]),
+        "gpu_usd": float(gpu["usd"]),
     }
 
 
@@ -195,6 +205,7 @@ def format_digest(stats: dict[str, Any]) -> str:
         f"Top tools: {listing(stats['top_tools'])}",
         f"Top failing tools: {listing(stats['top_failing'])}",
         f"Revenue: {revenue or 'none'} ({stats['credits_sold']} credits sold)",
+        f"GPU: {stats.get('gpu_seconds', 0):.0f} s, ${stats.get('gpu_usd', 0):.2f}",
         f"New users: {stats['new_users']}",
         f"Alerts: {stats['alerts']}",
         f"Failing checks: {', '.join(stats['failing_checks']) or 'none'}",
@@ -238,14 +249,16 @@ def tool_stats(conn: Conn, ctx: TaskContext) -> None:
         """
         insert into tool_stats_daily
           (day, tool_id, runtime, jobs_total, jobs_failed, p50_ms, p95_ms,
-           gpu_seconds, credits_charged)
+           gpu_seconds, gpu_cost_usd, credits_charged)
         select %(day)s, tool_id,
-               (case when coalesce(gpu_seconds, 0) > 0 then 'server-gpu' else 'server-cpu' end)
+               (case when coalesce(gpu_seconds, 0) > 0 or gpu_rate_usd is not null
+                     then 'server-gpu' else 'server-cpu' end)
                  ::tool_runtime,
                count(*), count(*) filter (where status in ('failed', 'expired')),
                percentile_cont(0.5) within group (order by run_ms)::int,
                percentile_cont(0.95) within group (order by run_ms)::int,
-               coalesce(sum(gpu_seconds), 0), coalesce(sum(credits_charged), 0)
+               coalesce(sum(gpu_seconds), 0), coalesce(sum(gpu_cost_usd), 0),
+               coalesce(sum(credits_charged), 0)
         from (
           select *, extract(epoch from finished_at - started_at) * 1000 as run_ms
           from jobs
@@ -256,7 +269,8 @@ def tool_stats(conn: Conn, ctx: TaskContext) -> None:
         on conflict (day, tool_id, runtime) do update set
           jobs_total = excluded.jobs_total, jobs_failed = excluded.jobs_failed,
           p50_ms = excluded.p50_ms, p95_ms = excluded.p95_ms,
-          gpu_seconds = excluded.gpu_seconds, credits_charged = excluded.credits_charged
+          gpu_seconds = excluded.gpu_seconds, gpu_cost_usd = excluded.gpu_cost_usd,
+          credits_charged = excluded.credits_charged
         returning tool_id
         """,
         {"day": day, "start": start, "end": end},

@@ -141,3 +141,27 @@ def test_reads_subtitle_files_and_refuses_impostors(
     # A video sent as subtitles, or subtitles as a video, is refused.
     with pytest.raises(ProbeRefused):
         summarize(probe_json(path), "video/mp4")
+
+
+def test_reads_still_images_for_upscaling_and_audio_for_transcription(
+    media: dict[str, Any], tmp_path: Path
+) -> None:
+    from etb_worker.gpu.check import tiny_png, tiny_wav  # noqa: PLC0415 - test inputs
+
+    png = tmp_path / "input"
+    png.write_bytes(tiny_png(40, 30))
+    record = summarize(probe_json(png), "image/png")
+    assert (record["video"]["width"], record["video"]["height"]) == (40, 30)
+    assert record["audio"] is None
+    # A PNG claimed as a JPEG, or as a video, is refused.
+    for mime in ("image/jpeg", "video/mp4"):
+        with pytest.raises(ProbeRefused):
+            summarize(probe_json(png), mime)
+    wav = tmp_path / "sound"
+    wav.write_bytes(tiny_wav(1.5))
+    record = summarize(probe_json(wav), "audio/wav")
+    assert record["video"] is None
+    assert record["audio"]["sample_rate"] == 16000
+    assert 1400 <= record["duration_ms"] <= 1600
+    with pytest.raises(ProbeRefused):
+        summarize(probe_json(wav), "image/png")
