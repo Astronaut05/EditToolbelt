@@ -32,6 +32,9 @@ OPTIONAL_ENV = (
     "MAIL_FROM",
     "ALERT_EMAIL",
     "WORKER_SLOTS",
+    "GPU_BACKEND",
+    "MODAL_TOKEN_ID",
+    "MODAL_TOKEN_SECRET",
 )
 
 

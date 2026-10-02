@@ -81,7 +81,16 @@ export const jobs = pgTable(
     /** From the registry: at most this many of the tool's jobs run at once (docs/01 → Queue). */
     maxConcurrent: smallint('max_concurrent'),
     workerId: text('worker_id'),
+    /** GPU seconds of the job's GPU calls, measured inside the function (docs/01 → GPU backend). */
     gpuSeconds: numeric('gpu_seconds'),
+    /**
+     * USD a second of this tool's GPU function costs (GPU, CPU and memory),
+     * from config/business.ts when the job is created; null for CPU jobs.
+     * The worker prices the job's GPU time with it.
+     */
+    gpuRateUsd: numeric('gpu_rate_usd'),
+    /** What the job's GPU calls cost, idle window included (docs/05 → GPU costs). */
+    gpuCostUsd: numeric('gpu_cost_usd'),
     cpuSeconds: numeric('cpu_seconds'),
     heartbeatAt: tstz('heartbeat_at'),
     queuedAt: tstz('queued_at').notNull().defaultNow(),

@@ -114,3 +114,45 @@ def test_alert_email_needs_smtp(clean_env: pytest.MonkeyPatch) -> None:
         )
         == []
     )
+
+
+def _base(env: pytest.MonkeyPatch) -> None:
+    for name, value in VALID_ENV.items():
+        env.setenv(name, value)
+
+
+def test_gpu_tools_are_off_by_default(clean_env: pytest.MonkeyPatch) -> None:
+    _base(clean_env)
+    settings = Settings()
+    assert settings.gpu_backend is None
+    assert settings.modal_token_id is None
+
+
+def test_modal_needs_its_token(clean_env: pytest.MonkeyPatch) -> None:
+    _base(clean_env)
+    clean_env.setenv("GPU_BACKEND", "modal")
+    with pytest.raises(ValidationError) as caught:
+        Settings()
+    assert format_errors(caught.value) == [
+        "GPU_BACKEND=modal: needs MODAL_TOKEN_ID and MODAL_TOKEN_SECRET"
+    ]
+    clean_env.setenv("MODAL_TOKEN_ID", "ak-test")
+    with pytest.raises(ValidationError):
+        Settings()  # half a token
+    clean_env.setenv("MODAL_TOKEN_SECRET", "as-test-secret")
+    settings = Settings()
+    assert settings.gpu_backend == "modal"
+    assert "as-test-secret" not in repr(settings)
+
+
+def test_local_gpu_is_refused_in_production(clean_env: pytest.MonkeyPatch) -> None:
+    _base(clean_env)
+    clean_env.setenv("GPU_BACKEND", "local")
+    assert Settings().gpu_backend == "local"
+    clean_env.setenv("APP_ENV", "production")
+    with pytest.raises(ValidationError):
+        Settings()
+    clean_env.setenv("GPU_BACKEND", "cuda")
+    clean_env.setenv("APP_ENV", "local")
+    with pytest.raises(ValidationError):
+        Settings()

@@ -25,6 +25,7 @@ from etb_worker import jobqueue
 from etb_worker.alerts import DATABASE_RULES, Alert, disk_space, raise_alert
 from etb_worker.clock import is_daily_due
 from etb_worker.db import Conn, connect
+from etb_worker.gpu.budget import budget_alerts
 from etb_worker.logs import get_logger
 from etb_worker.notify import Notifier
 from etb_worker.retention import SWEEP_EVERY, sweep
@@ -157,7 +158,7 @@ class Scheduler:
     def check_alerts(self, conn: Conn) -> None:
         log = get_logger()
         found: list[Alert] = []
-        for name, rule in DATABASE_RULES:
+        for name, rule in (*DATABASE_RULES, ("gpu_budget", budget_alerts)):
             try:
                 found += rule(conn)
             except psycopg.Error as error:

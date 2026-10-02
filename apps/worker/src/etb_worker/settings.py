@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # Jobs this worker runs at once, one tool process each (docs/01 -> Workers).
     worker_slots: int = Field(default=1, ge=1, le=32)
 
+    # The GPU tools' backend (docs/01 -> GPU backend): `modal` runs them on
+    # Modal (ServerlessGpu) with MODAL_TOKEN_ID and MODAL_TOKEN_SECRET, which the
+    # Modal client reads from the environment itself; `local` is the dev-only
+    # LocalGpu; unset, the GPU tools are off on this worker.
+    gpu_backend: Literal["modal", "local"] | None = None
+    modal_token_id: SecretStr | None = None
+    modal_token_secret: SecretStr | None = None
+
     # Alerts and the daily digest (docs/07 -> Alerts): Telegram first, email as
     # backup. Both optional; with neither, alerts are only logged and listed in
     # the admin's System page.
@@ -84,6 +92,19 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if self.alert_email and not (self.smtp_url and self.mail_from):
             msg = "ALERT_EMAIL: needs SMTP_URL and MAIL_FROM to send"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _gpu_backend_complete(self) -> Settings:
+        if (self.modal_token_id is None) != (self.modal_token_secret is None):
+            msg = "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET: set both, or neither"
+            raise ValueError(msg)
+        if self.gpu_backend == "modal" and self.modal_token_id is None:
+            msg = "GPU_BACKEND=modal: needs MODAL_TOKEN_ID and MODAL_TOKEN_SECRET"
+            raise ValueError(msg)
+        if self.gpu_backend == "local" and self.app_env == "production":
+            msg = "GPU_BACKEND=local: LocalGpu is for development only"
             raise ValueError(msg)
         return self
 

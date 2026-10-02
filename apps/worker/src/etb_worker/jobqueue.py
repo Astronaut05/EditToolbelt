@@ -29,14 +29,20 @@ QUEUE_EXPIRY = timedelta(minutes=15)
 Job = dict[str, Any]
 
 
-def claim(conn: Conn, worker_id: str) -> Job | None:
-    """Takes the next job off the queue, or None."""
+def claim(conn: Conn, worker_id: str, *, gpu: bool = True) -> Job | None:
+    """Takes the next job off the queue, or None.
+
+    ``gpu=False`` leaves GPU jobs (those with a GPU rate) waiting: today's GPU
+    budget is spent (gpu/budget.py). If they wait 15 minutes they expire and
+    their credits come back.
+    """
     with conn.transaction():
         return conn.execute(
             """
             with next as (
               select j.id from jobs j
               where j.status = 'queued'
+                and (%s or j.gpu_rate_usd is null)
                 and (j.max_concurrent is null or (
                   select count(*) from jobs r
                   where r.status = 'running' and r.tool_id = j.tool_id
@@ -53,7 +59,7 @@ def claim(conn: Conn, worker_id: str) -> Job | None:
             where jobs.id = next.id
             returning jobs.*
             """,
-            (worker_id,),
+            (gpu, worker_id),
         ).fetchone()
 
 
@@ -68,6 +74,35 @@ def heartbeat(conn: Conn, job_id: str, worker_id: str, progress: int, stage: str
         (max(0, min(100, progress)), stage[:40], job_id, worker_id),
     ).fetchone()
     return row is not None
+
+
+def record_gpu(conn: Conn, job_id: str, gpu_seconds: float, billed_seconds: float) -> None:
+    """Adds a GPU call's time to the job, and its cost at the rate the job was created with.
+
+    Whatever became of the job (a cancelled call still ran): this is what the
+    daily budget and the admin's costs add up.
+    """
+    conn.execute(
+        """
+        update jobs
+        set gpu_seconds = coalesce(gpu_seconds, 0) + %s,
+            gpu_cost_usd = coalesce(gpu_cost_usd, 0) + %s * coalesce(gpu_rate_usd, 0),
+            updated_at = now()
+        where id = %s
+        """,
+        (round(gpu_seconds, 3), round(billed_seconds, 3), job_id),
+    )
+
+
+def reserve_output(conn: Conn, job_id: str, worker_id: str, key: str) -> None:
+    """Records the key a GPU function is about to write, so it's found if this worker dies."""
+    conn.execute(
+        """
+        update jobs set output_key = %s, updated_at = now()
+        where id = %s and worker_id = %s and status = 'running'
+        """,
+        (key, job_id, worker_id),
+    )
 
 
 def succeed(
