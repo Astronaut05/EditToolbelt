@@ -28,6 +28,17 @@ describe('shutter angle and speed', () => {
     expect(parseSpeed('1s')).toBe(1);
     expect(parseSpeed('2 s')).toBe(2);
     expect(parseSpeed('1/2 s')).toBe(0.5);
+    // Any unit means seconds: "sec", and the double prime cameras show for long exposures.
+    expect(parseSpeed('2 sec')).toBe(2);
+    expect(parseSpeed('2sec')).toBe(2);
+    expect(parseSpeed('2"')).toBe(2);
+    expect(parseSpeed('1.5"')).toBe(1.5);
+    expect(parseSpeed(' 30 S ')).toBe(30);
+    expect(parseSpeed('1/2 sec')).toBe(0.5);
+    // Without one, a number over 1 is still the camera's denominator.
+    expect(parseSpeed('2')).toBe(0.5);
+    expect(parseSpeed('s')).toBeNaN();
+    expect(parseSpeed('"')).toBeNaN();
     expect(parseSpeed('')).toBeNaN();
     expect(parseSpeed('fast')).toBeNaN();
     expect(parseSpeed('1/0')).toBeNaN();

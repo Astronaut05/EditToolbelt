@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { probeMedia, videoPackets } from '@etb/engines';
+import { probeMedia, videoFrameSource, videoPackets } from '@etb/engines';
 import type { Page } from '@playwright/test';
 
 import { choose, cspViolations, expect, framePixels, test } from './fixtures';
@@ -11,18 +11,22 @@ import { choose, cspViolations, expect, framePixels, test } from './fixtures';
 // The clip: 4 s of VP9 + Opus at 30 fps, 120 frames.
 
 const MKV = fileURLToPath(new URL('../../../fixtures/video/clip-vp9-opus.mkv', import.meta.url));
+/** 2 s at 255 × 143 px, 60 frames on an irregular clock (fixtures/video/README.md). */
+const VFR = fileURLToPath(new URL('../../../fixtures/video/clip-vfr-odd.mkv', import.meta.url));
 const FPS = 30;
 const FRAMES = 120;
 
-async function drop(page: Page) {
+async function drop(page: Page, file = MKV, size = /256 × 144/) {
   await page.goto('/loop-video');
-  await page.locator('input[type=file][data-hydrated]').first().setInputFiles(MKV);
-  await expect(
-    page
-      .getByText(/256 × 144/)
-      .filter({ visible: true })
-      .first(),
-  ).toBeVisible();
+  await page.locator('input[type=file][data-hydrated]').first().setInputFiles(file);
+  await expect(page.getByText(size).filter({ visible: true }).first()).toBeVisible();
+}
+
+/** The time between each frame and the next, in the order shown (the packets, read in Node). */
+async function gaps(bytes: Buffer<ArrayBuffer>): Promise<number[]> {
+  const source = await videoFrameSource(new Blob([bytes]), 0, 3600);
+  const times = (source?.packets ?? []).map((p) => p.timestamp).sort((a, b) => a - b);
+  return times.slice(1).map((t, i) => t - (times[i] ?? 0));
 }
 
 /** Sets a number setting: in place on desktop, in its settings sheet on phones. */
@@ -145,4 +149,35 @@ test('a boomerang plays forwards, then back without repeating the turns', async 
   await expect(
     page.getByText('Sound forwards, then backwards, with the picture').filter({ visible: true }),
   ).toBeVisible();
+});
+
+test('a variable frame rate is kept, copied or encoded again, and an odd size is made even', async ({
+  page,
+  isMobile,
+}) => {
+  test.setTimeout(180_000);
+  const source = await gaps(readFileSync(VFR));
+  const n = source.length + 1;
+  // Copied 3 times: each copy's frames at their own times, not snapped to a 30 fps grid.
+  await drop(page, VFR, /255 × 143/);
+  const copied = await gaps((await run(page)).bytes);
+  expect(copied).toHaveLength(3 * n - 1);
+  for (let copy = 0; copy < 3; copy += 1) {
+    source.forEach((gap, i) => {
+      expect(
+        Math.abs((copied[copy * n + i] ?? 0) - gap),
+        `copy ${String(copy)}, gap ${String(i)}`,
+      ).toBeLessThan(0.0015);
+    });
+  }
+  // A boomerang is encoded again: an even size, and the frames forwards keep their times.
+  await drop(page, VFR, /255 × 143/);
+  await choose(page, isMobile, 'Boomerang', 'Forwards, then back');
+  const out = await run(page);
+  const info = await probeMedia(new Blob([out.bytes]));
+  expect([info.video?.width, info.video?.height]).toEqual([256, 144]);
+  const boomerang = await gaps(out.bytes);
+  source.forEach((gap, i) => {
+    expect(Math.abs((boomerang[i] ?? 0) - gap), `gap ${String(i)}`).toBeLessThan(0.0015);
+  });
 });
