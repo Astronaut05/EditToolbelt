@@ -46,6 +46,7 @@ Everything else the services read is set in `.railway/railway.ts` itself (no sec
 | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | secrets | Ops checks → `r2` |
 | `CF_READ_TOKEN`, `CF_ACCOUNT_ID` | secrets | Ops checks → `cloudflare-r2`, `dns`, `access` (a read-only Cloudflare token) |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secrets | Ops checks → `site`, Smoke (the Access service token) |
+| `ETB_SMOKE_API_KEY` | secret | Ops checks → `job` (an API key made on Astro's account at `/account`, after the first deploy) |
 
 GitHub → Settings → Environments → `railway`: Astro is the required reviewer, so nothing changes Railway's setup without Astro's approval.
 
@@ -71,4 +72,6 @@ Custom domains are added in Railway's dashboard (its configuration can't registe
 - The first admin: sign in once on the site, then Railway → service `web` → the deployment's shell (or `railway ssh --service web` from a terminal) → `pnpm admin:promote <email>`. Then set up two-factor at `/admin/two-factor`.
 - Logs: Railway → service → Logs. They never contain file names, file contents or secrets.
 - Checks from outside: Actions → **Ops checks** → Run workflow (empty runs every check whose secrets are set; `site` checks the live site; `r2` round-trips a test file through storage).
+- A server job end to end: Ops checks → Run workflow → checks `job`. It runs Compress Video on a small fixture through Access and spends one small job. With retention-minutes `61` it then waits and checks that the output has left storage, which proves the one-hour rule.
+- Access: one application covers the whole domain (Astro's email, plus a Service Auth policy for the service token). A second application opens only `/.well-known/acme-challenge/` (Bypass), so Railway can renew certificates. The `access` check fails if any other path is opened.
 - Draining the worker before maintenance: [drain-workers.md](drain-workers.md).

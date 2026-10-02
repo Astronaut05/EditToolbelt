@@ -1,4 +1,6 @@
 /** Messages between the image engines and their worker. */
+import type { Lut } from '@etb/core/lut';
+
 import type { GeometryJob } from './geometry';
 import type { GridSpec } from './grid';
 import type { ImageFormat } from './sniff';
@@ -46,6 +48,8 @@ export interface ImageJob {
   tiles?: GridSpec & { stem: string };
   /** P13: one file per size, or a ZIP of them for two or more. */
   social?: SocialJob;
+  /** C05: a LUT applied after any geometry, blended with the original by `intensity` (0-1). */
+  lut?: { lut: Lut; intensity: number; label: string };
 }
 
 export interface SocialJob {

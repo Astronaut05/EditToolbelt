@@ -15,6 +15,7 @@ export * as print from './calc/print';
 export * as color from './color/color';
 export * as contrast from './color/contrast';
 export { CSS_NAMED_COLORS } from './color/names';
+export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
 export {
   extractPalette,
   paletteAse,
@@ -88,3 +89,31 @@ export {
   type ChannelAction,
   type ChannelVerdict,
 } from './audio/channels';
+export {
+  autoThreshold,
+  cutsCsv,
+  findSilences,
+  LEVEL_STEP,
+  LevelScan,
+  silenceCuts,
+  type CutOptions,
+} from './audio/silence';
+export { Resampler } from './audio/resample';
+export {
+  placedGain,
+  placedLength,
+  placeJoined,
+  placeMixed,
+  type JoinKind,
+  type Placement,
+} from './audio/merge';
+export {
+  dbGain,
+  LOOP_FADE,
+  MAX_LOOPS,
+  musicEnd,
+  musicGain,
+  musicParts,
+  type MusicGain,
+  type MusicPart,
+} from './audio/mix';
