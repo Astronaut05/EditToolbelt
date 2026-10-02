@@ -34,7 +34,12 @@ import {
   type Queryable,
 } from '@etb/db';
 import { costOf, hasServerPath, isAvailable, limitsOf, priceOf, tools } from '@etb/registry';
-import { parseServerOptions, previewSeconds, uploadOptions } from '@etb/registry/options';
+import {
+  parseServerOptions,
+  previewSeconds,
+  uploadKinds,
+  uploadOptions,
+} from '@etb/registry/options';
 import type { ToolDef } from '@etb/registry/schema';
 
 import { log } from '../lib/log';
@@ -42,7 +47,7 @@ import type { CurrentUser } from './account';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
 import { requestHash } from './idempotency';
-import { gpuRate, priceInput, refusal, type Probe } from './job-rules';
+import { extrasRefusal, gpuRate, priceInput, refusal, type Probe } from './job-rules';
 import { ApiError, problemType } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
 import { ownUpload, SUBTITLE_TYPES, tierOf, type Tier, type Upload } from './uploads';
@@ -268,8 +273,8 @@ interface Prepared {
 
 /**
  * The uploads a tool's options name (`uploadOptions` in the registry): the
- * caller's own, made for this tool, a subtitle file, unused, and probed.
- * Null while one is still being probed.
+ * caller's own, made for this tool, of the kind the option takes (a subtitle
+ * file, a PNG mask), unused, and probed. Null while one is still being probed.
  */
 async function extraUploads(
   user: CurrentUser,
@@ -277,11 +282,13 @@ async function extraUploads(
   options: Record<string, unknown>,
 ): Promise<Prepared['extras'] | null> {
   const extras: Prepared['extras'] = [];
-  for (const name of uploadOptions[tool.id as keyof typeof uploadOptions] ?? []) {
+  const id = tool.id as keyof typeof uploadOptions;
+  for (const name of uploadOptions[id] ?? []) {
     const extra = await ownUpload(user, String(options[name]));
     checkUpload(extra, tool);
-    if (!SUBTITLE_TYPES.has(extra.mimeClaimed)) {
-      throw new ApiError(400, 'BAD_REQUEST', 'Not a subtitle file', `${name}: SRT, VTT or ASS.`);
+    const kind = uploadKinds[id]?.[name];
+    if (kind && !kind.types.includes(extra.mimeClaimed)) {
+      throw new ApiError(400, 'BAD_REQUEST', kind.title, `${name}: ${kind.is}.`);
     }
     await checkUnused(extra);
     const probed = await waitForProbe(extra);
@@ -318,6 +325,12 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   if (refused) throw new ApiError(refused.status, refused.code, refused.title, refused.detail);
   const extras = await extraUploads(user, tool, parsed.options);
   if (!extras) return null;
+  const odd = extrasRefusal(
+    tool.id,
+    probe,
+    extras.map((extra) => extra.probe),
+  );
+  if (odd) throw new ApiError(odd.status, odd.code, odd.title, odd.detail);
   const preview = parsed.options.preview === true;
   if (preview) checkPreview(tool, probe);
   const credits = preview ? 0 : priceOf(costOf(tool), priceInput(tool.id, probe, parsed.options));
@@ -577,10 +590,12 @@ const PROCESSOR_CODES: ReadonlySet<string> = new Set([
   'NO_VIDEO',
   // Noise Reduction's own.
   'TOO_MANY_CHANNELS',
-  // The GPU tools' own (Upscale Image, Transcribe Audio, Auto Subtitles).
+  // The GPU tools' own (Upscale Image, Transcribe Audio, Auto Subtitles, Object Eraser).
   'TOO_LARGE',
   'NO_AUDIO',
   'NO_SPEECH',
+  'BAD_MASK',
+  'EMPTY_MASK',
 ]);
 
 function errorText(job: Job): string {

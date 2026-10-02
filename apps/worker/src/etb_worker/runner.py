@@ -211,6 +211,9 @@ class JobRunner:
             record_gpu=lambda usage: self._record_gpu(job_id, usage),
             start_call=lambda key, expires: self._start_call(job_id, key, expires),
             call_spawned=lambda call_id: self._call_spawned(job_id, call_id),
+            extra_input_keys=[str(key) for key in job.get("extra_input_keys") or []]
+            if remote
+            else [],
         )
         progress.set(0, "processing")
         output = processor.run(ctx)

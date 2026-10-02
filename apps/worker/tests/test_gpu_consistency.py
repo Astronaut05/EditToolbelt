@@ -18,6 +18,9 @@ TOOLS = {
     "upscale-image": ("photo", "upscale_image"),
     "transcribe-audio": ("audio", "transcribe"),
     "auto-subtitles": ("video", "transcribe"),
+    "object-eraser": ("photo", "erase_object"),
+    "upscale-video": ("video", "upscale_video"),
+    "video-background-remover": ("video", "remove_video_background"),
 }
 
 
@@ -50,6 +53,23 @@ def test_jobs_outlive_their_gpu_call() -> None:
         assert int(found.group(1)) * 60 > modal_app.SPECS[function].timeout, tool
 
 
+def test_every_gpu_function_has_a_tool_or_is_shared() -> None:
+    assert {function for _category, function in TOOLS.values()} == set(modal_app.SPECS)
+
+
+def test_the_video_limits_agree() -> None:
+    """The frame cap is the same in the function, the worker and the web."""
+    from etb_worker.processors import upscale_video, video_background  # noqa: PLC0415
+
+    rules = (ROOT / "apps/web/src/lib/gpu-limits.ts").read_text("utf-8")
+    assert f"MAX_VIDEO_FRAMES = {modal_app.MAX_VIDEO_FRAMES:_}" in rules
+    assert upscale_video.MAX_FRAMES == modal_app.MAX_VIDEO_FRAMES
+    assert f"MAX_PRORES_BYTES = {video_background.MAX_PRORES_BYTES:_}" in rules
+    assert f"PRORES_BITS_PER_PIXEL = {video_background.PRORES_BITS_PER_PIXEL}" in rules
+    assert f"MAX_LONG_SIDE = {upscale_video.MAX_LONG_SIDE}" in rules
+    assert f"MAX_SHORT_SIDE = {upscale_video.MAX_SHORT_SIDE}" in rules
+
+
 def test_no_call_of_ours_queues_on_modal() -> None:
     """A function has a container for every job its tools may run at once (maxConcurrent).
 
@@ -76,3 +96,69 @@ def test_the_worst_case_idle_window_covers_every_function() -> None:
     found = re.search(r"worstCaseIdleSec: (\d+)", business)
     assert found
     assert int(found.group(1)) == MAX_IDLE_TAIL_SEC
+
+
+GPU_DIR = ROOT / "apps/worker/src/etb_worker/gpu"
+PINNED = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\]+)", re.MULTILINE)
+
+
+def test_every_gpu_image_installs_only_hashed_requirements() -> None:
+    """Each image's packages come from a requirements file compiled with hashes (docs/11).
+
+    No image installs a package by name, every requirements file is one an
+    image uses, each is compiled from its .in at the versions the .in pins,
+    and every package in it carries a hash (pip's --require-hashes refuses
+    anything else, and CI's pip-audit reads every requirements-*.txt).
+    """
+    source = (GPU_DIR / "modal_app.py").read_text("utf-8")
+    assert ".pip_install(" not in source
+    used = set(re.findall(r'_requirements\([^()]*(?:\([^()]*\))?[^()]*, "(\w+)"\)', source))
+    files = {path.stem.removeprefix("requirements-") for path in GPU_DIR.glob("requirements-*.txt")}
+    assert used == files == {"upscale", "whisper", "onnx"}
+    for name in files:
+        compiled = (GPU_DIR / f"requirements-{name}.txt").read_text("utf-8")
+        wanted = dict(PINNED.findall((GPU_DIR / f"requirements-{name}.in").read_text("utf-8")))
+        pinned = dict(PINNED.findall(compiled))
+        assert wanted.items() <= pinned.items(), name
+        entries = re.split(r"\n(?=[A-Za-z0-9])", compiled.split("\n", 2)[2])
+        for entry in entries:
+            assert "--hash=sha256:" in entry, f"{name}: {entry.splitlines()[0]}"
+    ci = (ROOT / ".github/workflows/ci.yml").read_text("utf-8")
+    assert "for file in requirements-*.txt" in ci
+
+
+def _rate(business: str, gpu: str) -> float:
+    """config/business.ts -> gpuRateUsd: a second of the GPU, 2 cores and 8 GiB."""
+
+    def number(pattern: str) -> float:
+        found = re.search(pattern, business)
+        assert found, pattern
+        return float(found.group(1))
+
+    return (
+        number(rf"\b{gpu}: (\d+\.\d+)")
+        + number(r"functionCpuCores: (\d+(?:\.\d+)?)") * number(r"cpuCoreUsdPerSecond: (\d+\.\d+)")
+        + number(r"functionMemoryGib: (\d+(?:\.\d+)?)")
+        * number(r"memoryGibUsdPerSecond: (\d+\.\d+)")
+    )
+
+
+def test_the_wave3_tools_worst_cases_are_the_ones_docs_05_gives() -> None:
+    """What the budget gate counts a running job at: (its time limit + 30 s) x its rate.
+
+    docs/05 says what that means at the default $1 a day; a changed limit or
+    price has to change the sentence too.
+    """
+    business = (ROOT / "config/business.ts").read_text("utf-8")
+    budget = (ROOT / "docs/05-credits-and-payments.md").read_text("utf-8")
+    worst: dict[str, float] = {}
+    for tool in ("object-eraser", "upscale-video", "video-background-remover"):
+        category, function = TOOLS[tool]
+        source = (ROOT / f"packages/registry/src/tools/{category}/{tool}.ts").read_text("utf-8")
+        found = re.search(r"timeoutSec: (\d+) \* 60", source)
+        assert found, tool
+        rate = _rate(business, modal_app.SPECS[function].gpu)
+        worst[tool] = (int(found.group(1)) * 60 + MAX_IDLE_TAIL_SEC) * rate
+        assert f"about ${worst[tool]:.2f}" in budget, tool
+    # A video job's worst case is over the default budget on its own: it runs alone.
+    assert worst["upscale-video"] > 1 > 2 * worst["object-eraser"]

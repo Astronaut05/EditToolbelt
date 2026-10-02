@@ -235,6 +235,16 @@ export interface ServerExtras {
    * person has said yes (Auto Subtitles: only the sound of a video).
    */
   prepare?: (file: File, ctx: ServerRunContext) => Promise<File>;
+  /**
+   * Files the page makes from the dropped one and the settings, each sent as
+   * an upload of its own with its id in `option` (Object Eraser: the mask,
+   * drawn from the brush strokes).
+   */
+  derived?: readonly {
+    option: string;
+    label: string;
+    make: (file: File, options: Record<string, string>) => Promise<File>;
+  }[];
 }
 
 /** Credits for a file before the server has checked it; null when that needs more than we know. */
@@ -303,6 +313,18 @@ export function serverPath(
           if (!chosen)
             throw new ServerRunError(`Choose the ${extra.label} again`, 'Something’s missing');
           const id = await upload(chosen, toolId, ctx, `Uploading the ${extra.label}`);
+          values[extra.option] = id;
+          extras.push(id);
+        }
+        for (const extra of adds.derived ?? []) {
+          ctx.progress({ stage: `Drawing the ${extra.label}` });
+          let made: File;
+          try {
+            made = await extra.make(file, shellOptions);
+          } catch {
+            throw new ServerRunError(`The ${extra.label} couldn’t be made in this browser`);
+          }
+          const id = await upload(made, toolId, ctx, `Uploading the ${extra.label}`);
           values[extra.option] = id;
           extras.push(id);
         }

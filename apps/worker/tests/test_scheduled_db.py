@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -266,7 +267,14 @@ def test_a_slow_queue_alerts(db: Conn) -> None:
     try:
         [alert] = queue_wait(db)
         assert alert.rule == "queue_wait"
-        assert alert.message.startswith("Queue wait p95 is 5.0 min")
+        # The p95 covers every job in the window, other tests' too, so it can
+        # sit below these three's 5 min; it must still be over the 2 min limit.
+        found = re.match(
+            r"Queue wait p95 is (\d+\.\d) min over the last 10 min \(\d+ jobs\)\.$",
+            alert.message,
+        )
+        assert found is not None
+        assert 2 < float(found.group(1)) <= 5
     finally:
         db.execute("delete from jobs where user_id = %s", (user,))
 
