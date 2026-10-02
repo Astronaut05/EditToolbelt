@@ -11,6 +11,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
 import type { PaymentProvider, ProviderId } from './contract';
+import { readBody } from './providers/shared';
 import { returnUrl } from './urls';
 
 export const STUB_KEY = 'PAYMENTS_STUB_KEY';
@@ -28,6 +29,16 @@ function authorised(request: Request, key: string | undefined): boolean {
   return Boolean(key) && given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+/** The body as JSON, read with the webhooks' size cap; null when it's too big or not JSON. */
+async function readJson(request: Request): Promise<unknown> {
+  const body = await readBody(request);
+  try {
+    return body ? (JSON.parse(body.toString('utf8')) as unknown) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function stubProvider(id: ProviderId): PaymentProvider {
   return {
     id,
@@ -40,7 +51,7 @@ export function stubProvider(id: ProviderId): PaymentProvider {
     async handleWebhook(request, ctx) {
       if (request.method !== 'POST') return new Response(null, { status: 405 });
       if (!authorised(request, ctx.env[STUB_KEY])) return new Response(null, { status: 401 });
-      const call = Call.safeParse(await request.json().catch(() => null));
+      const call = Call.safeParse(await readJson(request));
       if (!call.success) return Response.json({ error: 'bad call' }, { status: 400 });
       const { purchase_id: purchaseId, action } = call.data;
       const event = await ctx.store.recordEvent(

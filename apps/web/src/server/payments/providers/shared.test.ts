@@ -67,5 +67,46 @@ describe('provider helpers', () => {
     expect(await readBody(big, 10)).toBeNull();
     const small = new Request('http://localhost/x', { method: 'POST', body: 'hello' });
     expect((await readBody(small, 10))?.toString()).toBe('hello');
+    const empty = new Request('http://localhost/x', { method: 'POST' });
+    expect((await readBody(empty, 10))?.length).toBe(0);
+  });
+
+  it('stop reading a chunked body as soon as it passes the limit', async () => {
+    // No Content-Length and no end: reading it whole would never finish.
+    let pulled = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new Uint8Array(64 * 1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request('http://localhost/x', {
+      method: 'POST',
+      body: endless,
+      duplex: 'half',
+    } as RequestInit);
+    expect(request.headers.get('content-length')).toBeNull();
+    expect(await readBody(request, 1024 * 1024)).toBeNull();
+    expect(cancelled).toBe(true);
+    // 1 MiB is 16 chunks of 64 KiB: the 17th passes it (a few more may be queued ahead).
+    expect(pulled).toBeLessThan(24);
+
+    const chunked = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('hel'));
+        controller.enqueue(new TextEncoder().encode('lo'));
+        controller.close();
+      },
+    });
+    const ok = new Request('http://localhost/x', {
+      method: 'POST',
+      body: chunked,
+      duplex: 'half',
+    } as RequestInit);
+    expect((await readBody(ok, 10))?.toString()).toBe('hello');
   });
 });

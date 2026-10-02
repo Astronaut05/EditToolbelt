@@ -86,12 +86,30 @@ export function returnUrl(ctx: ProviderContext, purchaseId: string): string {
 /** Webhook bodies are small; anything bigger than this is refused unread. */
 export const MAX_BODY_BYTES = 1024 * 1024;
 
-/** The raw body, or null when it is larger than the limit. */
+/**
+ * The raw body, or null when it is larger than the limit. A declared
+ * Content-Length over the limit is refused unread; any other body (chunked,
+ * or lying about its length) is read chunk by chunk and dropped as soon as
+ * the running total passes the limit, so it is never buffered whole.
+ */
 export async function readBody(request: Request, limit = MAX_BODY_BYTES): Promise<Buffer | null> {
   const declared = Number(request.headers.get('content-length') ?? '0');
   if (Number.isFinite(declared) && declared > limit) return null;
-  const bytes = Buffer.from(await request.arrayBuffer());
-  return bytes.length > limit ? null : bytes;
+  if (!request.body) return Buffer.alloc(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, size);
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
