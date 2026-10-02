@@ -81,6 +81,7 @@
 - Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#63).
 - CI runs the browser tests against the production image too, through a stand-in Cloudflare Access (152 pass on Chromium). The server build's search index is fresh within 30 s, as tool status is (#65).
 - Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
+- Fix: a result's audio player loads only its header until it's played. Loading the whole file could freeze the page in Linux WebKit (GStreamer), which hung Merge Audio's join test 1 run in 4 or 5.
 
 ## Next
 
