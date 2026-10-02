@@ -381,7 +381,7 @@ export async function createJob(
 
 async function startJob(
   user: CurrentUser,
-  request: JobRequest & { quoteCredits: number },
+  request: JobRequest & { quoteCredits: number; quoteFunding?: Funding | undefined },
   idempotencyKey: string | null,
   idempotencyHash: string | null,
   source: 'web' | 'api',

@@ -5,14 +5,7 @@
  * overlay. 404 while payments or that provider are off. API keys can't buy.
  */
 import { CheckoutRequest } from '../../../../../lib/checkout';
-import {
-  json,
-  preflight,
-  rateLimit,
-  readJson,
-  requireSession,
-  route,
-} from '../../../../../server/api';
+import { json, limit, preflight, readJson, requireSession, route } from '../../../../../server/api';
 import { db } from '../../../../../server/db';
 import { PAYMENTS_OFF, startCheckout } from '../../../../../server/payments/checkout';
 import { canBuyCredits } from '../../../../../server/payments/switches';
@@ -24,11 +17,11 @@ export const POST = route('credits.checkout', async (request) => {
   // Off: a 404 before anything else, signed in or not.
   if (!(await canBuyCredits(db()))) throw PAYMENTS_OFF();
   const user = await requireSession(request);
-  const limits = rateLimit(`checkout:user:${user.id}`, 10, 60);
+  limit(request, `checkout:user:${user.id}`, 10, 60);
   const body = await readJson(request, CheckoutRequest, 4 * 1024);
   const answer = await startCheckout(db(), user, {
     packId: body.pack_id,
     provider: body.provider,
   });
-  return json(answer, { status: 201, headers: limits });
+  return json(answer, { status: 201 });
 });
