@@ -29,12 +29,51 @@ if (!toolId || !input || !API || !KEY) {
   process.exit(2);
 }
 
+// The type each extension is sent as; the tool says what it takes
+// (GET /tools/<tool-id> → accepts), and our servers check the file itself.
 const TYPES = {
+  // Video
   mp4: 'video/mp4',
   m4v: 'video/mp4',
   mov: 'video/quicktime',
+  qt: 'video/quicktime',
   webm: 'video/webm',
   mkv: 'video/x-matroska',
+  avi: 'video/x-msvideo',
+  mpg: 'video/mpeg',
+  mpeg: 'video/mpeg',
+  ts: 'video/mp2t',
+  mts: 'video/mp2t',
+  m2ts: 'video/mp2t',
+  '3gp': 'video/3gpp',
+  ogv: 'video/ogg',
+  wmv: 'video/x-ms-wmv',
+  mxf: 'application/mxf',
+  // Images
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  heic: 'image/heic',
+  heif: 'image/heif',
+  // Audio
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  flac: 'audio/flac',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  weba: 'audio/webm',
+  aif: 'audio/aiff',
+  aiff: 'audio/aiff',
+  // Subtitles
   srt: 'application/x-subrip',
   vtt: 'text/vtt',
   ass: 'text/x-ssa',
@@ -142,11 +181,12 @@ async function main() {
     await sleep(1000);
   }
   if (!quote.can_start) throw new Error(`${quote.blocked_by}: it costs ${quote.credits} credits`);
+  // The balance and free jobs left come only with a key that has account:read.
   say(
     quote.funding === 'credits'
-      ? `price: ${quote.credits} credits (balance after: ${quote.balance_after})`
+      ? `price: ${quote.credits} credits${quote.balance_after === undefined ? '' : ` (balance after: ${quote.balance_after})`}`
       : quote.funding === 'daily'
-        ? `price: one of today's free jobs (${quote.free_jobs_left} left)`
+        ? `price: one of today's free jobs${quote.free_jobs_left === undefined ? '' : ` (${quote.free_jobs_left} left)`}`
         : 'price: free',
   );
 

@@ -6,7 +6,7 @@ import type { ToolDetail } from '@etb/core/api';
 import { isListed, tools } from '@etb/registry';
 
 import { loadToolFlags } from '../../../../../lib/flags';
-import { ApiError, preflight, route } from '../../../../../server/api';
+import { ApiError, preflight, publicRoute } from '../../../../../server/api';
 import { toolDetail } from '../../../../../server/tools';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export const OPTIONS = preflight;
 
 type Context = { params: Promise<{ id: string }> };
 
-export const GET = route('tools.get', async (_request, { params }: Context) => {
+export const GET = publicRoute('tools.get', async (_request, { params }: Context) => {
   await loadToolFlags();
   const { id } = await params;
   const tool = tools.find((candidate) => candidate.id === id);

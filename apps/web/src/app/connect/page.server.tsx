@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { Button, Input } from '@etb/ui';
@@ -6,8 +7,15 @@ import { Button, Input } from '@etb/ui';
 import { LegalPage } from '../../components/LegalPage';
 import { SiteFrame } from '../../components/SiteFrame';
 import { currentUser } from '../../server/account';
+import { addressOf } from '../../server/api';
 import { listKeys, MAX_KEYS, SCOPE_LABELS } from '../../server/api-keys';
-import { formatUserCode, normalizeUserCode, pendingRequest } from '../../server/device';
+import {
+  connectLockout,
+  connectMiss,
+  formatUserCode,
+  normalizeUserCode,
+  pendingRequest,
+} from '../../server/device';
 import { approveDevice, declineDevice } from './actions';
 
 export const metadata: Metadata = {
@@ -22,6 +30,8 @@ const one = (value: string | string[] | undefined) => (Array.isArray(value) ? va
 /**
  * Connect the Premiere panel (docs/06 → Auth): the person types the code the
  * panel shows (or follows its link), sees what it asks for, and approves.
+ * Every kind of miss (malformed, unknown, expired, used) gets the same answer,
+ * and 10 of them lock this account and address out for the rest of 10 minutes.
  */
 export default async function ConnectPage({ searchParams }: Props) {
   const params = await searchParams;
@@ -31,8 +41,15 @@ export default async function ConnectPage({ searchParams }: Props) {
     const back = typed ? `/connect?code=${encodeURIComponent(typed)}` : '/connect';
     redirect(`/sign-in?next=${encodeURIComponent(back)}`);
   }
-  const code = typed ? normalizeUserCode(typed) : null;
+  const address = addressOf(await headers());
+  let wait = connectLockout(me.user.id, address);
+  const code = typed && wait === 0 ? normalizeUserCode(typed) : null;
   const request = code ? await pendingRequest(code) : null;
+  const missed = Boolean(typed) && wait === 0 && !request;
+  if (missed) {
+    connectMiss(me.user.id, address);
+    wait = connectLockout(me.user.id, address);
+  }
   const full = request ? (await listKeys(me.user.id)).length >= MAX_KEYS : false;
 
   return (
@@ -49,11 +66,18 @@ export default async function ConnectPage({ searchParams }: Props) {
           </p>
         )}
         {params.done === 'declined' && <p role="status">Declined. The panel gets no key.</p>}
-        {(params.gone === '1' || (typed && !request)) && (
+        {wait > 0 ? (
           <p role="alert">
-            That code is wrong or has expired (codes last 10 minutes). Start connecting again in the
-            panel.
+            Too many wrong codes. Try again in {Math.ceil(wait / 60)} min, then start connecting
+            again in the panel.
           </p>
+        ) : (
+          (params.gone === '1' || missed) && (
+            <p role="alert">
+              That code is wrong or has expired (codes last 10 minutes). Start connecting again in
+              the panel.
+            </p>
+          )
         )}
 
         {request && code ? (

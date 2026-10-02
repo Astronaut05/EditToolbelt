@@ -124,9 +124,11 @@ async function quote(
   ctx: ServerRunContext,
 ): Promise<ReadyQuote & ServerQuote> {
   ctx.progress({ stage: 'Checking the file' });
-  return api(() =>
+  const ready = await api(() =>
     client.readyQuote({ tool_id: toolId, upload_id: uploadId, options }, ctx.signal),
   );
+  // The site's session holds account:read, so the balance is always there.
+  return { ...ready, balance: ready.balance ?? 0 };
 }
 
 /** Follows a job to its end: server-sent events, or polling if they don't get through. */
