@@ -2297,18 +2297,20 @@ function Workspace({
       <div className={frame}>
         {output.url && output.blob && /^(video|audio)\//.test(output.blob.type) ? (
           <div className="absolute inset-0 flex items-center justify-center bg-media-scrim p-6 pb-24">
+            {/* The header and first frame only, until played: with the
+                default (auto), Linux WebKit (GStreamer) can freeze the page
+                loading the result (docs/DECISIONS.md, 2026-10-02, a result's
+                audio player, and a result's video player). */}
             {output.blob.type.startsWith('video/') ? (
               <video
                 src={output.url}
                 controls
                 playsInline
+                preload="metadata"
                 aria-label="Result"
                 className="max-h-full max-w-full"
               />
             ) : (
-              // The header only, until played: with the default (auto), Linux
-              // WebKit (GStreamer) can freeze the page loading the result
-              // (docs/DECISIONS.md, 2026-10-02, a result's audio player).
               <audio
                 src={output.url}
                 controls
