@@ -3,8 +3,8 @@
 - no flag: calls ``ping`` (no GPU): the app is deployed and the token works.
 - ``--gpu``: also ``gpu_check``, a few seconds on a T4.
 - ``--smoke``: also each tool function once on a tiny input it makes itself
-  (a 32 x 24 PNG and a mask for it, two seconds of tone, a one-second
-  64 x 48 Y4M clip), sent as ``data:`` URLs with no output URL, so nothing
+  (a 32 x 24 PNG, a 64 x 48 one with a mask, two seconds of tone, a
+  one-second 64 x 48 Y4M clip), sent as ``data:`` URLs with no output URL, so nothing
   is stored anywhere. A few GPU-seconds each, plus the cold start
   (Whisper's is the longest, about half a minute).
 - ``--pins``: downloads every pinned weights file and checks its SHA-256,
@@ -124,11 +124,11 @@ SMOKE: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     ),
     "erase_object": (
         {
-            "input_url": data_url(tiny_png(), "image/png"),
+            "input_url": data_url(tiny_png(64, 48), "image/png"),
             "options": {"format": "png"},
-            "extra_urls": [data_url(tiny_mask(), "image/png")],
+            "extra_urls": [data_url(tiny_mask(64, 48), "image/png")],
         },
-        {"width": 32, "height": 24, "regions": 1},
+        {"width": 64, "height": 48, "regions": 1},
     ),
     "upscale_video": (
         {
