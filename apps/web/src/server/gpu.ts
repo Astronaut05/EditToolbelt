@@ -9,6 +9,7 @@
  */
 import { creditNetUsd, gpuBudget as budgetConfig } from '@etb/config/business';
 import { sql } from '@etb/db';
+import { z } from 'zod';
 
 import { db } from './db';
 
@@ -58,6 +59,17 @@ export function gpuStarting(today: GpuToday): string {
   if (today.spentUsd >= today.budgetUsd) return 'No: budget reached';
   return 'Not until a running GPU job ends: at their time limits they could reach the budget';
 }
+
+/**
+ * The admin's daily budget field: dollars, from 0 to 1,000. A blank field is
+ * refused, never read as $0 (which would stop every GPU job).
+ */
+export const dailyBudgetUsd = z
+  .string()
+  .trim()
+  .min(1)
+  .transform(Number)
+  .pipe(z.number().min(0).max(1000));
 
 export interface ToolCost {
   toolId: string;

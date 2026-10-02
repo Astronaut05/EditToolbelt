@@ -219,6 +219,11 @@ export default async function AdminDashboard({ searchParams }: Props) {
               Give a budget from $0 to $1,000 a day and a reason of at least 3 characters.
             </p>
           )}
+          {query.error === 'budget_blank' && (
+            <p role="alert">
+              Type a daily budget in dollars. A blank field isn’t saved; to stop GPU jobs, type 0.
+            </p>
+          )}
           <Facts
             items={[
               [

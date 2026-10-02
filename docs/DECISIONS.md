@@ -1325,8 +1325,9 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 - **Alerts and the admin keep reading the real spend** (recorded plus the call in flight's time so far), so a long job starting doesn't page anyone; Admin → Dashboard → GPU says whether jobs are starting and, if not, whether the budget is spent or a running job's worst case is in the way.
 - **Spend counts a re-run job's earlier calls and its current one** (recorded cost plus the call in flight), where before a job with any recorded cost stopped counting its running call (finding 9c).
 - **Partial index** `jobs_gpu_spend_idx` on `started_at` where `gpu_rate_usd is not null`, for the spend query every GPU claim runs.
+- **A blank budget in Admin is refused** ("Type a daily budget in dollars…; to stop GPU jobs, type 0"), never saved as $0.
 
-**Why:** review of #66, findings 8 and 9 (c); Astro's spending cap.
+**Why:** review of #66, findings 8, 9 (c) and 14 (the empty field); Astro's spending cap.
 **Reverse:** the gate is `BudgetState.open` in `gpu/budget.py` (committed vs spent), the lock `jobqueue.claim_gpu`; `config/business.ts` → `gpuBudget.worstCaseIdleSec` mirrors the worker's `MAX_IDLE_TAIL_SEC` (a test holds them together).
 
 ## 2026-10-02 · What a GPU call is billed: cold, failed and unreported calls
