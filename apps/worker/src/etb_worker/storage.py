@@ -42,6 +42,15 @@ class OpenUpload:
     started: datetime
 
 
+#: SigV4's longest presigned URL (7 days); ours are far shorter.
+MAX_PRESIGN_SEC = 7 * 24 * 60 * 60
+
+
+def new_output_key() -> str:
+    """A random key for a job's output: never derived from users or files."""
+    return f"out/{uuid.uuid4()}"
+
+
 def s3_client(settings: Settings) -> Any:  # boto3 ships no types
     return boto3.client(
         "s3",
@@ -82,7 +91,7 @@ class Storage:
 
     def upload(self, source: Path, content_type: str) -> str:
         """Uploads ``source`` under a new random ``out/`` key and returns the key."""
-        key = f"out/{uuid.uuid4()}"
+        key = new_output_key()
         try:
             self._client.upload_file(
                 str(source), self.bucket, key, ExtraArgs={"ContentType": content_type}
@@ -90,6 +99,35 @@ class Storage:
         except (BotoCoreError, ClientError) as error:
             raise StorageError(_code(error), f"upload failed: {_code(error)}") from None
         return key
+
+    def presign_get(self, key: str, expires_sec: int) -> str:
+        """A URL that reads ``key`` for ``expires_sec``: how a GPU function gets its input."""
+        return self._presign("get_object", {"Bucket": self.bucket, "Key": key}, expires_sec)
+
+    def presign_put(self, key: str, content_type: str, expires_sec: int) -> str:
+        """A URL that writes ``key`` once with this type: how a GPU function returns its output."""
+        params = {"Bucket": self.bucket, "Key": key, "ContentType": content_type}
+        return self._presign("put_object", params, expires_sec)
+
+    def _presign(self, method: str, params: dict[str, str], expires_sec: int) -> str:
+        expires = max(60, min(int(expires_sec), MAX_PRESIGN_SEC))
+        try:
+            url = self._client.generate_presigned_url(method, Params=params, ExpiresIn=expires)
+        except (BotoCoreError, ClientError) as error:
+            raise StorageError(_code(error), f"presign failed: {_code(error)}") from None
+        return str(url)
+
+    def size(self, key: str) -> int | None:
+        """The object's size in bytes, or None when it isn't there."""
+        try:
+            answer = self._client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as error:
+            if _code(error) in {"404", "NoSuchKey", "NotFound"}:
+                return None
+            raise StorageError(_code(error), f"head failed: {_code(error)}") from None
+        except BotoCoreError as error:
+            raise StorageError(_code(error), f"head failed: {_code(error)}") from None
+        return int(answer["ContentLength"])
 
     def delete(self, key: str) -> None:
         """Deletes the object; an object that is already gone is fine."""

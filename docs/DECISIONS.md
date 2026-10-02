@@ -1356,6 +1356,94 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
 **Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
 
+## 2026-10-02 · GPU models: Whisper and Real-ESRGAN approved, Demucs parked (M5)
+
+_Why Demucs is parked: superseded by "Model licences: the weights' own licence decides" below (its weights' licence alone, not its training data)._
+
+**Decision:**
+- **Whisper large-v3** for A12 and V17. OpenAI's README says "Whisper's code and model weights are released under the MIT License". We run OpenAI's own `openai-whisper` (20250625, MIT) with the `large-v3` checkpoint from OpenAI's URL, whose path is the file's SHA-256: the package pins it, and so does `pins.json`.
+  - **Not faster-whisper**, though it's about 4× faster. Its weights are SYSTRAN's CTranslate2 conversions on huggingface.co (model cards: MIT), which this build environment can't reach to read or pin. The L4's cost per minute of speech is small either way (`05`). Switching later is one function and one pin.
+  - large-v3, not turbo: turbo is faster but weaker on low-resource languages such as Uzbek, and wasn't trained to translate (V17's "translate to English").
+- **Real-ESRGAN** for P08: the code is BSD-3-Clause; the weights we use are the repository's own release assets, published by the author with the code, and no separate licence or use restriction is stated anywhere. That makes the repository's licence theirs, the reading that approved U²-Net. Models: `realesr-general-x4v3` blended with its "weak denoise" twin by the person's noise setting (the authors' DNI), and `RealESRGAN_x4plus_anime_6B` for illustrations. No face model.
+- **Demucs (htdemucs) is not used.** The code is MIT, but the weights are on Meta's file server, outside the repository, with no licence stated, and were trained on MUSDB18-HQ (research use). `CLAUDE.md` rule 6: unclear means no. A09 stays `soon`; `STATUS.md` → Parked for Astro has the recommended pick.
+- **BiRefNet** (P07's hi-res server path) is approved (MIT code and weights, `13`), but not built in this round: pinning its exact weights and its Hugging Face model code needs huggingface.co, and nothing here could run it. Next: add it to `pins.json` and let CI's pins check report the real hashes.
+- Three Real-ESRGAN hashes come from Hugging Face's listings of copies of the same files (the release assets have no published digest). The build checks them against the author's own downloads, and CI's pins check does too before any deploy, so a wrong one fails safely.
+
+**Why:** Astro's M5 brief and `CLAUDE.md` rule 6; `docs/13` → Models: "Explicitly commercial-use licenses" for weights.
+**Reverse:** a model's row in `docs/13` and `licenses.json`, its files in `apps/worker/src/etb_worker/gpu/pins.json`, its function in `modal_app.py`.
+
+## 2026-10-02 · The GPU functions on Modal (M5)
+
+_Containers and images: superseded by "GPU functions answer every failure; Whisper gets a container per job" and "The GPU images are pinned: base by digest, packages by hash" below._
+
+**Decision:**
+- **One function per tool** in the app `edittoolbelt-gpu`: `upscale_image` (P08) and `transcribe` (A12 and V17 share it).
+- **GPUs:** T4 for the upscaler, L4 for Whisper (`01` → GPU backend says why). The registry names each tool's GPU (`gpu`), which prices its jobs; a test holds the two in step.
+- **Every function asks for 2 CPU cores and 8 GiB**, so one container price per GPU type covers them (`config/business.ts` → `gpuRateUsd`).
+- **Idle windows:** 10 s for the upscaler (its networks load in about a second) and 30 s for Whisper (15 to 25 s to load, so the next file of a batch finds it warm). `max_containers` 2 each, matching the registry's `maxConcurrent`.
+- **Timeouts:** 15 and 65 min on Modal; the jobs' own limits are 20 and 70 min, so the worker's limit covers a cold start and the function's own.
+- **Weights are baked into the images at build time** and checked against `pins.json` by `weights.py`, which Modal runs as a script during the build. Nothing downloads at run time, and a changed file can't reach a GPU.
+- **I/O:** presigned GET in, presigned PUT out, both valid for the job's limit plus 15 min. The function writes its result to storage itself and returns only numbers and notes. Whisper's transcript goes to storage as JSON too, never through Modal's own result store; the worker turns it into the format asked for and deletes it at once.
+- **Smoke test:** `check.py --smoke` sends a tiny PNG and a 2 s tone as `data:` URLs with no output URL, so a real run stores nothing anywhere. Actions → Modal → Run workflow → "smoke".
+- **Modal adds the module's package (`etb_worker`) to each container itself**; the functions import only `gpu/remote.py` and `gpu/tiles.py` (standard library) from it, besides the libraries in their image.
+- **PyTorch 2.10**: the last release whose PyPI wheels use CUDA 12.8; later ones need CUDA 13 drivers.
+
+**Why:** Astro's M5 brief (cheapest GPU that does the job, short idle windows, weights pinned and checked at build, nothing kept on Modal); `docs/01` → GPU backend.
+**Reverse:** the specs are `SPECS` at the top of `modal_app.py`; a GPU change also changes the tool's `gpu` in the registry.
+
+## 2026-10-02 · ServerlessGpu in the worker (M5)
+
+_Slots and a dead worker's call: superseded by "GPU jobs run in slots of their own" and "A GPU call's id is on its job" below._
+
+**Decision:**
+- **`GPU_BACKEND`**: `modal`, `local` (a stub that answers "not set up"), or unset (GPU tools off). With GPU tools off, a claimed GPU job fails at once with `GPU_UNAVAILABLE` and its credits back, rather than waiting 15 min to expire.
+- **`modal` without a token starts the worker with its GPU tools off** (logged as `gpu.off`), instead of refusing to start: the CPU tools must not stop for the GPU's sake. Half a token still refuses, like Telegram's pair. Production sets `GPU_BACKEND=modal` in `.railway/railway.ts`.
+- **A call:** `Function.from_name(app, fn).spawn(...)`, then `get(timeout=2)` until it answers. Between polls, the time since the spawn becomes progress against the processor's estimate (Modal has no progress channel back, and we don't keep state on Modal). The call is cancelled when the job is cancelled (the heartbeat notices within 5 s), when the worker stops (the job goes back to the queue), or when the job's time is up.
+- **GPU processors are "remote"**: the runner neither downloads their input nor uploads their output. The output key is written on the job before the call, so if the worker dies mid-call, the next attempt deletes what the GPU wrote, and the sweeper deletes it 60 min after a failure.
+- **A worker killed outright** (not stopped) can't cancel its call; the call runs on until its function's timeout. Known gap, logged in `01`.
+- **Failures** become the job's error code with a fixed sentence (`GPU_UNAVAILABLE`, `GPU_FAILED`, `TIMEOUT`), or the function's own (`TOO_LARGE`, `DECODE_FAILED`); a remote exception's text is never shown or stored. The job fails, and its credits come back the usual way.
+- **Transcripts become files on the worker** (`captions.py`): cues built word by word, at most 7 s, broken at pauses of 0.8 s and, once half a line is full, at sentence ends; lines balanced to the narrowest width that still fits. VTT gets word timestamp tags and ASS karaoke tags when word timing is on; SRT and TXT say they can't hold it.
+- **The probe now takes PNG, JPEG and WebP** (ffprobe reads them as one frame) and WebM audio.
+
+**Why:** Astro's M5 brief: spawn, poll with short timeouts while heartbeating and reporting progress, cancel with the job; finish like the CPU tools (`CLAUDE.md` rule 4).
+**Reverse:** unset `GPU_BACKEND`. The backend is `etb_worker/gpu/backend.py`; the shared step is `processors/remote.py`.
+
+## 2026-10-02 · GPU metering and the daily GPU budget (M5)
+
+_What a call is billed, and the gate: superseded by "What a GPU call is billed" and "The GPU budget gate counts running jobs at their worst case" below._
+
+**Decision:**
+- **The jobs API writes each GPU job's rate** (`jobs.gpu_rate_usd`): the GPU's price a second plus 2 cores and 8 GiB, from `config/business.ts` (Modal's prices read 2026-10-02, placeholders to confirm). The worker needs no copy of the prices, as it needs none of the registry.
+- **Each call's cost lands on its job whatever happened**: GPU seconds measured inside the function (a cold model load included) plus the function's idle window, times the rate. Counting the idle window every time errs high in a burst, which is the safe side for a budget. A failed, cancelled or timed-out call that didn't report counts its wall-clock time.
+- **The budget is one row in the database** (`gpu_budget`, migration `0010_gpu_costs_and_calls`, renumbered after main's 0009; if #67's `0010_payments` lands first, it is regenerated again and keeps its closing INSERT), $1 a day until an admin changes it in Admin → Dashboard → GPU (audited).
+- **The day is UTC**, like the free daily jobs (it resets at 05:00 Tashkent).
+- **Today's spend** counts calls still running, from their job's start at their rate, so a burst of long jobs is counted before it ends.
+- **At 100 % the worker stops claiming GPU jobs**; CPU jobs carry on. Queued GPU jobs wait and, after 15 min, expire with their credits back. Two slots can both start a job just under the line, so the overshoot is at most the jobs already running.
+- **Alerts at 80 % and 100 %, once a day each**: the alert's subject carries the day and the threshold, and the rule skips one already sent.
+- **Admin, kept small**: today's spend against the budget, and GPU cost against credits by tool over 7 days, with free jobs' cost as its own line (`05`). The nightly `tool_stats_daily` gains `gpu_cost_usd`; the digest gains a GPU line. `/admin/costs` and the margin alert wait for real data.
+
+**Why:** Astro's M5 brief; `docs/05` → GPU backend economics ("admin shows actual cost vs. charged per tool").
+**Reverse:** set the budget high to turn it off in practice. The rule is `etb_worker/gpu/budget.py`; the rate comes from `gpuRateUsd`.
+
+## 2026-10-02 · Upscale Image, Transcribe Audio and Auto Subtitles: off until an admin switches them on (M5)
+
+**Decision:**
+- **Their registry entries are complete enough for beta** (accepts, outputs, limits, price, GPU, how-to, FAQ; a test parses each one as beta), **but their code default stays `soon`**, as for every server-only tool (2026-10-01, VFR to CFR). An admin sets each to beta in Admin → Tools once Modal runs it: the static export has no server path, and a default of beta would show working pages that can't run.
+- **Limits:**
+  - P08 takes up to 16 MP in, 25 MB free and 100 MB paid. The result is capped at 64 MP (`tools/photo.md`), checked when the job is quoted, before anything is charged.
+  - A12 and V17 take 30 min free and 4 h paid.
+- **Prices stay the specs' placeholders:** P08 1 credit per 4 output MP (at least 2), A12 and V17 2 a minute (at least 2). The jobs API now prices P08 on the result's megapixels (`job-rules.ts`), and the page estimates the same from the picture's size and the scale.
+- **Nothing to do, nothing to pay:** a file with no sound is refused at quote time (`NOTHING_TO_DO`); one whose speech the model can't hear fails with `NO_SPEECH` and its credits back.
+- **Auto Subtitles takes the sound out of a video in the browser** (Extract Audio's engine). It copies the sound when its codec fits a container (AAC to M4A, Opus to OGG, MP3, FLAC), otherwise makes MP3 at 96 kbps. Only that file is uploaded; an audio file goes as it is. The API also takes a video (Whisper reads its sound).
+- **Not built this round:**
+  - P08's free 512 px preview.
+  - V17's cue editor: it is shared with T03, which doesn't exist yet. The result shows the start of the subtitles, as Subtitle Converter does.
+  - The "Burn into video" handoff: Burn Subtitles takes the subtitles as a second file, which the handoff can't fill. The FAQ says how.
+  - A12's speaker labels (Wave 3 in the spec).
+
+**Why:** `tools/photo.md` → P08, `tools/audio.md` → A12, `tools/video.md` → V17; the 2026-10-01 entry on server-only tools; Astro's M5 brief ("tools whose GPU path can't be verified stay beta and are switched on by an admin, like VFR to CFR was").
+**Reverse:** set a tool's status in Admin → Tools, or its default in `packages/registry/src/tools/`.
+
 ## 2026-10-02 · Where sign-in goes next: resolved like a browser, same origin only (M6 fix)
 
 **Decision:**
@@ -1562,6 +1650,102 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** `tools/utility.md` → U02.
 **Reverse:** the rules are `packages/core/src/rename.ts`; the dates `packages/engines/src/files/taken.ts`; the folder rename `packages/ui/src/tool/in-place.ts`.
+
+## 2026-10-02 · GPU jobs run in slots of their own (`WORKER_GPU_SLOTS`)
+
+**Decision:**
+- **Two kinds of slot.** CPU slots (`WORKER_SLOTS`, default 1) probe uploads and claim only CPU jobs (`gpu_rate_usd is null`). GPU slots (`WORKER_GPU_SLOTS`, default 2, 0 to 16) claim only GPU jobs and never probe. A GPU call waits on Modal for up to 70 minutes doing nothing locally, so it must never hold a slot that probes uploads or runs ffmpeg: before, two transcriptions held both production slots, every server tool's quote stayed at "probing", and queued CPU jobs expired.
+- **Default 2:** what production ran before (two slots for everything), and each GPU slot costs only a thread and a poll every 2 s. The daily budget and each tool's `maxConcurrent` cap GPU work further, across all workers. Production sets it in `.railway/railway.ts`.
+- **0 is allowed:** a worker that takes no GPU jobs (another worker would). GPU jobs it never claims wait, and expire after 15 min with their credits back.
+- **A GPU slot without a backend** (`GPU_BACKEND` unset) still claims GPU jobs and fails them at once with their credits back, as before.
+
+**Why:** review of #66, finding 1; `CLAUDE.md` rule 1 (the speed promise) depends on probing and the CPU tools never waiting behind a GPU.
+**Reverse:** `WORKER_GPU_SLOTS=0` stops a worker taking GPU jobs; the claims are `jobqueue.claim` and `jobqueue.claim_gpu`, the loops `slots.run_slot` and `slots.run_gpu_slot`.
+
+## 2026-10-02 · A GPU call's id is on its job: a dead worker's call is cancelled and counted
+
+**Decision:**
+- **The call in flight is on its job** (`jobs.gpu_call_at`, `jobs.gpu_call_id`; migration `gpu_calls`). `gpu_call_at` is set before the presigned URLs leave the worker, the id (Modal's `FunctionCall` id) as soon as the call is spawned, and both are cleared in the same statement that records the call's cost, so a call is counted once.
+- **Reap:** a job whose worker went quiet with a call on it has the call settled in the reaper's transaction (its wall-clock time since `gpu_call_at`, plus the longest idle window, as GPU time and cost), then cancelled by id (`modal.FunctionCall.from_id(id).cancel()`), then the job is requeued (or failed, the third time) as before. The scheduler holds the GPU backend for this. A call left on a job that's no longer running, whose worker is quiet too (its owner cancelled it while the worker was dead), is settled and cancelled the same way.
+- **Re-claim:** a job claimed with a call still on it (nobody settled it, e.g. an admin's retry) gets the same before its next attempt starts.
+- **Worker stop:** unchanged in shape (the call is cancelled through its handle, its time recorded, the job handed back), now with the call cleared from the job; a test drives it through `ModalGpu` against a stand-in for Modal.
+- **A slow worker the reaper took for dead** can't count its call again: recording requires the job to still be its own and the call still on it.
+- **A call that can't be cancelled** (Modal unreachable, or a scheduler without a Modal token) is charged to the rest of its job's time limit at once, so the budget counts its worst case, and an immediate alert (`gpu_call_not_cancelled`, runbook in `alerts.md`) names the call so it can be stopped in Modal's dashboard. Overcharging the budget for a day is the safe side; an uncounted hour-long L4 call (about $1) was not.
+- Modal answering "not found" for an id counts as cancelled: the call ended long ago.
+
+**Why:** review of #66, finding 5 (the call ran on uncancelled, and its cost never reached the budget; with three attempts, three could run at once).
+**Reverse:** the columns are harmless when unused; the logic is `jobqueue.settle_call` / `cancel_stale_call` and `Scheduler._cancel_call`.
+
+## 2026-10-02 · Every GPU output key is swept until its URL expires
+
+**Decision:**
+- **Every key a GPU call gets a PUT URL for is remembered** (`jobs.gpu_output_keys`, append-only while URLs can write, with `gpu_put_expires_at`, the latest expiry: the job's limit plus 15 min).
+- **On every pass (5 min) the sweeper deletes each of those keys that isn't the job's live output** (the output of a running or succeeded job, which keeps its usual 60 minutes). Once the last URL has expired nothing can write to them, so after one last delete they're forgotten.
+- **Why every pass, not once after expiry** (the review's first suggestion): a URL lives up to 85 minutes for a transcription, so an orphaned call could write the person's transcript at minute 1 and it would stay until minute 85, past the hour. Deleting on every pass keeps anything an orphan writes to at most 5 minutes; deleting a key that isn't there costs one request. With finding 5's cancel, orphans should be rare; this holds even when the cancel fails.
+- **Not done:** deleting every unreferenced `out/` object older than the presign window (the review's other option). Listing and matching the whole bucket each pass is heavier, and a bug there would delete live outputs; the keys are known, so they're deleted by name.
+
+**Why:** review of #66, finding 4; `CLAUDE.md` rule 4 (outputs within the hour; the sweeper is the guarantee).
+**Reverse:** drop `_sweep_gpu_keys` in `retention.py`; the lifecycle backstop (≤ 48 h) and the 2-hour alert remain.
+
+## 2026-10-02 · The GPU budget gate counts running jobs at their worst case, one claim at a time
+
+**Decision:**
+- **The gate:** a GPU job starts only while today's *committed* spend is under the budget: recorded costs, plus every running GPU job at its worst case, `(timeout_sec + 30 s) × rate` (its whole time limit, past which the worker cancels the call, and the longest idle window).
+- **Race-safe:** GPU claims take a transaction-scoped advisory lock and check the gate inside the claim's own transaction, so every slot on every worker takes its turn and sees the job claimed before it. Spend can pass the budget by at most one job's worst case, and only if every running job runs to its limit. A test races six claimers at a budget with room for one, and fails without the lock.
+- **Worst case, not an estimate from duration:** the brief allowed either if clearly better. An estimate isn't a bound (a Whisper call that loops on a hallucination runs long), and this is the cost guard. The price is concurrency at the default $1 a day: one transcription at a time (its worst case is about $1.13), or up to four upscales (about $0.25 each); a second waits and may expire after 15 min with its credits back. Raising the budget raises it. If waiting jobs expire too often, a per-job estimate (`processor.estimate` × a margin, capped at the limit) is the next step.
+- **Alerts and the admin keep reading the real spend** (recorded plus the call in flight's time so far), so a long job starting doesn't page anyone; Admin → Dashboard → GPU says whether jobs are starting and, if not, whether the budget is spent or a running job's worst case is in the way.
+- **Spend counts a re-run job's earlier calls and its current one** (recorded cost plus the call in flight), where before a job with any recorded cost stopped counting its running call (finding 9c).
+- **Partial index** `jobs_gpu_spend_idx` on `started_at` where `gpu_rate_usd is not null`, for the spend query every GPU claim runs.
+- **A blank budget in Admin is refused** ("Type a daily budget in dollars…; to stop GPU jobs, type 0"), never saved as $0.
+
+**Why:** review of #66, findings 8, 9 (c) and 14 (the empty field); Astro's spending cap.
+**Reverse:** the gate is `BudgetState.open` in `gpu/budget.py` (committed vs spent), the lock `jobqueue.claim_gpu`; `config/business.ts` → `gpuBudget.worstCaseIdleSec` mirrors the worker's `MAX_IDLE_TAIL_SEC` (a test holds them together).
+
+## 2026-10-02 · What a GPU call is billed: cold, failed and unreported calls
+
+**Decision:**
+- **A warm call that worked:** GPU seconds measured inside the function + its idle window, as before.
+- **A cold call, or one the function reports as failed:** the larger of that and the wall-clock time since the spawn. Modal bills the container's boot and imports, which only the worker's clock sees; a failed call's container idles for its window like any other. (The wall clock also holds Modal's dispatch, so it errs high.)
+- **A call that didn't say** (cancelled, timed out, raised, no answer, or its worker died): wall-clock time + the longest idle window of any function (30 s, `MAX_IDLE_TAIL_SEC`), where before it was wall time alone.
+- **A spawn that failed** bills nothing: no call exists.
+
+**Why:** review of #66, finding 9 (a, b); `docs/05`: the idle window counts "whatever happened".
+**Reverse:** `parse_answer` and `GpuError.billed_seconds` in `gpu/backend.py`.
+
+## 2026-10-02 · GPU functions answer every failure; Whisper gets a container per job
+
+**Decision:**
+- **Every GPU function catches `Exception`** and answers `GPU_FAILED` with a fixed sentence and only the exception's type ("The GPU function failed (URLError)."), never its text: urllib's errors can quote the presigned URL, and an uncaught exception's traceback lands in Modal's logs. The worker shows the person its own fixed sentence for `GPU_FAILED`, as before. Tests run the functions locally (`.local()`, no Modal).
+- **`transcribe` gets `max_containers` 4**, the sum of A12's and V17's `maxConcurrent` (2 + 2), where it had 2. The other option, making the worker's clock exclude time queued on Modal, needs to know when a call starts running, which Modal doesn't report while we poll. With a container for every job our claims allow, none of our calls queues behind another; only a cold start waiting for an L4 does, which the 5 minutes between the function's and the job's limits cover. The budget gate still decides how many run. A test holds every function's containers at or above its tools' `maxConcurrent` total.
+
+**Why:** review of #66, finding 14 (first two points).
+**Reverse:** `_unexpected` and `SPECS` in `gpu/modal_app.py`.
+
+## 2026-10-02 · The GPU images are pinned: base by digest, packages by hash
+
+**Decision:**
+- **Base image:** `python:3.12.14-slim-bookworm@sha256:392307d2…` (Docker Hub's index digest, read 2026-10-02 from the registry and Docker Hub's API, which agree), through `modal.Image.from_registry`. It's what Modal's `debian_slim` builds on (the official Python image on bookworm), so the images change as little as possible; 3.12.14 (last pushed 2026-09-19) rather than 3.12.15, whose tag was pushed hours before (our package managers wait a day too).
+- **Python packages:** `gpu/requirements-upscale.txt` and `gpu/requirements-whisper.txt`, compiled by `uv pip compile --generate-hashes` (from `apps/worker`, so `exclude-newer = "1 day"` applies) from the `.in` files beside them, which keep the versions `docs/13` approved. Modal installs them with `pip_install_from_requirements(..., extra_options="--require-hashes")`, so a package that changes, or one that isn't listed, fails the build.
+- **pip-audit reads them in CI** (Dependency audit). It flags two PyTorch 2.10 advisories, both local-only and out of our reach, so they're ignored by id with the reason beside them: CVE-2026-4538 (PYSEC-2026-139) is in loading `.pt2` archives, and we load only our own SHA-256-pinned `.pth` weights; CVE-2025-3000 (PYSEC-2025-194) is in `torch.jit.script`, which nothing calls. Its fix is PyTorch 2.13, whose wheels need CUDA 13 drivers.
+- **gcc and libc6-dev are now listed** in the Whisper image (`docs/13`, `licenses.json`): `debian_slim` installed gcc, and Triton compiles the launcher of Whisper's word-timing kernels with it (without one, Whisper falls back to slower kernels).
+- **Gaps, logged:**
+  - Debian packages (ffmpeg, gcc, libc6-dev) are installed from bookworm and checked by apt's signatures, but their versions aren't pinned: `snapshot.debian.org` and `deb.debian.org` aren't reachable from here to pick and test a snapshot. Next step: point apt at a snapshot date, or take ffmpeg from a hashed wheel (`imageio-ffmpeg`).
+  - `openai-whisper` publishes only an sdist. Its hash is checked; the setuptools pip fetches to build it isn't (pip doesn't hash-check build dependencies).
+  - Nothing here could build the images: the first deploy after this merges (CI's Modal workflow) is the real test of the digest form and the hashed install.
+
+**Why:** review of #66, finding 10; `docs/11` → Supply chain (lockfiles, images by digest).
+**Reverse:** `image = modal.Image.debian_slim(python_version="3.12")` and `pip_install(...)` with the `.in` files' versions in `gpu/modal_app.py`; drop the CI step.
+
+## 2026-10-02 · Model licences: the weights' own licence decides; training data is a recorded risk
+
+**Decision:**
+- **The rule:** a model's own weights licence decides. It must be an explicitly commercial-use licence stated by whoever publishes the weights (`CLAUDE.md` rule 6: no non-commercial weights; unclear means no). Training-data provenance does not decide: each model's training data is recorded in its `docs/13` row as a known risk, not a blocker.
+- **Real-ESRGAN stays approved**: its weights are the author's release assets under the repository's BSD-3-Clause; its training data (DF2K, OST: academic datasets) is recorded.
+- **Demucs stays parked, now only on its weights' licence**: they're hosted outside the MIT repository and no licence is stated for them. A09 can go ahead once the author (Alexandre Défossez, or Meta) confirms the licence; MUSDB18-HQ is recorded as its training data, not a reason.
+- **Rows updated** with training data for the models we use or approved: Whisper, Real-ESRGAN, U²-Net, BiRefNet, and Demucs. Candidates get theirs when they're checked.
+
+**Why:** review of #66, finding 14 (Demucs was rejected partly for research-only training data while Real-ESRGAN, trained on academic datasets too, was approved; one rule was needed). The rule as Astro's brief gave it.
+**Reverse:** make training data a criterion in `docs/13` → Models; then Real-ESRGAN, U²-Net and BiRefNet need another look.
 
 ## 2026-10-02 · Decoded audio is copied a whole block at a time (WebKit)
 

@@ -100,7 +100,17 @@ export function totp(key: string, at = Date.now()): string {
  */
 export async function setScheme(page: Page, scheme: 'light' | 'dark'): Promise<void> {
   await page.emulateMedia({ colorScheme: scheme });
-  await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => null))),
+  // Polls each frame until no animation that ends is still running. Not the
+  // animations' `finished` promises: Chromium can leave those unsettled after
+  // the transition has finished (seen on /admin/payments), and a loop, such
+  // as a progress bar's pulse, never finishes at all.
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every(
+        (animation) =>
+          animation.playState !== 'running' ||
+          !Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)),
+      ),
   );
 }

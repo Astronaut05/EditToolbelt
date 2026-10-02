@@ -2,11 +2,12 @@
 
 Every 30 seconds each worker writes its heartbeat. One worker at a time (a
 Postgres advisory lock) then looks after the job queue (jobs whose worker
-went quiet, jobs queued too long), sweeps storage every 5 minutes, checks
-the alert rules and runs whatever daily job is due: the ledger check,
-account scrub, retention purges and the bucket's lifecycle rules at 03:00
-Tashkent, the digest at 09:00. When a job last ran lives in
-``system_checks``, so restarts don't repeat a job and missed ones catch up.
+went quiet, and the GPU calls they left running; jobs queued too long),
+sweeps storage every 5 minutes, checks the alert rules and runs whatever
+daily job is due: the ledger check, account scrub, retention purges and the
+bucket's lifecycle rules at 03:00 Tashkent, the digest at 09:00. When a job
+last ran lives in ``system_checks``, so restarts don't repeat a job and
+missed ones catch up.
 The job slots (runner.py) run beside this in the same process.
 """
 
@@ -25,6 +26,8 @@ from etb_worker import jobqueue
 from etb_worker.alerts import DATABASE_RULES, Alert, disk_space, raise_alert
 from etb_worker.clock import is_daily_due
 from etb_worker.db import Conn, connect
+from etb_worker.gpu.backend import GpuBackend
+from etb_worker.gpu.budget import budget_alerts
 from etb_worker.logs import get_logger
 from etb_worker.notify import Notifier
 from etb_worker.retention import SWEEP_EVERY, sweep
@@ -74,6 +77,8 @@ class Scheduler:
     disk_path: str = field(default_factory=tempfile.gettempdir)
     # None in tests that don't need it: then there's no sweeping.
     storage: Storage | None = None
+    # Cancels GPU calls whose worker died (GPU_BACKEND); None: they're charged to their limit.
+    gpu: GpuBackend | None = None
     # A job that raised waits this long before its next try, in this process.
     _retry_at: dict[str, datetime] = field(default_factory=dict)
 
@@ -123,7 +128,10 @@ class Scheduler:
 
     def maintain(self, conn: Conn) -> None:
         """The queue's upkeep every tick, and the retention sweep every 5 minutes."""
-        for job in [*jobqueue.reap(conn), *jobqueue.expire(conn)]:
+        reaped = jobqueue.reap(conn)
+        for call in reaped.calls:
+            self._cancel_call(conn, call)
+        for job in [*reaped.failed, *jobqueue.expire(conn)]:
             self._drop_input(conn, job)
         if self.storage is None:
             return
@@ -141,6 +149,22 @@ class Scheduler:
         for alert in alerts:
             raise_alert(conn, alert, self.notifier)
 
+    def _cancel_call(self, conn: Conn, call: jobqueue.StaleCall) -> None:
+        """A GPU call a dead worker left running: cancel it; alert if it can't be."""
+        cancel = self.gpu.cancel if self.gpu is not None else None
+        if jobqueue.cancel_stale_call(conn, cancel, call):
+            return
+        minutes = max(1, round(call.remaining_sec / 60))
+        alert = Alert(
+            "gpu_call_not_cancelled",
+            str(call.call_id),
+            f"A GPU call left by a worker that stopped couldn't be cancelled on Modal "
+            f"({call.call_id}). It may run up to {minutes} more min; that time is counted "
+            "against today's GPU budget. Stop it in Modal's dashboard (Apps, edittoolbelt-gpu).",
+            immediate=True,
+        )
+        raise_alert(conn, alert, self.notifier)
+
     def _drop_input(self, conn: Conn, job: jobqueue.Job) -> None:
         """A job that ended outside a worker (reaped, expired): its inputs go now."""
         keys = jobqueue.input_keys(job)
@@ -157,7 +181,7 @@ class Scheduler:
     def check_alerts(self, conn: Conn) -> None:
         log = get_logger()
         found: list[Alert] = []
-        for name, rule in DATABASE_RULES:
+        for name, rule in (*DATABASE_RULES, ("gpu_budget", budget_alerts)):
             try:
                 found += rule(conn)
             except psycopg.Error as error:
