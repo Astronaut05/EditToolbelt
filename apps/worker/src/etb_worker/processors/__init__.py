@@ -90,8 +90,65 @@ class JobContext:
     extra_input_keys: list[str] = field(default_factory=list)
 
     def run(self, args: list[str], on_line: Callable[[str], None] | None = None) -> str:
-        """Runs a tool in the sandbox, in the job's temp dir, under the job's time limit."""
+        """Runs a tool in the sandbox, in the job's temp dir, under the job's time limit.
+
+        ffmpeg reads the input only as far as the job was priced (``cap_input``).
+        """
+        seconds = priced_seconds(self.meta)
+        if seconds is not None and args and args[0] == "ffmpeg":
+            args = cap_input(args, self.input_path.name, seconds)
         return run(args, cwd=self.workdir, limits=self.limits, cancel=self.cancel, on_line=on_line)
+
+
+#: How far past the probed length ffmpeg may read. An honest file's streams can run a
+#: little past the container's duration (audio priming, a last frame), never this far.
+CAP_RATIO = 1.02
+CAP_SLACK_SEC = 1.0
+
+
+def priced_seconds(meta: dict[str, Any]) -> float | None:
+    """How much of the input a job may read: its probed length, which set the price and
+    the limits, with a margin; None for an input without one (an image, subtitles)."""
+    duration_ms = meta.get("duration_ms")
+    if isinstance(duration_ms, bool) or not isinstance(duration_ms, int | float):
+        return None
+    if duration_ms <= 0:
+        return None
+    return round(duration_ms / 1000 * CAP_RATIO + CAP_SLACK_SEC, 3)
+
+
+def cap_input(args: list[str], name: str, seconds: float) -> list[str]:
+    """``args`` with ffmpeg reading ``name`` for at most ``seconds``.
+
+    The probe reads the length from the container's header, which the uploader controls:
+    a file that says 9 s but holds an hour would otherwise be priced, limited and
+    previewed as 9 s and processed in full. An input ``-t`` before each ``-i name`` stops
+    the decode at the priced length, so such a file gets what it paid for. A limit the
+    processor set itself on that input (``-t``, ``-to``) is kept when it is smaller.
+    """
+    out = list(args)
+    start = 0  # where the options of the next input begin
+    i = 0
+    while i < len(out) - 1:
+        if out[i] != "-i":
+            i += 1
+            continue
+        if out[i + 1] == name:
+            limited = False
+            for j in range(start, i - 1):
+                if out[j] in ("-t", "-to"):
+                    out[j + 1] = _seconds(min(float(out[j + 1]), seconds))
+                    limited = True
+            if not limited:
+                out[i:i] = ["-t", _seconds(seconds)]
+                i += 2
+        i += 2
+        start = i
+    return out
+
+
+def _seconds(value: float) -> str:
+    return f"{value:.3f}"
 
 
 class Processor(Protocol):
