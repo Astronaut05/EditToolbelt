@@ -244,7 +244,7 @@ async function extraUploads(
     checkUpload(extra, tool);
     const kind = uploadKinds[id]?.[name];
     if (kind && !kind.types.includes(extra.mimeClaimed)) {
-      throw new ApiError(400, 'BAD_REQUEST', 'Wrong kind of file', `${name}: ${kind.is}.`);
+      throw new ApiError(400, 'BAD_REQUEST', kind.title, `${name}: ${kind.is}.`);
     }
     await checkUnused(extra);
     const probed = await waitForProbe(extra);

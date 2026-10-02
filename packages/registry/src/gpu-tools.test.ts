@@ -55,6 +55,8 @@ describe('the GPU tools (M5, Wave 3)', () => {
     const id = '0190f0c8-3f4a-7b6c-9d8e-0a1b2c3d4e5f';
     expect(uploadOptions['object-eraser']).toEqual(['mask']);
     expect(uploadKinds['object-eraser']?.mask?.types).toEqual(['image/png']);
+    expect(uploadKinds['object-eraser']?.mask?.title).toBe('Not a PNG mask');
+    expect(uploadKinds['burn-subtitles']?.subtitles?.title).toBe('Not a subtitle file');
     expect(parseServerOptions('object-eraser', { mask: id })).toEqual({
       ok: true,
       options: { mask: id, format: 'png' },

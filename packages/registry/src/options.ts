@@ -155,14 +155,23 @@ export const uploadOptions: Partial<Record<keyof typeof serverOptions, readonly 
 export const SUBTITLE_MIME_TYPES = ['application/x-subrip', 'text/vtt', 'text/x-ssa'] as const;
 
 /**
- * What each of those uploads must be: the types it may have, and what to call
- * it when it isn't one of them.
+ * What each of those uploads must be: the types it may have, what to call it,
+ * and the problem's title when it isn't one of them.
  */
 export const uploadKinds: Partial<
-  Record<keyof typeof serverOptions, Record<string, { types: readonly string[]; is: string }>>
+  Record<
+    keyof typeof serverOptions,
+    Record<string, { types: readonly string[]; is: string; title: string }>
+  >
 > = {
-  'burn-subtitles': { subtitles: { types: SUBTITLE_MIME_TYPES, is: 'an SRT, VTT or ASS file' } },
-  'object-eraser': { mask: { types: ['image/png'], is: 'a PNG' } },
+  'burn-subtitles': {
+    subtitles: {
+      types: SUBTITLE_MIME_TYPES,
+      is: 'an SRT, VTT or ASS file',
+      title: 'Not a subtitle file',
+    },
+  },
+  'object-eraser': { mask: { types: ['image/png'], is: 'a PNG', title: 'Not a PNG mask' } },
 };
 
 export type ServerToolId = keyof typeof serverOptions;
