@@ -1263,7 +1263,7 @@ _Server-only tools staying `soon`: superseded for CPU tools by "CPU server tools
   - Click's own `error < 0` cancels the purchase and answers -9; anything after a cancel answers -9.
 - **Codes:** -1 bad signature (constant-time compare), -2 amount not exactly the purchase's (in tiyin), -3 action other than 0 or 1, -4 paid, -5 no such Click purchase, -6 Complete without its Prepare, -7 store failure, -8 missing or malformed fields or another `service_id`, -9 cancelled. Always HTTP 200.
 - **No `refund()`:** the Shop API has no refund call. A refund made in Click's merchant cabinet is recorded by hand.
-- **Click's fiscal receipt: built since.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL. _Built: see "Click's fiscal receipts: queued with the sale, sent with retries (M5)" below. Click still needs the TIN or PINFL in `config/business.ts` before it can be switched on._
+- **Click's fiscal receipt: built since.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL. _Built: see [decisions/2026-10-02-click-fiscal-receipts.md](decisions/2026-10-02-click-fiscal-receipts.md). Click still needs the TIN or PINFL in `config/business.ts` before it can be switched on._
 
 **Why:** Click's published Shop API; `docs/05` → Payments.
 **Reverse:** each choice is one branch of `prepare` or `complete` in `providers/click.ts`.
@@ -1556,7 +1556,7 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** the M5 review: with the MXIK and package codes filled in, Click could be switched on and sell without the fiscal receipt Uzbek law asks for.
 **Reverse:** delete Click's entry from `UNFINISHED`.
-_Done: the receipt is built and Click's entry is gone from `UNFINISHED`. Click's switch now refuses while the seller's TIN or PINFL is missing or malformed, beside the MXIK and package codes (see "Click's fiscal receipts: queued with the sale, sent with retries (M5)")._
+_Done: the receipt is built and Click's entry is gone from `UNFINISHED`. Click's switch now refuses while the seller's TIN or PINFL is missing or malformed, beside the MXIK and package codes (see [decisions/2026-10-02-click-fiscal-receipts.md](decisions/2026-10-02-click-fiscal-receipts.md))._
 
 ## 2026-10-02 · Payment webhooks: hardening from the M5 review
 

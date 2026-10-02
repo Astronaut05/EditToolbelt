@@ -1,8 +1,8 @@
 /**
  * Click's Merchant API, for the one call we make: a sale's fiscal receipt
  * for the tax service, `POST payment/ofd_data/submit_items`
- * (docs/DECISIONS.md → "Click's fiscal receipts: queued with the sale, sent
- * with retries"). Sending, retrying and recording it is payments/fiscal.ts.
+ * (docs/decisions/2026-10-02-click-fiscal-receipts.md). Sending, retrying
+ * and recording it is payments/fiscal.ts.
  *
  * - The base URL is CLICK_MERCHANT_API_URL (no host in the code); its value
  *   is in docs/runbooks/turn-on-payments.md.
