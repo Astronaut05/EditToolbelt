@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import boto3
+import psycopg
 import pytest
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
@@ -653,6 +654,120 @@ def test_the_sweeper_deletes_old_outputs_and_abandoned_uploads(
     assert row["files_deleted_at"] is not None
     check = one(db, "select detail from system_checks where name = 'retention_sweeper'")
     assert check["detail"]["outputs"] >= 1
+
+
+def test_an_upload_storage_completed_but_the_web_never_recorded_is_deleted(
+    db: Conn, storage: Storage
+) -> None:
+    # Storage completed the multipart upload; the web died before marking the row complete.
+    key = f"in/{uuid.uuid4()}"
+    client = storage._client  # test setup
+    upload_id = client.create_multipart_upload(Bucket=storage.bucket, Key=key)["UploadId"]
+    part = client.upload_part(
+        Bucket=storage.bucket, Key=key, UploadId=upload_id, PartNumber=1, Body=b"user file"
+    )
+    client.complete_multipart_upload(
+        Bucket=storage.bucket,
+        Key=key,
+        UploadId=upload_id,
+        MultipartUpload={"Parts": [{"ETag": part["ETag"], "PartNumber": 1}]},
+    )
+    db.execute(
+        """
+        insert into uploads (user_id, storage_key, bytes, mime_claimed, tool_id, part_size,
+                             part_count, expires_at, multipart_id, created_at)
+        values (%s, %s, 9, 'video/mp4', 'test-remux', 9, 1, now() - interval '1 minute', %s,
+                now() - interval '61 minutes')
+        """,
+        (new_user(db), key, upload_id),
+    )
+    assert exists(storage, key)
+    counts, _alerts = sweep(db, storage)
+    assert counts["uploads_aborted"] >= 1
+    assert not exists(storage, key)
+    row = one(db, "select multipart_id, deleted_at from uploads where storage_key = %s", key)
+    assert row["multipart_id"] is None
+    assert row["deleted_at"] is not None
+
+
+class Killed(BaseException):
+    """The worker process killed (a deploy's drain running out), as an exception."""
+
+
+class KilledAfterUpload(Storage):
+    """Storage whose upload lands, after which the worker is killed before it marks the job."""
+
+    def __init__(self, inner: Storage) -> None:
+        self.__dict__.update(inner.__dict__)
+        self.uploaded: list[str] = []
+
+    def upload(self, source: Path, content_type: str, key: str) -> str:
+        self.uploaded.append(super().upload(source, content_type, key))
+        raise Killed
+
+
+def test_an_output_whose_worker_dies_before_marking_the_job_is_found_and_deleted(
+    db: Conn, storage: Storage, media: dict[str, Any]
+) -> None:
+    user = new_user(db)
+    job = new_job(db, user, put_input(storage, media["mp4"]))
+    dying = KilledAfterUpload(storage)
+    run = runner(dying)
+    with pytest.raises(Killed):
+        run.run(claim_this(db, run, job))
+    [output] = dying.uploaded
+    assert exists(storage, output)
+    # The key was on the job before the upload started: it can be found.
+    row = one(db, "select status, output_key from jobs where id = %s", job)
+    assert (row["status"], row["output_key"]) == ("running", output)
+
+    # The reaper hands the job back; the next attempt deletes that output before anything else.
+    db.execute("update jobs set heartbeat_at = now() - interval '2 minutes' where id = %s", (job,))
+    jobqueue.reap(db)
+    again = runner(storage)
+    again.run(claim_this(db, again, job))
+    assert not exists(storage, output)
+    row = one(db, "select status, output_key from jobs where id = %s", job)
+    assert row["output_key"] != output
+    if row["output_key"]:
+        storage.delete(row["output_key"])
+
+
+def test_an_output_whose_success_wasnt_recorded_goes_within_the_hour(
+    db: Conn, storage: Storage, media: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = new_user(db)
+    job = new_job(db, user, put_input(storage, media["mp4"]))
+
+    def blip(*_args: Any, **_kwargs: Any) -> bool:
+        raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+    # The output is uploaded, then the database is gone for a moment: neither
+    # succeed() nor fail() lands.
+    monkeypatch.setattr(jobqueue, "succeed", blip)
+    monkeypatch.setattr(jobqueue, "fail", blip)
+    run = runner(storage)
+    run.run(claim_this(db, run, job))
+    monkeypatch.undo()
+    row = one(db, "select status, output_key from jobs where id = %s", job)
+    assert row["status"] == "running"
+    output = row["output_key"]
+    assert output
+    assert exists(storage, output)
+
+    # Nobody runs it again: the reaper hands it back and it expires in the queue.
+    db.execute("update jobs set heartbeat_at = now() - interval '2 minutes' where id = %s", (job,))
+    jobqueue.reap(db)
+    db.execute("update jobs set queued_at = now() - interval '20 minutes' where id = %s", (job,))
+    jobqueue.expire(db)
+    assert one(db, "select status from jobs where id = %s", job)["status"] == "expired"
+    # 60 minutes after the job ended, the sweeper deletes the output it never delivered.
+    db.execute("update jobs set finished_at = now() - interval '61 minutes' where id = %s", (job,))
+    sweep(db, storage)
+    assert not exists(storage, output)
+    row = one(db, "select output_key, files_deleted_at from jobs where id = %s", job)
+    assert row["output_key"] is None
+    assert row["files_deleted_at"] is not None
 
 
 def test_the_sweeper_alerts_on_anything_older_than_two_hours(db: Conn, storage: Storage) -> None:

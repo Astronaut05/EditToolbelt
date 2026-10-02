@@ -1,8 +1,10 @@
 """Running one job end to end (docs/01 -> Workers, Retention).
 
 Claim → download the input into a per-job temp dir → run the processor
-(the sandbox, progress reported through a heartbeat every 5 s) → upload the
-output under a random key → mark the job. Whatever happens, the ``finally``
+(the sandbox, progress reported through a heartbeat every 5 s) → put a new
+random key on the job, then upload the output under it (so it's found and
+deleted even if this worker dies before the next step) → mark the job.
+Whatever happens, the ``finally``
 deletes the temp dir and the input object: inputs live exactly as long as
 their job. Only a worker that dies mid-job leaves the input, so the reaper
 can hand the job to another worker.
@@ -42,7 +44,7 @@ from etb_worker.processors import (
     is_remote,
 )
 from etb_worker.sandbox import Limits, ToolError
-from etb_worker.storage import Storage, StorageError
+from etb_worker.storage import Storage, StorageError, new_output_key
 
 
 @dataclass
@@ -221,7 +223,7 @@ class JobRunner:
             if output.key:
                 self.storage.delete(output.key)
             raise ToolError("CANCELLED", "cancelled")
-        key, size = self._store(output, progress)
+        key, size = self._store(job_id, output, progress)
         meta = {
             **output.meta,
             "bytes": size,
@@ -230,15 +232,23 @@ class JobRunner:
         }
         return key, meta
 
-    def _store(self, output: Output, progress: _Progress) -> tuple[str, int]:
-        """The output's key and size: stored already by a GPU function, or uploaded now."""
+    def _store(self, job_id: str, output: Output, progress: _Progress) -> tuple[str, int]:
+        """The output's key and size: stored already by a GPU function, or uploaded now.
+
+        An upload's key goes on the job first, so the file can always be found
+        and deleted, even if this worker dies before the job is marked done.
+        """
         if output.key is not None:
             return output.key, int(output.bytes or 0)
         if output.path is None:
             raise JobFailed("INTERNAL", "the tool made no output")
+        key = new_output_key()
+        with self.connect() as conn:
+            if not jobqueue.record_output(conn, job_id, self.worker_id, key):
+                raise ToolError("CANCELLED", "cancelled")  # cancelled or reaped: upload nothing
         progress.set(99, "uploading")
         size = output.path.stat().st_size
-        return self.storage.upload(output.path, output.content_type), size
+        return self.storage.upload(output.path, output.content_type, key), size
 
     def _record_gpu(self, job_id: str, usage: GpuUsage) -> None:
         log = get_logger(job_id=job_id)

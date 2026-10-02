@@ -42,8 +42,7 @@ class MemoryStorage:
         dest.write_bytes(self.objects[key])
         return len(self.objects[key])
 
-    def upload(self, source: Path, content_type: str) -> str:
-        key = f"out/{uuid.uuid4()}"
+    def upload(self, source: Path, content_type: str, key: str) -> str:
         self.objects[key] = source.read_bytes()
         self.types[key] = content_type
         return key

@@ -146,6 +146,25 @@ def start_gpu_call(conn: Conn, job_id: str, worker_id: str, key: str, expires_se
     return row is not None
 
 
+def record_output(conn: Conn, job_id: str, worker_id: str, key: str) -> bool:
+    """Puts the key a CPU output is about to be uploaded to on the job, before the upload.
+
+    Like ``start_gpu_call`` for GPU keys: if this worker dies, or ``succeed``
+    fails, after the upload, the key is still on the job. The next attempt
+    deletes it first, or the sweeper does 60 minutes after the job ends.
+    False when the job is no longer ours to run: then nothing is uploaded.
+    """
+    row = conn.execute(
+        """
+        update jobs set output_key = %s, updated_at = now()
+        where id = %s and worker_id = %s and status = 'running'
+        returning id
+        """,
+        (key, job_id, worker_id),
+    ).fetchone()
+    return row is not None
+
+
 def gpu_call_spawned(conn: Conn, job_id: str, worker_id: str, call_id: str) -> None:
     """The backend's id for the call, so it can be cancelled if this worker dies."""
     conn.execute(

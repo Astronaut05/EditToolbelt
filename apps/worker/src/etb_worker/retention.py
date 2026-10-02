@@ -8,7 +8,8 @@ Every 5 minutes, one worker:
   nothing it writes stays more than one pass (5 minutes), and the job's
   real output keeps its own 60 minutes;
 - aborts multipart uploads nobody completed within the hour, ours and any
-  storage still lists;
+  storage still lists. Ours are deleted too: storage may have completed one
+  while the web failed to record it, and then the file is there;
 - deletes completed uploads no job used before they expired;
 - then lists the bucket: anything older than 2 hours means the sweeper is
   missing something, and alerts.
@@ -73,6 +74,9 @@ def sweep(
     ).fetchall()
     for upload in stale:
         storage.abort_upload(upload["storage_key"], upload["multipart_id"])
+        # Storage may have completed it while the web failed to record that (it died, or
+        # its database write failed): the abort then does nothing and the file stays.
+        storage.delete(upload["storage_key"])
         conn.execute(
             "update uploads set multipart_id = null, deleted_at = now() where id = %s",
             (upload["id"],),
