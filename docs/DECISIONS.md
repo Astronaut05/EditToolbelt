@@ -1279,3 +1279,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** `tools/photo.md` → P08, `tools/audio.md` → A12, `tools/video.md` → V17; the 2026-10-01 entry on server-only tools; Astro's M5 brief ("tools whose GPU path can't be verified stay beta and are switched on by an admin, like VFR to CFR was").
 **Reverse:** set a tool's status in Admin → Tools, or its default in `packages/registry/src/tools/`.
+
+## 2026-10-02 · GPU jobs run in slots of their own (`WORKER_GPU_SLOTS`)
+
+**Decision:**
+- **Two kinds of slot.** CPU slots (`WORKER_SLOTS`, default 1) probe uploads and claim only CPU jobs (`gpu_rate_usd is null`). GPU slots (`WORKER_GPU_SLOTS`, default 2, 0 to 16) claim only GPU jobs and never probe. A GPU call waits on Modal for up to 70 minutes doing nothing locally, so it must never hold a slot that probes uploads or runs ffmpeg: before, two transcriptions held both production slots, every server tool's quote stayed at "probing", and queued CPU jobs expired.
+- **Default 2:** what production ran before (two slots for everything), and each GPU slot costs only a thread and a poll every 2 s. The daily budget and each tool's `maxConcurrent` cap GPU work further, across all workers. Production sets it in `.railway/railway.ts`.
+- **0 is allowed:** a worker that takes no GPU jobs (another worker would). GPU jobs it never claims wait, and expire after 15 min with their credits back.
+- **A GPU slot without a backend** (`GPU_BACKEND` unset) still claims GPU jobs and fails them at once with their credits back, as before.
+
+**Why:** review of #66, finding 1; `CLAUDE.md` rule 1 (the speed promise) depends on probing and the CPU tools never waiting behind a GPU.
+**Reverse:** `WORKER_GPU_SLOTS=0` stops a worker taking GPU jobs; the claims are `jobqueue.claim` and `jobqueue.claim_gpu`, the loops `slots.run_slot` and `slots.run_gpu_slot`.

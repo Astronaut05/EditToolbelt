@@ -4,6 +4,7 @@ Runs when TEST_DATABASE_URL is set (migrated); no storage or GPU needed.
 Each processor: presign -> call -> finish (output stored, GPU time and cost
 on the job, credits captured, input deleted at once); a failure refunds;
 a cancel cancels the call; and the daily budget stops GPU jobs from starting.
+Then what happens around a call: GPU and CPU slots claim apart.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ from etb_worker.db import Conn, connect_url
 from etb_worker.gpu import budget
 from etb_worker.gpu.backend import GpuBackend, GpuCall, GpuCancelled, GpuError, GpuResult
 from etb_worker.notify import Notifier
+from etb_worker.probe import probe_next
+from etb_worker.processors import Estimate, JobContext, Output
 from etb_worker.runner import JobRunner
 from etb_worker.scheduler import Scheduler
 from etb_worker.settings import Settings
@@ -115,6 +118,18 @@ def db() -> Iterator[Conn]:
         yield conn
 
 
+@pytest.fixture(autouse=True)
+def roomy_budget(db: Conn) -> Iterator[None]:
+    """Today's spend by earlier tests (or runs, on a reused database) mustn't close the gate.
+
+    The tests about the budget set their own, relative to what's committed already.
+    """
+    before = one(db, "select daily_usd from gpu_budget where id = 1")["daily_usd"]
+    db.execute("update gpu_budget set daily_usd = 1000 where id = 1")
+    yield
+    db.execute("update gpu_budget set daily_usd = %s where id = 1", (before,))
+
+
 def one(db: Conn, query: str, *params: Any) -> dict[str, Any]:
     row = db.execute(query, params).fetchone()
     assert row is not None
@@ -199,12 +214,13 @@ def runner(storage: FakeStorage, gpu: GpuBackend | None) -> JobRunner:
         worker_id=f"test-gpu-{uuid.uuid4().hex[:6]}",
         heartbeat_sec=0.1,
         gpu=gpu,
+        pool="gpu",
     )
 
 
 def claim_this(db: Conn, run: JobRunner, job: str) -> jobqueue.Job:
     db.execute("update jobs set priority = 20 where id = %s", (job,))
-    claimed = jobqueue.claim(db, run.worker_id)
+    claimed = jobqueue.claim_gpu(db, run.worker_id)
     assert claimed is not None
     assert str(claimed["id"]) == job
     return claimed
@@ -460,10 +476,11 @@ def test_the_daily_budget_stops_gpu_jobs_and_alerts_once_at_80_and_100(
         assert len(sent) == 1
         assert "85 %" in sent[0]
 
-        # At the budget: the GPU job waits, the CPU job behind it runs.
+        # At the budget: the GPU job waits, the CPU job beside it runs.
         db.execute("update gpu_budget set daily_usd = %s where id = 1", (spent,))
         assert not budget.gpu_open(db)
-        claimed = jobqueue.claim(db, "test-budget", gpu=budget.gpu_open(db))
+        assert jobqueue.claim_gpu(db, "test-budget") is None
+        claimed = jobqueue.claim(db, "test-budget")
         assert claimed is not None
         assert str(claimed["id"]) == cpu_job
         db.execute("update jobs set status = 'queued', worker_id = null where id = %s", (cpu_job,))
@@ -479,7 +496,7 @@ def test_the_daily_budget_stops_gpu_jobs_and_alerts_once_at_80_and_100(
         # Raised in admin: it opens again at once.
         db.execute("update gpu_budget set daily_usd = %s where id = 1", (spent * 2,))
         assert budget.gpu_open(db)
-        claimed = jobqueue.claim(db, "test-budget", gpu=budget.gpu_open(db))
+        claimed = jobqueue.claim_gpu(db, "test-budget")
         assert claimed is not None
         assert str(claimed["id"]) == gpu_job
     finally:
@@ -505,3 +522,122 @@ def test_a_running_call_counts_against_the_budget_before_it_ends(db: Conn) -> No
         assert budget.state(db).spent_usd == pytest.approx(before + 100 * RATE, abs=1e-3)
     finally:
         db.execute("update jobs set status = 'cancelled' where id = %s", (job,))
+
+
+# --- Around a call: slots ---------
+
+
+def wait_for(check: Callable[[], bool], seconds: float = 10) -> None:
+    deadline = time.monotonic() + seconds
+    while not check():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.05)
+
+
+class CopyTool:
+    """A CPU tool for the slot test: copies its input."""
+
+    remote = False
+
+    def __init__(self) -> None:
+        self.tool_id = f"test-cpu-{uuid.uuid4().hex[:6]}"
+
+    def estimate(self, meta: dict[str, Any], options: dict[str, Any]) -> Estimate:
+        return Estimate(seconds=1)
+
+    def run(self, ctx: JobContext) -> Output:
+        out = ctx.workdir / "out.bin"
+        out.write_bytes(ctx.input_path.read_bytes())
+        return Output(path=out, content_type="application/octet-stream", ext="bin")
+
+
+def test_a_running_gpu_job_holds_up_neither_probing_nor_cpu_jobs(db: Conn) -> None:
+    """Finding: GPU calls held the only slots. Now each pool claims only its own jobs."""
+    storage = FakeStorage()
+    user = new_user(db)
+    release = threading.Event()
+
+    def holds(call: GpuCall, store: FakeStorage) -> GpuResult:
+        # An hour-long transcription, as far as the rest of the worker can tell.
+        while not release.wait(0.05):
+            call.on_wait(1.0)
+        store.objects[key_of(call.kwargs["output_url"])] = (b"done", "x")
+        return result()
+
+    gpu_job = new_job(db, storage, user, "upscale-image", IMAGE, {})
+    waiting_gpu_job = new_job(db, storage, user, "upscale-image", IMAGE, {})
+    tool = CopyTool()
+    cpu_job = new_job(db, storage, user, tool.tool_id, {}, {}, content=b"cpu input")
+    db.execute("update jobs set gpu_rate_usd = null where id = %s", (cpu_job,))
+    db.execute("update jobs set priority = 40 where id in (%s, %s)", (gpu_job, cpu_job))
+    # A GPU job ahead of everything: a CPU slot must still leave it alone.
+    db.execute("update jobs set priority = 50 where id = %s", (waiting_gpu_job,))
+    upload_key = f"in/{uuid.uuid4()}"
+    storage.objects[upload_key] = (b"just uploaded", "x")
+    db.execute(
+        """
+        insert into uploads (user_id, storage_key, bytes, mime_claimed, tool_id, part_size,
+                             part_count, expires_at, completed_at)
+        values (%s, %s, 13, 'audio/wav', 'transcribe-audio', 13, 1,
+                now() + interval '1 hour', now() - interval '1 day')
+        """,
+        (user, upload_key),
+    )
+    gpu_slot = runner(storage, FakeGpu(storage, holds))
+    cpu_slot = JobRunner(
+        cast(Storage, storage),
+        lambda: connect_url(URL),
+        processors={tool.tool_id: tool},
+        worker_id=f"test-cpu-{uuid.uuid4().hex[:6]}",
+        heartbeat_sec=0.1,
+    )
+    db.execute("update jobs set priority = 0 where id = %s", (waiting_gpu_job,))
+    gpu_thread = threading.Thread(target=gpu_slot.run_next)
+    gpu_thread.start()
+    try:
+        wait_for(
+            lambda: one(db, "select status from jobs where id = %s", gpu_job)["status"] == "running"
+        )
+        db.execute("update jobs set priority = 50 where id = %s", (waiting_gpu_job,))
+
+        # While the GPU call runs: the upload is probed, and the CPU job runs to the end.
+        wanted = {
+            "format": {"format_name": "wav", "duration": "1.0"},
+            "streams": [{"codec_type": "audio", "codec_name": "pcm_s16le"}],
+        }
+        while probe_next(db, cast(Storage, storage), probe=lambda _path: wanted):
+            pass
+        probed = one(db, "select probed_at, probe from uploads where storage_key = %s", upload_key)
+        assert probed["probed_at"] is not None
+        assert probed["probe"]["container"] == "wav"
+        assert cpu_slot.run_next()
+        cpu_row = one(db, "select status, worker_id from jobs where id = %s", cpu_job)
+        assert cpu_row["status"] == "succeeded"
+        assert cpu_row["worker_id"] == cpu_slot.worker_id
+        # The CPU slot never took the GPU job waiting ahead of it.
+        assert one(db, "select status from jobs where id = %s", waiting_gpu_job)["status"] == (
+            "queued"
+        )
+    finally:
+        release.set()
+        gpu_thread.join(timeout=10)
+    assert not gpu_thread.is_alive()
+    assert one(db, "select status from jobs where id = %s", gpu_job)["status"] == "succeeded"
+    db.execute("update jobs set status = 'cancelled' where id = %s", (waiting_gpu_job,))
+
+
+def test_a_gpu_slot_never_takes_a_cpu_job(db: Conn) -> None:
+    storage = FakeStorage()
+    user = new_user(db)
+    tool = CopyTool()
+    cpu_job = new_job(db, storage, user, tool.tool_id, {}, {})
+    db.execute("update jobs set gpu_rate_usd = null, priority = 60 where id = %s", (cpu_job,))
+    assert budget.gpu_open(db)
+    try:
+        taken = jobqueue.claim_gpu(db, "test-gpu-only")
+        if taken is not None:  # another test's leftover GPU job, never ours
+            db.execute("update jobs set status = 'cancelled' where id = %s", (taken["id"],))
+        assert taken is None or str(taken["id"]) != cpu_job
+        assert one(db, "select status from jobs where id = %s", cpu_job)["status"] == "queued"
+    finally:
+        db.execute("update jobs set status = 'cancelled' where id = %s", (cpu_job,))

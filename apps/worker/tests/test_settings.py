@@ -157,3 +157,19 @@ def test_local_gpu_is_refused_in_production(clean_env: pytest.MonkeyPatch) -> No
     clean_env.setenv("APP_ENV", "local")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_gpu_jobs_get_their_own_slots(clean_env: pytest.MonkeyPatch) -> None:
+    for name, value in VALID_ENV.items():
+        clean_env.setenv(name, value)
+    defaults = Settings()
+    assert (defaults.worker_slots, defaults.worker_gpu_slots) == (1, 2)
+    clean_env.setenv("WORKER_GPU_SLOTS", "0")  # a worker that takes no GPU jobs
+    assert Settings().worker_gpu_slots == 0
+    clean_env.setenv("WORKER_GPU_SLOTS", "4")
+    assert Settings().worker_gpu_slots == 4
+    for bad in ("-1", "17", "two"):
+        clean_env.setenv("WORKER_GPU_SLOTS", bad)
+        with pytest.raises(ValidationError) as caught:
+            Settings()
+        assert format_errors(caught.value)[0].startswith("WORKER_GPU_SLOTS: ")

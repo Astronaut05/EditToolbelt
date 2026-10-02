@@ -61,7 +61,7 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 - `GpuBackend` interface, two production implementations (plus `LocalGpu`, dev only: the Pascal card in the local stack, see Hosting):
   - `ServerlessGpu` (start here, on **Modal**, decided 2026-10-01): our own images with our chosen models, deployed to a per-second-billed serverless GPU provider. No idle cost, cold starts of seconds to tens of seconds. This satisfies "self-hosted models, not someone else's API" without a fixed monthly GPU bill. The worker calls out and polls; inputs and outputs move through R2 presigned URLs.
   - `DedicatedGpu`: a rented GPU server running the **same images**, switched on when monthly GPU-seconds make it cheaper (break-even formula in `05-credits-and-payments.md`).
-- The CPU worker claims GPU jobs too, forwards them to the backend, then does upload/cleanup as usual — switching backend is a config change.
+- The worker claims GPU jobs too, in GPU slots of their own (`WORKER_GPU_SLOTS`, default 2) that claim nothing else: a GPU call can wait on the backend for an hour, and must never hold a slot that probes uploads or runs ffmpeg. CPU slots (`WORKER_SLOTS`) claim only CPU jobs. A GPU slot forwards its job to the backend, then does upload/cleanup as usual — switching backend is a config change.
 - Every GPU job records `gpu_seconds`; admin shows real cost per tool.
 
 **What's built (M5, 2026-10-02):**

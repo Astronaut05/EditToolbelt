@@ -2,6 +2,10 @@
 
 - Claim: the highest-priority, oldest queued job whose tool is under its
   concurrency cap, with ``FOR UPDATE SKIP LOCKED`` so workers never collide.
+  CPU jobs and GPU jobs (those with a GPU rate) are claimed apart, by
+  different slots, so a GPU call that waits on Modal for an hour never holds
+  a slot that probes uploads and runs ffmpeg. GPU claims stop while the
+  daily budget is spent (gpu/budget.py).
 - Heartbeat every 5 s while running; it also notices a cancel.
 - Reaper: a running job silent for 60 s goes back to the queue, at most
   twice; the third time it fails and its credits come back.
@@ -18,6 +22,7 @@ from typing import Any
 from psycopg.types.json import Jsonb
 
 from etb_worker.db import Conn
+from etb_worker.gpu.budget import gpu_open
 from etb_worker.ledger import capture, release
 from etb_worker.logs import get_logger
 
@@ -29,38 +34,45 @@ QUEUE_EXPIRY = timedelta(minutes=15)
 Job = dict[str, Any]
 
 
-def claim(conn: Conn, worker_id: str, *, gpu: bool = True) -> Job | None:
-    """Takes the next job off the queue, or None.
+_CLAIM = """
+    with next as (
+      select j.id from jobs j
+      where j.status = 'queued'
+        and (j.gpu_rate_usd is not null) = %s
+        and (j.max_concurrent is null or (
+          select count(*) from jobs r
+          where r.status = 'running' and r.tool_id = j.tool_id
+        ) < j.max_concurrent)
+      order by j.priority desc, j.created_at
+      limit 1
+      for update skip locked
+    )
+    update jobs
+    set status = 'running', started_at = now(), heartbeat_at = now(),
+        attempts = jobs.attempts + 1, worker_id = %s, progress = 0,
+        stage = 'starting', updated_at = now()
+    from next
+    where jobs.id = next.id
+    returning jobs.*
+"""
 
-    ``gpu=False`` leaves GPU jobs (those with a GPU rate) waiting: today's GPU
-    budget is spent (gpu/budget.py). If they wait 15 minutes they expire and
-    their credits come back.
+
+def claim(conn: Conn, worker_id: str) -> Job | None:
+    """Takes the next CPU job off the queue, or None. GPU jobs are claim_gpu's."""
+    with conn.transaction():
+        return conn.execute(_CLAIM, (False, worker_id)).fetchone()
+
+
+def claim_gpu(conn: Conn, worker_id: str) -> Job | None:
+    """Takes the next GPU job off the queue, or None (none queued, or no budget left).
+
+    While today's GPU budget is spent GPU jobs wait (gpu/budget.py); if they
+    wait 15 minutes they expire and their credits come back.
     """
     with conn.transaction():
-        return conn.execute(
-            """
-            with next as (
-              select j.id from jobs j
-              where j.status = 'queued'
-                and (%s or j.gpu_rate_usd is null)
-                and (j.max_concurrent is null or (
-                  select count(*) from jobs r
-                  where r.status = 'running' and r.tool_id = j.tool_id
-                ) < j.max_concurrent)
-              order by j.priority desc, j.created_at
-              limit 1
-              for update skip locked
-            )
-            update jobs
-            set status = 'running', started_at = now(), heartbeat_at = now(),
-                attempts = jobs.attempts + 1, worker_id = %s, progress = 0,
-                stage = 'starting', updated_at = now()
-            from next
-            where jobs.id = next.id
-            returning jobs.*
-            """,
-            (gpu, worker_id),
-        ).fetchone()
+        if not gpu_open(conn):
+            return None
+        return conn.execute(_CLAIM, (True, worker_id)).fetchone()
 
 
 def heartbeat(conn: Conn, job_id: str, worker_id: str, progress: int, stage: str) -> bool:

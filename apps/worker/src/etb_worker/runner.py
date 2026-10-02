@@ -8,9 +8,11 @@ their job. Only a worker that dies mid-job leaves the input, so the reaper
 can hand the job to another worker.
 
 GPU jobs (remote processors) skip the download and upload: the GPU function
-reads the input and writes the output through presigned URLs. Their GPU
-time goes on the job as each call ends, and claims of GPU jobs stop while
-today's GPU budget is spent (gpu/budget.py).
+reads the input and writes the output through presigned URLs. They run in
+their own slots (``pool="gpu"``, WORKER_GPU_SLOTS), which claim only GPU
+jobs, so a call waiting on Modal never holds up probing or the CPU tools;
+CPU slots claim only CPU jobs. A GPU call's time goes on the job as it ends,
+and GPU claims stop while today's GPU budget is spent (gpu/budget.py).
 """
 
 from __future__ import annotations
@@ -22,13 +24,12 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 
 from etb_worker import jobqueue
 from etb_worker.db import Conn
-from etb_worker.gpu import budget
 from etb_worker.gpu.backend import GpuBackend
 from etb_worker.logs import get_logger
 from etb_worker.processors import (
@@ -88,7 +89,7 @@ class _Heartbeat(threading.Thread):
 
 
 class JobRunner:
-    """One job slot: claims and runs jobs one at a time."""
+    """One job slot: claims and runs jobs of its pool, CPU or GPU, one at a time."""
 
     def __init__(  # noqa: PLR0913 - keyword-only after the two it always needs
         self,
@@ -99,21 +100,27 @@ class JobRunner:
         worker_id: str | None = None,
         heartbeat_sec: float = jobqueue.HEARTBEAT_SEC,
         gpu: GpuBackend | None = None,
+        pool: Literal["cpu", "gpu"] = "cpu",
     ) -> None:
         self.storage = storage
         self.connect = connect
         self.processors = PROCESSORS if processors is None else processors
         #: GPU_BACKEND's backend; None: GPU jobs fail at once with their credits back.
         self.gpu = gpu
+        #: Which jobs this slot claims: CPU jobs, or GPU jobs (under the daily budget).
+        self.pool = pool
         self.worker_id = worker_id or f"{socket.gethostname()}:{threading.get_ident()}"
         self.heartbeat_sec = heartbeat_sec
         self.stopping = threading.Event()
         self._current: threading.Event | None = None
 
     def run_next(self) -> bool:
-        """Claims and runs one job; False when the queue is empty."""
+        """Claims and runs one job of this slot's pool; False when there's none to start."""
         with self.connect() as conn:
-            job = jobqueue.claim(conn, self.worker_id, gpu=budget.gpu_open(conn))
+            if self.pool == "gpu":
+                job = jobqueue.claim_gpu(conn, self.worker_id)
+            else:
+                job = jobqueue.claim(conn, self.worker_id)
         if job is None:
             return False
         self.run(job)
