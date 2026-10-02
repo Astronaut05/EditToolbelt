@@ -1,7 +1,7 @@
 'use client';
 
 import { Download, Plus, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 
 import { color, gradient as grad } from '@etb/core';
 import {
@@ -37,6 +37,8 @@ interface Stop {
   at: string;
 }
 
+const noSubscribe = () => () => undefined;
+
 function readStops(value: string): Stop[] {
   const stops = value
     .split(',')
@@ -66,6 +68,12 @@ function save(blob: Blob, name: string) {
 export default function GradientGenerator({ tool }: { tool: ShellTool }) {
   const [state, set] = useQueryState(DEFAULTS);
   const [saving, setSaving] = useState(false);
+  // The page is server-rendered: until its script runs, Save PNG would do nothing.
+  const ready = useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
   const [status, setStatus] = useState('');
   const kind = oneOf(state.k, KINDS, 'linear');
   const smooth = state.m !== 'plain';
@@ -309,7 +317,7 @@ export default function GradientGenerator({ tool }: { tool: ShellTool }) {
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Button
           variant="primary"
-          disabled={!sizeOk || saving}
+          disabled={!ready || !sizeOk || saving}
           icon={<Download aria-hidden="true" size={18} strokeWidth={2} />}
           onClick={savePng}
         >

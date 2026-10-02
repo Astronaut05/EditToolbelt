@@ -30,11 +30,19 @@ export const AHEAD = 16 * 1024 * 1024;
 /** Progress at most this often, ms. */
 const TICK = 100;
 
-const CREATE: Record<HashAlgo, () => Promise<IHasher>> = {
-  md5: createMD5,
-  sha1: createSHA1,
-  sha256: createSHA256,
-};
+/** A hasher for one of the three names; anything else a message carries is refused. */
+function create(algo: HashAlgo): Promise<IHasher> {
+  switch (algo) {
+    case 'md5':
+      return createMD5();
+    case 'sha1':
+      return createSHA1();
+    case 'sha256':
+      return createSHA256();
+    default:
+      throw new Error(`No such hash: ${String(algo)}`);
+  }
+}
 
 /** One hasher per algorithm for the worker's life: compiled once, reset for each file. */
 const hashers = new Map<HashAlgo, Promise<IHasher>>();
@@ -44,7 +52,7 @@ async function hashersFor(algos: readonly HashAlgo[]): Promise<IHasher[]> {
     algos.map((algo) => {
       let hasher = hashers.get(algo);
       if (!hasher) {
-        hasher = CREATE[algo]();
+        hasher = create(algo);
         hashers.set(algo, hasher);
       }
       return hasher;
