@@ -91,6 +91,8 @@
 - M8: Change Video Speed (beta). 0.25× to 4× or any speed between. Keep every frame (instant and lossless, the frame rate scaling with the speed) or keep the frame rate (redrawn). The sound keeps its pitch, shifts like tape, or is muted (#71).
 - M8: Watermark Images (beta). Text in any colour, or a PNG, WebP or JPG logo, on up to 50 photos at once. Its spot on a 3 × 3 grid with an offset, or tiled over the whole photo; size, margin and offset are % of each photo's width, so every size gets the same look. On one photo, a changed setting redoes it straight away to compare (#71).
 - M8: Batch Rename Files (beta). Rules in a fixed order: find and replace (text, exact case or a pattern), remove, case, prefix and suffix, a date (taken, from EXIF or a clip's header; modified; or today), a counter, and the extension. The list shows every new name; names that clash or that a disk won't take are flagged and stop the rename. Download the renamed copies as a ZIP, or, in desktop Chrome and Edge, open a folder and rename its files where they are, with undo (#71).
+- Fix: a result's audio player loads only its header until it's played. Loading the whole file could freeze the page in Linux WebKit (GStreamer), which hung Merge Audio's join test 1 run in 4 or 5.
+- Test fix: Remove Silence's shorten test reads the ranges once the last setting's search has landed (it read the previous search's on the phone profile, 5 runs in 8).
 
 ## Next
 
