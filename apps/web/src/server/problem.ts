@@ -2,6 +2,8 @@
  * API errors and answers (docs/06 → Basics): RFC 9457 problem+json with a
  * stable `code`, and JSON that is never cached.
  */
+import { serverEnv } from './env';
+
 /** Stable codes clients branch on (docs/06 → Basics). */
 export type ApiCode =
   | 'BAD_REQUEST'
@@ -21,6 +23,7 @@ export type ApiCode =
   | 'RATE_LIMITED'
   | 'QUOTA_EXCEEDED'
   | 'INSUFFICIENT_CREDITS'
+  | 'IDEMPOTENCY_KEY_REUSED'
   | 'STORAGE_UNAVAILABLE'
   | 'INTERNAL';
 
@@ -35,6 +38,14 @@ export class ApiError extends Error {
   ) {
     super(title);
   }
+}
+
+/**
+ * A problem `type` that says more than its code: the section of /developers
+ * that explains it (RFC 9457 §3.1.1). Pass it in `extra` as `type`.
+ */
+export function problemType(section: string): string {
+  return new URL(`/developers#${section}`, serverEnv().SITE_URL).href;
 }
 
 export function problem(error: ApiError): Response {
