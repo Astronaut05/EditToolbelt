@@ -87,6 +87,38 @@ function fitter(width: number, height: number, background: { blur: true } | { co
   };
 }
 
+/**
+ * Fill: the window `crop` (in the picture as shown) of each frame, scaled to
+ * the size. The whole frame is drawn on a canvas first and the window cut
+ * from that canvas: WebKit ignores the source rectangle when drawing a
+ * VideoFrame, so cropping the frame directly (Mediabunny's own `crop`) gave
+ * the whole picture squeezed into the size there.
+ */
+function cropper(
+  crop: { x: number; y: number; width: number; height: number },
+  width: number,
+  height: number,
+) {
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No 2D canvas in this browser');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  let whole: { canvas: OffscreenCanvas; ctx: OffscreenCanvasRenderingContext2D } | null = null;
+  return (sample: VideoSample) => {
+    const [w, h] = [sample.displayWidth, sample.displayHeight];
+    if (whole?.canvas.width !== w || whole.canvas.height !== h) {
+      const canvas = new OffscreenCanvas(w, h);
+      const wholeCtx = canvas.getContext('2d');
+      if (!wholeCtx) throw new Error('No 2D canvas in this browser');
+      whole = { canvas, ctx: wholeCtx };
+    }
+    sample.drawWithFit(whole.ctx, { fit: 'fill' });
+    ctx.drawImage(whole.canvas, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
+    return new VideoSample(canvas, { timestamp: sample.timestamp, duration: sample.duration });
+  };
+}
+
 export const reframeEngine: Engine<ReframeOptions> = {
   ...MEDIA_META.reframe,
   async run(file, opts, ctx): Promise<EngineOutput> {
@@ -114,22 +146,11 @@ export const reframeEngine: Engine<ReframeOptions> = {
             forceTranscode: true,
             allowTransformationMetadata: false,
             quality: new Quality('high'),
-            ...(crop
-              ? {
-                  crop: { left: crop.x, top: crop.y, width: crop.width, height: crop.height },
-                  width: target.width,
-                  height: target.height,
-                  fit: 'cover' as const,
-                }
-              : {
-                  process: fitter(
-                    target.width,
-                    target.height,
-                    fit === 'blur' ? { blur: true } : { color },
-                  ),
-                  processedWidth: target.width,
-                  processedHeight: target.height,
-                }),
+            process: crop
+              ? cropper(crop, target.width, target.height)
+              : fitter(target.width, target.height, fit === 'blur' ? { blur: true } : { color }),
+            processedWidth: target.width,
+            processedHeight: target.height,
           },
         },
         ctx.signal,
