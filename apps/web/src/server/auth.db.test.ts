@@ -96,7 +96,9 @@ async function signIn(email: string): Promise<Jar> {
   return jar;
 }
 
-describe.skipIf(!TEST_DATABASE_URL)('accounts', () => {
+// Each test is a few dozen trips through Better Auth, the first ones cold: on a
+// busy machine that's more than Vitest's 5 s.
+describe.skipIf(!TEST_DATABASE_URL)('accounts', { timeout: 30_000 }, () => {
   let close: () => Promise<void>;
 
   beforeAll(async () => {
