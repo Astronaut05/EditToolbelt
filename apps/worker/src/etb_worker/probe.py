@@ -21,6 +21,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+import psycopg
 from psycopg.types.json import Jsonb
 
 from etb_worker.db import Conn
@@ -174,8 +175,17 @@ def _int_or_none(value: object) -> int | None:
 def _rotation(stream: dict[str, Any]) -> int:
     for side in stream.get("side_data_list") or []:
         if "rotation" in side:
-            return int(side["rotation"]) % 360
-    return int((stream.get("tags") or {}).get("rotate", 0)) % 360
+            return _degrees(side["rotation"])
+    return _degrees((stream.get("tags") or {}).get("rotate", 0))
+
+
+def _degrees(value: object) -> int:
+    """A rotation as 0-359 degrees. The ``rotate`` tag is whatever the uploader wrote, so
+    anything that isn't a finite number reads as no rotation."""
+    try:
+        return int(float(str(value))) % 360
+    except (ValueError, OverflowError):
+        return 0
 
 
 def probe_json(path: Path) -> dict[str, Any]:
@@ -364,6 +374,23 @@ def probe_next(
                 (row["id"],),
             )
             log.warning("upload.missing", upload_id=str(row["id"]))
+        except psycopg.Error:
+            raise  # the database: the slot waits and tries again
+        except Exception as error:  # noqa: BLE001
+            # Anything else is a file the probe can't handle (a bug, or a value nothing
+            # expected): refused like a damaged one. Left unprobed, it would take every slot
+            # that picks it up. The log names only the type: its message can quote the file.
+            conn.execute(
+                "update uploads set probe_error = 'UNSUPPORTED_FORMAT', probed_at = now() "
+                "where id = %s",
+                (row["id"],),
+            )
+            log.error(  # noqa: TRY400
+                "upload.probe_failed",
+                upload_id=str(row["id"]),
+                error_code="UNSUPPORTED_FORMAT",
+                detail=type(error).__name__,
+            )
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
     return True

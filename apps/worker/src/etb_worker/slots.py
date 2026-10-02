@@ -66,6 +66,13 @@ def run_slot(
             log.warning("slot.storage_unavailable", error_code=error.code)
             stop.wait(5)
             continue
+        except Exception as error:  # noqa: BLE001
+            # A bug or a full disk must not end the thread: with every slot gone, no upload
+            # is probed and no job runs, and nothing alerts. Only the type is logged: the
+            # message can quote a file's metadata.
+            log.error("slot.error", detail=type(error).__name__)  # noqa: TRY400
+            stop.wait(5)
+            continue
         if not worked:
             wake.wait(POLL_SEC)
             wake.clear()
@@ -83,6 +90,10 @@ def run_gpu_slot(runner: JobRunner, wake: threading.Event, stop: threading.Event
             continue
         except StorageError as error:
             log.warning("slot.storage_unavailable", error_code=error.code, pool="gpu")
+            stop.wait(5)
+            continue
+        except Exception as error:  # noqa: BLE001 - as in run_slot
+            log.error("slot.error", detail=type(error).__name__, pool="gpu")  # noqa: TRY400
             stop.wait(5)
             continue
         if not worked:

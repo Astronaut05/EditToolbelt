@@ -325,3 +325,44 @@ def test_a_videos_cover_art_is_not_its_picture(tmp_path: Path) -> None:
     video = record["video"]
     assert (video["codec"], video["width"], video["height"], video["fps"]) == ("h264", 160, 120, 25)
     assert len(data["frame_times"]) == 75
+
+
+@pytest.mark.parametrize(
+    ("stream", "expected"),
+    [
+        ({"tags": {"rotate": "90"}}, 90),
+        ({"tags": {"rotate": "-90"}}, 270),
+        ({"tags": {"rotate": "180.0"}}, 180),
+        ({"side_data_list": [{"rotation": -90}]}, 270),
+        # The tag is whatever the uploader wrote.
+        ({"tags": {"rotate": "abc"}}, 0),
+        ({"tags": {"rotate": ""}}, 0),
+        ({"tags": {"rotate": "nan"}}, 0),
+        ({"tags": {"rotate": "1e400"}}, 0),
+        ({"side_data_list": [{"rotation": "abc"}]}, 0),
+    ],
+)
+def test_a_rotation_that_isnt_a_number_is_no_rotation(
+    stream: dict[str, Any], expected: int
+) -> None:
+    record = summarize(
+        {"format": {"format_name": "matroska,webm"}, "streams": [{**VIDEO, **stream}]},
+        "video/x-matroska",
+    )
+    assert record["video"]["rotation"] == expected
+
+
+def test_a_file_tagged_rotate_abc_is_probed_as_unrotated(tmp_path: Path) -> None:
+    # ffmpeg won't write a "rotate" tag in Matroska, so the file gets another of the same
+    # length and its name is patched, as a crafted upload would be.
+    made = tmp_path / "made.mkv"
+    ffmpeg(
+        *("-f", "lavfi", "-i", "testsrc=size=64x48:rate=25:duration=1"),
+        *("-c:v", "libx264", "-metadata:s:v:0", "XOTATE=abc", str(made)),
+    )
+    path = tmp_path / "input"
+    path.write_bytes(made.read_bytes().replace(b"XOTATE", b"rotate"))
+    data = probe_json(path)
+    assert data["streams"][0]["tags"]["rotate"] == "abc"
+    video = summarize(data, "video/x-matroska")["video"]
+    assert (video["width"], video["height"], video["rotation"]) == (64, 48, 0)
