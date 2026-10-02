@@ -123,17 +123,23 @@ export async function becomeAdmin(page: Page): Promise<{ id: string; key: string
  */
 export async function setScheme(page: Page, scheme: 'light' | 'dark'): Promise<void> {
   await page.emulateMedia({ colorScheme: scheme });
-  // Polls each frame until no animation that ends is still running. Not the
-  // animations' `finished` promises: Chromium can leave those unsettled after
-  // the transition has finished (seen on /admin/payments), and a loop, such
-  // as a progress bar's pulse, never finishes at all.
+  // Polls each frame until no animation that ends is still running on an
+  // element the page renders. Not the animations' `finished` promises, and
+  // not elements it doesn't render, such as the form in a closed <details>
+  // (content-visibility: hidden; /admin/payments' refunds): browsers make
+  // transitions there that never run. Firefox keeps them pending at 0 ms for
+  // good; Chromium and WebKit call them finished but never settle their
+  // promises. Axe skips what isn't rendered anyway. And a loop, such as a
+  // progress bar's pulse, never finishes at all.
   await page.waitForFunction(() =>
-    document
-      .getAnimations()
-      .every(
-        (animation) =>
-          animation.playState !== 'running' ||
-          !Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)),
-      ),
+    document.getAnimations().every((animation) => {
+      const effect = animation.effect;
+      const target = effect instanceof KeyframeEffect ? effect.target : null;
+      return (
+        animation.playState !== 'running' ||
+        !Number.isFinite(Number(effect?.getComputedTiming().endTime)) ||
+        target?.checkVisibility() === false
+      );
+    }),
   );
 }
