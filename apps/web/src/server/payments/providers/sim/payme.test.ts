@@ -38,7 +38,7 @@ function setup(store?: MemoryPurchaseStore, clock = new Clock()) {
     now: clock.now,
   });
   const purchase = db.seed({ provider: 'payme', packId: 'starter' });
-  return { clock, store: db, sim, purchase, now: () => clock.now().getTime() };
+  return { clock, store: db, sim, purchase, ctx, now: () => clock.now().getTime() };
 }
 
 describe('Payme, played by the simulator', () => {
@@ -114,6 +114,37 @@ describe('Payme, played by the simulator', () => {
       answer: '-31001 Wrong amount',
       error: null,
     });
+  });
+
+  it('switched off: refuses a new payment (-31050), finishes and refunds the ones already made', async () => {
+    const { store, sim, purchase, ctx } = setup();
+    const paid = store.seed({ provider: 'payme' });
+    const { paymeId: paidId } = await sim.pay(paid.id, STARTER);
+    const create = await sim.create(purchase.id, STARTER);
+    ctx.open = false;
+
+    // Nothing new starts.
+    const fresh = store.seed({ provider: 'payme' });
+    expect((await sim.checkPerform(fresh.id, STARTER)).error).toMatchObject({
+      code: PAYME_ERRORS.ORDER_NOT_FOUND,
+      data: 'order_id',
+    });
+    expect((await sim.create(fresh.id, STARTER)).error?.code).toBe(PAYME_ERRORS.ORDER_NOT_FOUND);
+    expect(store.peek(fresh.id).providerTxnId).toBeNull();
+
+    // A transaction created before the switch: repeated, performed, checked.
+    const repeated = await sim.create(purchase.id, STARTER, {
+      id: create.paymeId,
+      time: Number(create.result?.create_time),
+    });
+    expect(repeated.result).toEqual(create.result);
+    expect((await sim.perform(create.paymeId)).result).toMatchObject({ state: 2 });
+    expect((await sim.check(create.paymeId)).result).toMatchObject({ state: 2 });
+    // A refund from Payme's cabinet for an older purchase still takes the credits back.
+    expect((await sim.cancel(paidId, 5)).result).toMatchObject({ state: -2 });
+    expect(store.peek(paid.id).status).toBe('refunded');
+    expect((await sim.statement(0, Date.now() * 2)).result).toHaveProperty('transactions');
+    expect(store.balance()).toBe(200);
   });
 
   it('answers repeats of every call the same way, with no second ledger row', async () => {

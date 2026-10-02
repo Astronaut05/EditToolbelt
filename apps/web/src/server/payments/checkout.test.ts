@@ -15,6 +15,7 @@ import {
   enabledProviders,
   paymentStates,
   setProviderSwitch,
+  webhookProvider,
   type PaymentEnv,
 } from './switches';
 
@@ -314,6 +315,36 @@ describe.skipIf(!TEST_DATABASE_URL)('the switches in the database', () => {
         switchEnv({ vars: {} }),
       ),
     ).toEqual({ ok: true, changed: false });
+  });
+
+  it('keeps a webhook path answering while its keys are set, open only while it sells', async () => {
+    // Off by the admin switch, or by the kill switch: only purchases already made.
+    expect(await webhookProvider(db, 'paddle', switchEnv())).toEqual({
+      provider: PADDLE,
+      open: false,
+    });
+    await setProviderSwitch(
+      db,
+      { adminId: admin, provider: 'paddle', enabled: true, reason: 'Selling' },
+      switchEnv(),
+    );
+    expect(await webhookProvider(db, 'paddle', switchEnv())).toEqual({
+      provider: PADDLE,
+      open: true,
+    });
+    expect(await webhookProvider(db, 'paddle', switchEnv({ enabled: false }))).toEqual({
+      provider: PADDLE,
+      open: false,
+    });
+    // Click without its fiscal codes can't sell, but its path answers.
+    expect(await webhookProvider(db, 'click', switchEnv({ fiscal: NO_FISCAL }))).toEqual({
+      provider: CLICK,
+      open: false,
+    });
+    // Without keys, not in this release, or not a provider: 404.
+    expect(await webhookProvider(db, 'paddle', switchEnv({ vars: {} }))).toBeNull();
+    expect(await webhookProvider(db, 'paddle', switchEnv({ providers: [CLICK] }))).toBeNull();
+    expect(await webhookProvider(db, 'stripe', switchEnv())).toBeNull();
   });
 
   it('stops a switched-on provider when its key goes away', async () => {

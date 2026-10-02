@@ -12,6 +12,9 @@
  *   Payme's own time) lives in providerData. Times are in milliseconds.
  * - Every answer is HTTP 200, a JSON-RPC result or an error with Payme's code
  *   and a ru/uz/en message.
+ * - Switched off (ctx.open false), CheckPerformTransaction and a new
+ *   CreateTransaction get -31050; calls about a transaction already created
+ *   (Perform, Cancel, Check, a repeated Create) and GetStatement still work.
  * - Every authenticated call is kept in webhook_events (`<method>:<id>`) with
  *   the answer; a store failure is also its error, which alerts.
  */
@@ -258,8 +261,14 @@ async function cancelForTimeout(
 const expired = (state: PaymeTransactionState, ctx: ProviderContext): boolean =>
   ctx.now().getTime() - state.create_time > PAYME_TIMEOUT_MS;
 
+/** Switched off: nothing new starts, as if the order weren't there. */
+function assertOpen(ctx: ProviderContext): void {
+  if (!ctx.open) throw new PaymeError(PAYME_ERRORS.ORDER_NOT_FOUND, 'order_id');
+}
+
 async function checkPerformTransaction(params: Params, ctx: ProviderContext): Promise<unknown> {
   const amount = integerParam(params, 'amount', 1);
+  assertOpen(ctx);
   const purchase = await payableOrder(accountParam(params), amount, ctx);
   return { allow: true, detail: receiptDetail(purchase) };
 }
@@ -282,6 +291,7 @@ async function createTransaction(params: Params, ctx: ProviderContext): Promise<
     return { create_time: state.create_time, transaction: existing.id, state: state.state };
   }
 
+  assertOpen(ctx);
   const purchase = await payableOrder(account, amount, ctx);
   if (purchase.providerTxnId !== null) {
     // One active Payme transaction per order.

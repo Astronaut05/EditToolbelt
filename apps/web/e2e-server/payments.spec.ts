@@ -3,7 +3,8 @@
  * "Payments: three providers behind one interface, built and switched off").
  * The test env has PAYMENTS_ENABLED=true and the stub standing in for Paddle
  * with its key (scripts/server-env.ts), so the only lock left is the admin's
- * switch per provider: off by default, and off again after each test.
+ * switch per provider: off by default, and off again after each test. With
+ * its key set, the stub's webhook path answers even while it's off.
  */
 import AxeBuilder from '@axe-core/playwright';
 import { adminAuditLog, and, eq, paymentSettings, purchases, users } from '@etb/db';
@@ -53,17 +54,22 @@ const checkout = (request: APIRequestContext, body: unknown, headers = {}) =>
     headers: { Origin: ORIGIN, ...headers },
   });
 
-test('payments are off by default: no buy links, and every payment path is a 404', async ({
+test('payments are off by default: no buy links, no checkout, no webhook without keys', async ({
   page,
   request,
 }) => {
   expect((await request.get('/credits/buy')).status()).toBe(404);
   expect((await checkout(request, { pack_id: 'starter', provider: 'paddle' })).status()).toBe(404);
-  for (const provider of PROVIDERS) {
+  // Click and Payme have no keys here: their paths aren't there.
+  for (const provider of PROVIDERS.filter((id) => id !== 'paddle')) {
     expect((await request.post(`/api/webhooks/${provider}`, { data: {} })).status()).toBe(404);
     expect((await request.get(`/api/webhooks/${provider}`)).status()).toBe(404);
   }
   expect((await request.post('/api/webhooks/stripe', { data: {} })).status()).toBe(404);
+  // The stub stands in for Paddle with its key set: switched off, its path still
+  // answers calls about purchases already made, and only with that key.
+  expect((await request.post('/api/webhooks/paddle', { data: {} })).status()).toBe(401);
+  expect((await request.get('/api/webhooks/paddle')).status()).toBe(405);
 
   await signIn(page, newEmail());
   await expect(page.getByRole('heading', { name: 'Credits' })).toBeVisible();
@@ -209,11 +215,22 @@ test('switched on, a checkout makes a pending purchase and the provider’s call
   await expect(history.getByRole('cell', { name: '$5.00' })).toBeVisible();
   expect(await axe(buyer)).toEqual([]);
 
-  // Switched off again: the links go, and the paths close at once.
+  // Switched off again: the links and checkout go at once. The provider's
+  // calls about purchases already made still arrive (refunds, late payments),
+  // and still add nothing twice.
   await allOff();
   await buyer.reload();
   await expect(buyer.getByRole('link', { name: 'Buy credits' })).toHaveCount(0);
   await expect(history.getByRole('cell', { name: 'Paid' })).toBeVisible();
-  expect((await hook(PAYMENTS_STUB_KEY)).status()).toBe(404);
+  expect((await checkout(page.request, { pack_id: 'starter', provider: 'paddle' })).status()).toBe(
+    404,
+  );
+  expect((await hook(PAYMENTS_STUB_KEY)).status()).toBe(200);
+  const [after] = await db
+    .select({ balance: users.creditBalance })
+    .from(purchases)
+    .innerJoin(users, eq(users.id, purchases.userId))
+    .where(eq(purchases.id, purchaseId));
+  expect(after?.balance).toBe(200);
   await context.close();
 });

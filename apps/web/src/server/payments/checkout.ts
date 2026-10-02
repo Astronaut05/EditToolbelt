@@ -24,14 +24,23 @@ import {
   type PaymentEnv,
 } from './switches';
 
-/** What every provider call gets: the store, the site's origin, its env, a clock and fetch. */
-export function providerContext(db: Db, env: PaymentEnv, siteUrl = serverEnv().SITE_URL) {
+/**
+ * What every provider call gets: the store, the site's origin, its env, a
+ * clock, fetch, and whether new purchases may start (`open`).
+ */
+export function providerContext(
+  db: Db,
+  env: PaymentEnv,
+  open: boolean,
+  siteUrl = serverEnv().SITE_URL,
+) {
   const context: ProviderContext = {
     store: createPurchaseStore(db),
     siteUrl,
     env: env.vars,
     now: () => new Date(),
     fetch: (input, init) => fetch(input, init),
+    open,
   };
   return context;
 }
@@ -76,7 +85,8 @@ export async function startCheckout(
     })
     .returning();
   if (!row) throw new Error('purchase not written');
-  const ctx = providerContext(db, env, siteUrl);
+  // Only reached while the provider is on (enabledProvider above).
+  const ctx = providerContext(db, env, true, siteUrl);
   let checkout: Checkout;
   try {
     checkout = await provider.createCheckout(toRecord(row), { email: user.email }, ctx);

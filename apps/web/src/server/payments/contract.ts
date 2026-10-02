@@ -8,8 +8,10 @@
  * - Click and Payme: Uzbekistan, UZS, Uzcard and Humo.
  *
  * Payments are off unless PAYMENTS_ENABLED=true AND an admin switched the
- * provider on AND its keys are set. While a provider is off its webhook path
- * answers 404 and nothing offers it.
+ * provider on AND its keys are set. While a provider is off nothing offers
+ * it and no new purchase starts; while its keys are set its webhook path
+ * still answers calls about purchases already made (a payment for a checkout
+ * opened before the switch, a refund, a chargeback). Without keys it's a 404.
  */
 import type { PackId } from '@etb/config/business';
 
@@ -117,6 +119,14 @@ export interface ProviderContext {
   now: () => Date;
   /** Outbound calls (Paddle's API); a fake in tests. */
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
+  /**
+   * New purchases may start: payments on, the admin switch on, nothing
+   * missing. While false a provider refuses what would start a payment
+   * (Click's Prepare for a new Click transaction, Payme's
+   * CheckPerformTransaction and a new CreateTransaction) and still answers
+   * everything about purchases already made.
+   */
+  open: boolean;
 }
 
 export interface PaymentProvider {
@@ -132,8 +142,9 @@ export interface PaymentProvider {
   ): Promise<Checkout>;
   /**
    * Answers the provider's server-to-server call: Paddle's signed webhooks,
-   * Click's Prepare and Complete, Payme's JSON-RPC. Only reached while the
-   * provider is switched on; the route answers 404 otherwise.
+   * Click's Prepare and Complete, Payme's JSON-RPC. Reached while the
+   * provider's keys are set, switched on or not (`ctx.open` says which); the
+   * route answers 404 otherwise.
    */
   handleWebhook(request: Request, ctx: ProviderContext): Promise<Response>;
   /** A refund through the provider's API, where there is one (Paddle). Click and Payme refunds arrive as their own calls. */

@@ -82,6 +82,16 @@ describe('providerState', () => {
     expect(paddle.on).toBe(true);
   });
 
+  it('is connected (its webhook answers) with its code and every key, whatever the switches say', () => {
+    expect(providerState('paddle', env(), on).connected).toBe(true);
+    expect(providerState('paddle', env({ enabled: false }), null).connected).toBe(true);
+    expect(providerState('click', env({ fiscal: NO_FISCAL }), null).connected).toBe(true);
+    expect(providerState('paddle', env({ vars: { PADDLE_API_KEY: 'k' } }), on).connected).toBe(
+      false,
+    );
+    expect(providerState('paddle', env({ providers: [CLICK] }), on).connected).toBe(false);
+  });
+
   it('never shows a key’s value', () => {
     const state = providerState('paddle', env(), on);
     expect(JSON.stringify({ ...state, provider: null })).not.toMatch(/"k"|"s"/);

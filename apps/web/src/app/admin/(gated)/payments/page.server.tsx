@@ -127,8 +127,10 @@ export default async function AdminPayments({ searchParams }: Props) {
           ]}
         />
         <p className="text-14 text-text-muted">
-          Set in the environment (a Railway variable on the web service), not here. Off closes every
-          checkout and webhook at once, whatever the switches below say. The steps are in
+          Set in the environment (a Railway variable on the web service), not here. Off stops every
+          sale at once, whatever the switches below say. Calls about purchases already made
+          (refunds, chargebacks, a payment for a checkout opened before) still arrive while a
+          provider’s keys are set; remove its keys to close its webhook too. The steps are in
           docs/runbooks/turn-on-payments.md.
         </p>
       </Section>
@@ -147,6 +149,14 @@ export default async function AdminPayments({ searchParams }: Props) {
           <Facts
             items={[
               ['Taking money now', yes(state.on)],
+              [
+                'Webhook',
+                state.on
+                  ? 'open'
+                  : state.connected
+                    ? 'purchases already made only'
+                    : 'closed (404): keys missing',
+              ],
               [
                 'Admin switch',
                 state.setting
@@ -267,7 +277,7 @@ export default async function AdminPayments({ searchParams }: Props) {
                   <td>{purchase.status}</td>
                   <td className="font-mono text-12">{purchase.providerTxnId ?? ''}</td>
                   <td>
-                    {refundable && provider?.provider?.refund && provider.on ? (
+                    {refundable && provider?.provider?.refund && provider.connected ? (
                       <details>
                         <summary className="cursor-pointer underline underline-offset-4">
                           Refund

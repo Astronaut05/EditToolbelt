@@ -18,10 +18,10 @@ import { providerContext } from '../../../../server/payments/checkout';
 import { PROVIDER_IDS, type ProviderId } from '../../../../server/payments/contract';
 import { createPurchaseStore, toRecord } from '../../../../server/payments/store';
 import {
-  enabledProvider,
   paymentEnv,
   PROVIDER_NAMES,
   setProviderSwitch,
+  webhookProvider,
 } from '../../../../server/payments/switches';
 
 const BACK = '/admin/payments';
@@ -67,19 +67,21 @@ export async function refundPurchase(formData: FormData): Promise<void> {
     redirect(back({ error: `A ${row.status} purchase can’t be refunded.` }));
   }
   const env = paymentEnv();
-  const provider = await enabledProvider(db(), row.provider, env);
+  // Switched off is fine: while its keys are set, its refund event still arrives.
+  const found = await webhookProvider(db(), row.provider, env);
+  const provider = found?.provider;
   const name = PROVIDER_NAMES[row.provider as ProviderId];
-  if (!provider?.refund) {
+  if (!found || !provider?.refund) {
     redirect(
       back({
         error: provider
           ? `${name} refunds are made in ${name}’s own cabinet.`
-          : `${name} is switched off, so its refund event couldn’t arrive. Switch it on first.`,
+          : `${name}’s keys aren’t set, so its refund event couldn’t arrive.`,
       }),
     );
   }
   try {
-    await provider.refund(toRecord(row), providerContext(db(), env));
+    await provider.refund(toRecord(row), providerContext(db(), env, found.open));
   } catch (error) {
     log.error({ err: error, purchase_id: row.id, provider: row.provider }, 'admin.refund_failed');
     redirect(

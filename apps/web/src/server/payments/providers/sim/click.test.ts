@@ -31,7 +31,7 @@ function setup(store?: MemoryPurchaseStore) {
     now: clock.now,
   });
   const purchase = db.seed({ provider: 'click', packId: 'starter' });
-  return { clock, store: db, sim, purchase };
+  return { clock, store: db, sim, purchase, ctx };
 }
 
 describe('Click, played by the simulator', () => {
@@ -111,6 +111,41 @@ describe('Click, played by the simulator', () => {
       error: 'Error: database is down',
       answer: '-7 Failed to update user',
     });
+  });
+
+  it('switched off: refuses a new Click transaction (-5), completes one prepared before', async () => {
+    const { store, sim, purchase, ctx } = setup();
+    const clickTransId = sim.newTransId();
+    const prepare = await sim.prepare({
+      merchantTransId: purchase.id,
+      amount: STARTER,
+      clickTransId,
+    });
+    ctx.open = false;
+    // Click repeats the Prepare (our answer was lost): the same answer.
+    const again = await sim.prepare({
+      merchantTransId: purchase.id,
+      amount: STARTER,
+      clickTransId,
+    });
+    expect(again.answer).toEqual(prepare.answer);
+    // A new attempt can't start.
+    const fresh = store.seed({ provider: 'click' });
+    const refused = await sim.pay(fresh.id, STARTER);
+    expect(refused.prepare.answer.error).toBe(CLICK_ERRORS.ORDER_NOT_FOUND);
+    expect(refused.complete).toBeNull();
+    const retry = await sim.prepare({ merchantTransId: purchase.id, amount: STARTER });
+    expect(retry.answer.error).toBe(CLICK_ERRORS.ORDER_NOT_FOUND);
+    expect(store.peek(fresh.id).providerData).toEqual({});
+    // The one prepared before the switch still pays.
+    const complete = await sim.complete({
+      merchantTransId: purchase.id,
+      amount: STARTER,
+      clickTransId,
+      merchantPrepareId: prepare.answer.merchant_prepare_id,
+    });
+    expect(complete.answer.error).toBe(0);
+    expect(store.balance()).toBe(200);
   });
 
   it('accepts the amount written without decimals', async () => {

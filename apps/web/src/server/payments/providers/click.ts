@@ -11,6 +11,8 @@
  * - Every answer is HTTP 200 JSON with Click's error code; Click reverses a
  *   payment whose Complete isn't answered 0, so a repeated Complete for the
  *   same click_trans_id answers 0 again (and adds no second ledger row).
+ * - Switched off (ctx.open false), a Prepare for a new Click transaction is
+ *   answered -5; Completes for orders prepared before still complete.
  * - Every signed call is kept in webhook_events (`<click_trans_id>:<action>`)
  *   with the code we answered; a store failure is also its error, which alerts.
  */
@@ -218,6 +220,9 @@ async function prepare(
   const state = clickState(purchase);
   if (state?.clickTransId === request.click_trans_id)
     return outcome(CLICK_ERRORS.SUCCESS, { ...ids, merchant_prepare_id: state.prepareId });
+  // Switched off: no new Click transaction starts, as if the order weren't
+  // there. A Complete for one prepared before the switch still goes through.
+  if (!ctx.open) return outcome(CLICK_ERRORS.ORDER_NOT_FOUND, ids);
 
   // A new Click transaction for this order (the first, or the buyer trying
   // again): the latest Prepare is the one a Complete must match.

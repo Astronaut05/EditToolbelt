@@ -27,6 +27,8 @@ export function testContext(options: {
   clock?: Clock;
   fetch?: ProviderContext['fetch'];
   siteUrl?: string;
+  /** New purchases may start (default); false plays a provider that's switched off. */
+  open?: boolean;
 }): ProviderContext {
   const clock = options.clock ?? new Clock();
   return {
@@ -37,5 +39,6 @@ export function testContext(options: {
     fetch:
       options.fetch ??
       (() => Promise.reject(new Error('No network in this test: pass a fake fetch'))),
+    open: options.open ?? true,
   };
 }

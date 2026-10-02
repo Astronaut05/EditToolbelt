@@ -11,6 +11,11 @@
  * The admin switch refuses to turn on while 3 isn't met, and every change
  * goes into the audit log with its reason. Read on every request (three rows,
  * no cache), so switching off takes effect at once.
+ *
+ * Switched off (1 or 2), a provider sells nothing new, but while its keys
+ * are set its webhook path still answers calls about purchases already made:
+ * refunds, chargebacks, and a payment for a checkout opened before the
+ * switch (`webhookProvider`). Removing its keys closes the path too.
  */
 import { fiscalReceipt } from '@etb/config/business';
 import { paymentSettings, type Db, type Queryable } from '@etb/db';
@@ -88,6 +93,11 @@ export interface ProviderState {
   blockers: string[];
   /** It takes money now: all three locks open. */
   on: boolean;
+  /**
+   * In this release with every key set: its webhook path answers calls about
+   * purchases already made, and its refunds work, whatever the switches say.
+   */
+  connected: boolean;
   provider: PaymentProvider | null;
 }
 
@@ -127,6 +137,7 @@ export function providerState(
     switchedOn,
     blockers,
     on: env.enabled && switchedOn && blockers.length === 0,
+    connected: provider !== null && keys.every((key) => key.set),
     provider,
   };
 }
@@ -174,6 +185,25 @@ export async function enabledProvider(
 ): Promise<PaymentProvider | null> {
   if (!env.enabled || !(PROVIDER_IDS as readonly string[]).includes(id)) return null;
   return (await enabledProviders(db, env)).find((provider) => provider.id === id) ?? null;
+}
+
+/**
+ * The provider whose webhook path answers `id`: in this release with every
+ * key set, whatever the switches say, and whether it takes new purchases
+ * now (`open`). Null for anything else: the path then answers 404. No
+ * database read while its keys are missing.
+ */
+export async function webhookProvider(
+  db: Queryable,
+  id: string,
+  env: PaymentEnv = paymentEnv(),
+): Promise<{ provider: PaymentProvider; open: boolean } | null> {
+  if (!(PROVIDER_IDS as readonly string[]).includes(id)) return null;
+  const known = id as ProviderId;
+  if (!providerState(known, env, null).connected) return null;
+  const settings = env.enabled ? await loadSettings(db) : new Map<string, ProviderSetting>();
+  const state = providerState(known, env, settings.get(known) ?? null);
+  return state.provider ? { provider: state.provider, open: state.on } : null;
 }
 
 /** Whether anything sells credits now: the "Buy credits" links show only then. */

@@ -465,6 +465,23 @@ describe('Paddle webhooks', () => {
     expect(s.store.balance()).toBe(200);
   });
 
+  it('still credit a checkout opened before Paddle was switched off, and still take refunds', async () => {
+    const s = setup();
+    const { purchase, transaction } = await checkedOut(s);
+    const earlier = await paid(s);
+    s.ctx.open = false;
+    await deliver(s, 'transaction.completed', { ...transaction, status: 'completed' });
+    expect(s.store.peek(purchase.id).status).toBe('completed');
+    await deliver(
+      s,
+      'adjustment.updated',
+      adjustmentData({ transactionId: earlier.transactionId, action: 'chargeback' }),
+    );
+    expect(s.store.peek(earlier.purchase.id).status).toBe('chargeback');
+    expect(s.store.balance()).toBe(200);
+    expect(s.store.events.every((event) => event.error === null)).toBe(true);
+  });
+
   it('don’t credit a transaction that isn’t paid', async () => {
     const s = setup();
     const { transaction } = await checkedOut(s);
