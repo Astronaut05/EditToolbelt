@@ -179,4 +179,4 @@ Rows here are not installed until the question is answered.
 
 | What | Question | Where it stands |
 |---|---|---|
-| DeepFilterNet3 weights (Rikorose/DeepFilterNet, `models/`) | Are the pretrained checkpoints under the repository's MIT / Apache-2.0 licence? | Asked upstream by others in issues #697 and #700, no answer as of 2026-10-02. Intel republished DeepFilterNet 2 and 3 on Hugging Face under MIT, but a republisher can't grant what the author didn't; not checked from here (Hugging Face is unreachable). If the author confirms, A10 swaps afftdn for the model (`docs/DECISIONS.md` → A10). |
+| DeepFilterNet3 weights (Rikorose/DeepFilterNet, `models/`) | Are the pretrained checkpoints under the repository's MIT / Apache-2.0 licence? | Asked upstream by others in issues #697 and #700, no answer as of 2026-10-02. Intel republished DeepFilterNet 2 and 3 on Hugging Face under MIT, but a republisher can't grant what the author didn't; not checked from here (Hugging Face is unreachable). If the author confirms, A10 swaps afftdn for the model (`docs/decisions/2026-10-02-a10-fft-noise-filter.md`). |

@@ -1190,50 +1190,6 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** `tools/audio.md` → A07, A13.
 **Reverse:** the maths is in `@etb/core` (`fades.ts`, `channels.ts`), with tests; the pages only pick options.
 
-## 2026-10-02 · A10 Noise Reduction on ffmpeg's FFT filter, not DeepFilterNet (yet)
-
-**Decision:**
-- **DeepFilterNet isn't used.** Its code is MIT / Apache-2.0 (the README: "All code in this repository is dual-licensed"), but no statement covers the checkpoints in `models/`, and two upstream issues asking exactly that (#697, 2026-07-15, and #700) have no answer. `13` allows weights only with an explicit commercial licence, so it waits in `13` → Pending review. Intel's MIT republication on Hugging Face doesn't settle it: a republisher can't grant what the author didn't.
-- **The worker cleans with ffmpeg's own filters** (`processors/remove_noise.py`), all in the sandbox:
-  - Decode the first audio track to raw 32-bit float at its own rate and channels (no resampling at all).
-  - Measure the background: 100 ms windows after the fixed filters, mixed to mono; the quietest tenth (digital silence left out) is the noise. Its level sets afftdn's noise floor; its tilt (over 3 kHz against under 1 kHz, compared with white and pink noise at that rate) picks afftdn's white or "vinyl" (pink-ish) model. afftdn's tracking mode (`tn`) made it worse and its noise-sampling command did nothing in ffmpeg 6.1, so neither is used.
-  - Strength = afftdn's attenuation and how far its floor sits over the measured noise: Light 12 dB / +2 dB, Medium 24 dB / +5 dB, Strong 40 dB / +8 dB, with gain smoothing 0 / 3 / 6 against musical noise. Strong stops at 40 dB, not "unlimited": past that a spectral gate leaves chirps.
-  - A 2-pole 60 Hz high-pass always; de-hum adds RBJ notches (Q 25) at 50 or 60 Hz and 7 harmonics (to 400 or 480 Hz); de-ess is ffmpeg's `deesser` at intensity 0.4 (about 5 dB off the sibilant band, nothing under 3 kHz).
-  - **afftdn delays its output by half its 50 ms window** (1200 samples at 48 kHz) and drops that much at the end. The delay is measured once per sample rate per worker process (three clicks through afftdn) and taken off with pad-and-trim, and the result is padded or cut to the input's exact sample count. A new ffmpeg can't shift the sound unnoticed.
-  - True peak (ebur128, 4x) at or under −1 dBTP by turning the whole file down, never a limiter; a lossy result is measured again and re-encoded once if the codec overshot.
-  - Output: the input's format by default, at its bitrate (MP3, AAC in M4A, Opus in OGG; Vorbis becomes Opus) and its depth for lossless (24-bit FLAC stays 24-bit, float WAV stays float), with its tags.
-- **Four ffmpeg passes at most:** decode and measure in one (`-filter_complex`, the levels to a file), clean and measure the true peak in one (ebur128 passes the sound through unchanged), encode, and for lossy output that came within 2.5 dB of the ceiling, measure the encoded file and encode once more if it went over.
-- **Measured on the generated fixture** (white noise and 50 Hz hum, 6 s, Medium, de-hum 50): SNR against the clean voice through the same linear filters 4.6 → 17.5 dB, the pauses 27 dB quieter (−30 → −57 dBFS), the hum 40 dB down; Light 18.8 dB and −45 dBFS, Strong 15.1 dB and −68 dBFS (stronger takes more noise and a little more voice). Speed, on this shared 4-core container at a load of 7 to 11: 10 min of mono 48 kHz WAV in 23 s (2.3 s a minute), 10 min of stereo 44.1 kHz MP3 at Strong with de-essing in 65 s (6.5 s a minute); expect a third of that on a free core.
-- **Registry:** engines `video-ffmpeg-server` (the server's ffmpeg engine, named for video but the same thing), `audio-dsp` and `video-webcodecs` (the page decodes, cuts and remuxes, and loads the WASM FLAC encoder), not `audio-ml-server`, so the hub tag is "Credits", not "AI · Credits", and the copy says "FFT noise filter".
-
-**Why:** `CLAUDE.md` rule 6 and `13` (no weights without a clear commercial licence; "if a license is unclear, don't install it"), and the A10 brief's fallback ("build the tool on ffmpeg's own filters instead … and keep the model as a later upgrade").
-**Reverse:** once the weights are licensed, replace the denoise step (`denoiser()` and the afftdn stage in `RemoveNoise.run`) with the model on the same decoded float file; the analysis, length, peak and format steps stay. Switch the engine back to `audio-ml-server` and the copy to the model's name.
-
-## 2026-10-02 · Free previews: a daily job when never paid, ten a day once paid
-
-**Decision:**
-- A tool lists its preview length in `@etb/registry/options` → `previewSeconds` (A10: 10 s) and takes `preview: true` in its options. The page cuts the snippet and sends it as its own upload; the API checks the probe says at most that long (+0.5 s for frame edges, else `413 FILE_TOO_LARGE`), and prices it at 0.
-- **What pays** (`docs/05`: "Free previews … count against [the free allowance]"): a never-paid account spends one of its 3 daily jobs (`funding = 'daily'`); without one left the preview is refused (`QUOTA_EXCEEDED`). A paid account has no daily allowance, so its previews are free (`funding = 'none'`) and capped at 10 a day (`freeAllowance.paidDailyPreviews`), counted from job rows like the daily jobs.
-- The preview runs the same processor on the snippet and always comes back as WAV, which the page plays A/B (Web Audio, both versions in step, switching keeps the place).
-**Why:** `docs/05` and the 2026-09-30 decision ("Free previews (Wave 2) will count as daily jobs too") settle never-paid accounts; nothing settled paid ones, and an uncapped free preview would let anyone clean a long file 10 s at a time.
-**Reverse:** `funding()` in `apps/web/src/server/jobs.ts` (the `preview` branch) and `freeAllowance.paidDailyPreviews` in `config/business.ts`.
-
-## 2026-10-02 · CPU server tools ship `beta`; GPU tools wait for an admin
-
-**Decision:** Server-only tools whose backend is the worker are `beta` in code: Noise Reduction (A10), VFR to CFR (V15) and Burn Subtitles (V16). The worker deploys with every merge, so a merge puts them on the private live site without a step in Admin. GPU tools stay `soon` until an admin switches each on, once Modal runs it (2026-10-02, GPU tools on Modal). On a copy of the site with no server path (the static export), a server-only tool's page loads and reads the file, and the run button is held with "This tool runs on our servers, and this copy of the site doesn’t connect to them." instead of doing nothing. This replaces the 2026-10-01 rule that every server-only tool stays `soon`. Compress Video's server path (a hybrid tool's) is unchanged: off until an admin switches it on, because browser first.
-**Why:** production is now the server build (2026-10-01, Hosting), and the static export isn't deployed while the site is private, so `soon` only added a manual step for tools that already work. A GPU tool needs Modal's tokens and its own check, so its switch stays with the admin.
-**Reverse:** set `status: 'soon'` in a tool's file under `packages/registry/src/tools/`; the admin can then switch it on in Admin → Tools as before.
-
-## 2026-10-02 · A10 with a video: only the sound travels, as FLAC, and goes back sample for sample
-
-**Decision:**
-- Audio our servers read (MP3, WAV, FLAC, OGG, M4A, AAC) goes up as it is. A video, or audio they don't (AIFF, WebM, CAF), is decoded in the browser and sent as FLAC; the picture never leaves the device, and the offer counts the FLAC's size, not the video's, against the limit.
-- A video kept as a video gets lossless FLAC back. The browser re-encodes only the sound, once, in the video's own codec where it can (AAC, Opus), at the original's bitrate (at least 128 kbps), and copies the picture and any other sound tracks. Every decoded block of the original is replaced by the cleaned frames at the same place (the FLAC went up from 0 on the same decoder's timeline), so the length and the sync are exact; frames before 0 (encoder priming) stay as they were. Picking an audio format for a video gives the cleaned sound on its own instead.
-- The preview starts where the first 3 minutes' background is loudest under speech (`@etb/core` → `previewStart`), and the person can move it ("Preview from").
-- The same read listens for mains hum (Goertzel at 40, 50, 60 and 70 Hz in 1 s blocks, so a mains frequency a little off still counts; `HumMeter`, `humGuess`): 50 or 60 Hz at least 10 dB over 40 and 70 Hz and 6 dB over the other sets De-hum to it, and the page says so before anything is sent. De-hum stays a setting the person can turn off.
-**Why:** `tools/audio.md` → A10 ("Video input: the audio is extracted in the browser, cleaned on the server, and remuxed back into the video in the browser"). FLAC both ways avoids two lossy generations and any guesswork about AAC priming between two decoders.
-**Reverse:** `soundPlan` in `apps/web/src/tools/remove-noise-plan.ts` decides what goes up and comes back; `putSoundBack` in `packages/engines/src/audio/noise.ts` does the remux.
-
 ## 2026-10-02 · The browser tests run against the production image, through Access
 
 **Decision:**
@@ -1783,9 +1739,3 @@ _What a call is billed, and the gate: superseded by "What a GPU call is billed" 
 **Decision:** the shell's result `<audio>` (every tool whose result is audio) has `preload="metadata"`, like the input player on timeline tools. It reads the header and shows the length; the rest loads when the person presses play. The result `<video>` is unchanged.
 **Why:** Merge Audio's join test hung in WebKit on main (CI runs 36960698035, 36963706269). Stage logs and a 250 ms page heartbeat on a debug branch showed the merge itself always finished (the 2,688,044-byte WAV was written). The page then froze right after the result player's `loadstart`, before `loadedmetadata`, for about 90 s, so Download never came on. With the default preload (auto), the join hung in 2 of 12 and 3 of 12 runs, and the player errored in 2 more. With `metadata`, `none`, or no player, there were no failures in 12 runs each (debug runs 36977764969, 36979041409). Playwright's Linux WebKit plays media through GStreamer, and the stall comes only with `auto`, which lets the browser buffer the whole file. Safari uses AVFoundation instead, and Chromium and Firefox never stalled. The header is all the player needs to show before anyone listens, and it doesn't read a large result into memory unasked.
 **Reverse:** drop `preload` from the result `<audio>` in `ToolShell.tsx` and the `toHaveAttribute('preload', 'metadata')` check in `merge-audio.spec.ts`.
-
-## 2026-10-02 · Noise Reduction takes as much sound as two raw copies fit in 8 GiB
-
-**Decision:** the jobs API refuses a Noise Reduction job before charging when its decoded and cleaned copies (raw 32-bit float at the file's own rate and channels: length × rate × channels × 8 bytes) would pass 8 GiB, or when it has more than 8 channels (`remove-noise` in `apps/web/src/server/job-rules.ts`). That is 4 h of mono or about 3 h 6 min of stereo at 48 kHz, under the paid 4 h limit for stereo. The worker checks the same numbers before decoding.
-**Why:** the review found that a few MB of FLAC (an hour of 8-channel silence at 192 kHz) decoded to about 44 GB of temp files, filling the worker's shared disk and failing other users' jobs. The more-than-8-channels check also ran only in the worker, after credits were reserved. docs/01 sizes a job slot's disk for one upload, and 8 GiB of working copies fits that size. With the input read only as far as it was priced (see "A server job reads its input only as far as it was priced"), these numbers are a real bound, since the decode resamples to the probed rate and channels.
-**Reverse:** stream the clean pass from the decoder, so it writes no raw copies, then drop the size rule. Keep the channel rule.
