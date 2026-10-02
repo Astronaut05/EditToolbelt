@@ -4,7 +4,8 @@
  * - Fast: when every clip has the same video codec, settings and size (and
  *   the same audio, or none), their packets are copied end to end, each
  *   clip after the last one's picture ends. Nothing is re-encoded, so it's
- *   quick and lossless.
+ *   quick and lossless. Each clip's sound starts exactly with its picture
+ *   (`placeCopiedSound`), so nothing drifts however many clips are joined.
  * - Re-encode: otherwise, or with a crossfade, every frame is drawn on one
  *   constant clock at the target size and frame rate (the first clip's, or
  *   one chosen), fitted on black, and the sound of each clip is brought to
@@ -35,7 +36,8 @@ import { Frames, framesOf } from '../audio/stream';
 import { EngineAbortError } from '../dummy';
 import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput } from '../types';
-import { Held, shownFor } from './held';
+import { even, Held, shownFor } from './held';
+import { VIDEO_LIMITS } from './limits';
 import { codecLabel, MediaInputError, openInput } from './media';
 import { containerFormat, sourceFamily } from './trim';
 
@@ -141,7 +143,6 @@ async function openClips(files: Blob[]): Promise<Clip[]> {
   }
 }
 
-const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 const STANDARD_FPS = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60];
 
 /** The nearest standard rate: phones say 29.98, cameras 23.976. */
@@ -150,6 +151,88 @@ function standardFps(fps: number): number {
     (best, f) => (Math.abs(f - fps) < Math.abs(best - fps) ? f : best),
     30,
   );
+}
+
+/** A packet's start and length, seconds. */
+export interface PacketTiming {
+  timestamp: number;
+  duration: number;
+}
+
+/**
+ * How far a sound packet may run past its clip's picture and still be kept:
+ * Matroska times are whole milliseconds, so a clip's end can be 1 ms out.
+ */
+const SPILL = 0.001;
+
+/**
+ * Where one of a clip's sound packets goes in a fast join, or why it's left out:
+ * - `end`: it starts once the clip's picture has ended, as does every packet after it.
+ * - `skip`: an encoder's priming before a later clip's start (AAC's first
+ *   1024 samples, which the container's edit list hides; copied, they would
+ *   play as 21 ms of extra sound), or a packet that would run past the
+ *   clip's end. Placed whole, either would make every clip after it late.
+ *   PCM (`cut`) can be cut short at the end instead, losslessly.
+ * - Otherwise its start and length in the joined file: at the clip's own
+ *   offset, never before the packet placed before it (`previous`).
+ */
+export function placeCopiedSound(
+  packet: PacketTiming,
+  clip: { offset: number; duration: number; first: boolean },
+  previous: number,
+  cut = false,
+): PacketTiming | 'skip' | 'end' {
+  if (packet.timestamp >= clip.duration - 1e-9) return 'end';
+  if (!clip.first && packet.timestamp + packet.duration <= 1e-9) return 'skip';
+  let duration = packet.duration;
+  if (packet.timestamp + duration > clip.duration + SPILL) {
+    if (!cut) return 'skip';
+    duration = clip.duration - packet.timestamp;
+  }
+  return { timestamp: Math.max(previous, clip.offset + packet.timestamp), duration };
+}
+
+/** Where the primary video and sound tracks' last packets end, seconds: a join's sync, for tests. */
+export async function trackEnds(file: Blob): Promise<{ video: number; audio: number | null }> {
+  const input = openInput(file);
+  const endOf = async (track: InputVideoTrack | InputAudioTrack) => {
+    let end = 0;
+    for await (const packet of new EncodedPacketSink(track).packets()) {
+      end = Math.max(end, packet.timestamp + packet.duration);
+    }
+    return end;
+  };
+  try {
+    const video = await input.getPrimaryVideoTrack();
+    const audio = await input.getPrimaryAudioTrack();
+    return {
+      video: video ? await endOf(video) : 0,
+      audio: audio ? await endOf(audio) : null,
+    };
+  } finally {
+    input.dispose();
+  }
+}
+
+/** Bytes per sample frame of uncompressed audio, which can be cut anywhere; 0 for coded audio. */
+function pcmFrameBytes(codec: AudioCodec, channels: number): number {
+  const size: Partial<Record<AudioCodec, number>> = {
+    'pcm-u8': 1,
+    'pcm-s8': 1,
+    ulaw: 1,
+    alaw: 1,
+    'pcm-s16': 2,
+    'pcm-s16be': 2,
+    'pcm-s24': 3,
+    'pcm-s24be': 3,
+    'pcm-s32': 4,
+    'pcm-s32be': 4,
+    'pcm-f32': 4,
+    'pcm-f32be': 4,
+    'pcm-f64': 8,
+    'pcm-f64be': 8,
+  };
+  return (size[codec] ?? 0) * channels;
 }
 
 /** Copies every clip's packets end to end: no decoding, no re-encoding. */
@@ -189,24 +272,42 @@ async function copyJoin(clips: Clip[], signal: AbortSignal, progress: (f: number
     videoSource.close();
   };
   const writeAudio = async () => {
-    if (!audioSource || !first.audio) return;
+    if (!audioSource || !first.audio || !audioCodec) return;
     const config = await first.audio.getDecoderConfig();
+    const rate = await first.audio.getSampleRate();
+    const frameBytes = pcmFrameBytes(audioCodec, await first.audio.getNumberOfChannels());
     let offset = 0;
     let firstPacket = true;
-    let next = 0;
-    for (const clip of clips) {
+    let previous = -Infinity;
+    for (const [i, clip] of clips.entries()) {
       if (clip.audio) {
         for await (const packet of new EncodedPacketSink(clip.audio).packets()) {
           if (signal.aborted) throw new EngineAbortError();
-          // Sound past its own picture's end would push the next clip's later.
-          if (packet.timestamp >= clip.duration) break;
-          const timestamp = Math.max(next, packet.timestamp + offset);
+          const place = placeCopiedSound(
+            packet,
+            { offset, duration: clip.duration, first: i === 0 },
+            previous,
+            frameBytes > 0,
+          );
+          if (place === 'end') break;
+          if (place === 'skip') continue;
+          let copy = packet.clone({ timestamp: place.timestamp });
+          if (place.duration < packet.duration) {
+            // PCM past the picture's end: only the frames before it.
+            const frames = Math.floor(place.duration * rate + 1e-6);
+            if (frames <= 0) continue;
+            copy = packet.clone({
+              timestamp: place.timestamp,
+              duration: frames / rate,
+              data: packet.data.subarray(0, frames * frameBytes),
+            });
+          }
           await audioSource.add(
-            packet.clone({ timestamp }),
+            copy,
             firstPacket && config ? { decoderConfig: config } : undefined,
           );
           firstPacket = false;
-          next = timestamp + packet.duration;
+          previous = place.timestamp;
         }
       }
       offset += clip.duration;
@@ -294,7 +395,9 @@ async function encodeJoin(
   ctx.imageSmoothingQuality = 'high';
 
   const writeVideo = async () => {
-    const held = clips.map((c) => new Held(c.video));
+    // A clip's decoder opens at its first frame and closes after its last:
+    // at most two are open at once, in a crossfade.
+    const held: (Held | null)[] = clips.map(() => null);
     try {
       for (let n = 0; n < total; n += 1) {
         if (signal.aborted) throw new EngineAbortError();
@@ -303,14 +406,21 @@ async function encodeJoin(
         ctx.fillRect(0, 0, width, height);
         let drawn = 0;
         for (const [i, p] of placed.entries()) {
-          if (n < p.at || n >= p.at + p.length) continue;
-          const frame = await held[i]?.at((n - p.at) / fps);
-          if (!frame) continue;
-          // The incoming clip fades in over the outgoing one.
-          ctx.globalAlpha =
-            drawn > 0 && p.fadeIn > 0 ? Math.min(1, (n - p.at + 0.5) / p.fadeIn) : 1;
-          frame.drawWithFit(ctx, { fit: 'contain' });
-          drawn += 1;
+          const clip = clips[i];
+          if (n < p.at || n >= p.at + p.length || !clip) continue;
+          const reader = (held[i] ??= new Held(clip.video));
+          const frame = await reader.at((n - p.at) / fps);
+          if (frame) {
+            // The incoming clip fades in over the outgoing one.
+            ctx.globalAlpha =
+              drawn > 0 && p.fadeIn > 0 ? Math.min(1, (n - p.at + 0.5) / p.fadeIn) : 1;
+            frame.drawWithFit(ctx, { fit: 'contain' });
+            drawn += 1;
+          }
+          if (n === p.at + p.length - 1) {
+            reader.close();
+            held[i] = null;
+          }
         }
         const sample = new VideoSample(canvas, { timestamp: n / fps, duration: 1 / fps });
         await videoSource.add(sample);
@@ -318,7 +428,7 @@ async function encodeJoin(
         progress((n + 1) / total);
       }
     } finally {
-      for (const h of held) h.close();
+      for (const h of held) h?.close();
     }
     videoSource.close();
   };
@@ -412,6 +522,13 @@ export const mergeVideosEngine: Engine<MergeVideosOptions> = {
     if (files.length < 2) throw new MediaInputError('Add at least 2 clips to merge.');
     if (files.length > MERGE_VIDEO_MAX) {
       throw new MediaInputError(`Merge up to ${String(MERGE_VIDEO_MAX)} clips at once.`);
+    }
+    // The joined file is built in memory: the clips together stay within the browser limit.
+    const bytes = files.reduce((sum, f) => sum + f.size, 0);
+    if (bytes > VIDEO_LIMITS.maxBytes) {
+      throw new MediaInputError(
+        `These clips come to ${(Math.ceil((bytes / 1024 ** 3) * 10) / 10).toFixed(1)} GB together, over the browser limit of ${String(VIDEO_LIMITS.maxBytes / 1024 ** 3)} GB. Merge fewer at a time.`,
+      );
     }
     const clips = await openClips(files);
     try {

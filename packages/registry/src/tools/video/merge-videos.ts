@@ -17,6 +17,7 @@ export default defineTool({
   batch: false,
   accepts: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska'],
   outputs: ['mp4', 'mov', 'webm', 'mkv'],
+  // The clips together: the joined file is built in memory.
   limits: { client: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 } },
   cost: { kind: 'perMinute', credits: 1, minCredits: 1 },
   surfaces: ['web', 'api'],
@@ -28,7 +29,7 @@ export default defineTool({
     primaryQuery: 'merge videos',
     secondaryQueries: ['combine videos', 'join mp4 files'],
     howTo: [
-      'Drop two or more clips: MP4, MOV, WebM or MKV. Add more with Add files.',
+      'Drop two or more clips, up to 2 GB in all: MP4, MOV, WebM or MKV. Add more with Add files.',
       'Put them in order with the arrows, or remove one.',
       'Pick a cut or a crossfade between clips, and the size and frame rate if you want other than the first clip’s.',
       'Merge and download. Clips that share their codec and settings are joined without re-encoding.',
