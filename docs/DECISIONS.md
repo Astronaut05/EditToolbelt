@@ -1199,3 +1199,83 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
 **Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
+
+## 2026-10-02 · GPU models: Whisper and Real-ESRGAN approved, Demucs parked (M5)
+
+**Decision:**
+- **Whisper large-v3** for A12 and V17. OpenAI's README says "Whisper's code and model weights are released under the MIT License". We run OpenAI's own `openai-whisper` (20250625, MIT) with the `large-v3` checkpoint from OpenAI's URL, whose path is the file's SHA-256: the package pins it, and so does `pins.json`.
+  - **Not faster-whisper**, though it's about 4× faster. Its weights are SYSTRAN's CTranslate2 conversions on huggingface.co (model cards: MIT), which this build environment can't reach to read or pin. The L4's cost per minute of speech is small either way (`05`). Switching later is one function and one pin.
+  - large-v3, not turbo: turbo is faster but weaker on low-resource languages such as Uzbek, and wasn't trained to translate (V17's "translate to English").
+- **Real-ESRGAN** for P08: the code is BSD-3-Clause; the weights we use are the repository's own release assets, published by the author with the code, and no separate licence or use restriction is stated anywhere. That makes the repository's licence theirs, the reading that approved U²-Net. Models: `realesr-general-x4v3` blended with its "weak denoise" twin by the person's noise setting (the authors' DNI), and `RealESRGAN_x4plus_anime_6B` for illustrations. No face model.
+- **Demucs (htdemucs) is not used.** The code is MIT, but the weights are on Meta's file server, outside the repository, with no licence stated, and were trained on MUSDB18-HQ (research use). `CLAUDE.md` rule 6: unclear means no. A09 stays `soon`; `STATUS.md` → Parked for Astro has the recommended pick.
+- **BiRefNet** (P07's hi-res server path) is approved (MIT code and weights, `13`), but not built in this round: pinning its exact weights and its Hugging Face model code needs huggingface.co, and nothing here could run it. Next: add it to `pins.json` and let CI's pins check report the real hashes.
+- Three Real-ESRGAN hashes come from Hugging Face's listings of copies of the same files (the release assets have no published digest). The build checks them against the author's own downloads, and CI's pins check does too before any deploy, so a wrong one fails safely.
+
+**Why:** Astro's M5 brief and `CLAUDE.md` rule 6; `docs/13` → Models: "Explicitly commercial-use licenses" for weights.
+**Reverse:** a model's row in `docs/13` and `licenses.json`, its files in `apps/worker/src/etb_worker/gpu/pins.json`, its function in `modal_app.py`.
+
+## 2026-10-02 · The GPU functions on Modal (M5)
+
+**Decision:**
+- **One function per tool** in the app `edittoolbelt-gpu`: `upscale_image` (P08) and `transcribe` (A12 and V17 share it).
+- **GPUs:** T4 for the upscaler, L4 for Whisper (`01` → GPU backend says why). The registry names each tool's GPU (`gpu`), which prices its jobs; a test holds the two in step.
+- **Every function asks for 2 CPU cores and 8 GiB**, so one container price per GPU type covers them (`config/business.ts` → `gpuRateUsd`).
+- **Idle windows:** 10 s for the upscaler (its networks load in about a second) and 30 s for Whisper (15 to 25 s to load, so the next file of a batch finds it warm). `max_containers` 2 each, matching the registry's `maxConcurrent`.
+- **Timeouts:** 15 and 65 min on Modal; the jobs' own limits are 20 and 70 min, so the worker's limit covers a cold start and the function's own.
+- **Weights are baked into the images at build time** and checked against `pins.json` by `weights.py`, which Modal runs as a script during the build. Nothing downloads at run time, and a changed file can't reach a GPU.
+- **I/O:** presigned GET in, presigned PUT out, both valid for the job's limit plus 15 min. The function writes its result to storage itself and returns only numbers and notes. Whisper's transcript goes to storage as JSON too, never through Modal's own result store; the worker turns it into the format asked for and deletes it at once.
+- **Smoke test:** `check.py --smoke` sends a tiny PNG and a 2 s tone as `data:` URLs with no output URL, so a real run stores nothing anywhere. Actions → Modal → Run workflow → "smoke".
+- **Modal adds the module's package (`etb_worker`) to each container itself**; the functions import only `gpu/remote.py` and `gpu/tiles.py` (standard library) from it, besides the libraries in their image.
+- **PyTorch 2.10**: the last release whose PyPI wheels use CUDA 12.8; later ones need CUDA 13 drivers.
+
+**Why:** Astro's M5 brief (cheapest GPU that does the job, short idle windows, weights pinned and checked at build, nothing kept on Modal); `docs/01` → GPU backend.
+**Reverse:** the specs are `SPECS` at the top of `modal_app.py`; a GPU change also changes the tool's `gpu` in the registry.
+
+## 2026-10-02 · ServerlessGpu in the worker (M5)
+
+**Decision:**
+- **`GPU_BACKEND`**: `modal`, `local` (a stub that answers "not set up"), or unset (GPU tools off). With GPU tools off, a claimed GPU job fails at once with `GPU_UNAVAILABLE` and its credits back, rather than waiting 15 min to expire.
+- **`modal` without a token starts the worker with its GPU tools off** (logged as `gpu.off`), instead of refusing to start: the CPU tools must not stop for the GPU's sake. Half a token still refuses, like Telegram's pair. Production sets `GPU_BACKEND=modal` in `.railway/railway.ts`.
+- **A call:** `Function.from_name(app, fn).spawn(...)`, then `get(timeout=2)` until it answers. Between polls, the time since the spawn becomes progress against the processor's estimate (Modal has no progress channel back, and we don't keep state on Modal). The call is cancelled when the job is cancelled (the heartbeat notices within 5 s), when the worker stops (the job goes back to the queue), or when the job's time is up.
+- **GPU processors are "remote"**: the runner neither downloads their input nor uploads their output. The output key is written on the job before the call, so if the worker dies mid-call, the next attempt deletes what the GPU wrote, and the sweeper deletes it 60 min after a failure.
+- **A worker killed outright** (not stopped) can't cancel its call; the call runs on until its function's timeout. Known gap, logged in `01`.
+- **Failures** become the job's error code with a fixed sentence (`GPU_UNAVAILABLE`, `GPU_FAILED`, `TIMEOUT`), or the function's own (`TOO_LARGE`, `DECODE_FAILED`); a remote exception's text is never shown or stored. The job fails, and its credits come back the usual way.
+- **Transcripts become files on the worker** (`captions.py`): cues built word by word, at most 7 s, broken at pauses of 0.8 s and, once half a line is full, at sentence ends; lines balanced to the narrowest width that still fits. VTT gets word timestamp tags and ASS karaoke tags when word timing is on; SRT and TXT say they can't hold it.
+- **The probe now takes PNG, JPEG and WebP** (ffprobe reads them as one frame) and WebM audio.
+
+**Why:** Astro's M5 brief: spawn, poll with short timeouts while heartbeating and reporting progress, cancel with the job; finish like the CPU tools (`CLAUDE.md` rule 4).
+**Reverse:** unset `GPU_BACKEND`. The backend is `etb_worker/gpu/backend.py`; the shared step is `processors/remote.py`.
+
+## 2026-10-02 · GPU metering and the daily GPU budget (M5)
+
+**Decision:**
+- **The jobs API writes each GPU job's rate** (`jobs.gpu_rate_usd`): the GPU's price a second plus 2 cores and 8 GiB, from `config/business.ts` (Modal's prices read 2026-10-02, placeholders to confirm). The worker needs no copy of the prices, as it needs none of the registry.
+- **Each call's cost lands on its job whatever happened**: GPU seconds measured inside the function (a cold model load included) plus the function's idle window, times the rate. Counting the idle window every time errs high in a burst, which is the safe side for a budget. A failed, cancelled or timed-out call that didn't report counts its wall-clock time.
+- **The budget is one row in the database** (`gpu_budget`, migration 0009), $1 a day until an admin changes it in Admin → Dashboard → GPU (audited).
+- **The day is UTC**, like the free daily jobs (it resets at 05:00 Tashkent).
+- **Today's spend** counts calls still running, from their job's start at their rate, so a burst of long jobs is counted before it ends.
+- **At 100 % the worker stops claiming GPU jobs**; CPU jobs carry on. Queued GPU jobs wait and, after 15 min, expire with their credits back. Two slots can both start a job just under the line, so the overshoot is at most the jobs already running.
+- **Alerts at 80 % and 100 %, once a day each**: the alert's subject carries the day and the threshold, and the rule skips one already sent.
+- **Admin, kept small**: today's spend against the budget, and GPU cost against credits by tool over 7 days, with free jobs' cost as its own line (`05`). The nightly `tool_stats_daily` gains `gpu_cost_usd`; the digest gains a GPU line. `/admin/costs` and the margin alert wait for real data.
+
+**Why:** Astro's M5 brief; `docs/05` → GPU backend economics ("admin shows actual cost vs. charged per tool").
+**Reverse:** set the budget high to turn it off in practice. The rule is `etb_worker/gpu/budget.py`; the rate comes from `gpuRateUsd`.
+
+## 2026-10-02 · Upscale Image, Transcribe Audio and Auto Subtitles: off until an admin switches them on (M5)
+
+**Decision:**
+- **Their registry entries are complete enough for beta** (accepts, outputs, limits, price, GPU, how-to, FAQ; a test parses each one as beta), **but their code default stays `soon`**, as for every server-only tool (2026-10-01, VFR to CFR). An admin sets each to beta in Admin → Tools once Modal runs it: the static export has no server path, and a default of beta would show working pages that can't run.
+- **Limits:**
+  - P08 takes up to 16 MP in, 25 MB free and 100 MB paid. The result is capped at 64 MP (`tools/photo.md`), checked when the job is quoted, before anything is charged.
+  - A12 and V17 take 30 min free and 4 h paid.
+- **Prices stay the specs' placeholders:** P08 1 credit per 4 output MP (at least 2), A12 and V17 2 a minute (at least 2). The jobs API now prices P08 on the result's megapixels (`job-rules.ts`), and the page estimates the same from the picture's size and the scale.
+- **Nothing to do, nothing to pay:** a file with no sound is refused at quote time (`NOTHING_TO_DO`); one whose speech the model can't hear fails with `NO_SPEECH` and its credits back.
+- **Auto Subtitles takes the sound out of a video in the browser** (Extract Audio's engine). It copies the sound when its codec fits a container (AAC to M4A, Opus to OGG, MP3, FLAC), otherwise makes MP3 at 96 kbps. Only that file is uploaded; an audio file goes as it is. The API also takes a video (Whisper reads its sound).
+- **Not built this round:**
+  - P08's free 512 px preview.
+  - V17's cue editor: it is shared with T03, which doesn't exist yet. The result shows the start of the subtitles, as Subtitle Converter does.
+  - The "Burn into video" handoff: Burn Subtitles takes the subtitles as a second file, which the handoff can't fill. The FAQ says how.
+  - A12's speaker labels (Wave 3 in the spec).
+
+**Why:** `tools/photo.md` → P08, `tools/audio.md` → A12, `tools/video.md` → V17; the 2026-10-01 entry on server-only tools; Astro's M5 brief ("tools whose GPU path can't be verified stay beta and are switched on by an admin, like VFR to CFR was").
+**Reverse:** set a tool's status in Admin → Tools, or its default in `packages/registry/src/tools/`.

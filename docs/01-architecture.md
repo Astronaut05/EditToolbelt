@@ -64,6 +64,23 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 - The CPU worker claims GPU jobs too, forwards them to the backend, then does upload/cleanup as usual — switching backend is a config change.
 - Every GPU job records `gpu_seconds`; admin shows real cost per tool.
 
+**What's built (M5, 2026-10-02):**
+- **The Modal app** `edittoolbelt-gpu` (`apps/worker/src/etb_worker/gpu/modal_app.py`), deployed by CI on merges to `main` (`.github/workflows/modal.yml`). One function per tool:
+
+  | Function | Tools | GPU | Model | Timeout · idle window · containers |
+  |---|---|---|---|---|
+  | `upscale_image` | P08 | T4 | Real-ESRGAN `realesr-general-x4v3` (with its denoise twin, blended by strength) or `RealESRGAN_x4plus_anime_6B`, 512 px tiles with a 24 px margin, fp16 | 15 min · 10 s · 2 |
+  | `transcribe` | A12, V17 | L4 | Whisper `large-v3` (OpenAI's `openai-whisper`), fp16, word timing on | 65 min · 30 s · 2 |
+
+  T4 for the upscaler: small networks in tiles, where most of a call is reading, tiling and writing, so the cheaper second wins. L4 for Whisper: a 1.5 B parameter decoder runs about twice as fast as on a T4 for 1.35× the price. Every function asks for 2 CPU cores and 8 GiB, which `config/business.ts` prices with the GPU.
+- **Weights are pinned.** `gpu/pins.json` holds each file's URL, SHA-256 and licence; Modal downloads them while it builds the image and `gpu/weights.py` fails the build on a mismatch. Nothing is downloaded when a function runs. CI checks every pin against its source before deploying (no token needed).
+- **A call:** presigned GET for the input (or a `data:` URL, for smoke tests), presigned PUT for the output, both valid for the job's time limit plus 15 min; a temp dir that is always removed; nothing printed about the content. It returns only numbers and notes: `gpu_seconds` (measured inside, from the call's start, so a cold model load counts), whether it was cold, the idle window, the output's size. Failures it can word come back as a code and a sentence (`TOO_LARGE`, `DECODE_FAILED`).
+- **`ServerlessGpu` in the worker** (`gpu/backend.py`, `GPU_BACKEND=modal`): `Function.from_name(app, fn).spawn(...)`, then `get(timeout=2)` in a loop; between polls the elapsed time becomes progress against the processor's estimate (the heartbeat carries it), and the call is cancelled when the job is cancelled, the worker stops, or the job's time is up. `LocalGpu` (`local`) only says it isn't set up; unset, GPU jobs fail at once with their credits back. `modal` without a token starts the worker with its GPU tools off.
+- **Processors** (`processors/upscale_image.py`, `processors/transcribe.py`, shared step `processors/remote.py`): they record the output key on the job before the call (so a dead worker's output is still swept), call the backend, and finish like any job: input deleted at once, output after 60 min. Transcription writes Whisper's JSON to storage; the worker reads it back, deletes it at once and writes SRT, VTT, ASS, TXT or JSON (`captions.py`).
+- **Metering:** each call's GPU seconds and cost land on the job whatever happened (`05` → GPU costs and the daily budget); the daily budget stops new GPU jobs.
+- **Smoke test:** `python -m etb_worker.gpu.check --smoke` calls each function once on a tiny input it makes itself (Actions → Modal → Run workflow → smoke).
+- **Not yet:** P07's hi-res server path (BiRefNet), A09 Stem Splitter (parked: Demucs's weights licence), `LocalGpu`, `DedicatedGpu`. A worker killed outright (not stopped) leaves its GPU call running until the function's timeout.
+
 ### Progress to the client
 - `GET /api/v1/jobs/:id/events` — Server-Sent Events: `queued {position}`, `progress {pct, stage}`, `succeeded {result}`, `failed {problem}`.
 - Implementation: the web process polls the job row every 1 s while a stream is open. Fine for hundreds of concurrent streams; revisit with Postgres NOTIFY fan-out beyond that. Send an SSE comment (`: ping`) every 20 s — Cloudflare cuts proxied connections that stay silent for 100 s, and a queued GPU job can be quiet that long.

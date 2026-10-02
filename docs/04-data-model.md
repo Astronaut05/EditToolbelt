@@ -109,7 +109,9 @@ Store, then process. Processing is idempotent on `event_id`.
 | error_detail | text null | safe, no content |
 | attempts | smallint | |
 | worker_id | text null | |
-| gpu_seconds | numeric null | |
+| gpu_seconds | numeric null | the job's GPU calls, measured inside the function (cold model loads included) |
+| gpu_rate_usd | numeric null | USD a second of the tool's GPU function (GPU, CPU, memory), written by the jobs API from `config/business.ts`; null for CPU jobs |
+| gpu_cost_usd | numeric null | what the GPU calls cost: (GPU seconds + the function's idle window) × the rate; set whatever the outcome |
 | cpu_seconds | numeric null | |
 | heartbeat_at, queued_at, started_at, finished_at, files_deleted_at | timestamptz | |
 | idempotency_key | text null | unique per (user_id, key) |
@@ -140,7 +142,10 @@ Unconsumed uploads are deleted with their objects after 1 hour.
 | id | admin_id | action | target_type | target_id | before jsonb | after jsonb | reason text | created_at |
 
 **tool_stats_daily**
-| day | tool_id | runtime | jobs_total | jobs_failed | p50_ms | p95_ms | gpu_seconds | credits_charged | pk (day, tool_id, runtime) |
+| day | tool_id | runtime | jobs_total | jobs_failed | p50_ms | p95_ms | gpu_seconds | gpu_cost_usd | credits_charged | pk (day, tool_id, runtime) |
+
+**gpu_budget** — one row (`id = 1`): the daily GPU budget an admin sets (`05` → GPU costs and the daily budget).
+| id smallint pk (= 1) | daily_usd numeric default 1 (≥ 0) | updated_by fk users null | updated_at |
 
 Client-side tool usage comes from cookieless analytics events (`09-seo-and-growth.md`), not from this table.
 

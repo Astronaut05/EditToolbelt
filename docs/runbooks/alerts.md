@@ -58,3 +58,7 @@ The retention sweeper (every 5 min) hasn't finished in 30 min, or objects older 
 ## lifecycle_missing
 
 The bucket's backstop rules (1-day expiry, 1-day multipart abort) are missing on R2. Locally the gateway has none and this reads "not supported", which is fine. On R2, set both rules in the bucket's settings.
+
+## gpu_budget: "GPU spend is $X of today's $Y budget" / "GPU budget reached"
+
+Once a day each, at 80 % and at 100 % of the day's GPU budget (UTC). At 100 % GPU jobs wait instead of starting. See [gpu-budget.md](gpu-budget.md).

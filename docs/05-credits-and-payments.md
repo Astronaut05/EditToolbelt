@@ -78,6 +78,18 @@ Implementation:
 - Used credits aren't refundable, but any failed job refunds itself automatically.
 - EU/UK consumers: at checkout, the buyer agrees that delivery (credits added) starts immediately and acknowledges this affects the withdrawal right — Paddle's checkout covers this as seller of record; our Terms state the generous 14-day unused-credit refund anyway.
 
+## GPU costs and the daily budget
+
+- **Prices:** Modal bills a function's container by the second: its GPU plus the CPU cores and memory it asks for. `config/business.ts` → `gpuPricing` holds T4 $0.000164/s and L4 $0.000222/s, CPU $0.0000131 per core-second and memory $0.00000222 per GiB-second, read 2026-10-02 from Modal's published prices (placeholders: confirm in Modal's dashboard). Every tool function asks for 2 cores and 8 GiB, so a T4 second costs $0.000208 and an L4 second $0.000266 (`gpuRateUsd`).
+- **On every GPU job:** the jobs API writes the tool's rate (`jobs.gpu_rate_usd`, from the registry's `gpu` and `gpuRateUsd`). When a call ends, whatever happened, the worker adds its GPU seconds to `gpu_seconds` and (GPU seconds + the function's idle window) × rate to `gpu_cost_usd`. The idle window (10 s upscaler, 30 s Whisper) is billed after a call unless another one arrives, so counting it every time errs high. A call that failed, was cancelled or timed out without saying counts its wall-clock time.
+- **Pricing a job** is unchanged: the registry's `CreditRule` from the probe, server-side (Upscale Image on the result's megapixels). The rules' placeholders already clear the margin of 3: a minute of speech is about 5-10 GPU-seconds plus Whisper's load and idle window, about $0.005-0.015 for 2 credits (≈ 3.1¢); a 12 MP upscale is about 15-25 s on a T4, about $0.005 for 3 credits.
+- **The daily budget** (`gpu_budget`, one row, $1 a day until an admin changes it in Admin → Dashboard → GPU, audited):
+  - Today's spend is every GPU job started since 00:00 UTC: its recorded cost, or for a call still running, the time since its job started at its rate.
+  - At 100 % the worker stops claiming GPU jobs. They wait in the queue; if they wait 15 min they expire and their credits come back (the usual expiry). CPU jobs carry on. Raising the budget, or midnight UTC, starts them again.
+  - At 80 % and at 100 % an alert goes out, once a day each (`gpu_budget`, Telegram, email as backup). Runbook: `docs/runbooks/gpu-budget.md`.
+- **Admin → Dashboard → GPU** shows today's spend against the budget, the prices in use, and GPU cost against credits by tool over 7 days: jobs, GPU seconds, cost, what free jobs cost (its own line, so margins measure paid use), credits charged, their worth at `creditNetUsd`, and the margin. The daily table adds GPU seconds and cost per tool.
+- Modal's own monthly spend limit ($20) stays the last line behind all of this.
+
 ## GPU backend economics
 
 Keep a small sheet in admin (`/admin/costs`):
