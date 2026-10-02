@@ -418,6 +418,53 @@ describe('Paddle webhooks', () => {
     ]);
   });
 
+  it('don’t credit a total or currency other than the purchase’s, and keep why', async () => {
+    const s = setup();
+    // A discount code typed into the overlay: $4.00 paid for a $5.00 pack.
+    const discounted = await checkedOut(s);
+    const lower = transactionData({
+      id: discounted.transactionId,
+      purchaseId: discounted.purchase.id,
+      priceId: String(discounted.purchase.providerData.priceId),
+      grandTotal: '400',
+    });
+    const { response } = await deliver(s, 'transaction.completed', lower);
+    expect(response.status).toBe(200);
+    // The same amount in another currency.
+    const euros = await checkedOut(s);
+    await deliver(
+      s,
+      'transaction.paid',
+      transactionData({
+        id: euros.transactionId,
+        purchaseId: euros.purchase.id,
+        priceId: String(euros.purchase.providerData.priceId),
+        status: 'paid',
+        currency: 'EUR',
+      }),
+    );
+    // No totals at all.
+    const bare = await checkedOut(s);
+    await deliver(s, 'transaction.completed', {
+      ...bare.transaction,
+      status: 'completed',
+      details: {},
+    });
+    expect(s.store.ledger).toHaveLength(0);
+    for (const { purchase } of [discounted, euros, bare])
+      expect(s.store.peek(purchase.id).status).toBe('pending');
+    expect(s.store.events.map((event) => event.error)).toEqual([
+      'not credited: the transaction total is 400, not 500 (minor units)',
+      'not credited: the transaction is in EUR, not USD',
+      'not credited: the transaction total is missing, not 500 (minor units)',
+    ]);
+
+    // The right amount still credits.
+    const exact = await checkedOut(s);
+    await deliver(s, 'transaction.completed', { ...exact.transaction, status: 'completed' });
+    expect(s.store.balance()).toBe(200);
+  });
+
   it('don’t credit a transaction that isn’t paid', async () => {
     const s = setup();
     const { transaction } = await checkedOut(s);

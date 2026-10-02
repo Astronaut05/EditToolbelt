@@ -191,8 +191,20 @@ function parseEvent(payload: unknown): PaddleEvent | null {
   return { eventId, type, data: payload.data };
 }
 
-/** Why a paid transaction can't complete its purchase as is, or null when it can. */
-function itemsMismatch(
+function totalsOf(transaction: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(transaction.details) && isRecord(transaction.details.totals)
+    ? transaction.details.totals
+    : {};
+}
+
+/**
+ * Why a paid transaction can't complete its purchase as is, or null when it
+ * can: one item, quantity 1, the price checkout set, and exactly the
+ * purchase's amount in its currency. A discount code typed into the overlay,
+ * or a catalog price in `paddlePriceIds` that doesn't match the pack, shows
+ * up here instead of crediting the whole pack.
+ */
+function paymentMismatch(
   transaction: Record<string, unknown>,
   purchase: PurchaseRecord,
 ): string | null {
@@ -204,6 +216,13 @@ function itemsMismatch(
   const expected = asString(purchase.providerData.priceId);
   if (expected && priceIdOf(item) !== expected)
     return 'the transaction price is not the one checkout created';
+  const currency = asString(transaction.currency_code);
+  if (currency !== purchase.currency)
+    return `the transaction is in ${currency ?? 'no currency'}, not ${purchase.currency}`;
+  // Paddle writes amounts as whole minor units in a string: "500" is $5.00.
+  const total = asString(totalsOf(transaction).grand_total);
+  if (total === null || !/^\d{1,15}$/.test(total) || Number(total) !== purchase.amountMinor)
+    return `the transaction total is ${total ?? 'missing'}, not ${String(purchase.amountMinor)} (minor units)`;
   return null;
 }
 
@@ -224,14 +243,10 @@ async function onPaid(
   if (purchase.status === 'cancelled')
     return 'paid after the purchase was cancelled: refund it or add the credits by hand';
   if (purchase.status !== 'pending') return undefined; // already completed: nothing to do
-  const mismatch = itemsMismatch(transaction, purchase);
+  const mismatch = paymentMismatch(transaction, purchase);
   if (mismatch) return `not credited: ${mismatch}`;
-  const totals =
-    isRecord(transaction.details) && isRecord(transaction.details.totals)
-      ? transaction.details.totals
-      : {};
   await ctx.store.complete(purchase.id, {
-    paidTotal: asString(totals.grand_total),
+    paidTotal: asString(totalsOf(transaction).grand_total),
     paidCurrency: asString(transaction.currency_code),
     paidAt: ctx.now().toISOString(),
   });
