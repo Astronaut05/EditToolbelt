@@ -1176,3 +1176,66 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** Astro's instruction; `docs/05` → Payments.
 **Reverse:** a provider is one file behind the interface; drop it from the registry. `PAYMENTS_ENABLED` unset turns everything off at once.
+
+## 2026-10-02 · Paddle: the overlay checkout, and what its webhooks change (M5)
+
+**Decision:**
+- **Checkout is the Paddle.js overlay, never a redirect.** `createCheckout` makes the transaction on our server and returns `{ kind: 'paddle-overlay', transactionId, clientToken, environment }`.
+  - Paddle's API gives no Paddle-hosted page for a transaction: its `checkout.url` is our own default payment link plus `?_ptxn=`, which still needs Paddle.js.
+  - Paddle's hosted checkouts (`pay.paddle.io/hsc_…?transaction_id=…`) are made in the dashboard and need Paddle's extra approval.
+  - Paddle refuses to create transactions in production until a **default payment link** is set (`transaction_default_checkout_url_not_set`): set it to `SITE_URL/credits/buy` in the live and sandbox dashboards when turning payments on.
+- **Items:** the catalog price from `paddlePriceIds` when set (give it quantity 1–1 in the dashboard); otherwise a non-catalog USD price of the purchase's amount, tax included (`tax_mode: internal`), `tax_category: standard`, quantity fixed at 1.
+- **Buyer:** the Paddle customer with the exact email (found or made) is set on the transaction. If Paddle refuses the lookup, checkout carries on and the overlay asks for the email.
+- **Credits on `transaction.paid` or `transaction.completed`**, whichever arrives first; the other finds the purchase done. Both mean the money is captured, and `paid` comes seconds earlier.
+- **A payment is matched by the transaction id our server attached**, never by `custom_data.purchase_id` alone: a checkout opened in the browser could carry our purchase id with another price. The transaction must still have one item, quantity 1, at the price checkout set. Otherwise nothing is credited and the event keeps the reason.
+- **Refunds and chargebacks take credits back only when `approved`** (`adjustment.created` or `.updated`); pending, rejected and reversed adjustments move nothing.
+  - A partial refund takes credits in proportion to the money (rounded, at least 1), from the paid total kept at completion (`paidTotal`).
+  - `chargeback_reverse` is flagged on the event for a human.
+  - `refund()` asks Paddle for a full refund (`type: full`); the credits go when the approval webhook arrives.
+- **Answers:** `Paddle-Signature` checked first, `ts` within 5 minutes either way, any `h1` may match (secret rotation). 401 bad signature, 400 malformed, 200 for duplicates and for events we don't act on. A rule problem (unknown transaction, cancelled purchase) is answered 200 and kept as the event's error; a store failure is answered 500, error kept.
+
+**Why:** `docs/05` → Payments (overlay on `/credits/buy`, a route without COEP); Paddle Billing API v1 as published.
+**Reverse:** to redirect instead, get hosted checkout approved and return `{ kind: 'redirect', url: '<hosted checkout>?transaction_id=…' }` from `createCheckout`. To credit on `completed` only, drop `transaction.paid` from `processEvent` in `providers/paddle.ts`.
+
+## 2026-10-02 · Click: Prepare and Complete (M5)
+
+**Decision:**
+- **Checkout** sends the buyer to `my.click.uz/services/pay` with `service_id`, `merchant_id`, `merchant_user_id`, the amount in sums with 2 decimals, our purchase id as `transaction_param`, and `return_url` = `SITE_URL/credits/return?purchase=<id>`.
+- **Prepare** answers a random 31-bit `merchant_prepare_id`, kept with `clickTransId` in providerData.
+  - **The latest Prepare wins:** a buyer who tries again gets a new Click transaction. An abandoned attempt's Complete is answered -6 (or -4 once the order is paid), so Click reverses it.
+- **Complete** attaches `click_trans_id` as the provider transaction and completes the purchase; the confirm id is the prepare id.
+  - A repeated Complete for the same `click_trans_id` answers 0 again. Click reverses a payment whose Complete isn't answered 0, so -4 there would refund a buyer we credited.
+  - Click's own `error < 0` cancels the purchase and answers -9; anything after a cancel answers -9.
+- **Codes:** -1 bad signature (constant-time compare), -2 amount not exactly the purchase's (in tiyin), -3 action other than 0 or 1, -4 paid, -5 no such Click purchase, -6 Complete without its Prepare, -7 store failure, -8 missing or malformed fields or another `service_id`, -9 cancelled. Always HTTP 200.
+- **No `refund()`:** the Shop API has no refund call. A refund made in Click's merchant cabinet is recorded by hand.
+- **Not built yet: Click's fiscal receipt.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL, which `config/business.ts` doesn't have. Add both before turning Click on.
+
+**Why:** Click's published Shop API; `docs/05` → Payments.
+**Reverse:** each choice is one branch of `prepare` or `complete` in `providers/click.ts`.
+
+## 2026-10-02 · Payme: the Merchant API's state in providerData (M5)
+
+**Decision:**
+- **Checkout:** `checkout.paycom.uz/<base64(m=…;ac.order_id=<purchase id>;a=<tiyin>;c=<return url>)>`; `PAYME_TEST=true` uses `checkout.test.paycom.uz`. `PAYME_TEST` is required and must be `true` or `false`, so going live is a deliberate change. The account field in Payme's cabinet must be named `order_id`.
+- **One Payme transaction per order:** its id is the purchase's `providerTxnId`. `time` (Payme's), `state`, `create_time`, `perform_time`, `cancel_time` and `reason` sit in providerData, in ms.
+- **Order errors** (Payme's -31050…-31099 range): -31050 not found, -31051 paid, cancelled or older than 7 days, -31052 another active transaction. `data` names the field (`order_id`, `amount`, `time`).
+- **12-hour timeout** from our `create_time`: the next CreateTransaction or PerformTransaction for it cancels it (state -1, reason 4) and answers -31008. A CreateTransaction whose Payme `time` is over 12 hours old gets -31008.
+- **CancelTransaction after perform refunds the credits** (state -2, `store.refund`; the balance may go below zero) instead of answering -31007. Only Payme or the merchant can cancel a performed payment, so it is a refund we made. -31007 only when the purchase was already refunded another way.
+- **GetStatement** filters on Payme's `time` within [from, to]. It reads purchases created up to 8 days before `from`, which finds them all because an order older than 7 days can't start a Payme transaction.
+- **CheckPerformTransaction** returns the fiscal receipt `detail`: one item with title, price, count 1, MXIK `code`, `package_code` and `vat_percent` from `fiscalReceipt`.
+- `ChangePassword` and `SetFiscalData` answer -32601: the key lives in env (change it in the cabinet and the env together), and receipt data stays in Payme's cabinet.
+- **Protocol errors:** -32504 wrong Basic auth (constant-time, checked before anything else), -32700 parse, -32600 invalid params, -32601 unknown method, -32300 not POST, -32400 store failure (no detail). Every message in ru, uz and en; always HTTP 200.
+
+**Why:** Payme's published Merchant API; `docs/05` → Payments.
+**Reverse:** to refuse refunds after perform, answer -31007 for state 2 in `cancelTransaction`. The 7-day order age is `PAYME_ORDER_MAX_AGE_MS` in `providers/payme.ts`.
+
+## 2026-10-02 · Testing the payment providers without their networks (M5)
+
+**Decision:**
+- `providers/testing/memory-store.ts` is a `PurchaseStore` that follows the contract to the letter (attach once, idempotent complete, cancel and refund, events once); every provider test runs against it, with no database.
+- `providers/sim/` plays each provider: Click's Prepare and Complete and Payme's JSON-RPC, signed as documented, every error path; Paddle's signatures, real-shaped events and a fake of the API calls we make. Each simulator sends through a `send` function: the provider's `handleWebhook` in tests, or `fetch` against a running server.
+- The real Paddle sandbox test (`paddle.sandbox.test.ts`) is skipped unless `PADDLE_SANDBOX_API_KEY` is set. It runs in `.github/workflows/paddle-sandbox.yml` (run by hand, or on push to `claude/ops-**`), with the secrets `PADDLE_SANDBOX_API_KEY` and `PADDLE_SANDBOX_WEBHOOK_SECRET`; a missing key is a warning, as in the ops checks.
+- Webhook bodies over 1 MiB are refused unread.
+
+**Why:** only npm and PyPI are reachable from the build container, and no merchant keys exist yet.
+**Reverse:** delete the workflow; the gated test then never runs.
