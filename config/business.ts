@@ -18,13 +18,20 @@ export type PackId = 'starter' | 'creator' | 'studio';
 export interface Pack {
   id: PackId;
   credits: number;
+  /** Paddle, everywhere but Uzbekistan. Tax-inclusive; Paddle shows it in local currency. */
   priceUsd: number;
+  /**
+   * Click and Payme, for Uzbek cards (Uzcard, Humo). Whole sums. Set near the
+   * USD price at about 12,700 UZS per dollar, rounded; their fees are lower
+   * than Paddle's, so the same pack nets more. Review with the exchange rate.
+   */
+  priceUzs: number;
 }
 
 export const packs: readonly Pack[] = [
-  { id: 'starter', credits: 200, priceUsd: 5 },
-  { id: 'creator', credits: 700, priceUsd: 15 },
-  { id: 'studio', credits: 2000, priceUsd: 40 },
+  { id: 'starter', credits: 200, priceUsd: 5, priceUzs: 63_000 },
+  { id: 'creator', credits: 700, priceUsd: 15, priceUzs: 189_000 },
+  { id: 'studio', credits: 2000, priceUsd: 40, priceUzs: 499_000 },
 ];
 
 export const MIN_PACK_PRICE_USD = 5;
@@ -59,6 +66,57 @@ export function packNetUsdPerCredit(pack: Pack): number {
 export const creditNetUsd: number = Math.min(...packs.map(packNetUsdPerCredit));
 
 // ---------------------------------------------------------------------------
+// GPU costs (docs/05 → GPU costs and the daily budget). Modal bills each GPU
+// function's container by the second: its GPU, plus the CPU cores and memory
+// it asks for (apps/worker/src/etb_worker/gpu/modal_app.py: every tool
+// function asks for 2 cores and 8 GiB). PLACEHOLDERS taken on 2026-10-02 from
+// Modal's published per-second prices; confirm them in Modal's dashboard.
+// ---------------------------------------------------------------------------
+
+export type GpuType = 'T4' | 'L4';
+
+export const gpuPricing = {
+  /** When these prices were read; Admin shows it beside the costs. */
+  checkedOn: '2026-10-02',
+  /** USD per GPU-second. */
+  gpuUsdPerSecond: { T4: 0.000164, L4: 0.000222 } satisfies Record<GpuType, number>,
+  /** USD per CPU core-second and per GiB-second. */
+  cpuCoreUsdPerSecond: 0.0000131,
+  memoryGibUsdPerSecond: 0.00000222,
+  /** What every tool function asks Modal for (modal_app.py: CPU_CORES, MEMORY_MIB). */
+  functionCpuCores: 2,
+  functionMemoryGib: 8,
+} as const;
+
+/**
+ * USD a second of one GPU function's container: its GPU, CPU and memory. The
+ * jobs API writes it on each GPU job (`jobs.gpu_rate_usd`); the worker prices
+ * the job's GPU time with it and stops at the daily budget.
+ */
+export function gpuRateUsd(gpu: GpuType): number {
+  return (
+    gpuPricing.gpuUsdPerSecond[gpu] +
+    gpuPricing.functionCpuCores * gpuPricing.cpuCoreUsdPerSecond +
+    gpuPricing.functionMemoryGib * gpuPricing.memoryGibUsdPerSecond
+  );
+}
+
+export const gpuBudget = {
+  /** The daily GPU budget until an admin sets another (the `gpu_budget` row's default). */
+  defaultDailyUsd: 1,
+  /** Alerts go out at these shares of today's spend. */
+  alertAt: [0.8, 1],
+  /**
+   * The longest idle window of any GPU function, in seconds. A GPU job may
+   * start only while today's spend, with every running GPU job counted at its
+   * worst case (its time limit plus this, at its rate), is under the budget.
+   * The worker's MAX_IDLE_TAIL_SEC (apps/worker/src/etb_worker/gpu); a test
+   * holds them together.
+   */
+  worstCaseIdleSec: 30,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Free allowance and abuse limits (docs/05 → Free allowance, Fraud and abuse).
 // Anonymous visitors get browser tools only; server jobs require sign-in.
 // ---------------------------------------------------------------------------
@@ -75,8 +133,59 @@ export const maxConcurrentServerJobs = {
   paid: 4,
 } as const;
 
-/** Domains refused for the welcome grant. Filled in before M5. */
-export const disposableEmailDomains: readonly string[] = [];
+/**
+ * Throwaway-inbox domains refused for the welcome grant (docs/05 → Fraud and
+ * abuse). A subdomain of one counts too. Sign-in still works; only the grant
+ * is refused. Add domains as they show up in Admin → Users.
+ */
+export const disposableEmailDomains: readonly string[] = [
+  '10minutemail.com',
+  '20minutemail.com',
+  'anonbox.net',
+  'discard.email',
+  'dispostable.com',
+  'dropmail.me',
+  'emailondeck.com',
+  'fakeinbox.com',
+  'getairmail.com',
+  'getnada.com',
+  'guerrillamail.biz',
+  'guerrillamail.com',
+  'guerrillamail.de',
+  'guerrillamail.info',
+  'guerrillamail.net',
+  'guerrillamail.org',
+  'guerrillamailblock.com',
+  'harakirimail.com',
+  'inboxbear.com',
+  'mail.tm',
+  'maildrop.cc',
+  'mailinator.com',
+  'mailinator.net',
+  'mailnesia.com',
+  'mintemail.com',
+  'mohmal.com',
+  'moakt.com',
+  'mytemp.email',
+  'nada.email',
+  'sharklasers.com',
+  'spam4.me',
+  'spamgourmet.com',
+  'temp-mail.io',
+  'temp-mail.org',
+  'tempail.com',
+  'tempmail.dev',
+  'tempmail.net',
+  'tempmailo.com',
+  'tempr.email',
+  'throwawaymail.com',
+  'tmail.ws',
+  'trashmail.com',
+  'trashmail.de',
+  'yopmail.com',
+  'yopmail.fr',
+  'yopmail.net',
+];
 
 // ---------------------------------------------------------------------------
 // Retention (docs/01 → Retention, CLAUDE.md rule 4). The sweeper is the
@@ -135,3 +244,19 @@ export const paddlePriceIds: Record<'sandbox' | 'live', Record<PackId, string>> 
   sandbox: { starter: '', creator: '', studio: '' },
   live: { starter: '', creator: '', studio: '' },
 };
+
+// ---------------------------------------------------------------------------
+// Uzbek fiscal receipts (Click and Payme send the receipt to the tax service's
+// OFD). Each line needs the product's MXIK (IKPU) code and package code from
+// the tax catalogue. Empty until Astro has them (docs/runbooks/turn-on-payments.md);
+// a provider that needs them refuses to switch on while they're empty.
+// ---------------------------------------------------------------------------
+
+export const fiscalReceipt = {
+  /** MXIK / IKPU code of "credits for online services", from tasnif.soliq.uz. */
+  mxik: '',
+  /** Package code (o'lchov birligi) for one pack, from the same catalogue. */
+  packageCode: '',
+  /** VAT in percent: 0 while the seller isn't a VAT payer. */
+  vatPercent: 0,
+} as const;

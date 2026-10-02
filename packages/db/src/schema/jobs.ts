@@ -81,7 +81,36 @@ export const jobs = pgTable(
     /** From the registry: at most this many of the tool's jobs run at once (docs/01 → Queue). */
     maxConcurrent: smallint('max_concurrent'),
     workerId: text('worker_id'),
+    /** GPU seconds of the job's GPU calls, measured inside the function (docs/01 → GPU backend). */
     gpuSeconds: numeric('gpu_seconds'),
+    /**
+     * USD a second of this tool's GPU function costs (GPU, CPU and memory),
+     * from config/business.ts when the job is created; null for CPU jobs.
+     * The worker prices the job's GPU time with it.
+     */
+    gpuRateUsd: numeric('gpu_rate_usd'),
+    /** What the job's GPU calls cost, idle window included (docs/05 → GPU costs). */
+    gpuCostUsd: numeric('gpu_cost_usd'),
+    /**
+     * The GPU call in flight (docs/01 → GPU backend): when the worker started
+     * it, and its id on the GPU backend (Modal's `FunctionCall` id) once
+     * spawned. Both go back to null when the call's cost is recorded. A
+     * worker that dies leaves them: the reaper (or the next attempt) cancels
+     * the call by its id and records its time so far as cost.
+     */
+    gpuCallAt: tstz('gpu_call_at'),
+    gpuCallId: text('gpu_call_id'),
+    /**
+     * Every output key a GPU call got a presigned PUT URL for, and when the
+     * last of those URLs expires. A call that outlives its job (its worker
+     * died) could still write to one, so the sweeper deletes every key that
+     * isn't the job's live output on each pass until then (docs/01 → Retention).
+     */
+    gpuOutputKeys: text('gpu_output_keys')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    gpuPutExpiresAt: tstz('gpu_put_expires_at'),
     cpuSeconds: numeric('cpu_seconds'),
     heartbeatAt: tstz('heartbeat_at'),
     queuedAt: tstz('queued_at').notNull().defaultNow(),
@@ -110,6 +139,18 @@ export const jobs = pgTable(
     index('jobs_sweeper_idx')
       .on(t.finishedAt)
       .where(sql`${t.outputKey} is not null`),
+    // Today's GPU spend, read on every GPU claim (gpu/budget.py) and by the admin.
+    index('jobs_gpu_spend_idx')
+      .on(t.startedAt)
+      .where(sql`${t.gpuRateUsd} is not null`),
+    // Calls in flight, which the reaper checks every tick for a worker that's gone.
+    index('jobs_gpu_call_idx')
+      .on(t.gpuCallAt)
+      .where(sql`${t.gpuCallAt} is not null`),
+    // The sweeper's pass over GPU output keys that a call could still write to.
+    index('jobs_gpu_keys_idx')
+      .on(t.gpuPutExpiresAt)
+      .where(sql`${t.gpuPutExpiresAt} is not null`),
     uniqueIndex('jobs_idempotency_key')
       .on(t.userId, t.idempotencyKey)
       .where(sql`${t.idempotencyKey} is not null`),

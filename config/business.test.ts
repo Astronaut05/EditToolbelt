@@ -1,18 +1,32 @@
 import { describe, expect, it } from 'vitest';
 
-import { MIN_PACK_PRICE_USD, creditNetUsd, packNetUsdPerCredit, packs } from './business';
+import {
+  MIN_PACK_PRICE_USD,
+  creditNetUsd,
+  disposableEmailDomains,
+  gpuRateUsd,
+  packNetUsdPerCredit,
+  packs,
+} from './business';
 
 describe('credit packs', () => {
   it('never go below the minimum pack price', () => {
     for (const pack of packs) expect(pack.priceUsd).toBeGreaterThanOrEqual(MIN_PACK_PRICE_USD);
   });
 
-  it('get cheaper per credit as they get bigger', () => {
-    const sorted = [...packs].sort((a, b) => a.credits - b.credits);
-    const perCredit = sorted.map((pack) => pack.priceUsd / pack.credits);
-    for (let i = 1; i < perCredit.length; i++) {
-      expect(perCredit[i]).toBeLessThan(perCredit[i - 1] ?? Infinity);
-    }
+  it.each(['priceUsd', 'priceUzs'] as const)(
+    'get cheaper per credit as they get bigger (%s)',
+    (price) => {
+      const sorted = [...packs].sort((a, b) => a.credits - b.credits);
+      const perCredit = sorted.map((pack) => pack[price] / pack.credits);
+      for (let i = 1; i < perCredit.length; i++) {
+        expect(perCredit[i]).toBeLessThan(perCredit[i - 1] ?? Infinity);
+      }
+    },
+  );
+
+  it('are priced in whole sums in UZS', () => {
+    for (const pack of packs) expect(Number.isInteger(pack.priceUzs)).toBe(true);
   });
 
   it('have unique ids', () => {
@@ -35,5 +49,24 @@ describe('creditNetUsd', () => {
   it('is taken from the pack that is worst for us, not the list price', () => {
     expect(creditNetUsd).toBeCloseTo(0.0154, 4);
     expect(creditNetUsd).toBe(Math.min(...packs.map(packNetUsdPerCredit)));
+  });
+});
+
+describe('disposableEmailDomains', () => {
+  it('are bare, lowercase domains, listed once', () => {
+    for (const domain of disposableEmailDomains) {
+      expect(domain).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
+    }
+    expect(new Set(disposableEmailDomains).size).toBe(disposableEmailDomains.length);
+  });
+});
+
+describe('gpuRateUsd', () => {
+  it('prices a GPU function by the second: its GPU, 2 cores and 8 GiB', () => {
+    // T4 $0.000164 + 2 × $0.0000131 + 8 × $0.00000222
+    expect(gpuRateUsd('T4')).toBeCloseTo(0.00020796, 8);
+    expect(gpuRateUsd('L4')).toBeCloseTo(0.00026596, 8);
+    // About 75 ¢ and 96 ¢ an hour.
+    expect(gpuRateUsd('L4') * 3600).toBeCloseTo(0.957, 2);
   });
 });

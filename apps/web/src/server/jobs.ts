@@ -34,7 +34,7 @@ import {
   type Queryable,
 } from '@etb/db';
 import { costOf, hasServerPath, isAvailable, limitsOf, priceOf, tools } from '@etb/registry';
-import { parseServerOptions, uploadOptions } from '@etb/registry/options';
+import { parseServerOptions, uploadKinds, uploadOptions } from '@etb/registry/options';
 import type { ToolDef } from '@etb/registry/schema';
 
 import { log } from '../lib/log';
@@ -42,6 +42,8 @@ import type { CurrentUser } from './account';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
 import { requestHash } from './idempotency';
+import { extrasRefusal, gpuRate, priceInput, refusal, type Probe } from './job-rules';
+import { buyUrl } from './payments/checkout';
 import { ApiError, problemType } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
 import { ownUpload, SUBTITLE_TYPES, tierOf, type Tier, type Upload } from './uploads';
@@ -56,22 +58,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROBE_WAIT_MS = 8000;
 /** Outputs are deleted this long after the job ends (docs/01 → Retention). */
 const OUTPUT_TTL_MS = 60 * 60 * 1000;
-
-interface Probe {
-  duration_ms?: number;
-  video?: { width?: number; height?: number; fps?: number; vfr?: boolean | null } | null;
-}
-
-/**
- * A tool's own reason not to run a file, read from the probe before any job
- * exists: nothing to fix means nothing to pay.
- */
-const PRECHECKS: Record<string, (probe: Probe) => string | null> = {
-  'vfr-to-cfr': (probe) =>
-    probe.video?.vfr === false
-      ? `This video already has a constant frame rate${probe.video.fps ? ` (${probe.video.fps.toFixed(2)} fps)` : ''}, so it stays in sync as it is. Nothing to fix, and nothing was charged.`
-      : null,
-};
 
 export interface JobRequest {
   toolId: string;
@@ -198,6 +184,13 @@ function checkLimits(tool: ToolDef, tier: Tier, probe: Probe): void {
   }
 }
 
+/** "This needs 4 credits; you have 1." A balance below zero comes from a refunded pack. */
+function shortfall(credits: number, balance: number): string {
+  return balance < 0
+    ? `This needs ${String(credits)} credits, and your balance is ${String(balance)} after a refunded pack. Paid jobs start again once it's topped up.`
+    : `This needs ${String(credits)} credits; you have ${String(balance)}.`;
+}
+
 /** The price and what pays for it: nothing, a free daily job, or credits. */
 async function funding(
   user: CurrentUser,
@@ -244,8 +237,8 @@ interface Prepared {
 
 /**
  * The uploads a tool's options name (`uploadOptions` in the registry): the
- * caller's own, made for this tool, a subtitle file, unused, and probed.
- * Null while one is still being probed.
+ * caller's own, made for this tool, of the kind the option takes (a subtitle
+ * file, a PNG mask), unused, and probed. Null while one is still being probed.
  */
 async function extraUploads(
   user: CurrentUser,
@@ -253,11 +246,13 @@ async function extraUploads(
   options: Record<string, unknown>,
 ): Promise<Prepared['extras'] | null> {
   const extras: Prepared['extras'] = [];
-  for (const name of uploadOptions[tool.id as keyof typeof uploadOptions] ?? []) {
+  const id = tool.id as keyof typeof uploadOptions;
+  for (const name of uploadOptions[id] ?? []) {
     const extra = await ownUpload(user, String(options[name]));
     checkUpload(extra, tool);
-    if (!SUBTITLE_TYPES.has(extra.mimeClaimed)) {
-      throw new ApiError(400, 'BAD_REQUEST', 'Not a subtitle file', `${name}: SRT, VTT or ASS.`);
+    const kind = uploadKinds[id]?.[name];
+    if (kind && !kind.types.includes(extra.mimeClaimed)) {
+      throw new ApiError(400, 'BAD_REQUEST', kind.title, `${name}: ${kind.is}.`);
     }
     await checkUnused(extra);
     const probed = await waitForProbe(extra);
@@ -289,12 +284,18 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   const probe = probeOf(probed);
   const tier = await tierOf(user.id);
   checkLimits(tool, tier, probe);
-  const reason = PRECHECKS[tool.id]?.(probe);
-  if (reason) throw new ApiError(422, 'NOTHING_TO_DO', 'Nothing to fix', reason);
+  // A tool's own reason not to take the file, before anything is charged.
+  const refused = refusal(tool.id, probe, parsed.options);
+  if (refused) throw new ApiError(refused.status, refused.code, refused.title, refused.detail);
   const extras = await extraUploads(user, tool, parsed.options);
   if (!extras) return null;
-  const megapixels = ((probe.video?.width ?? 0) * (probe.video?.height ?? 0)) / 1e6;
-  const credits = priceOf(costOf(tool), { durationMs: probe.duration_ms ?? 0, megapixels });
+  const odd = extrasRefusal(
+    tool.id,
+    probe,
+    extras.map((extra) => extra.probe),
+  );
+  if (odd) throw new ApiError(odd.status, odd.code, odd.title, odd.detail);
+  const credits = priceOf(costOf(tool), priceInput(tool.id, probe, parsed.options));
   return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options };
 }
 
@@ -349,7 +350,7 @@ async function replayOf(
 
 export async function createJob(
   user: CurrentUser,
-  request: JobRequest & { quoteCredits: number },
+  request: JobRequest & { quoteCredits: number; quoteFunding?: Funding | undefined },
   idempotencyKey: string | null,
   /** `api` for a call with an API key, `web` for the website's own. */
   source: 'web' | 'api' = 'web',
@@ -373,7 +374,7 @@ export async function createJob(
 
 async function startJob(
   user: CurrentUser,
-  request: JobRequest & { quoteCredits: number },
+  request: JobRequest & { quoteCredits: number; quoteFunding?: Funding | undefined },
   idempotencyKey: string | null,
   idempotencyHash: string | null,
   source: 'web' | 'api',
@@ -422,14 +423,37 @@ async function startJob(
     const paying = await funding(user, prepared.tier, prepared.credits, tx);
     if (!paying.can_start) {
       const quota = paying.blocked_by === 'QUOTA_EXCEEDED';
+      // docs/05: the shortfall and, while credits are on sale, where to buy them.
       throw new ApiError(
         quota ? 429 : 402,
         quota ? 'QUOTA_EXCEEDED' : 'INSUFFICIENT_CREDITS',
         quota ? 'No free jobs left today' : 'Not enough credits',
         quota
           ? `You've used today's ${String(freeAllowance.signedInDailyServerJobs)} free server jobs. They come back tomorrow (UTC).`
-          : `This needs ${String(prepared.credits)} credits; you have ${String(paying.balance)}.`,
-        { credits: prepared.credits, balance: paying.balance },
+          : shortfall(prepared.credits, paying.balance),
+        {
+          credits: prepared.credits,
+          balance: paying.balance,
+          shortfall: prepared.credits - paying.balance,
+          buy_url: await buyUrl(tx),
+        },
+      );
+    }
+    // The quote said what pays; never switch a free daily job to credits unasked.
+    if (request.quoteFunding !== undefined && request.quoteFunding !== paying.funding) {
+      throw new ApiError(
+        409,
+        'CONFLICT',
+        'What pays for this job changed',
+        paying.funding === 'credits'
+          ? `Today's free server jobs are used up, so this one costs ${String(prepared.credits)} credits. Confirm the new quote.`
+          : 'Confirm the new quote.',
+        {
+          credits: prepared.credits,
+          funding: paying.funding,
+          free_jobs_left: paying.free_jobs_left,
+          balance: paying.balance,
+        },
       );
     }
     const [row] = await tx
@@ -450,6 +474,8 @@ async function startJob(
         creditsQuoted: paying.funding === 'credits' ? prepared.credits : 0,
         timeoutSec: limits?.timeoutSec ?? 900,
         maxConcurrent: limits?.maxConcurrent ?? null,
+        // Its GPU's price a second: the worker costs the job and keeps to the daily budget.
+        gpuRateUsd: gpuRate(prepared.tool),
         idempotencyKey,
         idempotencyHash,
       })
@@ -460,9 +486,18 @@ async function startJob(
         await applyCredit(tx, user.id, 'reserve', -prepared.credits, { jobId: row.id });
       } catch (error) {
         if (error instanceof InsufficientCreditsError) {
-          throw new ApiError(402, 'INSUFFICIENT_CREDITS', 'Not enough credits', undefined, {
-            credits: prepared.credits,
-          });
+          throw new ApiError(
+            402,
+            'INSUFFICIENT_CREDITS',
+            'Not enough credits',
+            shortfall(prepared.credits, error.balance),
+            {
+              credits: prepared.credits,
+              balance: error.balance,
+              shortfall: prepared.credits - error.balance,
+              buy_url: await buyUrl(db()),
+            },
+          );
         }
         throw error;
       }
@@ -522,8 +557,19 @@ const ERROR_TEXT: Record<string, string> = {
   NOT_FOUND: 'The upload was gone before the job started. Try again.',
   STORAGE_UNAVAILABLE: 'Storage wasn’t answering. Try again.',
   INTERNAL: 'Something went wrong on our side.',
+  GPU_UNAVAILABLE: 'Our GPU servers aren’t available right now. Try again later.',
+  GPU_FAILED: 'Our GPU server couldn’t finish this one.',
 };
-const PROCESSOR_CODES: ReadonlySet<string> = new Set(['TARGET_TOO_SMALL', 'NO_VIDEO']);
+const PROCESSOR_CODES: ReadonlySet<string> = new Set([
+  'TARGET_TOO_SMALL',
+  'NO_VIDEO',
+  // The GPU tools' own (Upscale Image, Transcribe Audio, Auto Subtitles, Object Eraser).
+  'TOO_LARGE',
+  'NO_AUDIO',
+  'NO_SPEECH',
+  'BAD_MASK',
+  'EMPTY_MASK',
+]);
 
 function errorText(job: Job): string {
   const code = job.errorCode ?? '';
@@ -754,6 +800,7 @@ export function jobEvents(
 export async function me(user: CurrentUser): Promise<Me> {
   const tier = await tierOf(user.id);
   const used = tier === 'free' ? await dailyJobsUsed(user.id) : 0;
+  const buy = await buyUrl(db());
   return {
     email: user.email ?? '',
     name: user.displayName,
@@ -761,5 +808,6 @@ export async function me(user: CurrentUser): Promise<Me> {
     credit_balance: user.creditBalance,
     free_jobs_left: tier === 'free' ? Math.max(0, freeAllowance.signedInDailyServerJobs - used) : 0,
     max_concurrent_jobs: maxConcurrentServerJobs[tier],
+    buy_url: buy,
   };
 }

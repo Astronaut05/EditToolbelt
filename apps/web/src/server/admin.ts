@@ -12,10 +12,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 
-import { adminAuditLog, type Queryable } from '@etb/db';
-
 import { currentUser, type CurrentUser } from './account';
 import { serverEnv } from './env';
+
+export { audit, type AuditEntry } from './audit';
 
 export const STEP_UP_COOKIE = 'etb.admin_2fa';
 const STEP_UP_HOURS = 12;
@@ -69,27 +69,4 @@ export async function requireAdmin(): Promise<CurrentUser> {
     redirect('/admin/two-factor');
   }
   return user;
-}
-
-export interface AuditEntry {
-  adminId: string;
-  action: string;
-  targetType: string;
-  targetId: string;
-  before?: unknown;
-  after?: unknown;
-  reason: string;
-}
-
-/** One append-only audit row; call it in the same transaction as the change. */
-export async function audit(db: Queryable, entry: AuditEntry): Promise<void> {
-  await db.insert(adminAuditLog).values({
-    adminId: entry.adminId,
-    action: entry.action,
-    targetType: entry.targetType,
-    targetId: entry.targetId,
-    before: entry.before ?? null,
-    after: entry.after ?? null,
-    reason: entry.reason,
-  });
 }

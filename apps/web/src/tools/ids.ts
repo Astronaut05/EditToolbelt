@@ -1,73 +1,95 @@
-/**
- * Ids of the tools that have a view in src/tools. A plain module, so server
- * code can read it (exports of the 'use client' map are client references).
- * The map in ./index.tsx is typed against this list, so the two can't drift.
- */
-export const TOOL_IDS = [
-  'add-text-to-image',
-  'aspect-ratio-calculator',
-  'audio-channels',
-  'audio-converter',
-  'batch-rename',
-  'bitrate-calculator',
-  'blur-image',
-  'bpm-key-finder',
-  'change-pitch',
-  'burn-subtitles',
-  'color-converter',
-  'color-palette-from-image',
-  'color-picker-from-image',
-  'compress-image',
-  'compress-video',
-  'contrast-checker',
-  'crop-image',
-  'dpi-calculator',
-  'draw-on-image',
-  'exif-remover',
-  'extract-audio',
-  'extract-frames',
-  'file-checksum',
-  'fade-audio',
-  'gif-to-mp4',
-  'gradient-generator',
-  'image-converter',
-  'loop-video',
-  'loudness-meter',
-  'lut-preview',
-  'merge-audio',
-  'merge-videos',
-  'mute-video',
-  'normalize-audio',
-  'photo-editor',
-  'qr-code-generator',
-  'remove-background',
-  'remove-silence',
-  'replace-audio',
-  'resize-image',
-  'resize-video',
-  'reverse-audio',
-  'reverse-video',
-  'rotate-image',
-  'rotate-video',
-  'shutter-angle-calculator',
-  'social-media-image-resizer',
-  'split-audio',
-  'split-image',
-  'storage-calculator',
-  'subtitle-converter',
-  'subtitle-shift',
-  'timecode-calculator',
-  'trim-audio',
-  'trim-video',
-  'vfr-to-cfr',
-  'video-converter',
-  'video-info',
-  'video-speed',
-  'video-to-gif',
-  'watermark-image',
-] as const;
+import type { CategoryId } from '@etb/registry';
 
-export type ToolId = (typeof TOOL_IDS)[number];
+/**
+ * Ids of the tools that have a view in src/tools, by registry category. A
+ * plain module, so server code can read it (exports of the 'use client'
+ * modules are client references). Each category's index in ./views is typed
+ * against its list here, so the two can't drift; lib/tool.test.ts checks that
+ * every id sits under its tool's registry category.
+ */
+export const VIEW_IDS = {
+  photo: [
+    'add-text-to-image',
+    'blur-image',
+    'compress-image',
+    'crop-image',
+    'draw-on-image',
+    'exif-remover',
+    'image-converter',
+    'object-eraser',
+    'photo-editor',
+    'remove-background',
+    'resize-image',
+    'rotate-image',
+    'social-media-image-resizer',
+    'split-image',
+    'upscale-image',
+    'watermark-image',
+  ],
+  video: [
+    'auto-subtitles',
+    'burn-subtitles',
+    'compress-video',
+    'extract-audio',
+    'extract-frames',
+    'gif-to-mp4',
+    'loop-video',
+    'merge-videos',
+    'mute-video',
+    'replace-audio',
+    'resize-video',
+    'reverse-video',
+    'rotate-video',
+    'trim-video',
+    'upscale-video',
+    'vfr-to-cfr',
+    'video-background-remover',
+    'video-converter',
+    'video-info',
+    'video-speed',
+    'video-to-gif',
+  ],
+  audio: [
+    'audio-channels',
+    'audio-converter',
+    'bpm-key-finder',
+    'change-pitch',
+    'fade-audio',
+    'loudness-meter',
+    'merge-audio',
+    'normalize-audio',
+    'remove-silence',
+    'reverse-audio',
+    'split-audio',
+    'transcribe-audio',
+    'trim-audio',
+  ],
+  color: [
+    'color-converter',
+    'color-palette-from-image',
+    'color-picker-from-image',
+    'contrast-checker',
+    'gradient-generator',
+    'lut-preview',
+  ],
+  'subtitles-time': [
+    'aspect-ratio-calculator',
+    'bitrate-calculator',
+    'shutter-angle-calculator',
+    'storage-calculator',
+    'subtitle-converter',
+    'subtitle-shift',
+    'timecode-calculator',
+  ],
+  utility: ['batch-rename', 'dpi-calculator', 'file-checksum', 'qr-code-generator'],
+} as const satisfies Record<CategoryId, readonly string[]>;
+
+/** The ids of one category's views. */
+export type ViewIds<Category extends CategoryId> = (typeof VIEW_IDS)[Category][number];
+
+export type ToolId = ViewIds<CategoryId>;
+
+export const TOOL_IDS: readonly ToolId[] = Object.values(VIEW_IDS).flat();
 
 export function hasView(id: string): id is ToolId {
   return (TOOL_IDS as readonly string[]).includes(id);

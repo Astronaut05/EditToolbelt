@@ -38,6 +38,13 @@ function checkShared(env: Shared, ctx: z.RefinementCtx): void {
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
 
+/** true/false, 1/0, yes/no, on/off (any case). */
+const flag = (fallback: boolean) =>
+  z
+    .stringbool({ error: 'must be true or false' })
+    .default(fallback)
+    .describe(`boolean, default ${String(fallback)}`);
+
 /** A root-relative path (`/models`) or an absolute http(s) URL. */
 const baseUrl = z
   .string()
@@ -138,6 +145,25 @@ export const webServerEnvSchema = z
       .trim()
       .regex(/^[0-9a-fA-F:.]+(\s*,\s*[0-9a-fA-F:.]+)*$/, 'comma-separated IP addresses')
       .optional(),
+    /**
+     * Payments' kill switch (docs/05 → Payments): nothing is sold unless this
+     * is true, an admin switched the provider on and its keys are set.
+     */
+    PAYMENTS_ENABLED: flag(false),
+    /** test only: a stand-in for one provider (paddle, click or payme) that pays without money. */
+    PAYMENTS_STUB: z.enum(['paddle', 'click', 'payme']).optional(),
+    /**
+     * The welcome grant after email verification (docs/05 → Free allowance).
+     * On unless set to false: a fast stop if the grant is being farmed. The
+     * server build's end-to-end tests turn it off so their accounts start at 0.
+     */
+    WELCOME_GRANT_ENABLED: flag(true),
+    /**
+     * Keys `welcome_grant_claims.email_hmac`: long-lived, 32+ characters. Unset:
+     * derived from BETTER_AUTH_SECRET, so rotating that one would let each
+     * email claim the grant again; set this before rotating it.
+     */
+    WELCOME_GRANT_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
   })
   .superRefine((env, ctx) => {
     checkWeb(env, ctx);
@@ -153,6 +179,13 @@ export const webServerEnvSchema = z
         code: 'custom',
         path: ['MAIL_OUTBOX_DIR'],
         message: 'is for local and test only; set SMTP_URL',
+      });
+    }
+    if (env.PAYMENTS_STUB && env.APP_ENV !== 'test') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PAYMENTS_STUB'],
+        message: 'is for the end-to-end tests only (APP_ENV=test)',
       });
     }
     if (!env.SMTP_URL && !env.MAIL_OUTBOX_DIR) {

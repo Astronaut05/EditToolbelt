@@ -2,8 +2,7 @@
  * The checks the ToolShell makes on the canvas editor's changes before a run:
  * P01's adjustments and P12's areas. They sit apart from the pixel code in
  * adjust.ts and redact.ts, so the shell, which every tool page loads, doesn't
- * carry that code (docs/DECISIONS.md → "The ToolShell loads tool-specific
- * parts only on the tools that use them").
+ * carry that code (docs/decisions/2026-10-02-toolshell-lazy-parts.md).
  */
 import type { Adjust } from './adjust';
 import type { Redact } from './redact';

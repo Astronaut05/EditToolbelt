@@ -8,6 +8,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   date,
   index,
   integer,
@@ -16,6 +17,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   uuid,
 } from 'drizzle-orm/pg-core';
@@ -90,9 +92,33 @@ export const toolStatsDaily = pgTable(
     gpuSeconds: numeric('gpu_seconds')
       .notNull()
       .default(sql`0`),
+    gpuCostUsd: numeric('gpu_cost_usd')
+      .notNull()
+      .default(sql`0`),
     creditsCharged: integer('credits_charged').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.day, t.toolId, t.runtime] })],
+);
+
+/**
+ * The daily GPU budget an admin sets (docs/05 → GPU costs and the daily
+ * budget): one row. The worker stops starting GPU jobs once today's GPU
+ * spend (UTC) reaches it, and alerts at 80 % and 100 %.
+ */
+export const gpuBudget = pgTable(
+  'gpu_budget',
+  {
+    id: smallint('id').primaryKey().default(1),
+    dailyUsd: numeric('daily_usd')
+      .notNull()
+      .default(sql`1`),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('gpu_budget_one_row', sql`${t.id} = 1`),
+    check('gpu_budget_not_negative', sql`${t.dailyUsd} >= 0`),
+  ],
 );
 
 /** The last sign of life from each running service (web, worker, GPU backend). */

@@ -124,11 +124,23 @@ function quote(request: APIRequestContext, uploadId: string, options: unknown = 
   });
 }
 
-function create(request: APIRequestContext, uploadId: string, credits: number, key?: string) {
+function create(
+  request: APIRequestContext,
+  uploadId: string,
+  credits: number,
+  key?: string,
+  funding?: 'daily' | 'credits' | 'none',
+) {
   return post(
     request,
     '/api/v1/jobs',
-    { tool_id: 'compress-video', upload_id: uploadId, options: OPTIONS, quote_credits: credits },
+    {
+      tool_id: 'compress-video',
+      upload_id: uploadId,
+      options: OPTIONS,
+      quote_credits: credits,
+      ...(funding && { quote_funding: funding }),
+    },
     key ? { 'Idempotency-Key': key } : {},
   );
 }
@@ -336,6 +348,62 @@ test('a job starts at the quoted price, once per Idempotency-Key, once per uploa
     jobs: { id: string }[];
   };
   expect(listed.jobs.map((item) => item.id)).toEqual([job.id]);
+});
+
+test('a job quoted as a free daily job never takes credits unasked', async ({ page }) => {
+  const owner = await newUser(page);
+  // Two of today's three free jobs used, and credits on the account.
+  for (const status of ['succeeded', 'succeeded'] as const) {
+    const file = await upload(owner);
+    await db.insert(jobs).values({
+      toolId: 'compress-video',
+      userId: owner,
+      source: 'web',
+      status,
+      funding: 'daily',
+      inputKey: file.key,
+    });
+  }
+  await applyCredit(db, owner, 'admin_grant', 30, { adminId: owner, reason: 'e2e: two clips' });
+  const first = await upload(owner, { durationMs: 2 * MINUTE });
+  const second = await upload(owner, { durationMs: 2 * MINUTE });
+  // Both quotes say "one of today's free jobs".
+  for (const file of [first, second]) {
+    expect(await (await quote(page.request, file.id)).json()).toMatchObject({
+      credits: 2,
+      funding: 'daily',
+      free_jobs_left: 1,
+    });
+  }
+  const one = await create(page.request, first.id, 2, undefined, 'daily');
+  expect(one.status()).toBe(201);
+  expect(((await one.json()) as JobBody).job).toMatchObject({ funding: 'daily' });
+
+  // The last free job is gone: same price, but credits would pay. Refused, nothing reserved.
+  const refused = await create(page.request, second.id, 2, undefined, 'daily');
+  expect(refused.status()).toBe(409);
+  expect(await refused.json()).toMatchObject({
+    code: 'CONFLICT',
+    credits: 2,
+    funding: 'credits',
+    free_jobs_left: 0,
+  });
+  const balance = async () =>
+    (await db.select().from(users).where(eq(users.id, owner)))[0]?.creditBalance;
+  expect(await balance()).toBe(30);
+
+  // A new quote says so; confirmed, it takes the credits.
+  expect(await (await quote(page.request, second.id)).json()).toMatchObject({
+    funding: 'credits',
+    balance_after: 28,
+  });
+  const two = await create(page.request, second.id, 2, undefined, 'credits');
+  expect(two.status()).toBe(201);
+  expect(((await two.json()) as JobBody).job).toMatchObject({
+    funding: 'credits',
+    credits_quoted: 2,
+  });
+  expect(await balance()).toBe(28);
 });
 
 test('an answer shows no more than the key’s scopes allow', async ({ page, request }) => {

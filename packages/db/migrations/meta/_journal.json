@@ -71,6 +71,20 @@
       "when": 1790906719508,
       "tag": "0009_job_idempotency_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790927487850,
+      "tag": "0010_gpu_costs_and_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790931238758,
+      "tag": "0011_payments",
+      "breakpoints": true
     }
   ]
 }

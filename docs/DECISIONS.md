@@ -166,6 +166,8 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 
 ## 2026-09-30 · Tool views load per page
 
+_The one client map of every view: superseded by "Tool views load through their category's index" (2026-10-02) below._
+
 **Decision:** Each tool view is a client component loaded with `next/dynamic` from one small client map (`apps/web/src/tools/index.tsx`), typed against the id list in `tools/ids.ts` that server code checks. The view is still prerendered, but its code is a separate chunk that only its own page loads: a static map put every tool's code on every hub and tool page (+8.6 KB with three calculators). The shell stays at 143–146 KB on every page type; a calculator's own chunk adds about 6 KB after it, which counts as the tool, not the shell. The JS budget and Lighthouse now include `/timecode-calculator` (Lighthouse drops `/privacy`, keeping five pages). The build also writes `/favicon.ico` (browsers ask for it even with an SVG icon, and the 404 was a console error on every first visit).
 **Why:** `10` → Budgets (initial JS before the engine loads); `CLAUDE.md` rule 1 (speed).
 **Reverse:** import the views statically in `src/app/[slug]/page.tsx` (every page pays for every tool).
@@ -1106,7 +1108,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - **The web service checks Cloudflare Access's token on every request** (`src/server/access.ts`), as well as Access itself:
   - In production, a request without a valid token for this application gets 403.
   - Without the Access settings, every request gets 503: the site fails closed.
-  - Exempt: `/healthz` and `/readyz` (Railway's health check; they reveal nothing), and `/api/webhooks/*` (signed by the payment providers, 404 while payments are off).
+  - Exempt: `/healthz` and `/readyz` (Railway's health check; they reveal nothing), and `/api/webhooks/*` (signed by the payment providers, 404 while payments are off). _Since the M5 review: 404 while a provider's keys are missing; see "A switched-off provider still answers for purchases already made (M5 review)" below._
 - **`www` redirects to the apex** in the app (308), so Cloudflare needs no redirect rule.
 - **The web image builds with placeholder secrets.** Only the values inlined into pages are build arguments: SITE_URL, the storage endpoint and analytics. The real secrets are read when the server starts.
 - **The worker gets no volume.** Railway gives a paid plan's container 100 GB of its own disk. The largest upload is 10 GiB and the worker runs 2 jobs at once, which fits with room for outputs.
@@ -1138,6 +1140,156 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - One project keeps the worker's calls and the functions they call in step.
 
 **Reverse:** move `gpu/` to its own project with its own lockfile; the worker would then depend on `modal` only.
+
+## 2026-10-02 · Payments: three providers behind one interface, built and switched off (M5)
+
+**Decision:** Astro's instruction of 2026-10-01: build M5 completely, with payments off until Astro says "turn payments on".
+- **One interface, `PaymentProvider`** (`apps/web/src/server/payments/contract.ts`). Each provider:
+  - creates a checkout for a pending purchase;
+  - answers its own server-to-server protocol;
+  - refunds through an API where there is one.
+
+  `docs/05`'s `verifyWebhook` and `parseEvent` become one `handleWebhook`, because Click and Payme are request-and-answer protocols, not event streams.
+- **Three providers:**
+  - **Paddle:** worldwide, USD, merchant of record. Checkout and webhooks, tested end to end against Paddle's sandbox.
+  - **Click:** Uzbekistan, UZS, Uzcard and Humo. The Shop API's Prepare and Complete calls, with their signatures.
+  - **Payme:** Uzbekistan, UZS. The Merchant API over JSON-RPC (CheckPerformTransaction, CreateTransaction, PerformTransaction, CancelTransaction, CheckTransaction, GetStatement), with Basic auth.
+- **Checkout offers Click and Payme to Uzbek cards and Paddle to everyone else.** Visitors from Uzbekistan (Cloudflare's country header) see Click and Payme first, everyone else sees Paddle first, and anyone can pick the other. Each provider's pack price is in its own currency, from `config/business.ts` (`priceUsd`, `priceUzs`).
+- **Credits only through the ledger:**
+  - Providers never touch the ledger directly. They get a `PurchaseStore`, whose `complete` and `refund` move the purchase and write its ledger row in one transaction.
+  - Both are idempotent: a repeated webhook or call adds nothing.
+  - A refund may take a balance below zero (`docs/05`); a negative balance blocks paid jobs until it's topped up.
+- **Click and Payme are tested against our own simulators** of their published protocols (signatures, every call and error code), since no merchant keys exist yet.
+- **Fiscal receipt fields** (MXIK/IKPU code, package code, VAT) live in `config/business.ts` → `fiscalReceipt`, empty until Astro has them. Click and Payme refuse to switch on without them.
+- **Off by default, three locks:**
+  - `PAYMENTS_ENABLED=true` (the global kill switch);
+  - an admin switch per provider, which refuses to turn on while that provider's keys are unset;
+  - the keys themselves.
+- **While a provider is off:**
+  - nothing offers it, and with all three off there are no buy buttons anywhere;
+  - its webhook path answers 404 _(since the M5 review only while its keys are missing; see "A switched-off provider still answers for purchases already made (M5 review)" below)_;
+  - balances, free daily jobs and the welcome grant work as before.
+- **Webhook paths that need a Cloudflare Access bypass** when payments are turned on (and only then), each answering only its provider's signed or authenticated calls:
+  - `/api/webhooks/paddle`
+  - `/api/webhooks/click`
+  - `/api/webhooks/payme`
+
+  `docs/runbooks/turn-on-payments.md` has the steps.
+
+**Why:** Astro's instruction; `docs/05` → Payments.
+**Reverse:** a provider is one file behind the interface; drop it from the registry. `PAYMENTS_ENABLED` unset turns everything off at once.
+
+## 2026-10-02 · The purchase store: refunds below zero, retries, one transaction id per provider (M5)
+
+**Decision:**
+- **A balance goes below zero only through a refund.** `applyCredit` takes `{ allowNegativeBalance: true }` and refuses it for every kind but `refund_purchase`. The database agrees: `balance_after >= 0 or amount >= 0 or kind = 'refund_purchase'`, and `users.credit_balance` lost its `>= 0` check.
+  - A row that adds or keeps credits (`release`, `capture`, `purchase`, grants) may leave the balance below zero. Otherwise a failed job's refund, or the top-up itself, would be refused while the balance is negative.
+  - Paid jobs then wait for a top-up (402 says why). Free daily jobs still run: `docs/05` blocks only paid jobs.
+- **One ledger row per purchase, one per refund id**, by partial unique indexes on `credit_transactions` (`purchase_id` for `purchase`; `purchase_id, reason` for `refund_purchase`, the refund id in `reason`). The append-only trigger is untouched.
+- **`provider_txn_id` is unique per provider**, `(provider, provider_txn_id)`, not across all three: Click's numeric ids and Payme's hex ids come from different systems.
+- **A refund never takes more than is left** (`min(credits, left)`), so a provider's rounding of a partial refund can't overdraw a purchase; without `credits` it takes what's left.
+- **A webhook event is fresh again until it's processed without an error.** A provider that got a 500 retries, and the retry must be processed; only an event that went through cleanly is a duplicate. Processing is idempotent, so a second run is harmless.
+- **Pending purchases are never cancelled for age.** Payme may still pay an order up to 7 days old, and a late Paddle payment must find its purchase. `/account` shows a checkout older than 7 days as "Not paid".
+- A purchase that only partly came back (`partially_refunded`) still makes the account "paid" (larger limits, 4 jobs at once).
+
+**Why:** `docs/05` → Payments ("a refund can take the balance negative"); the providers' protocols (retries, Payme's 7-day orders).
+**Reverse:** the check constraint and `applyCredit`'s option in `packages/db`; `recordEvent`'s `setWhere` in `apps/web/src/server/payments/store.ts`.
+
+## 2026-10-02 · Payment switches, checkout, and where "Buy credits" shows (M5)
+
+**Decision:**
+- **The switches are read on every request** (three rows, no cache): switching a provider off closes its checkout and webhook path at once. _Webhooks: changed by "A switched-off provider still answers for purchases already made (M5 review)" below._
+- **Buy links come from one place:** `GET /me` → `buy_url` (the website's `/credits/buy` while any provider is on, else null), and 402 answers carry it too. The account page reads the switches itself; the tool pages' server offer and errors read `buy_url`, so ISR-cached tool pages need nothing. The panel will use the same field.
+- **`/credits/buy`'s CSP gets Paddle's origins from the proxy, which can't reach the database** (it's compiled for the edge runtime): it adds them while `PAYMENTS_ENABLED` is true and `PADDLE_CLIENT_TOKEN` is set. The page itself answers 404 unless a provider is on, and loads Paddle.js only for a Paddle checkout.
+- **Paddle's default payment link is `/credits/buy`:** with `?_ptxn=`, the page reopens the overlay for that transaction if it's the signed-in buyer's own pending purchase, then drops `_ptxn` from the URL.
+- **A checkout the provider can't start** cancels the pending purchase and answers 502 `PROVIDER_UNAVAILABLE` ("Nothing was charged").
+- **Refunds from the admin:** Paddle through its API (credits come off when Paddle approves); Payme from its cabinet (its CancelTransaction takes the credits back); Click has no refund call, so "Record refund" runs the store's refund by hand, once per purchase, audit-logged. The "reprocess" button `docs/07` planned isn't built: a failed event is processed again on the provider's retry or Paddle's replay. _Admin refunds: superseded by "Refunds from the admin take an amount (M5 review)" below._
+- **A test-only stub provider** (`PAYMENTS_STUB=paddle|click|payme`, refused unless `APP_ENV=test`, webhook key `PAYMENTS_STUB_KEY`) stands in for one provider in the server e2e, so the switches, checkout, store and ledger are tested end to end without a provider's network.
+
+**Why:** `docs/05` → Payments; Astro's "no buy buttons while payments are off"; Next's proxy runs on the edge runtime here.
+**Reverse:** a cache for the switches in `payments/switches.ts`; `buy_url` stays either way. The proxy's `paddleOn` is one line.
+
+## 2026-10-02 · The welcome grant: at sign-in, once per inbox (M5)
+
+**Decision:**
+- **Given after each sign-in** (Better Auth's `session.create` after-hook) when the email is verified, so it also reaches accounts made before it existed. A failure is logged and never blocks signing in; the next sign-in tries again.
+- **Once per inbox:** the HMAC is of the normalised email (lowercase, `+tag` dropped, Gmail's dots dropped and `googlemail.com` → `gmail.com`), not just the lowercased one (`docs/04`), so aliases can't farm it. An account that has its grant row never gets another, even after its claim is purged at 12 months.
+- **The HMAC key** is `WELCOME_GRANT_SECRET`, or one derived from `BETTER_AUTH_SECRET` when it's unset, so nothing new is needed in production; set the dedicated one before ever rotating the auth secret.
+- **`WELCOME_GRANT_ENABLED=false`** stops it at once (abuse); the server build's e2e tests run with it off, so their accounts start at 0 credits as the job tests expect. The grant's own tests run against the database.
+- **The throwaway-domain list is filled** (46 common ones, subdomains included); the grant is refused, sign-in isn't.
+
+**Why:** `docs/05` → Free allowance, Fraud and abuse; `docs/04` → welcome_grant_claims.
+**Reverse:** `apps/web/src/server/welcome.ts` (`normaliseEmail`, `grantSecret`) and the hook in `auth.ts`.
+
+## 2026-10-02 · A job carries what its quote said pays (`quote_funding`) (M5)
+
+**Decision:** `POST /jobs` takes `quote_funding` beside `quote_credits` and answers 409 CONFLICT, reserving nothing, when what pays changed since the quote: the last free daily job went to another job, so the same price would now take credits. The website sends it and, on that 409, shows the new quote and asks again; the example script and `/developers` send it too. It's optional, so v1 clients that don't send it keep working (`docs/06` → Versioning).
+
+**Why:** the M6 review: a job quoted as a free daily job could be charged credits without the person agreeing ("never charge without a confirm").
+**Reverse:** drop the check in `createJob` (`apps/web/src/server/jobs.ts`); the field can stay.
+
+## 2026-10-02 · Paddle: the overlay checkout, and what its webhooks change (M5)
+
+**Decision:**
+- **Checkout is the Paddle.js overlay, never a redirect.** `createCheckout` makes the transaction on our server and returns `{ kind: 'paddle-overlay', transactionId, clientToken, environment }`.
+  - Paddle's API gives no Paddle-hosted page for a transaction: its `checkout.url` is our own default payment link plus `?_ptxn=`, which still needs Paddle.js.
+  - Paddle's hosted checkouts (`pay.paddle.io/hsc_…?transaction_id=…`) are made in the dashboard and need Paddle's extra approval.
+  - Paddle refuses to create transactions in production until a **default payment link** is set (`transaction_default_checkout_url_not_set`): set it to `SITE_URL/credits/buy` in the live and sandbox dashboards when turning payments on.
+- **Items:** the catalog price from `paddlePriceIds` when set (give it quantity 1–1 in the dashboard); otherwise a non-catalog USD price of the purchase's amount, tax included (`tax_mode: internal`), `tax_category: standard`, quantity fixed at 1.
+- **Buyer:** the Paddle customer with the exact email (found or made) is set on the transaction. If Paddle refuses the lookup, checkout carries on and the overlay asks for the email.
+- **Credits on `transaction.paid` or `transaction.completed`**, whichever arrives first; the other finds the purchase done. Both mean the money is captured, and `paid` comes seconds earlier.
+- **A payment is matched by the transaction id our server attached**, never by `custom_data.purchase_id` alone: a checkout opened in the browser could carry our purchase id with another price. The transaction must still have one item, quantity 1, at the price checkout set. Otherwise nothing is credited and the event keeps the reason.
+- **Refunds and chargebacks take credits back only when `approved`** (`adjustment.created` or `.updated`); pending, rejected and reversed adjustments move nothing.
+  - A partial refund takes credits in proportion to the money (rounded, at least 1), from the paid total kept at completion (`paidTotal`).
+  - `chargeback_reverse` is flagged on the event for a human.
+  - `refund()` asks Paddle for a full refund (`type: full`); the credits go when the approval webhook arrives. _Full or partial since the M5 review: see "Refunds from the admin take an amount (M5 review)" below._
+- **Answers:** `Paddle-Signature` checked first, `ts` within 5 minutes either way, any `h1` may match (secret rotation). 401 bad signature, 400 malformed, 200 for duplicates and for events we don't act on. A rule problem (unknown transaction, cancelled purchase) is answered 200 and kept as the event's error; a store failure is answered 500, error kept.
+
+**Why:** `docs/05` → Payments (overlay on `/credits/buy`, a route without COEP); Paddle Billing API v1 as published.
+**Reverse:** to redirect instead, get hosted checkout approved and return `{ kind: 'redirect', url: '<hosted checkout>?transaction_id=…' }` from `createCheckout`. To credit on `completed` only, drop `transaction.paid` from `processEvent` in `providers/paddle.ts`.
+
+## 2026-10-02 · Click: Prepare and Complete (M5)
+
+**Decision:**
+- **Checkout** sends the buyer to `my.click.uz/services/pay` with `service_id`, `merchant_id`, `merchant_user_id`, the amount in sums with 2 decimals, our purchase id as `transaction_param`, and `return_url` = `SITE_URL/credits/return?purchase=<id>`.
+- **Prepare** answers a random 31-bit `merchant_prepare_id`, kept with `clickTransId` in providerData.
+  - **The latest Prepare wins:** a buyer who tries again gets a new Click transaction. An abandoned attempt's Complete is answered -6 (or -4 once the order is paid), so Click reverses it.
+- **Complete** attaches `click_trans_id` as the provider transaction and completes the purchase; the confirm id is the prepare id. _In one store call since the M5 review: see "Payment webhooks: hardening from the M5 review" below._
+  - A repeated Complete for the same `click_trans_id` answers 0 again. Click reverses a payment whose Complete isn't answered 0, so -4 there would refund a buyer we credited.
+  - Click's own `error < 0` cancels the purchase and answers -9; anything after a cancel answers -9.
+- **Codes:** -1 bad signature (constant-time compare), -2 amount not exactly the purchase's (in tiyin), -3 action other than 0 or 1, -4 paid, -5 no such Click purchase, -6 Complete without its Prepare, -7 store failure, -8 missing or malformed fields or another `service_id`, -9 cancelled. Always HTTP 200.
+- **No `refund()`:** the Shop API has no refund call. A refund made in Click's merchant cabinet is recorded by hand.
+- **Not built yet: Click's fiscal receipt.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL, which `config/business.ts` doesn't have. Add both before turning Click on. _Enforced since the M5 review: see "Click stays off until its fiscal receipts are sent (M5 review)" below._
+
+**Why:** Click's published Shop API; `docs/05` → Payments.
+**Reverse:** each choice is one branch of `prepare` or `complete` in `providers/click.ts`.
+
+## 2026-10-02 · Payme: the Merchant API's state in providerData (M5)
+
+**Decision:**
+- **Checkout:** `checkout.paycom.uz/<base64(m=…;ac.order_id=<purchase id>;a=<tiyin>;c=<return url>)>`; `PAYME_TEST=true` uses `checkout.test.paycom.uz`. `PAYME_TEST` is required and must be `true` or `false`, so going live is a deliberate change. The account field in Payme's cabinet must be named `order_id`.
+- **One Payme transaction per order:** its id is the purchase's `providerTxnId`. `time` (Payme's), `state`, `create_time`, `perform_time`, `cancel_time` and `reason` sit in providerData, in ms.
+- **Order errors** (Payme's -31050…-31099 range): -31050 not found, -31051 paid, cancelled or older than 7 days, -31052 another active transaction. `data` names the field (`order_id`, `amount`, `time`).
+- **12-hour timeout** from our `create_time`: the next CreateTransaction or PerformTransaction for it cancels it (state -1, reason 4) and answers -31008. A CreateTransaction whose Payme `time` is over 12 hours old gets -31008.
+- **CancelTransaction after perform refunds the credits** (state -2, `store.refund`; the balance may go below zero) instead of answering -31007. Only Payme or the merchant can cancel a performed payment, so it is a refund we made. -31007 only when the purchase was already refunded another way.
+- **GetStatement** filters on Payme's `time` within [from, to]. It reads purchases created up to 8 days before `from`, which finds them all because an order older than 7 days can't start a Payme transaction.
+- **CheckPerformTransaction** returns the fiscal receipt `detail`: one item with title, price, count 1, MXIK `code`, `package_code` and `vat_percent` from `fiscalReceipt`.
+- `ChangePassword` and `SetFiscalData` answer -32601: the key lives in env (change it in the cabinet and the env together), and receipt data stays in Payme's cabinet.
+- **Protocol errors:** -32504 wrong Basic auth (constant-time, checked before anything else; _since the M5 review before the body is read, so its answer's id is null_), -32700 parse, -32600 invalid params, -32601 unknown method, -32300 not POST, -32400 store failure (no detail). Every message in ru, uz and en; always HTTP 200.
+
+**Why:** Payme's published Merchant API; `docs/05` → Payments.
+**Reverse:** to refuse refunds after perform, answer -31007 for state 2 in `cancelTransaction`. The 7-day order age is `PAYME_ORDER_MAX_AGE_MS` in `providers/payme.ts`.
+
+## 2026-10-02 · Testing the payment providers without their networks (M5)
+
+**Decision:**
+- `providers/testing/memory-store.ts` is a `PurchaseStore` that follows the contract to the letter (attach once, idempotent complete, cancel and refund, events once); every provider test runs against it, with no database.
+- `providers/sim/` plays each provider: Click's Prepare and Complete and Payme's JSON-RPC, signed as documented, every error path; Paddle's signatures, real-shaped events and a fake of the API calls we make. Each simulator sends through a `send` function: the provider's `handleWebhook` in tests, or `fetch` against a running server.
+- The real Paddle sandbox test (`paddle.sandbox.test.ts`) is skipped unless `PADDLE_SANDBOX_API_KEY` is set. It runs in `.github/workflows/paddle-sandbox.yml` (run by hand, or on push to `claude/ops-**`), with the secrets `PADDLE_SANDBOX_API_KEY` and `PADDLE_SANDBOX_WEBHOOK_SECRET`; a missing key is a warning, as in the ops checks.
+- Webhook bodies over 1 MiB are refused unread.
+
+**Why:** only npm and PyPI are reachable from the build container, and no merchant keys exist yet.
+**Reverse:** delete the workflow; the gated test then never runs.
 
 ## 2026-10-02 · Approvals never stop the work
 
@@ -1356,6 +1508,164 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
 **Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
 
+## 2026-10-02 · Webhook errors alert at once, and what counts as one (M5 review)
+
+**Decision:**
+- **`webhook_events.error` means "a person must look at this"**, for all three providers: a payment not credited (unknown transaction, cancelled purchase, a price, total or currency mismatch), a refund or chargeback for a purchase in the wrong state, a store failure. Paddle already used it that way.
+- **What Click and Payme were told goes in a new column, `answer`** (their code and note, or `result`). Their protocols expect refusals (an abandoned attempt's Complete, a declined card, Payme's sandbox checks), so a refusal is an answer, not an error. Counting every non-zero answer as an error would page on every declined card and every Payme sandbox run.
+- **The worker's `webhook_error` rule** raises an immediate alert (no cool-down) for each event with an error processed in the last 3 days (Paddle retries for 3 days), once per event: its row in `alerts` (subject = the event's id) marks it alerted, so `webhook_events` needs no extra column and a retry that fails the same way doesn't page again. At most 10 a check; the rest follow on the next.
+- **The message** names the provider, the event type and our error text, never the payload.
+
+**Why:** `docs/07` → Alerts ("webhook processing error … immediate"); the M5 review: a buyer could pay, get no credits, and nobody was told.
+**Reverse:** drop `webhook_errors` from `DATABASE_RULES` in `apps/worker/src/etb_worker/alerts.py`. To alert on every refusal too, mark Click's and Payme's non-zero answers as errors in `providers/click.ts` and `providers/payme.ts`.
+
+## 2026-10-02 · Every Click and Payme call is kept in `webhook_events` (M5 review)
+
+**Decision:**
+- **Click:** every call whose signature checks, as `<click_trans_id>:<action>`, type `prepare` or `complete`, its form fields as sent.
+- **Payme:** every call whose Basic auth checks and whose body is JSON, as `<method>:<Payme's transaction id>`; CheckPerformTransaction by its order (`<method>:<order_id>`), GetStatement by its period (`<method>:<from>-<to>`). A method we don't have keeps no params: ChangePassword's carry a new merchant key.
+- **One row per key, like Paddle's event ids.** A repeat is processed and answered again (the protocols wait for an answer) and the row keeps the latest answer; a failed one is fresh again, as for Paddle.
+- **A call that can't be stored isn't processed:** Click gets -7, Payme -32400, as Paddle gets a 500. Both then retry or reverse; nothing is credited unrecorded.
+- **The new column is in migration `0011_payments`** (generated, one `ADD COLUMN`), with the rest of the payments schema, renumbered after main's `0009_job_idempotency_hash` (#68) and `0010_gpu_costs_and_calls` (#66).
+
+**Why:** `docs/05` → Buying step 3 and `docs/11` → Payments ("raw payload stored"); the M5 review: Admin → Payments → Webhook events stayed empty for Click and Payme, with nothing to check when money is disputed.
+**Reverse:** drop the `recordEvent` and `markEventProcessed` calls in `handleWebhook` of `providers/click.ts` and `providers/payme.ts`; the column can stay.
+
+## 2026-10-02 · A switched-off provider still answers for purchases already made (M5 review)
+
+**Decision:**
+- **A webhook path answers while its provider is in this release with every key set**, whatever `PAYMENTS_ENABLED` and the admin switch say (`webhookProvider` in `payments/switches.ts`). Without its keys it is a 404, with no database read, as before.
+- **Switched off, only what would start a new payment is refused** (`ctx.open` false):
+  - Click: a Prepare for a new Click transaction, answered -5 ("not found", as the 404 said before). A repeated Prepare, and the Complete of a transaction prepared before the switch, still go through.
+  - Payme: CheckPerformTransaction and a new CreateTransaction, answered -31050. Perform, Cancel, Check, a repeated Create and GetStatement still work.
+  - Paddle: nothing to refuse. Every event names a transaction our checkout made, so a payment for a checkout opened just before the switch is credited, and approved refunds and chargebacks take their credits back.
+- **New checkouts stay closed at once**, as before (`enabledProvider`), and "Buy credits" goes.
+- **Admin → Payments → Refund works while Paddle is switched off**, as long as its keys are set: its refund webhook still arrives. The page says what each webhook takes: open, purchases already made only, or closed.
+- **To stop a provider's webhook too** (a problem in the webhook itself), remove its keys. The runbooks say so.
+
+**Why:** the M5 review: switching off answered 404 to refunds, chargebacks and late payments, so a chargeback's credits were never taken back and a buyer who paid just after the switch got nothing. The kill switch is for sales, not for money already moving.
+**Reverse:** route webhooks through `enabledProvider` again in `app/api/webhooks/[provider]/route.server.ts`; `ctx.open` then is always true.
+
+## 2026-10-02 · Click stays off until its fiscal receipts are sent (M5 review)
+
+**Decision:** `UNFINISHED` in `apps/web/src/server/payments/switches.ts` lists what a provider's sales need that this release doesn't have, and the admin switch refuses to turn that provider on, with the entry as its reason. Click's entry: "Sending Click’s fiscal receipt to the tax service isn’t built yet (Click’s ofd_data/submit_items, with the seller’s TIN or PINFL)." It goes in the pull request that builds the receipt. Payme sends its receipt from CheckPerformTransaction's `detail`; Paddle is the merchant of record.
+
+**Why:** the M5 review: with the MXIK and package codes filled in, Click could be switched on and sell without the fiscal receipt Uzbek law asks for.
+**Reverse:** delete Click's entry from `UNFINISHED`.
+
+## 2026-10-02 · Payment webhooks: hardening from the M5 review
+
+**Decision:**
+- **Bodies are read as a stream with a running 1 MiB cap,** cancelled as soon as they pass it, so a chunked body is never buffered whole. The test stub reads its body the same way.
+- **Payme checks Basic auth before reading the body** (`docs/11` → Payments). The -32504 answer then carries `id: null`, as JSON-RPC 2.0 answers a request whose id it couldn't read. Payme's documentation couldn't be read from the build container; step B.4 of the turn-on runbook (Payme's sandbox checks) confirms it, and the reverse is one line.
+- **Paddle credits only the purchase's amount and currency:** besides the item, quantity and price checkout set, `currency_code` must be the purchase's and `details.totals.grand_total` exactly its `amount_minor`. A discount typed into the overlay, a catalog price that adds tax on top or charges another currency is kept as the event's error (it alerts) and not credited. If Astro ever sets country price overrides in Paddle, this check has to learn them first.
+- **Payme answers from what the store kept:** Perform and Cancel answer the record the store returns, so a repeat or a concurrent call gets the stored `perform_time` and `cancel_time`. A Perform racing a Cancel settles as if one came after the other: the Perform that loses gets -31008; a Cancel that loses to a Perform cancels the performed transaction (state -2, credits back).
+- **Click sets its transaction id in the same store call that credits it** (`store.complete(id, data, providerTxnId)`), replacing a pending purchase's earlier, reversed attempt. A failed Complete leaves nothing behind, and a re-sent Complete of the attempt that paid answers 0. -4 only when another Click payment completed the order.
+- **Postgres-backed tests** cover these races (`providers/races.test.ts`), beside the in-memory protocol tests.
+
+**Why:** the M5 review, findings 11 and 12.
+**Reverse:** each is one function: `readBody` in `providers/shared.ts`; the order in Payme's `handleWebhook`; `paymentMismatch` in `providers/paddle.ts`; `performTransaction` and `cancelTransaction` in `providers/payme.ts`; `complete` in `providers/click.ts`.
+
+## 2026-10-02 · Refunds from the admin take an amount (M5 review)
+
+**Decision:**
+- **The admin gives the money refunded,** in the purchase's currency ("12.86", "47 250"); the form shows the price, the credits and the buyer's balance now, so the unused portion is easy to work out (`docs/05` → Refunds).
+- **Credits come off in proportion to the money**, rounded, at least 1, never more than are left of the purchase (`creditsForRefund`, the same rule as Paddle's partial-refund webhooks). The balance may go below zero if credits were spent since, as with any refund.
+- **Paddle:** the whole payment of a purchase nothing came back from yet is a `full` adjustment; anything else a `partial` one of the transaction's line item (kept at completion, or read back from Paddle) with that amount, which a partially refunded purchase can have too. The credits still go only when Paddle approves, in proportion to what Paddle says it refunded. `amount` is taken to be what the buyer gets back, tax included; the test purchase in the turn-on runbook checks it in Paddle's dashboard, and the credits follow Paddle's own totals either way.
+- **Click:** "Record refund" records each cabinet refund once per form (an id drawn with the page, so a double submit records once), and the money recorded so far can't pass what was paid; the purchase row is locked while that's checked.
+- **The logic lives in `apps/web/src/server/payments/refunds.ts`**, with Zod for the forms and no Next imports, so its tests run on a real database; the server actions only check the admin and redirect.
+
+**Why:** the M5 review: Click's "Record refund" always took every credit left and Paddle's refund was always full, so a partial cabinet refund drove a balance below zero against the "unused portion" policy.
+**Reverse:** pass the purchase's whole amount from the forms (`refundPurchase`, `recordRefund` in `app/admin/(gated)/payments/actions.ts`).
+
+## 2026-10-02 · GPU models: Whisper and Real-ESRGAN approved, Demucs parked (M5)
+
+_Why Demucs is parked: superseded by "Model licences: the weights' own licence decides" below (its weights' licence alone, not its training data)._
+
+**Decision:**
+- **Whisper large-v3** for A12 and V17. OpenAI's README says "Whisper's code and model weights are released under the MIT License". We run OpenAI's own `openai-whisper` (20250625, MIT) with the `large-v3` checkpoint from OpenAI's URL, whose path is the file's SHA-256: the package pins it, and so does `pins.json`.
+  - **Not faster-whisper**, though it's about 4× faster. Its weights are SYSTRAN's CTranslate2 conversions on huggingface.co (model cards: MIT), which this build environment can't reach to read or pin. The L4's cost per minute of speech is small either way (`05`). Switching later is one function and one pin.
+  - large-v3, not turbo: turbo is faster but weaker on low-resource languages such as Uzbek, and wasn't trained to translate (V17's "translate to English").
+- **Real-ESRGAN** for P08: the code is BSD-3-Clause; the weights we use are the repository's own release assets, published by the author with the code, and no separate licence or use restriction is stated anywhere. That makes the repository's licence theirs, the reading that approved U²-Net. Models: `realesr-general-x4v3` blended with its "weak denoise" twin by the person's noise setting (the authors' DNI), and `RealESRGAN_x4plus_anime_6B` for illustrations. No face model.
+- **Demucs (htdemucs) is not used.** The code is MIT, but the weights are on Meta's file server, outside the repository, with no licence stated, and were trained on MUSDB18-HQ (research use). `CLAUDE.md` rule 6: unclear means no. A09 stays `soon`; `STATUS.md` → Parked for Astro has the recommended pick.
+- **BiRefNet** (P07's hi-res server path) is approved (MIT code and weights, `13`), but not built in this round: pinning its exact weights and its Hugging Face model code needs huggingface.co, and nothing here could run it. Next: add it to `pins.json` and let CI's pins check report the real hashes.
+- Three Real-ESRGAN hashes come from Hugging Face's listings of copies of the same files (the release assets have no published digest). The build checks them against the author's own downloads, and CI's pins check does too before any deploy, so a wrong one fails safely.
+
+**Why:** Astro's M5 brief and `CLAUDE.md` rule 6; `docs/13` → Models: "Explicitly commercial-use licenses" for weights.
+**Reverse:** a model's row in `docs/13` and `licenses.json`, its files in `apps/worker/src/etb_worker/gpu/pins.json`, its function in `modal_app.py`.
+
+## 2026-10-02 · The GPU functions on Modal (M5)
+
+_Containers and images: superseded by "GPU functions answer every failure; Whisper gets a container per job" and "The GPU images are pinned: base by digest, packages by hash" below._
+
+**Decision:**
+- **One function per tool** in the app `edittoolbelt-gpu`: `upscale_image` (P08) and `transcribe` (A12 and V17 share it).
+- **GPUs:** T4 for the upscaler, L4 for Whisper (`01` → GPU backend says why). The registry names each tool's GPU (`gpu`), which prices its jobs; a test holds the two in step.
+- **Every function asks for 2 CPU cores and 8 GiB**, so one container price per GPU type covers them (`config/business.ts` → `gpuRateUsd`).
+- **Idle windows:** 10 s for the upscaler (its networks load in about a second) and 30 s for Whisper (15 to 25 s to load, so the next file of a batch finds it warm). `max_containers` 2 each, matching the registry's `maxConcurrent`.
+- **Timeouts:** 15 and 65 min on Modal; the jobs' own limits are 20 and 70 min, so the worker's limit covers a cold start and the function's own.
+- **Weights are baked into the images at build time** and checked against `pins.json` by `weights.py`, which Modal runs as a script during the build. Nothing downloads at run time, and a changed file can't reach a GPU.
+- **I/O:** presigned GET in, presigned PUT out, both valid for the job's limit plus 15 min. The function writes its result to storage itself and returns only numbers and notes. Whisper's transcript goes to storage as JSON too, never through Modal's own result store; the worker turns it into the format asked for and deletes it at once.
+- **Smoke test:** `check.py --smoke` sends a tiny PNG and a 2 s tone as `data:` URLs with no output URL, so a real run stores nothing anywhere. Actions → Modal → Run workflow → "smoke".
+- **Modal adds the module's package (`etb_worker`) to each container itself**; the functions import only `gpu/remote.py` and `gpu/tiles.py` (standard library) from it, besides the libraries in their image.
+- **PyTorch 2.10**: the last release whose PyPI wheels use CUDA 12.8; later ones need CUDA 13 drivers.
+
+**Why:** Astro's M5 brief (cheapest GPU that does the job, short idle windows, weights pinned and checked at build, nothing kept on Modal); `docs/01` → GPU backend.
+**Reverse:** the specs are `SPECS` at the top of `modal_app.py`; a GPU change also changes the tool's `gpu` in the registry.
+
+## 2026-10-02 · ServerlessGpu in the worker (M5)
+
+_Slots and a dead worker's call: superseded by "GPU jobs run in slots of their own" and "A GPU call's id is on its job" below._
+
+**Decision:**
+- **`GPU_BACKEND`**: `modal`, `local` (a stub that answers "not set up"), or unset (GPU tools off). With GPU tools off, a claimed GPU job fails at once with `GPU_UNAVAILABLE` and its credits back, rather than waiting 15 min to expire.
+- **`modal` without a token starts the worker with its GPU tools off** (logged as `gpu.off`), instead of refusing to start: the CPU tools must not stop for the GPU's sake. Half a token still refuses, like Telegram's pair. Production sets `GPU_BACKEND=modal` in `.railway/railway.ts`.
+- **A call:** `Function.from_name(app, fn).spawn(...)`, then `get(timeout=2)` until it answers. Between polls, the time since the spawn becomes progress against the processor's estimate (Modal has no progress channel back, and we don't keep state on Modal). The call is cancelled when the job is cancelled (the heartbeat notices within 5 s), when the worker stops (the job goes back to the queue), or when the job's time is up.
+- **GPU processors are "remote"**: the runner neither downloads their input nor uploads their output. The output key is written on the job before the call, so if the worker dies mid-call, the next attempt deletes what the GPU wrote, and the sweeper deletes it 60 min after a failure.
+- **A worker killed outright** (not stopped) can't cancel its call; the call runs on until its function's timeout. Known gap, logged in `01`.
+- **Failures** become the job's error code with a fixed sentence (`GPU_UNAVAILABLE`, `GPU_FAILED`, `TIMEOUT`), or the function's own (`TOO_LARGE`, `DECODE_FAILED`); a remote exception's text is never shown or stored. The job fails, and its credits come back the usual way.
+- **Transcripts become files on the worker** (`captions.py`): cues built word by word, at most 7 s, broken at pauses of 0.8 s and, once half a line is full, at sentence ends; lines balanced to the narrowest width that still fits. VTT gets word timestamp tags and ASS karaoke tags when word timing is on; SRT and TXT say they can't hold it.
+- **The probe now takes PNG, JPEG and WebP** (ffprobe reads them as one frame) and WebM audio.
+
+**Why:** Astro's M5 brief: spawn, poll with short timeouts while heartbeating and reporting progress, cancel with the job; finish like the CPU tools (`CLAUDE.md` rule 4).
+**Reverse:** unset `GPU_BACKEND`. The backend is `etb_worker/gpu/backend.py`; the shared step is `processors/remote.py`.
+
+## 2026-10-02 · GPU metering and the daily GPU budget (M5)
+
+_What a call is billed, and the gate: superseded by "What a GPU call is billed" and "The GPU budget gate counts running jobs at their worst case" below._
+
+**Decision:**
+- **The jobs API writes each GPU job's rate** (`jobs.gpu_rate_usd`): the GPU's price a second plus 2 cores and 8 GiB, from `config/business.ts` (Modal's prices read 2026-10-02, placeholders to confirm). The worker needs no copy of the prices, as it needs none of the registry.
+- **Each call's cost lands on its job whatever happened**: GPU seconds measured inside the function (a cold model load included) plus the function's idle window, times the rate. Counting the idle window every time errs high in a burst, which is the safe side for a budget. A failed, cancelled or timed-out call that didn't report counts its wall-clock time.
+- **The budget is one row in the database** (`gpu_budget`, migration `0010_gpu_costs_and_calls`, renumbered after main's 0009), $1 a day until an admin changes it in Admin → Dashboard → GPU (audited).
+- **The day is UTC**, like the free daily jobs (it resets at 05:00 Tashkent).
+- **Today's spend** counts calls still running, from their job's start at their rate, so a burst of long jobs is counted before it ends.
+- **At 100 % the worker stops claiming GPU jobs**; CPU jobs carry on. Queued GPU jobs wait and, after 15 min, expire with their credits back. Two slots can both start a job just under the line, so the overshoot is at most the jobs already running.
+- **Alerts at 80 % and 100 %, once a day each**: the alert's subject carries the day and the threshold, and the rule skips one already sent.
+- **Admin, kept small**: today's spend against the budget, and GPU cost against credits by tool over 7 days, with free jobs' cost as its own line (`05`). The nightly `tool_stats_daily` gains `gpu_cost_usd`; the digest gains a GPU line. `/admin/costs` and the margin alert wait for real data.
+
+**Why:** Astro's M5 brief; `docs/05` → GPU backend economics ("admin shows actual cost vs. charged per tool").
+**Reverse:** set the budget high to turn it off in practice. The rule is `etb_worker/gpu/budget.py`; the rate comes from `gpuRateUsd`.
+
+## 2026-10-02 · Upscale Image, Transcribe Audio and Auto Subtitles: off until an admin switches them on (M5)
+
+**Decision:**
+- **Their registry entries are complete enough for beta** (accepts, outputs, limits, price, GPU, how-to, FAQ; a test parses each one as beta), **but their code default stays `soon`**, as for every server-only tool (2026-10-01, VFR to CFR). An admin sets each to beta in Admin → Tools once Modal runs it: the static export has no server path, and a default of beta would show working pages that can't run.
+- **Limits:**
+  - P08 takes up to 16 MP in, 25 MB free and 100 MB paid. The result is capped at 64 MP (`tools/photo.md`), checked when the job is quoted, before anything is charged.
+  - A12 and V17 take 30 min free and 4 h paid.
+- **Prices stay the specs' placeholders:** P08 1 credit per 4 output MP (at least 2), A12 and V17 2 a minute (at least 2). The jobs API now prices P08 on the result's megapixels (`job-rules.ts`), and the page estimates the same from the picture's size and the scale.
+- **Nothing to do, nothing to pay:** a file with no sound is refused at quote time (`NOTHING_TO_DO`); one whose speech the model can't hear fails with `NO_SPEECH` and its credits back.
+- **Auto Subtitles takes the sound out of a video in the browser** (Extract Audio's engine). It copies the sound when its codec fits a container (AAC to M4A, Opus to OGG, MP3, FLAC), otherwise makes MP3 at 96 kbps. Only that file is uploaded; an audio file goes as it is. The API also takes a video (Whisper reads its sound).
+- **Not built this round:**
+  - P08's free 512 px preview.
+  - V17's cue editor: it is shared with T03, which doesn't exist yet. The result shows the start of the subtitles, as Subtitle Converter does.
+  - The "Burn into video" handoff: Burn Subtitles takes the subtitles as a second file, which the handoff can't fill. The FAQ says how.
+  - A12's speaker labels (Wave 3 in the spec).
+
+**Why:** `tools/photo.md` → P08, `tools/audio.md` → A12, `tools/video.md` → V17; the 2026-10-01 entry on server-only tools; Astro's M5 brief ("tools whose GPU path can't be verified stay beta and are switched on by an admin, like VFR to CFR was").
+**Reverse:** set a tool's status in Admin → Tools, or its default in `packages/registry/src/tools/`.
+
 ## 2026-10-02 · Where sign-in goes next: resolved like a browser, same origin only (M6 fix)
 
 **Decision:**
@@ -1460,108 +1770,183 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** a test that crashes the browser it checks says nothing about the tool, and the crop bug would have shipped to Safari.
 **Reverse:** the helpers are test-only; `cropper()` in `reframe.ts` can go back to Mediabunny's `crop` once WebKit honours the source rectangle for VideoFrames.
 
-## 2026-10-01 · Merge Videos (M8)
+## 2026-10-02 · GPU jobs run in slots of their own (`WORKER_GPU_SLOTS`)
 
 **Decision:**
-- **Fast join when the clips match:**
-  - When every clip has the same video codec, decoder settings (the codec string and its parameter sets, byte for byte), size and rotation, and the same audio (or none), their packets are copied end to end into the first clip's container.
-  - Nothing is decoded; it takes seconds.
-  - This holds only with a cut and the first clip's size and frame rate. Choosing anything else re-encodes.
-  - Each clip's sound starts exactly with its picture, so nothing drifts however many clips are joined (`placeCopiedSound`):
-    - An encoder's priming before a later clip's start is left out: AAC's first 1024 samples, which the container's edit list hides. Copied, they would play as 21 ms of extra sound at each join.
-    - A packet that would run past its clip's picture by more than 1 ms (Matroska's resolution) is left out, which leaves a gap shorter than one packet (21 ms of AAC) at that join. PCM is cut at the picture's end instead, which loses nothing.
-    - Start times only go forward; a packet is never moved later because the one before it ran long. Moving them was what made the sound about 32 ms later at each join.
-- **Re-encode otherwise:**
-  - Every frame is drawn on one constant clock, at the first clip's size and its frame rate rounded to the nearest standard one, or a size (2160 to 480 p) and rate (24 to 60 fps) picked. This is the spec's "CFR without drift": a 25 fps clip in a 30 fps result plays at its own speed.
-  - Clips of another shape are fitted on black.
-  - The codec follows the first clip's container: H.264, HEVC or AV1 in MP4, VP9 in WebM and MKV, the first the browser can encode.
-  - Each clip's decoder opens at its first frame and closes after its last, so at most two are open at once (in a crossfade).
-- **A clip lasts to the end of its last frame:** Matroska often leaves the last frame's duration out, which would end the clip a frame early and land the next clip on top of that frame.
-- **The sound follows its picture:** each clip's sound is brought to 48 kHz stereo and cut or padded to its own picture's length, so no clip drifts. In a crossfade it fades equal-power, and the picture dissolves linearly.
-- **Crossfade:** 0.5, 1 or 2 s at every join, at most half the shortest clip.
-- **The list** is the shell's combine mode from Merge Audio: 2 to 20 clips, reordered by keyboard.
-- **Up to 2 GB in all,** the browser limit for video: the joined file is built in memory. Clips that come to more are refused before any is read, as Loop Video refuses too many repeats.
-- **The server path for large totals** (the spec's hybrid runtime and per-minute price) waits for jobs that take several uploads. The registry keeps the spec's runtime and price, the tool's server switch stays off, and the page offers only the browser path.
+- **Two kinds of slot.** CPU slots (`WORKER_SLOTS`, default 1) probe uploads and claim only CPU jobs (`gpu_rate_usd is null`). GPU slots (`WORKER_GPU_SLOTS`, default 2, 0 to 16) claim only GPU jobs and never probe. A GPU call waits on Modal for up to 70 minutes doing nothing locally, so it must never hold a slot that probes uploads or runs ffmpeg: before, two transcriptions held both production slots, every server tool's quote stayed at "probing", and queued CPU jobs expired.
+- **Default 2:** what production ran before (two slots for everything), and each GPU slot costs only a thread and a poll every 2 s. The daily budget and each tool's `maxConcurrent` cap GPU work further, across all workers. Production sets it in `.railway/railway.ts`.
+- **0 is allowed:** a worker that takes no GPU jobs (another worker would). GPU jobs it never claims wait, and expire after 15 min with their credits back.
+- **A GPU slot without a backend** (`GPU_BACKEND` unset) still claims GPU jobs and fails them at once with their credits back, as before.
 
-**Why:** `tools/video.md` → V12.
-**Reverse:** `packages/engines/src/video/merge-videos.ts`; the fixture `clip-vp9-25fps.webm` is described in `fixtures/video/README.md`.
+**Why:** review of #66, finding 1; `CLAUDE.md` rule 1 (the speed promise) depends on probing and the CPU tools never waiting behind a GPU.
+**Reverse:** `WORKER_GPU_SLOTS=0` stops a worker taking GPU jobs; the claims are `jobqueue.claim` and `jobqueue.claim_gpu`, the loops `slots.run_slot` and `slots.run_gpu_slot`.
 
-## 2026-10-01 · Change Speed & Pitch: our own phase vocoder, not Signalsmith Stretch (M8)
+## 2026-10-02 · A GPU call's id is on its job: a dead worker's call is cancelled and counted
 
 **Decision:**
-- **Time-stretching is our own code** (`TimeStretch` in `@etb/core`), not Signalsmith Stretch (MIT, which `tools/audio.md` names and `docs/13` lists as preferred).
-  - Signalsmith's web build is an AudioWorklet that loads its own code from a `blob:` URL. Our CSP doesn't allow `blob:` scripts, and allowing it for one tool would weaken the CSP for every page.
-  - Its API is built for live playback in an AudioContext. An offline file would have to go through an OfflineAudioContext holding the whole output in memory.
-  - SoundTouch (LGPL) stays out too: no LGPL in the browser.
-- **How it works:**
-  - A phase vocoder with identity phase locking (Laroche & Dolson): 4096-point Hann frames at a quarter-frame synthesis hop (85 ms at 48 kHz).
-  - Each peak's phase advances at its measured frequency; the bins around it keep their phase relative to it, which keeps tones clean.
-  - It is streamed (a few frames in memory), pure and unit-tested. A minute of stereo takes about 2.6 s.
-  - The result is exactly round(input × ratio) long.
-- **Pitch** = stretch by 2^(semitones/12), then the core `Resampler` back to the original rate: the same length, the pitch moved.
-- **Vinyl** = the Resampler alone: faster and higher together.
-- **Controls:**
-  - Tempo 25-400%.
-  - Pitch −12 to +12 semitones plus −50 to +50 cents.
-  - Format: Keep, MP3, WAV or FLAC.
-  - The run waits until something would change. The settings show the new length.
-- **Channels** are stretched independently, up to stereo. Formant preservation is a Wave 3 idea, as the spec says.
-- **Reverse:** if Signalsmith ships a build that runs in a worker without `blob:` code, `TimeStretch` is the one place to swap. Video speed (V13) will use the same class.
+- **The call in flight is on its job** (`jobs.gpu_call_at`, `jobs.gpu_call_id`; migration `gpu_calls`). `gpu_call_at` is set before the presigned URLs leave the worker, the id (Modal's `FunctionCall` id) as soon as the call is spawned, and both are cleared in the same statement that records the call's cost, so a call is counted once.
+- **Reap:** a job whose worker went quiet with a call on it has the call settled in the reaper's transaction (its wall-clock time since `gpu_call_at`, plus the longest idle window, as GPU time and cost), then cancelled by id (`modal.FunctionCall.from_id(id).cancel()`), then the job is requeued (or failed, the third time) as before. The scheduler holds the GPU backend for this. A call left on a job that's no longer running, whose worker is quiet too (its owner cancelled it while the worker was dead), is settled and cancelled the same way.
+- **Re-claim:** a job claimed with a call still on it (nobody settled it, e.g. an admin's retry) gets the same before its next attempt starts.
+- **Worker stop:** unchanged in shape (the call is cancelled through its handle, its time recorded, the job handed back), now with the call cleared from the job; a test drives it through `ModalGpu` against a stand-in for Modal.
+- **A slow worker the reaper took for dead** can't count its call again: recording requires the job to still be its own and the call still on it.
+- **A call that can't be cancelled** (Modal unreachable, or a scheduler without a Modal token) is charged to the rest of its job's time limit at once, so the budget counts its worst case, and an immediate alert (`gpu_call_not_cancelled`, runbook in `alerts.md`) names the call so it can be stopped in Modal's dashboard. Overcharging the budget for a day is the safe side; an uncounted hour-long L4 call (about $1) was not.
+- Modal answering "not found" for an id counts as cancelled: the call ended long ago.
 
-**Why:** `tools/audio.md` → A08, rule 6 and the CSP (`docs/11`).
-**Reverse:** `packages/core/src/audio/stretch.ts`, `fft.ts`; the engine is `packages/engines/src/audio/pitch.ts`.
+**Why:** review of #66, finding 5 (the call ran on uncancelled, and its cost never reached the budget; with three attempts, three could run at once).
+**Reverse:** the columns are harmless when unused; the logic is `jobqueue.settle_call` / `cancel_stale_call` and `Scheduler._cancel_call`.
 
-## 2026-10-01 · Change Video Speed (M8)
+## 2026-10-02 · Every GPU output key is swept until its URL expires
 
 **Decision:**
-- **Two ways with the picture:**
-  - Keep every frame (the default): every packet is copied with its time divided by the speed. It's instant and lossless, and the frame rate scales with the speed (30 fps at 2× plays at 60 fps).
-  - Keep frame rate: the video is redrawn at its own rate, dropping frames to speed up or repeating them to slow down, and re-encoded. This is for editors who need the original rate.
-  - Redrawn frames are encoded at the video's size rounded to even numbers (`even()`, shared with Merge Videos): H.264 and HEVC take only even sizes, so a 1437 × 899 screen recording comes out at 1438 × 900, and the notes say so.
-  - The settings show the length and the frame rate each way would give.
-- **Speeds:** 0.25×, 0.5×, 0.75×, 1.25×, 1.5×, 2×, 3× and 4×, or a custom speed from 0.25× to 4× in 0.05 steps.
-- **Sound:**
-  - Keep pitch (the default) time-stretches it with the core `TimeStretch` from Change Speed & Pitch.
-  - Shift pitch plays it faster or slower as it is, like tape, with the Resampler.
-  - Mute leaves it out.
-  - It's re-encoded in the container's usual codec.
-- **A clip lasts to the end of its last frame**, as in Merge Videos (`shownFor`, now shared in `video/held.ts` with the frame reader).
-- **The spec's pitch test** ("spectral centroid within tolerance") is done as zero crossings per second of the decoded sound, against the source's: the same within 5% when kept, double within 0.1 when shifted at 2×.
+- **Every key a GPU call gets a PUT URL for is remembered** (`jobs.gpu_output_keys`, append-only while URLs can write, with `gpu_put_expires_at`, the latest expiry: the job's limit plus 15 min).
+- **On every pass (5 min) the sweeper deletes each of those keys that isn't the job's live output** (the output of a running or succeeded job, which keeps its usual 60 minutes). Once the last URL has expired nothing can write to them, so after one last delete they're forgotten.
+- **Why every pass, not once after expiry** (the review's first suggestion): a URL lives up to 85 minutes for a transcription, so an orphaned call could write the person's transcript at minute 1 and it would stay until minute 85, past the hour. Deleting on every pass keeps anything an orphan writes to at most 5 minutes; deleting a key that isn't there costs one request. With finding 5's cancel, orphans should be rare; this holds even when the cancel fails.
+- **Not done:** deleting every unreferenced `out/` object older than the presign window (the review's other option). Listing and matching the whole bucket each pass is heavier, and a bug there would delete live outputs; the keys are known, so they're deleted by name.
 
-**Why:** `tools/video.md` → V13.
-**Reverse:** `packages/engines/src/video/video-speed.ts`.
+**Why:** review of #66, finding 4; `CLAUDE.md` rule 4 (outputs within the hour; the sweeper is the guarantee).
+**Reverse:** drop `_sweep_gpu_keys` in `retention.py`; the lifecycle backstop (≤ 48 h) and the 2-hour alert remain.
 
-## 2026-10-01 · Watermark Images (M8)
+## 2026-10-02 · The GPU budget gate counts running jobs at their worst case, one claim at a time
 
 **Decision:**
-- **Drawn in the image worker** after decoding (and after a LUT, if a later tool adds both), with `OffscreenCanvas`, then encoded like every photo tool's output. No new dependency.
-- **Everything is a share of the photo's width:** the mark's width (1-100%, default 15%), the margin (0-25%, default 2%), the offset (−50% to 50% each way). Height follows the mark's own shape. The spot is one of nine on a 3 × 3 grid (`@etb/core/watermark`).
-- **Text** is drawn once at 200 px in the browser's sans-serif, cut to its ink, then scaled to its box like a logo, so it's the same size relative to every photo whatever the font's metrics. Colour picked, default white; opacity 0-100%, default 60%.
-- **Logo:** PNG, WebP or JPG up to 20 MB, checked by its bytes. SVG is left out: workers can't decode it (`createImageBitmap` has no SVG in a worker).
-- **Tiled:** the mark repeats over the whole photo, half its width apart, every other row shifted by half a step, from half a mark outside the top-left corner, so no edge is bare.
-- **The shell gains a `grid` option kind**, a 3 × 3 radio group (arrow keys move across and down), drawn by `PositionGrid` in `@etb/ui`.
-- **The registry's `ui` is `form`, like the other photo tools,** not `batch`: one photo shows before and after and redoes it as a setting changes; several go to the batch list.
+- **The gate:** a GPU job starts only while today's *committed* spend is under the budget: recorded costs, plus every running GPU job at its worst case, `(timeout_sec + 30 s) × rate` (its whole time limit, past which the worker cancels the call, and the longest idle window).
+- **Race-safe:** GPU claims take a transaction-scoped advisory lock and check the gate inside the claim's own transaction, so every slot on every worker takes its turn and sees the job claimed before it. Spend can pass the budget by at most one job's worst case, and only if every running job runs to its limit. A test races six claimers at a budget with room for one, and fails without the lock.
+- **Worst case, not an estimate from duration:** the brief allowed either if clearly better. An estimate isn't a bound (a Whisper call that loops on a hallucination runs long), and this is the cost guard. The price is concurrency at the default $1 a day: one transcription at a time (its worst case is about $1.13), or up to four upscales (about $0.25 each); a second waits and may expire after 15 min with its credits back. Raising the budget raises it. If waiting jobs expire too often, a per-job estimate (`processor.estimate` × a margin, capped at the limit) is the next step.
+- **Alerts and the admin keep reading the real spend** (recorded plus the call in flight's time so far), so a long job starting doesn't page anyone; Admin → Dashboard → GPU says whether jobs are starting and, if not, whether the budget is spent or a running job's worst case is in the way.
+- **Spend counts a re-run job's earlier calls and its current one** (recorded cost plus the call in flight), where before a job with any recorded cost stopped counting its running call (finding 9c).
+- **Partial index** `jobs_gpu_spend_idx` on `started_at` where `gpu_rate_usd is not null`, for the spend query every GPU claim runs.
+- **A blank budget in Admin is refused** ("Type a daily budget in dollars…; to stop GPU jobs, type 0"), never saved as $0.
 
-**Why:** `tools/photo.md` → P11.
-**Reverse:** `packages/engines/src/image/watermark.ts`, `watermark-draw.ts`; the placement is `packages/core/src/image/watermark.ts`.
+**Why:** review of #66, findings 8, 9 (c) and 14 (the empty field); Astro's spending cap.
+**Reverse:** the gate is `BudgetState.open` in `gpu/budget.py` (committed vs spent), the lock `jobqueue.claim_gpu`; `config/business.ts` → `gpuBudget.worstCaseIdleSec` mirrors the worker's `MAX_IDLE_TAIL_SEC` (a test holds them together).
 
-## 2026-10-01 · Batch Rename Files (M8)
+## 2026-10-02 · What a GPU call is billed: cold, failed and unreported calls
 
 **Decision:**
-- **Rules in a fixed order, not a chain the user builds:** find and replace, remove, case, prefix and suffix, date, counter, extension. Each is one setting, so the tool fits the shared settings panel; any order a user would build reads the same in this one.
-- **Find:** plain text (any case, the default), exact case, or a pattern (a JavaScript regular expression, case-sensitive, `$1` in the replacement). A pattern that doesn't parse says why and stops the rename.
-- **Dates:** taken (EXIF DateTimeOriginal in JPG, PNG, WebP and TIFF, as the camera wrote it; an MP4 or MOV's creation time from its movie header), modified, or today. A file with no date taken uses its modified date and the list says so. Only the bytes that hold the date are read.
-- **Counter:** start, step, digits, start or end of the name or instead of it, counted as added, by name (numbers as numbers), by date taken or by date modified.
-- **Flagged names stop the rename:** two names the same ignoring case (Windows and macOS ignore it), no name left, `\ / : * ? " < > |`, a name Windows keeps (CON, NUL, COM1 …), a trailing dot or space, over 255 bytes. A missing date only warns.
-- **Two ways out:**
-  - A ZIP of the files under their new names, stored without compression: the bytes are the files' own.
-  - In desktop Chromium, "Open a folder" lists its files (not subfolders or hidden files) and, after a confirm, renames them where they are with `FileSystemHandle.move()`. Each file goes to a temporary name first, then its new one, so names that swap or chain never meet; if a move fails, the ones done go back. Undo works while the page is open. Shown only where `showDirectoryPicker` and `move()` exist.
-- **The shell gains `preset.names`** (the plan behind the list, and the folder flow), a batch run tells the engine its file's place among the rest (`ctx.batch`), and an engine can set the whole output name (`out.name`). The file list gets a "New name" column, and on phones it drops the size columns and wraps names, so it fits the screen.
-- **Up to 1,000 files at once**, any type.
-- **The ZIP holds up to 2 GB in all,** and that's the registry's browser limit. It's built in memory (the files, then the archive), and fflate writes no ZIP64, so past 4 GB its sizes and offsets would overflow. Dropped files over 2 GB in all hold the rename, and the page says to rename them where they are in Chrome or Edge on a computer, or to choose fewer. A folder renamed in place has no size limit: no file is read.
+- **A warm call that worked:** GPU seconds measured inside the function + its idle window, as before.
+- **A cold call, or one the function reports as failed:** the larger of that and the wall-clock time since the spawn. Modal bills the container's boot and imports, which only the worker's clock sees; a failed call's container idles for its window like any other. (The wall clock also holds Modal's dispatch, so it errs high.)
+- **A call that didn't say** (cancelled, timed out, raised, no answer, or its worker died): wall-clock time + the longest idle window of any function (30 s, `MAX_IDLE_TAIL_SEC`), where before it was wall time alone.
+- **A spawn that failed** bills nothing: no call exists.
 
-**Why:** `tools/utility.md` → U02.
-**Reverse:** the rules are `packages/core/src/rename.ts`; the dates `packages/engines/src/files/taken.ts`; the folder rename `packages/ui/src/tool/in-place.ts`.
+**Why:** review of #66, finding 9 (a, b); `docs/05`: the idle window counts "whatever happened".
+**Reverse:** `parse_answer` and `GpuError.billed_seconds` in `gpu/backend.py`.
+
+## 2026-10-02 · GPU functions answer every failure; Whisper gets a container per job
+
+**Decision:**
+- **Every GPU function catches `Exception`** and answers `GPU_FAILED` with a fixed sentence and only the exception's type ("The GPU function failed (URLError)."), never its text: urllib's errors can quote the presigned URL, and an uncaught exception's traceback lands in Modal's logs. The worker shows the person its own fixed sentence for `GPU_FAILED`, as before. Tests run the functions locally (`.local()`, no Modal).
+- **`transcribe` gets `max_containers` 4**, the sum of A12's and V17's `maxConcurrent` (2 + 2), where it had 2. The other option, making the worker's clock exclude time queued on Modal, needs to know when a call starts running, which Modal doesn't report while we poll. With a container for every job our claims allow, none of our calls queues behind another; only a cold start waiting for an L4 does, which the 5 minutes between the function's and the job's limits cover. The budget gate still decides how many run. A test holds every function's containers at or above its tools' `maxConcurrent` total.
+
+**Why:** review of #66, finding 14 (first two points).
+**Reverse:** `_unexpected` and `SPECS` in `gpu/modal_app.py`.
+
+## 2026-10-02 · The GPU images are pinned: base by digest, packages by hash
+
+**Decision:**
+- **Base image:** `python:3.12.14-slim-bookworm@sha256:392307d2…` (Docker Hub's index digest, read 2026-10-02 from the registry and Docker Hub's API, which agree), through `modal.Image.from_registry`. It's what Modal's `debian_slim` builds on (the official Python image on bookworm), so the images change as little as possible; 3.12.14 (last pushed 2026-09-19) rather than 3.12.15, whose tag was pushed hours before (our package managers wait a day too).
+- **Python packages:** `gpu/requirements-upscale.txt` and `gpu/requirements-whisper.txt`, compiled by `uv pip compile --generate-hashes` (from `apps/worker`, so `exclude-newer = "1 day"` applies) from the `.in` files beside them, which keep the versions `docs/13` approved. Modal installs them with `pip_install_from_requirements(..., extra_options="--require-hashes")`, so a package that changes, or one that isn't listed, fails the build.
+- **pip-audit reads them in CI** (Dependency audit). It flags two PyTorch 2.10 advisories, both local-only and out of our reach, so they're ignored by id with the reason beside them: CVE-2026-4538 (PYSEC-2026-139) is in loading `.pt2` archives, and we load only our own SHA-256-pinned `.pth` weights; CVE-2025-3000 (PYSEC-2025-194) is in `torch.jit.script`, which nothing calls. Its fix is PyTorch 2.13, whose wheels need CUDA 13 drivers.
+- **gcc and libc6-dev are now listed** in the Whisper image (`docs/13`, `licenses.json`): `debian_slim` installed gcc, and Triton compiles the launcher of Whisper's word-timing kernels with it (without one, Whisper falls back to slower kernels).
+- **Gaps, logged:**
+  - Debian packages (ffmpeg, gcc, libc6-dev) are installed from bookworm and checked by apt's signatures, but their versions aren't pinned: `snapshot.debian.org` and `deb.debian.org` aren't reachable from here to pick and test a snapshot. Next step: point apt at a snapshot date, or take ffmpeg from a hashed wheel (`imageio-ffmpeg`).
+  - `openai-whisper` publishes only an sdist. Its hash is checked; the setuptools pip fetches to build it isn't (pip doesn't hash-check build dependencies).
+  - Nothing here could build the images: the first deploy after this merges (CI's Modal workflow) is the real test of the digest form and the hashed install.
+
+**Why:** review of #66, finding 10; `docs/11` → Supply chain (lockfiles, images by digest).
+**Reverse:** `image = modal.Image.debian_slim(python_version="3.12")` and `pip_install(...)` with the `.in` files' versions in `gpu/modal_app.py`; drop the CI step.
+
+## 2026-10-02 · Model licences: the weights' own licence decides; training data is a recorded risk
+
+**Decision:**
+- **The rule:** a model's own weights licence decides. It must be an explicitly commercial-use licence stated by whoever publishes the weights (`CLAUDE.md` rule 6: no non-commercial weights; unclear means no). Training-data provenance does not decide: each model's training data is recorded in its `docs/13` row as a known risk, not a blocker.
+- **Real-ESRGAN stays approved**: its weights are the author's release assets under the repository's BSD-3-Clause; its training data (DF2K, OST: academic datasets) is recorded.
+- **Demucs stays parked, now only on its weights' licence**: they're hosted outside the MIT repository and no licence is stated for them. A09 can go ahead once the author (Alexandre Défossez, or Meta) confirms the licence; MUSDB18-HQ is recorded as its training data, not a reason.
+- **Rows updated** with training data for the models we use or approved: Whisper, Real-ESRGAN, U²-Net, BiRefNet, and Demucs. Candidates get theirs when they're checked.
+
+**Why:** review of #66, finding 14 (Demucs was rejected partly for research-only training data while Real-ESRGAN, trained on academic datasets too, was approved; one rule was needed). The rule as Astro's brief gave it.
+**Reverse:** make training data a criterion in `docs/13` → Models; then Real-ESRGAN, U²-Net and BiRefNet need another look.
+
+## 2026-10-02 · Wave 3 GPU models: MI-GAN and BiRefNet_lite; LaMa and RobustVideoMatting not used
+
+**Decision:**
+- **P17 Object Eraser uses MI-GAN** (Picsart AI Research, ICCV 2023), not LaMa.
+  - LaMa's code is Apache-2.0 (Samsung Research), but no primary source gives the big-lama weights a licence. They aren't in the repository: the README links a Google Drive folder and a third party's Hugging Face copy (the Yandex links are dead), and they were trained on Places (research and education terms). `CLAUDE.md` rule 6: unclear means no.
+  - MI-GAN's weights have their own licence from the authors, `LICENSE-WEIGHTS`: MIT, "Copyright (c) 2024 Picsart AI Research (PAIR)"; the code is MIT too. We run the authors' ONNX pipeline (`migan_pipeline_v2.onnx`, 28 MB, Places2 at 512 px), linked from the README on the first author's Hugging Face account. It crops around the mask, fills, and blends back at the original size.
+  - Quality: built for phones, it is a little softer than LaMa on large areas next to fine detail; on objects of small and medium size (people in the distance, wires, signs, text) it is close. The FAQ says what works best.
+- **V21 Video Background Remover uses BiRefNet_lite** (general, Swin-T), not RobustVideoMatting.
+  - RVM's README says "Code is re-released under GPL-3.0 license", and the LICENSE is GPL-3.0's text. Nothing states a licence for the weights (its release assets), and GPL isn't one of `13`'s explicitly commercial weights licences. Not used.
+  - BiRefNet's code and weights are MIT (already approved for P07; re-read 2026-10-02). We run the authors' own ONNX export from their GitHub release `v1` (224 MB fp32), so no model code is needed in the image. Lite rather than the full Swin-L model: about 3× faster per frame, which keeps a minute of video affordable; the full model's ONNX is 928 MB and would cost more per minute than the price brings in.
+  - Per-frame segmentation flickers at edges where nothing moves, so a filter carries 60 % of the last frame's matte into each still pixel (luminance change under 6 %, measured on a 256 px grid) and none into moving pixels or after a cut (mean change over 12 %). Nothing lags behind a moving subject.
+- **V20 adds `realesr-animevideov3`**, the Real-ESRGAN authors' anime model for video (2.5 MB, steadier than the image model from frame to frame), to the upscale group.
+- **Pins:** each file's SHA-256 and size come from several independent manifests that pin the same source URL (huggingface.co can't be reached from this environment); the image build and CI's pins check confirm them before anything runs.
+
+**Why:** `CLAUDE.md` rule 6 and `docs/13` (weights need an explicitly commercial licence, checked at the primary source); the brief's alternatives (MIT or Apache weights released by their authors; BiRefNet for video).
+**Reverse:** a model's row in `docs/13` and `licenses.json` and its file in `gpu/pins.json`. If Samsung or the LaMa authors confirm a commercial licence for big-lama, it can replace MI-GAN in `_erase` (same image and mask in, same crop plan).
+
+## 2026-10-02 · The Wave 3 GPU functions on Modal (P17, V20, V21)
+
+**Decision:**
+- **GPUs:** `erase_object` on a T4 (MI-GAN fills a region in milliseconds; the call is decoding and encoding the photo). `upscale_video` and `remove_video_background` on an L4: Real-ESRGAN's convolutions and BiRefNet in fp32 use the L4's fp16 and TF32 tensor cores, about 2× a T4's speed for 1.35× its price. The registry's `gpu` says the same (a test holds them together).
+- **ONNX Runtime 1.26.0** runs MI-GAN and BiRefNet: the last release built for CUDA 12 (1.27 moved to CUDA 13, which Modal's drivers don't run, as for PyTorch 2.10). Its `cuda` extra leaves out cuBLAS and floats the versions, so the image installs the CUDA 12.8 and cuDNN 9.10 wheels torch 2.10 pins, by name, and calls `preload_dlls()`.
+- **Every function keeps the shape of 2 cores and 8 GiB**, which `config/business.ts` prices. Encoding 4K H.264, ProRes or VP9 on 2 cores can take as long as the model; a 4-core shape for the video functions is a lever once a real run shows the encoder is the bottleneck (it needs a per-function shape in `business.ts`).
+- **Video I/O** (`gpu/video.py`, standard library, tested against real ffmpeg): decode upright (our own turn filter, not autorotate, so the frame size is known) at a constant rate (`-fps_mode cfr` at the average rate, 120 fps at most) with the input's colour matrix (untagged HD read as BT.709); encode BT.709-tagged. H.264 MP4 with NVENC when a one-frame test passes, else libx264 (CRF 18, peaks capped at 50 Mbps for 4K, so 10 minutes fit one upload); ProRes 4444 (`prores_ks`, 16-bit alpha); VP9 with alpha (CRF 30). Sound is copied when the container takes it (MP4: AAC, MP3, AC-3, ALAC; MOV: AAC, ALAC, PCM; WebM: Opus, Vorbis), else AAC or Opus, with a note. HDR and 10-bit become 8-bit SDR, with a note.
+- **Limits, the same in the function, the worker and the web:** 18,000 frames (V20's "10 min cap" at 30 fps, so 5 min at 60), 4K either way round (V20's output, V21's input), and ProRes 4444 refused before charging past 4.5 GB (about 6.5 bits a pixel; one PUT to R2 holds 5 GiB, and `put_output` now refuses anything over 4.9 GB). Timeouts: 90 min for the video functions (jobs 95), 5 for the eraser (job 10).
+- **Smoke inputs**, made with the standard library: a 32 × 24 PNG with a mask marking its middle, and a one-second 64 × 48 Y4M clip (raw YUV, which ffmpeg reads), for both video functions.
+
+**Why:** Astro's Wave 3 brief (cheapest GPU that's enough, timeouts, scale-down, `gpu_seconds`, decode and encode with bounded memory, upload through the presigned PUT, remove every temp file); `tools/video.md` → V20 and V21.
+**Reverse:** `SPECS` and the images at the top of `modal_app.py`; the limits in `apps/web/src/lib/gpu-limits.ts`, `processors/upscale_video.py` and `video_background.py` (a test holds them together).
+
+## 2026-10-02 · Object Eraser's mask, and the brush that makes it (P17)
+
+**Decision:**
+- **The mask is an upload of its own**, like Burn Subtitles' subtitles: option `mask`, a PNG, white where to erase. The API's `GET /tools/object-eraser` lists it in `extra_uploads`, so API and panel callers can send their own masks. The registry now says what each extra upload must be (`uploadKinds`: subtitle types, or `image/png`), and the jobs API checks the mask's shape against the photo's before anything is charged.
+- **The mask may be scaled**: the page draws it at the photo's size up to 16 MP, and at the same shape above that (iOS Safari's canvas tops out near 16.7 MP). The GPU function scales it back up. A mask counts as the photo's shape within half a pixel of rounding plus 1 %; either way round, since a JPEG's probe gives its stored size and the page draws on it upright.
+- **Only marked pixels change.** The function splits the mask into regions apart (a coarse grid's touching cells, merged while their crops overlap), grows each by a few pixels (0.25 % of the long side, at least 3) to take edges and halos, fills each on a crop of itself plus its own size around it, and copies back only those pixels. The size, the alpha and the colour profile stay. PNG is the default because it keeps every other pixel exactly; JPG and WebP are written again at 95.
+- **The brush lives in the ToolShell** (`preset.mask`): Mark and Unmark, size in screen px, undo and clear, a tinted overlay; the strokes are kept in image px and drawn the same way on screen and into the mask (`ui/tool/brush.ts`, which the Refine brush now shares). Brushing is pointer-only (WCAG 2.1.1's path-dependent exception); its controls work from the keyboard. The run waits until something is marked.
+- **MI-GAN is small enough for a browser** (28 MB ONNX, about a quarter of a second a fill on a CPU). Rule 1 would make P17 hybrid, free in the browser with the server for the API and weak devices, but the spec says GPU, flat credits, so it's built on Modal and the browser path is a follow-up (the same ONNX through onnxruntime-web, as P07).
+
+**Why:** `tools/photo.md` → P17 ("output dims unchanged, masked area changed, rest identical"); the Burn Subtitles decision of 2026-10-01 (a second file beside the main one).
+**Reverse:** `uploadOptions` and `uploadKinds` in `@etb/registry/options`; `preset.mask` in the ToolShell.
+
+## 2026-10-02 · Upscale Video, Video Background Remover and Object Eraser: off until an admin switches them on
+
+**Decision:**
+- **Status `soon` in code**, complete enough for beta (a test parses each as beta), like every GPU tool: an admin sets beta in Admin → Tools once the smoke run passes.
+- **Prices are the README's placeholders:** P17 3 credits flat, V20 10 a minute (at least 10), V21 8 a minute (at least 8). `05` has the estimates: P17 and V20 clear the margin of 3 except 60 fps 4K; V21 likely doesn't (about 20 a minute by the formula). Reprice after the first real runs.
+- **Limits:** P17 25 MB free and 100 MB with credits, 50 MP. V20 and V21: 1 min and 200 MB free, 10 min and 2 GB with credits; V20 takes up to 1080p in (4× up to 960 × 540, checked when quoted), V21 up to 4K.
+- **Defaults:** V20 2× (4× fits only up to 960 × 540), General with medium noise cleanup, Animation for cartoons and anime. V21 ProRes 4444 MOV (what Premiere, Final Cut and Resolve key on), with WebM with alpha, green screen MP4 and a colour of your choice; the page shows ProRes's size before you start.
+- **Left for later, with the free previews of P08:** V20's 3-second preview and P17's reduced-size preview. A10's generic preview (a free snippet job) is on the branch `claude/a10-noise`, not on `main`; once it merges, V20 gets `previewSeconds` = 3 (the page cuts the snippet) and P17 a preview of a reduced copy and its mask. Building a second preview mechanism here would only conflict with it.
+- **No Playwright test yet**, as for the other GPU tools: they need Modal. The processors are tested with a stand-in GPU against real Postgres, the video I/O against real ffmpeg, the brush and the mask with stand-in canvases.
+
+**Why:** the 2026-10-02 entry on M5's GPU tools (off until an admin switches them on); `tools/README.md` prices; the brief ("reuse A10's generic preview mechanism if it exists on main … or leave the preview for later and log it").
+**Reverse:** status in Admin → Tools; prices in Admin → Tools or the registry entries.
+
+## 2026-10-02 · The Wave 3 GPU tools under the M5 review's fixes (P17, V20, V21)
+
+**Decision:**
+- **Nothing tool-specific was needed in the worker.** Object Eraser, Upscale Video and Video Background Remover all go through `processors/remote.run_on_gpu`, so the review's fixes reach them as they reach P08, A12 and V17: GPU slots of their own (`claim_gpu`), the call and its output key on the job before the URLs leave the worker (`start_call`: `gpu_call_at`, `output_key`, `gpu_output_keys`, `gpu_put_expires_at`), Modal's id as soon as the call exists (`call_spawned`), the reaper cancelling and billing a dead worker's call, the sweeper deleting every key until its URL expires, and the billing of cold, failed and unreported calls. The merge kept Wave 3's one addition to that step (the mask's presigned GET, `extra_urls`) beside the new hooks. Tests drive each of the three through the hooks without a database, and through the reaper and a call in flight against Postgres.
+- **Modal functions:** each catches `Exception` and answers `GPU_FAILED` through `_unexpected()`; idle windows stay 10 s (under `MAX_IDLE_TAIL_SEC`, 30 s, so `config/business.ts` is unchanged); `max_containers` 2 each, the `maxConcurrent` of the one tool each serves. The consistency tests list the three tools, so both rules hold for them.
+- **Images:** all on the digest-pinned `BASE_IMAGE`.
+  - V20 reuses P08's image (`requirements-upscale.txt`, hashed) with Debian's ffmpeg on top: no file of its own.
+  - P17 and V21 share a new `gpu/requirements-onnx.in` → `.txt`: ONNX Runtime GPU 1.26.0, the CUDA 12.8 and cuDNN wheels PyTorch 2.10 pins, NumPy 2.3.5, Pillow 12.3.0. V21's image adds Debian's ffmpeg. One file for both because they need the same packages; a test fails if an image installs a package by name, if a requirements file is unused, or if any entry lacks a hash.
+  - **The hashes are real:** compiled here with `uv pip compile --generate-hashes` from `apps/worker` (PyPI reachable, `exclude-newer = "1 day"` applied); 203 hashes, the `onnxruntime_gpu` cp312 manylinux wheel's checked against PyPI's JSON. `pip-audit --require-hashes` on it: no known vulnerabilities (2026-10-02). CI's GPU pip-audit step already loops over every `requirements-*.txt`; its comment now names the three.
+  - **`nvidia-nvjitlink-cu12` is pinned to 12.8.93** in the `.in`, PyTorch 2.10's version; left free, the resolver picked 12.9.86 for cuFFT, a CUDA 12.9 library beside the 12.8 ones.
+  - New packages from the compile: flatbuffers 25.12.19 (Apache-2.0), protobuf 7.36.2 (BSD-3-Clause), packaging 26.3 (Apache-2.0 OR BSD-2-Clause), ONNX Runtime's own dependencies, read from PyPI; recorded in the ONNX Runtime rows of `docs/13` and `licenses.json` as the GPU images' other permissive dependencies are.
+- **Model licences under the 2026-10-02 rule:** training data recorded for MI-GAN (Places2, distilled from a Co-Mod-GAN teacher), LaMa (Places) and RobustVideoMatting (VideoMatte240K, Distinctions-646, Adobe Image Matting, crawled backgrounds; its `documentation/training.md`), read from the authors' repositories. LaMa and RobustVideoMatting stay out on their weights' licence alone.
+- **Gaps, as for M5's images:** Debian's ffmpeg in the video images isn't version-pinned (apt's signatures only); nothing here can build the images or reach Modal, so CI's first deploy is the real test of the ONNX image's hashed install.
+
+**Why:** the M5 review's fixes (#66) and their notes for new functions (idle window ≤ 30 s, containers ≥ the tools' `maxConcurrent`, tools in `test_gpu_consistency.py`, images from hashed requirement files); `docs/11` → Supply chain.
+**Reverse:** `inpaint_env` and `matte_env` in `gpu/modal_app.py` back to `pip_install(...)` of the `.in`'s pins, and delete `requirements-onnx.*`.
+
+## 2026-10-02 · A video GPU job's worst case is more than the default daily budget
+
+**Decision:**
+- **Kept V20's and V21's 95-minute job limit** (90 for the function), so the gate counts a running video job at (5,700 + 30) s × the L4 rate, about **$1.52**: more than the default $1 a day on its own. It still starts like any GPU job, while today's committed spend is under the budget; then no other GPU job, of any tool, starts until it ends, and spend can pass the budget by up to that $1.52 if it runs to its limit. This is the gate's own rule (at most one job's worst case over), as for a transcription ($1.13); Object Eraser's worst case is about $0.13.
+- **Not done:** shortening the limit to fit under $1 (about 62 minutes): the slowest clip (18,000 frames at 4K) was estimated at about an hour, which would leave no room for a cold start or a slow encode. A per-job estimate in the gate is the review's next step, once real runs measure the tools.
+- **docs/05 says it**, and a test holds its numbers to the registry's limits and `config/business.ts`'s prices; another drives the gate against Postgres (a video job running: nothing else starts; it ends: two erasers start).
+
+**Why:** the gate counts running jobs at their worst case (2026-10-02, review of #66, finding 8); Astro's spending cap; the brief's "extend the budget/worst-case tests".
+**Reverse:** lower `timeoutSec` in `packages/registry/src/tools/video/upscale-video.ts` and `video-background-remover.ts` (and `SPECS` in `modal_app.py`, 5 min under it), or raise the budget in Admin → Dashboard → GPU.
 
 ## 2026-10-02 · Decoded audio is copied a whole block at a time (WebKit)
 
@@ -1569,249 +1954,34 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** in WebKit (Playwright's WebKit 26.6 on Linux), `copyTo` from interleaved `f32`, which is what its Opus decoder gives, to `f32-planar` with a `frameOffset` above 0 never returns. The page hangs, then crashes a minute or more later. A boomerang's backward sound starts partway into a block, so in WebKit its Download never came on. A test page showed the call alone hangs. Offset 0 (whole or shorter), planar to planar and interleaved to interleaved all work, and Chromium and Firefox handle all five cases. A block is a few thousand frames, so copying it whole costs nothing.
 **Reverse:** pass `frameOffset` and `frameCount` to `copyTo` again once WebKit converts from an offset; `stream.test.ts` checks the cut either way.
 
-## 2026-10-01 · Draw on Image (M8)
-
-**Decision:**
-- **Marks are data, not pixels:** each is a tool, its points in the image's own pixels, a colour, a size in px and an opacity, kept in the editor's edit, so undo and redo come with the editor's history.
-- **One renderer** (`drawMark` in `@etb/engines`): the editor draws the marks on a canvas over the image at screen scale, and the image worker draws them on the full-size decode before any crop or turn. What you see is what you save.
-- **The tools:**
-  - Brush: smoothed through the midpoints.
-  - Highlighter: 4 × wider, square ends, multiplied, so text under it stays readable.
-  - Line, arrow, rectangle, ellipse.
-  - Numbered marker: the next number in a filled circle (its radius 5 × the size, at least 14 px), the number in black or white by contrast.
-- **The arrowhead scales with the stroke:** 4 × the width long, about 2.5 × wide plus the width, never longer than the arrow. The shaft stops at the head's base, so a thick line never pokes out of the tip.
-- **No drag needed** (WCAG 2.5.7): a shape is also two clicks, start then end, with a preview between them; a marker is one click; Escape drops a started shape. The pen's controls sit in a bar over the image: tools as a radio group with arrow keys, then colour, size in px, opacity, and Clear all.
-- **Defaults:** a red arrow (#e53935), sized to the image (its longest side ÷ 250, at least 2 px), at full opacity.
-- **One image at a time.** It saves in its own format unless another is picked, at its full size.
-
-**Why:** `tools/photo.md` → P09.
-**Reverse:** the marks and renderer are `packages/engines/src/image/annotate.ts`; the editor's layer is `packages/ui/src/tool/DrawLayer.tsx`.
-
-## 2026-10-01 · Add Text to Image (M8)
-
-**Decision:**
-- **Fonts:** Onest and IBM Plex Mono (already the site's), plus Montserrat, Oswald and Noto Serif, from Fontsource (OFL-1.1, `docs/13`).
-  - Each was checked in the browser to draw Uzbek Latin oʻ gʻ (U+02BB) and Uzbek Cyrillic қ ғ ҳ ў.
-  - PT Serif, Caveat, Roboto Slab, Rubik, Lobster and Comfortaa each missed one, so they're out.
-  - Regular and bold, in four subsets each. The files are copied to `/fonts/text/` at build (`scripts/text-fonts.ts`, 668 KB in all), registered with their unicode ranges, and loaded only as text needs them.
-  - Fonts load under their own family names (`etb-text-*`), so they never clash with the site's Onest.
-- **Your own font:** a TTF, OTF, WOFF or WOFF2 file picked in the panel is loaded with `FontFace` from its bytes and used on the page only; it's never sent anywhere.
-- **Layers are data** in the editor's edit (text, font, bold, size in image px, colour, alignment, centre, rotation, outline, shadow, box), so undo and redo come with the editor.
-- **One renderer, on the page:** the preview and the export both lay the text out with `drawTextLayer` and the page's fonts. The export draws the layers at full size on a transparent canvas the image's size, and the image worker lays that over the decoded image. Fonts aren't loaded into the worker, because not every browser can do that.
-- **Layout:**
-  - Lines at 1.25 × the size, centred on the layer's point.
-  - Alignment within the block.
-  - An outline drawn twice as wide under the fill, so it sits outside the letters.
-  - A soft shadow scaled with the size, and a box with 0.3 × the size of padding at its own opacity.
-- **Placing:**
-  - Click the image to add text there, or Add text for the middle.
-  - Drag the chosen layer; it snaps to the image's middle lines within 8 screen px, and a guide shows while it does.
-  - Arrow keys nudge it (Shift for 10 px), and Delete removes it.
-- **New text** is white, bold Onest with a shadow, a tenth of the image's shorter side.
-- **On phones** the panel shows the text, font, size, bold and colour, with the rest folded under "More". It's capped at 55% of the editor, so the image stays in view.
-
-**Why:** `tools/photo.md` → P10.
-**Reverse:** the layers and renderer are `packages/engines/src/image/text-layer.ts`; the fonts are `text-fonts.ts`; the editor's parts are `packages/ui/src/tool/TextLayers.tsx` and `TextBar.tsx`.
-
-## 2026-10-01 · Blur & Pixelate Image (M8)
-
-**Decision:**
-- **Face model: YuNet 2023mar** from OpenCV's model zoo (MIT code and weights, `docs/13`). It's 0.2 MB, made for faces from about 10 px up, and runs on ONNX Runtime Web's WASM build, which Remove Background already ships, so the two tools share one 14 MB runtime download in the models cache.
-  - Pinned by SHA-256. `pnpm models` fetches it from the zoo's LFS file on `main`; a change there fails the checksum instead of shipping.
-  - **Reading a photo:** the model takes a fixed 640 × 640 input. The whole photo is read once, scaled to fit. When it's large, it's read again in overlapping tiles at 2× and 4× that detail, never finer than the photo's own pixels: 27 runs for a 4000 × 3000 photo, about 2 s in WASM. A face about 30 px across in a 4000 px group photo is found.
-  - **Merging:** the best box wins over any it overlaps by IoU above 0.3, or that lies mostly inside it (a face cut by a tile's edge).
-  - **Threshold:** 0.7, not OpenCV's 0.9. A missed face is worse than a box the user turns off.
-- **Found faces are hidden at once:** each becomes an ellipse grown from the detector's brow-to-chin box to cover the head (15% each side, 30% above, 10% below). A tap or Enter on a face's button leaves it as it is, and a second turns it back on. A new search replaces the earlier faces and keeps drawn areas.
-- **Areas are data** in the editor's edit (box, ellipse or brush path in image px), with one effect for all of them: Blur, Pixelate or Solid. So undo and redo come with the editor.
-- **Effects replace every pixel inside an area,** with no feathered edge, so nothing of a face shows through:
-  - **Pixelate:** blocks of the set size, counted from the area's top-left corner, each the opacity-weighted average of its pixels.
-  - **Blur:** three box blurs each way (about a Gaussian with σ = half the strength), reading the pixels around the area too.
-  - **Solid:** a colour, black by default.
-- **Strength in px:** it starts at about 1/60 of the photo's longest side (67 px on a 4000 px photo), up to 1/8.
-- **One renderer:** the same pure code in `packages/engines` makes the editor's preview (the photo redrawn at screen size) and, in the image worker, the full-size image, before marks, text and geometry.
-- **Without a pointer:** "Add box" puts a box in the middle. Each drawn box or ellipse can be focused: the arrows move it (Shift for 10 px), Alt and the arrows change its size, and Delete removes it.
-- **Fixture:** `fixtures/photo/face.jpg`, NASA's public-domain portrait of Eileen Collins at 256 px. The test puts four copies at four sizes into one image. Wikimedia is out of reach from the build container, so the copy in scikit-image's repository was used, checked against its SHA-256.
-
-**Why:** `tools/photo.md` → P12.
-**Reverse:** the areas and effects are `packages/engines/src/image/redact.ts`; the finder is `packages/engines/src/image/faces/`; the editor's parts are `packages/ui/src/tool/BlurLayer.tsx`. To raise or lower the threshold or the tile levels, change `FACE_THRESHOLD` or `MAX_LEVEL` in `faces/yunet.ts`.
-
-## 2026-10-01 · Photo Editor (M8)
-
-**Decision:**
-- **One editor, every mode:** Crop, Straighten, Rotate left and right, Flip both ways, Adjust, Draw, Text and Blur, in a rail on the left from the `lg` breakpoint and a scrolling bar along the bottom on phones. Undo and redo cover every mode. It opens on Adjust, so the photo shows clean.
-- **No Resize mode in the rail:** the size is in the settings with the crop ratio, the format, the quality and the metadata: Original, Longest side in px, or Percentage. Those settings are the spec's export dialog. The saved file's size shows on the result, and "Back to the editor" keeps every edit.
-- **Adjust:** exposure (−2 to +2 EV), brightness, contrast, saturation and warmth (−100 to 100).
-  - Exposure and warmth are gains in linear light; warmth moves red and blue up to 15% (green a third of that).
-  - Brightness is a midtone curve (v^2^(−b/100)) that keeps black and white.
-  - Contrast is a slope of ¼× to 4× around middle grey.
-  - Saturation mixes with Rec. 709 luma, from grey to twice as vivid.
-  - Per-channel tables, then the saturation mix.
-- **Live preview in JS, not WebGL:** the spec asks for WebGL. The same pure function instead runs on the editor's screen-sized copy, about 10 to 20 ms a frame, and in the worker at full size, so the preview is the file to the pixel.
-- **Order:** adjustments, then hidden areas, marks and text in the photo's own pixels, then turns, flips, straighten, crop and size.
-- **Crop with Straighten:** a box drawn on the straightened photo is cut in that frame. Only the part with no corners showing is kept. Crop Image and Rotate & Flip don't combine the two, so they're unchanged.
-- **Turned and flipped photos:** layers live in the photo's own pixels and turn with it.
-  - The editor maps the pointer through its zoom, angle, flips and turns, so drawing, boxes and dragging land where they're done.
-  - Arrow keys move things the way they show on screen.
-  - New text and numbered markers get an upright base, the inverse of the frame as a rotation and a mirror, so they read the right way in the saved image. A text shadow still falls downwards.
-- **Find faces** is in Blur mode here too. The Photo Editor isn't listed under the AI filter, because face finding is a side feature.
-
-**Why:** `tools/photo.md` → P01.
-**Reverse:** the adjustments are `packages/engines/src/image/adjust.ts`, the upright helpers `upright.ts`, the rail `layout` prop on `CanvasEditor`, and the bar `AdjustBar.tsx`.
-
-## 2026-10-01 · Mobile: share target, install button, desktop notes (M8)
-
-**Decision:**
-- **Android share target:** the manifest's `share_target` takes images, video, audio and subtitle files as a multipart POST to `/share`.
-  - The static site has no server, so the service worker answers that POST. It keeps the files (up to 50) in an `etb-shared` cache on the device, clears anything older, and redirects to `/share`.
-  - `/share` reads the files, **deletes them from the cache at once**, and lists the tools that take every one of them: open now, run in the browser, and reached without a full page load (the handoff is in memory). Several files list only batch tools when there are any. Batch Rename, which takes any file, comes last.
-  - Picking a tool hands the files to it in memory, the way "Use in another tool" does. The handoff now carries several files.
-  - iOS has no share target, which is fine (`docs/01`).
-- **Install button:** Chrome's `beforeinstallprompt` is kept and an "Install the app" button appears in the footer. It's never a pop-up. One prompt per offer, and the button goes after. On iPhone and iPad Safari, where nothing can prompt, a line says "tap Share, then Add to Home Screen". Neither shows once the app is installed.
-- **"Works best on a computer":** tools flagged `desktopBest` (Batch Rename) show "Works best on a computer, and works here too." under the privacy line, below the `lg` breakpoint only.
-- **Thumb reach and bottom sheets** were already in place: the primary action sits in a bar at the bottom of the screen on phones, and the settings open as bottom sheets.
-
-**Why:** `docs/12` → M8 (mobile), `docs/01` → Mobile, `docs/03` → Mobile.
-**Reverse:** the share target is `apps/web/src/app/manifest.ts`, `scripts/sw.ts` (`receiveShare`) and `src/app/share/`; the install button is `src/components/InstallButton.tsx`; the note is in `ToolShell`'s header.
-
-## 2026-10-02 · Draw on Image from the keyboard
-
-**Decision:**
-- **"Add" in the draw bar** ("Add arrow", "Add rectangle", "Add marker" and so on, after the tool picked) puts a mark in the middle of the image and focuses it. A box or ellipse is a quarter of the image across, as Blur's "Add box". A line, arrow or stroke is a quarter of the longer side long and level on screen, in a turned or flipped photo too. A marker sits in the centre with the next number.
-- **Every mark is a focusable box** over its extent (stroke, arrowhead or circle included), in the order drawn, named by its tool, number and place ("Rectangle 1, 100 × 75 px at 150, 113"):
-  - Arrow keys move it 1 px, Shift 10 px, the way the screen shows.
-  - Alt and the arrows change its size, as in Blur: a line or arrow moves its end (the arrow's tip), a box or ellipse its far corner (at least 2 px), a stroke stretches from its top left, and a marker grows with → and ↑.
-  - Delete removes it; focus goes to the next mark, or the drawing area when none is left.
-- The boxes only show in Draw mode and don't take the pointer, so drawing over a mark still draws. Each key press is one undo step.
-
-**Why:** rule 9 and WCAG 2.1.1. Arrows, lines, boxes, ellipses and markers don't depend on the pointer's path, yet a keyboard user couldn't place, move or remove one (M8 review, finding 8). The 2.5.7 entry above only covered dragging.
-**Reverse:** `centredPoints`, `moveMark`, `resizeMark` and `markBounds` in `packages/engines/src/image/annotate.ts`; the boxes and `onMarkKey` in `packages/ui/src/tool/DrawLayer.tsx`; `onAdd` in `CanvasEditor.tsx`.
-
-## 2026-10-01 · Shutter Angle and Recording Storage calculators (Wave 3)
-
-**Decision:**
-- **Wave 3 starts:** M8's browser work is done, and its other tools wait on M5 or a model runtime (`STATUS.md` → Blocked), so Wave 3's browser tools come next, one small group per PR. These two calculators go together, as Contrast and DPI did.
-- **Shutter angle:**
-  - Speed = angle ÷ (360 × fps). 23.976, 29.97 and 59.94 mean the exact NTSC rates (24000/1001 and so on).
-  - A speed can be typed as 1/50, 50 (what a camera shows) or 0.02.
-  - **Flicker:** lights on mains power pulse at twice its frequency. Speeds lasting a whole number of pulses (within 1%), up to 360°, are listed as flicker-safe. When the frame rate divides the pulse rate evenly (25 fps on 50 Hz, 30 on 60), every frame starts at the same point of the pulse, so the page says no speed flickers, though a rolling shutter may still show still bands.
-  - A speed longer than a frame is flagged, not clamped.
-- **Storage:**
-  - Decimal units throughout, as cards and drives are labelled (1 TB = 10¹² bytes). The page says Windows shows 931 GB for 1 TB.
-  - Hours are rounded down to the minute.
-  - Space needed comes with and without a backup copy, plus the number of 128 GB cards.
-- **"Editable table" of codecs:** a list of typical bitrates, labelled "check your camera's manual". A row's Use button fills the bitrate, and the bitrate field takes the camera's own value, which marks the codec "My own bitrate". Values: Apple's ProRes figures at 29.97 fps, Sony XAVC S 4K at 100 Mbps, and typical phone and mirrorless rates.
-
-**Why:** `tools/subtitles-and-time.md` → T07, T08; `docs/12` → "Then — Wave 3".
-**Reverse:** the maths is in `packages/core/src/calc/shutter.ts` and `storage.ts`.
-
-
-## 2026-10-01 · File Checksum (Wave 3)
-
-**Decision:**
-- **hash-wasm** (MIT, `docs/13`) hashes in a worker. One read of the file feeds MD5, SHA-1 and SHA-256 at once, a piece at a time, so a 30 GB clip never sits in memory. Web Crypto can't hash a stream, so it would need the whole file at once.
-- **New engine id `file-hash`**, which loads WebAssembly. U04 isn't `text`, the engine for pure-TypeScript work.
-- **One file or many, the page is a batch list:** it runs as soon as files are in, and each row shows its three hashes with copy buttons. Up to 1,000 files, 32 GB each.
-- **Expected hash** takes one hash, or a list in `sha256sum` style (`<hash>  <name>`, `*` for binary mode) or BSD style (`SHA256 (<name>) = <hash>`). The algorithm is told by the hash's length. Files are matched to a list by name, without folders and ignoring case. Checking a pasted hash never re-reads the files.
-- **Two or more files without a pasted hash are compared:** "The 2 files are identical / different", or how many are copies of another.
-- **The download is the list, not a ZIP of one-line files:** SHA256SUMS, MD5SUMS or SHA1SUMS (checkable with `sha256sum -c` or `shasum -a 256 -c`), or a CSV with all three. In the CSV, a name a spreadsheet would run as a formula gets a leading `'`.
-
-**Why:** `tools/utility.md` → U04.
-**Reverse:** the logic is in `packages/core/src/checksum.ts`; the engine is `packages/engines/src/files/checksum.ts`; the ToolShell's `batchCheck`, `batchSummary` and `batchList` are only used here.
-
-## 2026-10-01 · Reverse Audio and Reverse Video (Wave 3)
-
-**Decision:**
-- **Read backwards a window at a time.** Media decodes only forwards, so both tools read the file from its end in short stretches, decode each, turn it round and encode it. Memory stays at one stretch, however long the file (`@etb/core`'s `reversePieces`).
-  - **Sound:** 10 s windows. Each is decoded from 0.2 s before it, which is thrown away, so a lossy decoder has settled. Frames are placed by timestamp, so the windows meet with nothing lost or doubled.
-  - **Picture:** stretches of up to 90 frames, fewer for big frames (a 384 MB budget of RGBA copies). Each frame is copied out of the decoder at once, so the decoder never runs out of frames, and keeps its own duration, so a variable frame rate stays as it was.
-- **Reverse Audio's selection:** the timeline starts with the whole file selected. A smaller selection reverses only that part, the rest stays as it was, and the audio dips to silence for 5 ms either side of each join so the jump doesn't click. WAV and FLAC stay lossless; lossy formats are encoded again at the file's own bitrate.
-- **Reverse Video:** always encoded again (a reversed picture can't be copied), in the clip's own container, at high quality. The sound is reversed over the picture's length, or left out. Clips over 5 min get a "this will take a while" note before starting (`tools/video.md` → V18: long clips warn).
-
-**Why:** `tools/audio.md` → A15, `tools/video.md` → V18.
-**Reverse:** `packages/engines/src/audio/reverse.ts`, `video/reverse-video.ts` and `video/clip-frames.ts` (the stretch size is `framesPerStretch`).
-
-## 2026-10-01 · Loop Video (Wave 3)
-
-**Decision:**
-- **Copied when it can be, the "fast concat":** each repeat is the clip's own packets, its timestamps moved along by the clip's length. That is instant and lossless, and the sound is copied the same way. The encoder's lead-in is kept only in the first copy, so timestamps stay in order.
-- **A length that ends partway through a copy** cuts that copy's last frames. Copying stays safe when no frame depends on a later one. A clip with reordered frames (B-frames, common in H.264 from cameras) is encoded again instead, and the note says why.
-- **Boomerang:** one loop is every frame forwards, then backwards without repeating the two frames it turns on (0…N−1, N−2…1), so it loops without a stutter. It is encoded again at high quality, with the picture read backwards a stretch at a time (`ClipFrames`) and the sound reversed with it.
-- **Limits:** 2 to 50 repeats, or a length up to 60 min, which is the browser limit for video. A copy that would pass 2 GB is refused, since the result is built in memory.
-
-**Why:** `tools/video.md` → V19.
-**Reverse:** `packages/engines/src/video/loop-video.ts`.
-
-## 2026-10-01 · Split Audio (Wave 3)
-
-**Decision:**
-- **The parts are the timeline's ranges.** The settings fill them in, and any part can be moved, dropped or added before the split, as Remove Silence does with its cuts. Four ways to fill them: equal parts, pieces of a length (a sliver under 0.05 s at the end joins the piece before), at silences, or by hand.
-- **At silences, the split is in the middle of each pause** that is at least as long as set (1 s at first), so nothing is lost and each part keeps half a pause either side. A silence at the very start or end stays with the first or last part. The silence finder is Remove Silence's, auto threshold included.
-- **Up to 50 parts**, the timeline's limit for ranges. Past that, the page asks for longer pieces.
-- **Each part is a Trim Audio "keep":** MP3, AAC and Opus in their own format are copied frame by frame (cut at the nearest frame), and WAV and FLAC are cut to the sample. Only a change of format encodes again.
-- **The download is one ZIP, stored without compression** (audio is already compressed), with the parts named `name_01.mp3` and on. A single part downloads as the file itself.
-
-**Why:** `tools/audio.md` → A14.
-**Reverse:** `packages/core/src/media/split.ts` (the parts) and `packages/engines/src/audio/split.ts`.
-
-## 2026-10-01 · Gradient Generator (Wave 3)
-
-**Decision:**
-- **Laid out exactly as CSS does,** so the PNG matches the preview:
-  - Linear: along a line through the centre, at the angle (0° up, 90° right), long enough that the corners meet the end stops.
-  - Radial: a circle out to the farthest corner, which is CSS's `radial-gradient(circle, …)`.
-  - Conic: clockwise from the angle, round the centre.
-  - Before the first stop and after the last, their colours.
-- **Plain blends in sRGB**, as browsers do by default.
-- **Smooth blends in Oklch** along the shorter hue arc, with chroma lowered (hue and lightness kept) where a colour falls outside sRGB, the way CSS Color 4 maps gamut. A grey stop takes the other colour's hue, so the blend doesn't swing through others. Smooth is the default: it's the point of the tool.
-- **Smooth CSS spells the blend out** as a stop every 10 %, rather than CSS's `in oklch`, so it looks the same in every browser, older ones included.
-- **The PNG is dithered** (a 4 × 4 ordered pattern, half a step either way), so wide, gentle gradients don't band. It's drawn in the tab, up to 8,000 px a side.
-- Up to 8 stops; "Add a stop" puts one halfway between the last two, in their blend. Everything is in the URL.
-
-**Why:** `tools/color.md` → C07.
-**Reverse:** `packages/core/src/color/gradient.ts`.
-
-## 2026-10-02 · Reverse and Loop Video: even sizes, variable frame rate kept, the copies' sound meets
-
-**Decision:**
-- **Even sizes:** encoded again (Reverse Video, Loop Video's boomerang or a cut copy), the picture is its display size with each side rounded to even, as Merge Videos and Resize Video do: 1437 × 899 is drawn at 1438 × 900.
-- **Variable frame rate is kept:** the output's video track gets a frame rate only when Mediabunny finds a steady one under the frames (`underlyingFrameRate`). Checked in Mediabunny 1.60: a track's `frameRate` becomes the MP4 timescale, and Matroska rounds every timestamp to it, so a phone or screen recording came out constant, two close frames sometimes on one time. Change Video Speed sets `frameRate` the same way and needs the same change on its own branch.
-- **Loop Video's fast copy:** each copy's last sound packet ran past the picture's end into the next copy's first, up to one packet (21 ms of AAC). Players that play sound back to back, as Chrome does, drifted later at every loop. Now the last packet is kept only when it runs over by half a packet or less, and the next copy's sound starts where it ends. There's no overlap or gap, and the sound is within half a packet of the picture at every join, however many copies. The encoder's lead-in is skipped by where a packet ends, not where it starts, so a packet that starts in the lead-in but carries the clip's first sound plays in every copy.
-- **Shutter speeds with a unit are seconds:** `2 sec`, `2 s` and `2"` (how cameras show long exposures) are 2 s. A bare `2` is still the camera's 1/2.
-
-**Why:** M8 review, findings 4, 13 and 14, and the overlap marked plausible under finding 2 (confirmed: the copy kept packets up to the cut and every packet's own length). H.264 and HEVC encoders refuse odd sizes: Safari stopped, Chrome fell back to AV1 in MP4.
-**Reverse:** `even`, `encoderSize` and `steadyRate` in `packages/engines/src/video/clip-frames.ts`, `audioSeam` in `loop-video.ts`, `parseSpeed` in `packages/core/src/calc/shutter.ts`. The test clip is `fixtures/video/clip-vfr-odd.mkv`.
-
-## 2026-10-02 · The ToolShell loads tool-specific parts only on the tools that use them
-
-**Decision:** code in the shared ToolShell that only some tools use is no longer in the scripts every tool page loads.
-- **Loaded when shown, with `React.lazy`** (like the canvas editor, timeline and colour picker before): the batch list, the combine list (`FileOrder`), the analyzer's fact grid, the `grid` and `checklist` option controls, and the timeline workspace (now `TimelineWorkspace.tsx`, which loads with the Timeline).
-- **Loaded on mount and kept in state**, because the shell calls into them while it renders (whether the run is blocked, whether the server offer can start):
-  - U02's name checks, folder picker, renames in place and undo (`FolderRename.tsx`), only for a preset with `names`. The drop zone takes the "Open a folder" button as a `folder` slot instead of an `onFolder` callback, so its icon comes with it.
-  - The server path's notice, price dialog, terms and error class (`ServerNotice.tsx`), only for a tool with `server`.
-- `plural` moves from `server.ts` to `format.ts`.
-
-**Why:** Batch Rename and Watermark Images (PR #71) put about 2.7 KB of their own code into the shell, which took /remove-background past the 180 KB script-transfer budget for tool pages. On the CI build, /remove-background now loads 176,252 bytes of script, down from 181,047, and /video-converter 173,511, down from 178,309 (Lighthouse: 172 KB and 169 KB, down from 177 KB and 174 KB). The budgets are unchanged.
-**Reverse:** import those modules statically in `packages/ui/src/tool/ToolShell.tsx` again.
-
 ## 2026-10-02 · A result's audio player loads only its header until played
 
 **Decision:** the shell's result `<audio>` (every tool whose result is audio) has `preload="metadata"`, like the input player on timeline tools. It reads the header and shows the length; the rest loads when the person presses play. The result `<video>` is unchanged.
 **Why:** Merge Audio's join test hung in WebKit on main (CI runs 36960698035, 36963706269). Stage logs and a 250 ms page heartbeat on a debug branch showed the merge itself always finished (the 2,688,044-byte WAV was written). The page then froze right after the result player's `loadstart`, before `loadedmetadata`, for about 90 s, so Download never came on. With the default preload (auto), the join hung in 2 of 12 and 3 of 12 runs, and the player errored in 2 more. With `metadata`, `none`, or no player, there were no failures in 12 runs each (debug runs 36977764969, 36979041409). Playwright's Linux WebKit plays media through GStreamer, and the stall comes only with `auto`, which lets the browser buffer the whole file. Safari uses AVFoundation instead, and Chromium and Firefox never stalled. The header is all the player needs to show before anyone listens, and it doesn't read a large result into memory unasked.
 **Reverse:** drop `preload` from the result `<audio>` in `ToolShell.tsx` and the `toHaveAttribute('preload', 'metadata')` check in `merge-audio.spec.ts`.
 
-## 2026-10-02 · The shell's checks on the editor's changes sit apart from the pixel code
-
-**Decision:** `isNeutral`, `NO_ADJUST` and `activeAreas` live in `packages/engines/src/image/edit-checks.ts`, which holds no pixel code. `adjust.ts` and `redact.ts` import and re-export them, and `@etb/engines` exports them from there.
-**Why:** before a run, the ToolShell checks whether P01's adjustments moved and whether P12 has an area to hide. Importing those two functions from `adjust.ts` and `redact.ts` put both modules, about 2 KB of script, on every tool page, the same problem as the entry above. With #71's trim merged into group C, /remove-background read 181,175 bytes of script locally, over the 180 KB budget; with the checks apart, 179,100 (group B alone reads 177,783 on the same machine).
-**Reverse:** define the three in `adjust.ts` and `redact.ts` again.
-
-## 2026-10-02 · File Checksum hashes in two workers, kept between files
+## 2026-10-02 · Tool views load through their category's index
 
 **Decision:**
-- **Two workers for each file.** One reads the file, once, hashes MD5 and SHA-1, and hands each piece to the other (transferred, not copied), which hashes SHA-256. The reader waits when it is 16 MB ahead, so pieces never pile up in memory behind a slow SHA-256.
-- **The workers are kept between the files of a batch**, and let go after 10 s idle. An abort or error ends them.
-- **The 48 MB e2e test hands its file over from disk** (a temporary folder), not as a buffer. Its 30 s timeout is unchanged.
+- `ToolView` (`apps/web/src/tools/index.tsx`) knows only the six categories. It loads the tool's category index (`src/tools/views/<category>.tsx`) with `next/dynamic`, and the index loads the tool's view the same way, so each is its own chunk. The ids are listed by category in `src/tools/ids.ts` (`VIEW_IDS`); each index is typed against its list, and a unit test checks every id sits under its tool's registry category, which the page passes to `ToolView`.
+- A new end-to-end test hands Extract Frames' frame to Resize Image: a soft navigation from a video tool to a photo tool, which loads the other category's index on the way (Remove Background's test covers the handoff within one category).
+- The script every hub and tool page loads (the `[slug]` route's chunk) no longer holds a loader for every tool, so their initial JS doesn't grow with the number of tools. A tool page also loads its own category's index: about 35-45 B gzip per tool in that category.
+- **The trade:** Turbopack preloads only a page's own `next/dynamic` imports (they're the only ones in its loadable manifest), so the view's chunks are no longer preloaded with the HTML; they're requested when the index runs, during hydration. Under slow 4G and a 4× slower CPU (Playwright, median of 5 runs), the drop zone hydrates at the same time within the noise: Remove Background 2554 ms (was 2598), Video Converter 2542 (2660), Timecode Calculator 2466 (2337). The bundle, not the view, sets that time, and the view no longer shares the bandwidth with it.
+- **Measured** (initial JS from `js-budget`; script transfer from Lighthouse, the value 5 runs share: in some runs the home page's chunk, prefetched from the header logo, also lands inside Lighthouse's window and adds 3.5-4.3 KB, before and after alike):
 
-**Why:** the test took 17–20 s alone and hit its timeout under load. Timed in the page, about 17 s went by before the input's change event even fired: Playwright sends a buffer as base64, and its code in the page decodes it with `Uint8Array.from(atob(…), c => c.charCodeAt(0))`, one callback per byte (7.9 s for 48 MB on its own in this Chromium, more with two tests running). The tool took about 1 s of it. Handed over from disk, the test takes about 4 s. The folder name is plain ASCII: `testInfo.outputPath` would put the test title's ’ in the path, and Chromium under a POSIX locale doesn't open it.
-In the tool itself, all three hashes ran one after another in one worker: 70 to 90 MB/s in Chromium (hash-wasm alone: MD5 430, SHA-1 330, SHA-256 180 MB/s). Split in two, a file goes at about SHA-256's pace: 48 MB took 630–720 ms before and 330–430 ms after, interleaved in the same browser. Each file also started a new worker and compiled its WebAssembly again: 50 small files took 1.4–1.7 s in the engine, now 0.11–0.15 s. Web Crypto stays out: it has no MD5, can't hash a stream, and its SHA-256 ran at 120 MB/s here, slower than hash-wasm.
-**Reverse:** one group with all three hashes in `GROUPS` (`packages/engines/src/files/checksum.ts`) is one worker again; without `takeTeam` and `giveBack`, each file starts its own workers.
+  | | main (50 views) before | main after | tools-e (67 views) before | tools-e after |
+  |---|---|---|---|---|
+  | Initial JS, hubs and tool pages | 148.3 KB | 146.4 KB | 149.9 KB | 147.2 KB |
+  | Initial JS, home / privacy | 144.7 / 144.0 KB | 144.9 / 144.1 KB | 145.5 / 144.8 KB | 145.6 / 144.9 KB |
+  | Script transfer, `/remove-background` | 180,821 B | 180,386 B | 178,609 B | 177,714 B |
+  | Script transfer, `/video-converter` | 178,570 B | 178,339 B | 178,106 B | 177,203 B |
+  | Script transfer, `/timecode-calculator` | 155,708 B | 155,058 B | 157,172 B | 155,964 B |
+  | Script transfer, `/photo`, `/upscale-image` | 148,441 B | 146,598 B | 149,896 B | 147,356 B |
+
+  On this machine main's `/remove-background` is already over the 180,000 B tool-page gate (180,821 B), and stays over by 386 B with this change alone; tools-e is under it. Home and privacy gain 0.1-0.2 KB because Turbopack moved a module between two framework chunks. With 27 more views added to main (then 47 views), the old map put 1.1 KB more on every hub and tool page (148.2 → 149.3 KB); with the indexes, the `[slug]` chunk keeps its size to the byte, the photo and video indexes are the same files, and only the 27 tools' own category index grew (536 → 1,494 B gzip).
+- **Not taken** (built and measured):
+  - **Choosing the view in the server page** (the views imported into `[slug]/view.tsx`, statically or with `next/dynamic`, also through server wrappers): Turbopack puts every client component a page segment imports into one chunk group, emitted as `<script>` tags on every page of the route, so every hub and tool page loaded all 47 views: 252.6 KB initial JS.
+  - **A route per tool** (`app/(tool)/<slug>/page.tsx` binding the shared page to that tool's view): a tool page's initial JS drops to 145.3 KB, but Next prefetches the route chunk of every tool link on screen, and each route chunk repeats the header's client components (SiteFrame is rendered by the page, not the layout), so `/photo` loaded 182 KB of script (budget 160 KB) and `/upscale-image` 161 KB. Even with the header in a shared chunk, each tool on screen would still be one more script request on a hub.
+**Why:** `10` → Budgets. The initial-JS budget read 149.9 KB on tools-e, and every view added about 42 B gzip to every hub and tool page, so the views still to come would have broken it.
+**Reverse:** one map of `next/dynamic` imports in `src/tools/index.tsx` again (git history before this entry): the view is preloaded with the page, and every tool's loader is on every hub and tool page.
+
