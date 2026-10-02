@@ -74,7 +74,8 @@ class JobContext:
     limits: Limits
     cancel: threading.Event
     progress: Callable[[int, str], None]
-    #: The tool's other inputs, in order (Burn Subtitles: the subtitle file), named extra-0, ...
+    #: The tool's other inputs, in order (Burn Subtitles: the subtitle file; Merge Videos: the
+    #: clips after the first), named extra-0, extra-1, ...
     extra_paths: list[Path] = field(default_factory=list)
     #: Remote processors: the input's storage key, storage, the GPU backend and where GPU time goes.
     input_key: str | None = None
@@ -182,6 +183,7 @@ def ffmpeg_progress(
 from etb_worker.processors import (  # noqa: E402
     burn_subtitles,
     compress_video,
+    merge_videos,
     object_eraser,
     remove_noise,
     transcribe,
@@ -198,6 +200,7 @@ PROCESSORS: dict[str, Processor] = {
         vfr_to_cfr.PROCESSOR,
         burn_subtitles.PROCESSOR,
         remove_noise.PROCESSOR,
+        merge_videos.PROCESSOR,
         # GPU tools: they run where GPU_BACKEND is set, and fail cleanly (credits back) where not.
         upscale_image.PROCESSOR,
         transcribe.TRANSCRIBE_AUDIO,

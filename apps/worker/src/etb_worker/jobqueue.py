@@ -382,15 +382,24 @@ def input_keys(job: Job) -> list[str]:
     return keys + [str(key) for key in job.get("extra_input_keys") or []]
 
 
-def input_gone(conn: Conn, job: Job) -> None:
-    """Records that the job's inputs are deleted (the job row and the upload rows)."""
+def input_gone(conn: Conn, job: Job, gone: list[str] | None = None) -> None:
+    """Records that the job's inputs are deleted (the job row and the upload rows): all of
+    them, or those in ``gone``. The job keeps the keys of any left, which the sweeper deletes
+    once their uploads expire (no running job holds them)."""
     keys = input_keys(job)
-    if not keys:
+    deleted = keys if gone is None else [key for key in keys if key in gone]
+    if not deleted:
         return
+    main = job.get("input_key")
     conn.execute(
-        "update jobs set input_key = null, extra_input_keys = '{}' where id = %s", (job["id"],)
+        "update jobs set input_key = %s, extra_input_keys = %s where id = %s",
+        (
+            None if main is None or str(main) in deleted else str(main),
+            [str(key) for key in job.get("extra_input_keys") or [] if str(key) not in deleted],
+            job["id"],
+        ),
     )
     conn.execute(
         "update uploads set deleted_at = now() where storage_key = any(%s) and deleted_at is null",
-        (keys,),
+        (deleted,),
     )

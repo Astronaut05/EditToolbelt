@@ -1,30 +1,37 @@
 'use client';
 
 import { MEDIA_META } from '@etb/engines';
+import { MERGE_VIDEOS } from '@etb/registry/choices';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
+import { useMemo } from 'react';
 
 import { trackUnknown } from '../lib/analytics';
+import { serverPath } from '../lib/server-run';
 import { mediaEngine } from './media-engine';
 import { VIDEO_INTAKE } from './video-presets';
 
 // The engine loads with its first run, not with the page (docs/10).
 const engine = mediaEngine((m) => m.mergeVideosEngine, MEDIA_META.mergeVideos);
 
+const FIRST = 'The first clip’s';
+const TRANSITIONS: Record<(typeof MERGE_VIDEOS.transitions)[number], string> = {
+  none: 'Cut',
+  crossfade: 'Crossfade',
+};
+
+// The same choices our servers take (@etb/registry/choices → MERGE_VIDEOS).
 const OPTIONS: ShellOption[] = [
   {
     id: 'transition',
     label: 'Between clips',
-    choices: [
-      { value: 'none', label: 'Cut' },
-      { value: 'crossfade', label: 'Crossfade' },
-    ],
+    choices: MERGE_VIDEOS.transitions.map((t) => ({ value: t, label: TRANSITIONS[t] })),
     default: 'none',
   },
   {
     id: 'transitionLength',
     label: 'Crossfade',
     kind: 'select',
-    choices: ['0.5', '1', '2'].map((s) => ({ value: s, label: `${s} s` })),
+    choices: MERGE_VIDEOS.crossfades.map((s) => ({ value: s, label: `${s} s` })),
     default: '1',
     when: { id: 'transition', values: ['crossfade'] },
   },
@@ -32,23 +39,20 @@ const OPTIONS: ShellOption[] = [
     id: 'size',
     label: 'Size',
     kind: 'select',
-    choices: [
-      { value: 'first', label: 'The first clip’s' },
-      { value: '2160', label: '2160p (4K)' },
-      { value: '1080', label: '1080p' },
-      { value: '720', label: '720p' },
-      { value: '480', label: '480p' },
-    ],
+    choices: MERGE_VIDEOS.sizes.map((h) => ({
+      value: h,
+      label: h === 'first' ? FIRST : h === '2160' ? '2160p (4K)' : `${h}p`,
+    })),
     default: 'first',
   },
   {
     id: 'fps',
     label: 'Frame rate',
     kind: 'select',
-    choices: [
-      { value: 'first', label: 'The first clip’s' },
-      ...['24', '25', '30', '50', '60'].map((f) => ({ value: f, label: `${f} fps` })),
-    ],
+    choices: MERGE_VIDEOS.fps.map((f) => ({
+      value: f,
+      label: f === 'first' ? FIRST : `${f} fps`,
+    })),
     default: 'first',
   },
 ];
@@ -72,7 +76,7 @@ const PRESET: ShellPreset = {
     ['transition', 'transitionLength'],
     ['size', 'fps'],
   ],
-  combine: { min: 2, max: 20, describe },
+  combine: { min: MERGE_VIDEOS.minClips, max: MERGE_VIDEOS.maxClips, describe },
   facts: (_state, options) => [
     {
       label: 'Speed',
@@ -89,7 +93,31 @@ const PRESET: ShellPreset = {
   resultTitle: 'Merged',
 };
 
-/** V12 Merge Videos (tools/video.md). */
+/** The same settings for our servers (@etb/registry/options → merge-videos); the clips go with them. */
+const toServerOptions = (options: Record<string, string>) => ({
+  transition: options.transition,
+  transitionLength: options.transitionLength,
+  size: options.size,
+  fps: options.fps,
+});
+
+/** V12 Merge Videos (tools/video.md): in the browser, or ffmpeg on our servers for large totals. */
 export default function MergeVideos({ tool }: { tool: ShellTool }) {
-  return <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} />;
+  const info = tool.server;
+  const server = useMemo(
+    () =>
+      info &&
+      serverPath(
+        tool.id,
+        info,
+        toServerOptions,
+        typeof window === 'undefined' ? '/' : window.location.pathname,
+        [],
+        { joined: 'clips' },
+      ),
+    [info, tool.id],
+  );
+  return (
+    <ToolShell tool={tool} preset={PRESET} engine={engine} onEvent={trackUnknown} server={server} />
+  );
 }
