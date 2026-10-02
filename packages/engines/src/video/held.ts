@@ -10,6 +10,12 @@ import {
   type VideoSample,
 } from 'mediabunny';
 
+/**
+ * A side rounded to an even number of pixels, at least 2: H.264 and HEVC
+ * encoders take only even sizes (4:2:0 halves the colour planes).
+ */
+export const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+
 export class Held {
   private iterator: AsyncGenerator<VideoSample> | null;
   private current: VideoSample | null = null;

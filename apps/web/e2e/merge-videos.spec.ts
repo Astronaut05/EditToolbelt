@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { probeMedia, videoPackets } from '@etb/engines';
+import { probeMedia, trackEnds, videoPackets } from '@etb/engines';
 import type { Page } from '@playwright/test';
 
 import { choose, cspViolations, expect, test } from './fixtures';
@@ -16,10 +16,17 @@ const fixture = (name: string) =>
   fileURLToPath(new URL(`../../../fixtures/video/${name}`, import.meta.url));
 const MKV = fixture('clip-vp9-opus.mkv');
 const FPS25 = fixture('clip-vp9-25fps.webm');
+const MOV = fixture('clip-h264-aac.mov');
+
+const MIME: Record<string, string> = {
+  mkv: 'video/x-matroska',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+};
 
 const asFile = (path: string, name: string) => ({
   name,
-  mimeType: path.endsWith('.mkv') ? 'video/x-matroska' : 'video/webm',
+  mimeType: MIME[path.split('.').pop() ?? ''] ?? 'video/webm',
   buffer: readFileSync(path),
 });
 
@@ -62,6 +69,28 @@ test('three identical clips join without a re-encode, to the exact total', async
       .first(),
   ).toBeVisible();
   expect(await cspViolations(page)).toEqual([]);
+});
+
+test('five H.264 + AAC clips join without a re-encode, the sound still with the picture', async ({
+  page,
+}) => {
+  // Each clip's AAC has a priming packet before 0 and runs 10.7 ms past its
+  // 4 s picture: placed whole, each join would make the sound 32 ms later.
+  await drop(
+    page,
+    ['a', 'b', 'c', 'd', 'e'].map((name) => asFile(MOV, `${name}.mov`)),
+  );
+  const out = await merged(page);
+  expect(out.name).toBe('a_merged.mov');
+  const ends = await trackEnds(new Blob([out.bytes]));
+  expect(Math.abs(ends.video - 20)).toBeLessThan(0.001);
+  expect(Math.abs((ends.audio ?? 0) - ends.video)).toBeLessThan(0.04);
+  await expect(
+    page
+      .getByText(/every packet is copied/)
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible();
 });
 
 test('30 and 25 fps clips come out at the first clip’s size on a steady 30 fps', async ({

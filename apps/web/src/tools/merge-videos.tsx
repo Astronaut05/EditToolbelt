@@ -66,7 +66,7 @@ const PRESET: ShellPreset = {
   dropTitle: 'Drop clips to merge',
   chooseLabel: 'Choose clips',
   tapLabel: 'Choose clips',
-  formats: 'MP4, MOV, WebM, MKV · 2 to 20 clips, each up to 2 GB',
+  formats: 'MP4, MOV, WebM, MKV · 2 to 20 clips, up to 2 GB in all',
   options: OPTIONS,
   phoneGroups: [
     ['transition', 'transitionLength'],

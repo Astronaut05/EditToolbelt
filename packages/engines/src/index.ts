@@ -127,3 +127,4 @@ export {
   type NamesPlan,
 } from './files/batch-rename';
 export { takenDate } from './files/taken';
+export { trackEnds } from './video/merge-videos';
