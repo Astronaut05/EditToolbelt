@@ -202,6 +202,9 @@ class JobRunner:
             gpu=self.gpu if remote else None,
             record_gpu=lambda usage: self._record_gpu(job_id, usage),
             reserve_output=lambda key: self._reserve_output(job_id, key),
+            extra_input_keys=[str(key) for key in job.get("extra_input_keys") or []]
+            if remote
+            else [],
         )
         progress.set(0, "processing")
         output = processor.run(ctx)

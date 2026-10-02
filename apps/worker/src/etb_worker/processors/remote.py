@@ -1,7 +1,8 @@
 """The step every GPU tool shares (docs/01 -> GPU backend, Retention).
 
-1. Presign: a GET URL for the job's input and a PUT URL for a new random
-   output key, valid for the job's time limit plus a margin. The key is
+1. Presign: a GET URL for the job's input (and one for each other input,
+   such as Object Eraser's mask, when the tool takes them) and a PUT URL for
+   a new random output key, valid for the job's time limit plus a margin. The key is
    recorded on the job first, so if this worker dies mid-call, the next
    attempt or the sweeper still finds and deletes what the GPU wrote.
 2. Call the backend with those URLs and the options; between polls the
@@ -64,6 +65,7 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
     stage: str = "processing",
     start: int = 2,
     end: int = 95,
+    extra_inputs: bool = False,
 ) -> GpuOutcome:
     """Runs ``function`` on the job's input; the output is stored under the returned key."""
     storage = _storage(ctx)
@@ -72,11 +74,13 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
     expires = int(timeout + PRESIGN_MARGIN_SEC)
     key = new_output_key()
     ctx.reserve_output(key)
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "input_url": storage.presign_get(str(ctx.input_key), expires),
         "output_url": storage.presign_put(key, content_type, expires),
         "options": options,
     }
+    if extra_inputs:
+        kwargs["extra_urls"] = [storage.presign_get(k, expires) for k in ctx.extra_input_keys]
     span = end - start
 
     def on_wait(elapsed: float) -> None:
