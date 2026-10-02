@@ -12,6 +12,8 @@
  * - TOTP (the two-factor plugin) is for admins: it holds their secret and
  *   backup codes; src/server/admin.ts asks for a code before /admin opens,
  *   since the plugin only steps in on password sign-ins, which we don't have.
+ * - After each sign-in, the welcome grant if it's due (src/server/welcome.ts):
+ *   the email is verified by then, by the link or by Google.
  */
 import { createHash } from 'node:crypto';
 
@@ -23,9 +25,11 @@ import { magicLink } from 'better-auth/plugins/magic-link';
 import { twoFactor } from 'better-auth/plugins/two-factor';
 import { accounts, eq, sessions, twoFactors, users, verifications } from '@etb/db';
 
+import { log } from '../lib/log';
 import { db } from './db';
 import { serverEnv } from './env';
 import { sendMail, signInMail } from './mail';
+import { claimWelcomeGrant, grantSecret } from './welcome';
 
 const DAY = 24 * 60 * 60;
 
@@ -121,6 +125,18 @@ function createAuth() {
               await db().update(users).set({ deletedAt: null }).where(eq(users.id, session.userId));
             }
             return { data: { ...session, ipAddress: null, userAgent: null } };
+          },
+          after: async (session) => {
+            if (!env.WELCOME_GRANT_ENABLED) return;
+            try {
+              const outcome = await claimWelcomeGrant(db(), session.userId, {
+                secret: grantSecret(env),
+              });
+              log.info({ user_ref: session.userId, outcome }, 'welcome_grant');
+            } catch (error) {
+              // Never in the way of signing in; the next sign-in tries again.
+              log.warn({ err: error, user_ref: session.userId }, 'welcome_grant.failed');
+            }
           },
         },
       },

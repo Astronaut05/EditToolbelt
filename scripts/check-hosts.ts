@@ -11,8 +11,8 @@
  * no move of ours ever changes them.
  *
  * Prose is not scanned (Markdown, docs/, tools/), nor lockfiles,
- * licenses.json and models.json, whose URLs point at packages, license texts
- * and third-party model downloads.
+ * licenses.json, models.json and the GPU weights' pins.json, whose URLs point
+ * at packages, license texts and third-party model downloads.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -30,6 +30,7 @@ const SKIP_PATH = [
   /(^|\/)uv\.lock$/,
   /^licenses\.json$/,
   /^models\.json$/,
+  /^apps\/worker\/src\/etb_worker\/gpu\/pins\.json$/,
   /\.(png|jpe?g|webp|avif|gif|ico|mp4|mov|webm|wav|mp3|flac|onnx|wasm|woff2?|pdf|zip)$/i,
 ];
 
@@ -44,12 +45,28 @@ const DENY_PATTERN =
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '[::]']);
 const RESERVED_SUFFIXES = ['.test', '.example', '.invalid', '.localhost'];
 const RESERVED_NAMES = /(^|\.)example\.(com|net|org)$/;
-/**
- * Each needs a reason. Telegram's Bot API: the worker's alerts (docs/07 →
- * Alerts). Cloudflare's API: the ops checks read R2, DNS and Access settings
- * (scripts/ops/verify.ts).
- */
-const THIRD_PARTY_APIS = new Set(['api.telegram.org', 'api.cloudflare.com']);
+/** Each needs a reason. */
+const THIRD_PARTY_APIS = new Set([
+  // Telegram's Bot API: the worker's alerts (docs/07 → Alerts).
+  'api.telegram.org',
+  // Cloudflare's API: the ops checks read R2, DNS and Access settings (scripts/ops/verify.ts).
+  'api.cloudflare.com',
+  // Paddle Billing's API, live and sandbox: checkout transactions, customers and refunds
+  // (apps/web/src/server/payments/providers/paddle.ts).
+  'api.paddle.com',
+  'sandbox-api.paddle.com',
+  // Click's payment page, where checkout sends Uzbek buyers (providers/click.ts).
+  'my.click.uz',
+  // Payme's checkout, live and test, where checkout sends Uzbek buyers (providers/payme.ts).
+  'checkout.paycom.uz',
+  'checkout.test.paycom.uz',
+  // Paddle.js, its checkout frame and its own calls: the overlay on /credits/buy, in that
+  // page's CSP only while Paddle is on (apps/web/src/lib/paddle-js.ts).
+  'cdn.paddle.com',
+  'buy.paddle.com',
+  'sandbox-buy.paddle.com',
+  '*.paddle.com',
+]);
 
 function isAllowedHost(rawHost: string): boolean {
   const host = rawHost.toLowerCase().replace(/\.$/, '');

@@ -1,7 +1,11 @@
 # Payment webhooks stop arriving
 
-Payments (Paddle) arrive with M5; this page is filled in then. The shape of it:
+Credits are added only by the providers' own calls to `/api/webhooks/paddle`, `/api/webhooks/click` and `/api/webhooks/payme` (`docs/05` → Payments). When they stop, buyers pay and see "Waiting for … to confirm" on `/credits/return`.
 
-1. Paddle's dashboard shows failed deliveries (Admin → System will show the last webhook received).
-2. Webhooks are idempotent by event id, so replaying from Paddle's dashboard is safe.
-3. A paid purchase without its credits: replay the event; don't grant credits by hand unless the replay is impossible, and then with the purchase id in the reason.
+1. **Does the path answer?** Admin → Payments → the provider → "Webhook": `open` while it's on, `purchases already made only` while it's switched off (the kill switch or its admin switch: refunds, chargebacks and payments for checkouts opened earlier still go through; new Click Prepares and Payme payments are refused), `closed (404)` while a key is missing. The provider counts every 404 as a failed delivery.
+2. **Can the provider reach us?** While the site is behind Cloudflare Access, each path needs its Bypass application (`turn-on-payments.md` → step 3). Access's logs show blocked requests; a 403 from Access means the bypass is missing or wider paths changed.
+3. **What did we answer?** Admin → Payments → Webhook events lists what arrived for all three providers, when it was processed, what Click or Payme was told (Answer) and any error (payloads are never shown). An error has already alerted (`webhook_error`, once per event). The web service's log has `payments.webhook` (status) and `payments.webhook_failed` lines for each provider, without payloads.
+4. **Replay.** Webhooks are stored once per event id and processed idempotently: an event that failed counts as new on the next delivery, and one that went through is never applied twice. So replaying is always safe:
+   - Paddle: Developer tools → Notifications → the destination → the event → Replay.
+   - Click and Payme retry by themselves for a while; Payme's cabinet shows the transaction's state.
+5. **A paid purchase without its credits** after the replay: check the event's error in Admin → Payments. "no purchase has this transaction", or a price, total or currency mismatch ("not credited: …", say a discount code typed into Paddle's overlay), is kept on purpose: refund the buyer in the provider's dashboard, or, if they should get the credits, grant them in Admin → Users with the purchase id in the reason. Never edit the ledger by hand.

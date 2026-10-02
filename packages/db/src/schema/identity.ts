@@ -37,7 +37,10 @@ export const users = pgTable(
     /** Better Auth's field. Never filled: no avatar URLs are kept. */
     image: text('image'),
     role: userRole('role').notNull().default('user'),
-    /** Cached: always the sum of this user's ledger rows (see credits.ts). */
+    /**
+     * Cached: always the sum of this user's ledger rows (see credits.ts).
+     * Below zero only after a refund (docs/05); then paid jobs wait for a top-up.
+     */
     creditBalance: integer('credit_balance').notNull().default(0),
     marketingOptIn: boolean('marketing_opt_in').notNull().default(false),
     locale: text('locale').default('en'),
@@ -53,7 +56,6 @@ export const users = pgTable(
     uniqueIndex('users_email_key')
       .on(t.email)
       .where(sql`${t.email} is not null`),
-    check('users_credit_balance_nonnegative', sql`${t.creditBalance} >= 0`),
   ],
 );
 

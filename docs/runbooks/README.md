@@ -6,11 +6,13 @@ What to do when something goes wrong (`docs/11` → Backups and recovery, Incide
 |---|---|
 | Deploying, rolling back, or finding a production setting | [production.md](production.md) |
 | An alert arrives (Telegram or email) | [alerts.md](alerts.md) |
+| The GPU budget alert (80 % or 100 % of the day's GPU budget) | [gpu-budget.md](gpu-budget.md) |
 | A tool misbehaves and must stop now | [disable-a-tool.md](disable-a-tool.md) |
 | A job is stuck, or someone asks about one | [stuck-job.md](stuck-job.md) |
 | Workers must stop (deploy, maintenance, a bad release) | [drain-workers.md](drain-workers.md) |
 | The database is lost or damaged | [restore-database.md](restore-database.md) |
 | A secret leaked, or it's time to rotate | [rotate-secrets.md](rotate-secrets.md) |
+| Turning payments on (Paddle, Click, Payme), or off again | [turn-on-payments.md](turn-on-payments.md) |
 | Payment webhooks stop arriving (from M5) | [webhook-outage.md](webhook-outage.md) |
 | Personal data may have leaked | [data-breach.md](data-breach.md) |
 

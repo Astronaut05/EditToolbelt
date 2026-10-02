@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import type { Download, Page } from '@playwright/test';
 
-import { choose, cspViolations, expect, test } from './fixtures';
+import { choose, cspViolations, expect, test, unzip } from './fixtures';
 
 // P11 Watermark Images (tools/photo.md → Tests): 20 mixed-size images get a
 // logo bottom right at 15% of their width, in the same relative place.
@@ -145,15 +145,30 @@ test('20 mixed sizes get the logo bottom right at 15% width, in the same relativ
   );
   await panel.getByRole('slider', { name: 'Opacity' }).fill('100');
   await start.click();
-  await expect(page.getByRole('button', { name: 'Download all · ZIP' })).toBeEnabled({
-    timeout: 120_000,
-  });
-  for (const [i, [w, h]] of sizes.entries()) {
-    const saved = page.waitForEvent('download');
+  const all = page.getByRole('button', { name: 'Download all · ZIP' });
+  await expect(all).toBeEnabled({ timeout: 120_000 });
+  // All 20 are checked from the ZIP. Chromium starts at most 10 downloads a
+  // second from one page and drops the rest without an event, and 20 file
+  // buttons clicked one after another on a fast machine pass that (the 11th
+  // never came on CI). Two file buttons give the same bytes as the ZIP.
+  const saved = page.waitForEvent('download');
+  await all.click();
+  const zip = await saved;
+  expect(zip.suggestedFilename()).toBe('watermark-image.zip');
+  const entries = unzip(await bytesOf(zip));
+  expect(entries.map((entry) => entry.name)).toEqual(
+    sizes.map((_, i) => `img-${String(i)}_watermarked.png`),
+  );
+  const output = (i: number) => entries[i]?.data ?? Buffer.alloc(0);
+  for (const i of [0, sizes.length - 1]) {
+    const one = page.waitForEvent('download');
     await page.getByRole('button', { name: `Download img-${String(i)}.png` }).click();
-    const file = await saved;
+    const file = await one;
     expect(file.suggestedFilename()).toBe(`img-${String(i)}_watermarked.png`);
-    const out = await found(page, await bytesOf(file), 'red');
+    expect((await bytesOf(file)).equals(output(i))).toBe(true);
+  }
+  for (const [i, [w, h]] of sizes.entries()) {
+    const out = await found(page, output(i), 'red');
     // 15% of the width, the logo's 2:1 shape, 2% of the width from the right and bottom.
     const width = Math.round(w * 0.15);
     const margin = Math.round(w * 0.02);

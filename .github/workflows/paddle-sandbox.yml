@@ -1,0 +1,53 @@
+# Paddle's sandbox, end to end (apps/web/src/server/payments/providers/paddle.sandbox.test.ts):
+# createCheckout makes a real sandbox transaction, and that transaction comes
+# back through handleWebhook as a signed transaction.completed that credits
+# the purchase. Runs from Actions → Paddle sandbox → Run workflow, or by
+# pushing to a claude/ops-* branch; skipped while PADDLE_SANDBOX_API_KEY is unset.
+# The logs are public (public repo): the test prints outcomes, never values.
+# Actions are pinned by commit, as in ci.yml and ops.yml (licenses.json).
+name: Paddle sandbox
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/ops-**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paddle-sandbox-${{ github.ref }}
+
+jobs:
+  sandbox:
+    name: Paddle sandbox checkout and webhook
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Secrets present
+        run: |
+          if [ -z "$PADDLE_SANDBOX_API_KEY" ]; then
+            echo "::warning::PADDLE_SANDBOX_API_KEY is not set: the sandbox test is skipped."
+          else
+            echo "PADDLE_SANDBOX_API_KEY is set."
+          fi
+          if [ -z "$PADDLE_SANDBOX_WEBHOOK_SECRET" ]; then
+            echo "PADDLE_SANDBOX_WEBHOOK_SECRET is not set: the webhook test signs with a test secret."
+          else
+            echo "PADDLE_SANDBOX_WEBHOOK_SECRET is set."
+          fi
+        env:
+          PADDLE_SANDBOX_API_KEY: ${{ secrets.PADDLE_SANDBOX_API_KEY }}
+          PADDLE_SANDBOX_WEBHOOK_SECRET: ${{ secrets.PADDLE_SANDBOX_WEBHOOK_SECRET }}
+      - name: Sandbox test
+        run: pnpm --filter @etb/web exec vitest run src/server/payments/providers/paddle.sandbox.test.ts
+        env:
+          PADDLE_SANDBOX_API_KEY: ${{ secrets.PADDLE_SANDBOX_API_KEY }}
+          PADDLE_SANDBOX_WEBHOOK_SECRET: ${{ secrets.PADDLE_SANDBOX_WEBHOOK_SECRET }}

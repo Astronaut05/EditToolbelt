@@ -203,4 +203,39 @@ describe('webServerEnvSchema', () => {
     expect(result.ok && result.env.S3_PUBLIC_ENDPOINT).toBe('http://localhost:7070');
     expect(result.ok && result.env.S3_REGION).toBe('auto');
   });
+
+  it('keeps payments off unless PAYMENTS_ENABLED says true', () => {
+    const off = parseEnv(webServerEnvSchema, base);
+    expect(off.ok && off.env.PAYMENTS_ENABLED).toBe(false);
+    for (const value of ['true', 'TRUE', '1', 'yes', 'on']) {
+      const on = parseEnv(webServerEnvSchema, { ...base, PAYMENTS_ENABLED: value });
+      expect(on.ok && on.env.PAYMENTS_ENABLED).toBe(true);
+    }
+    for (const value of ['false', '0', 'no', 'off', '']) {
+      const result = parseEnv(webServerEnvSchema, { ...base, PAYMENTS_ENABLED: value });
+      expect(result.ok && result.env.PAYMENTS_ENABLED).toBe(false);
+    }
+    const typo = parseEnv(webServerEnvSchema, { ...base, PAYMENTS_ENABLED: 'ture' });
+    expect(typo).toEqual({ ok: false, errors: ['PAYMENTS_ENABLED: must be true or false'] });
+  });
+
+  it('allows the payment stub in tests only', () => {
+    const stub = { ...base, PAYMENTS_STUB: 'paddle' };
+    expect(parseEnv(webServerEnvSchema, { ...stub, APP_ENV: 'test' }).ok).toBe(true);
+    expect(parseEnv(webServerEnvSchema, stub)).toEqual({
+      ok: false,
+      errors: ['PAYMENTS_STUB: is for the end-to-end tests only (APP_ENV=test)'],
+    });
+  });
+
+  it('gives the welcome grant unless told not to, with a long secret if one is set', () => {
+    const result = parseEnv(webServerEnvSchema, base);
+    expect(result.ok && result.env.WELCOME_GRANT_ENABLED).toBe(true);
+    const off = parseEnv(webServerEnvSchema, { ...base, WELCOME_GRANT_ENABLED: 'false' });
+    expect(off.ok && off.env.WELCOME_GRANT_ENABLED).toBe(false);
+    expect(parseEnv(webServerEnvSchema, { ...base, WELCOME_GRANT_SECRET: 'short' })).toEqual({
+      ok: false,
+      errors: ['WELCOME_GRANT_SECRET: must be at least 32 characters'],
+    });
+  });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ENDPOINTS, openApiDocument, problemsOf, statusesOf } from './openapi';
-import { Job, Quote, Tool } from './schemas';
+import { Job, JobCreate, Me, Quote, Tool } from './schemas';
 
 const doc = openApiDocument('https://example.test');
 
@@ -141,5 +141,29 @@ describe('the schemas', () => {
       }).success,
     ).toBe(true);
     expect(Tool.safeParse({ id: 'x' }).success).toBe(false);
+  });
+
+  it('take what the quote said pays, and refuse anything else', () => {
+    const job = { tool_id: 'compress-video', upload_id: 'u', options: {}, quote_credits: 4 };
+    expect(JobCreate.safeParse(job).success).toBe(true);
+    expect(JobCreate.safeParse({ ...job, quote_funding: 'daily' }).success).toBe(true);
+    expect(JobCreate.safeParse({ ...job, quote_funding: 'free' }).success).toBe(false);
+    const create = doc.components.schemas.JobCreate as { properties: Record<string, unknown> };
+    expect(create.properties).toHaveProperty('quote_funding');
+  });
+
+  it('say where to buy credits, or null while none are on sale', () => {
+    const me = {
+      email: 'a@example.test',
+      name: null,
+      tier: 'free',
+      credit_balance: -20,
+      free_jobs_left: 3,
+      max_concurrent_jobs: 2,
+      buy_url: null,
+    };
+    expect(Me.safeParse(me).success).toBe(true);
+    expect(Me.safeParse({ ...me, buy_url: 'https://example.test/credits/buy' }).success).toBe(true);
+    expect(Me.safeParse({ ...me, buy_url: 'not a url' }).success).toBe(false);
   });
 });

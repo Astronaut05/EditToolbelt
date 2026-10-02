@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import type { Page } from '@playwright/test';
 
@@ -73,10 +75,21 @@ test('a 48 MB file is hashed in pieces and matches Node’s own hashes', async (
     sha1: createHash('sha1').update(big).digest('hex'),
     sha256: createHash('sha256').update(big).digest('hex'),
   };
-  await page.goto('/file-checksum');
-  await fileInput(page).setInputFiles(file('clip.mov', big));
-  for (const hash of Object.values(want)) {
-    await expect(list(page)).toContainText(hash, { timeout: 30_000 });
+  // From disk, as a dropped file comes. Given as a buffer, it would go in through
+  // Playwright's base64 decoder in the page, at about 3 MB a second, and that
+  // would be most of the test. A plain-ASCII folder: Chromium under a POSIX
+  // locale can't open a path with the test title's ’ in it.
+  const folder = mkdtempSync(join(tmpdir(), 'etb-checksum-'));
+  try {
+    const clip = join(folder, 'clip.mov');
+    writeFileSync(clip, big);
+    await page.goto('/file-checksum');
+    await fileInput(page).setInputFiles(clip);
+    for (const hash of Object.values(want)) {
+      await expect(list(page)).toContainText(hash, { timeout: 30_000 });
+    }
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
   }
 });
 

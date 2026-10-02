@@ -53,7 +53,17 @@ export function ServerNotice({
           , then add the file again.
         </p>
       ) : (
-        <p className="mt-2 font-strong">{terms?.line}</p>
+        <p className="mt-2 font-strong">
+          {terms?.line}
+          {terms?.needsCredits && account.buyHref && (
+            <>
+              {' '}
+              <AppLink href={account.buyHref} className="link-accent font-normal">
+                Buy credits
+              </AppLink>
+            </>
+          )}
+        </p>
       )}
       <p className="mt-2 text-13.5 text-text-muted">
         Your file is uploaded, then deleted as soon as the job ends; the result within 1 hour.

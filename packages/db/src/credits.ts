@@ -4,6 +4,10 @@
  * and moves the cached balance in the same transaction, so
  * `users.credit_balance` always equals the sum of that user's rows. The
  * ledger itself is append-only (a trigger raises on UPDATE and DELETE).
+ *
+ * A balance goes below zero only through a `refund_purchase` row that asks
+ * for it (`allowNegativeBalance`), docs/05 → Payments. A row that adds
+ * credits always goes through, even while the balance is still below zero.
  */
 import { eq, sql } from 'drizzle-orm';
 
@@ -28,12 +32,21 @@ export interface CreditRefs {
   reason?: string;
 }
 
+export interface CreditOptions {
+  /**
+   * Let this row take the balance below zero. Only for `refund_purchase`: a
+   * refunded pack's credits come off even when some were spent (docs/05).
+   */
+  allowNegativeBalance?: boolean;
+}
+
 export type LedgerRow = typeof creditTransactions.$inferSelect;
 
 /**
  * Applies one ledger entry. Runs in its own transaction, or a savepoint when
  * `db` is already a transaction, so a failure leaves nothing half-written.
- * Throws InsufficientCreditsError when the balance would go below zero.
+ * Throws InsufficientCreditsError when a negative amount would take the
+ * balance below zero, unless it's a refund that allows it.
  */
 export async function applyCredit(
   db: Queryable,
@@ -41,8 +54,12 @@ export async function applyCredit(
   kind: CreditKind,
   amount: number,
   refs: CreditRefs = {},
+  options: CreditOptions = {},
 ): Promise<LedgerRow> {
   if (!Number.isInteger(amount)) throw new RangeError('Credits are whole numbers');
+  if (options.allowNegativeBalance && kind !== 'refund_purchase') {
+    throw new RangeError('Only a refund_purchase may take a balance below zero');
+  }
   return db.transaction(async (tx) => {
     const [user] = await tx
       .select({ balance: users.creditBalance })
@@ -51,7 +68,9 @@ export async function applyCredit(
       .for('update');
     if (!user) throw new Error('No such user');
     const balanceAfter = user.balance + amount;
-    if (balanceAfter < 0) throw new InsufficientCreditsError(user.balance, amount);
+    if (balanceAfter < 0 && amount < 0 && !options.allowNegativeBalance) {
+      throw new InsufficientCreditsError(user.balance, amount);
+    }
     const [row] = await tx
       .insert(creditTransactions)
       .values({

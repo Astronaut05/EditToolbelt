@@ -450,7 +450,7 @@ def test_a_worker_that_dies_mid_job_has_it_requeued_then_failed(
         """,
         (job2,),
     )
-    failed = jobqueue.reap(db)
+    failed = jobqueue.reap(db).failed
     assert job2 in [str(item["id"]) for item in failed]
     row2 = one(db, "select * from jobs where id = %s", job2)
     assert (row2["status"], row2["error_code"]) == ("failed", "WORKER_LOST")

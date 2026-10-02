@@ -144,3 +144,31 @@ test('more frames than the selection has: each frame once, and the repeats said'
   ).toBeAttached();
   await expect(page.getByText(/^25 repeats skipped/).first()).toBeAttached();
 });
+
+test('the frame goes on to Resize Image, a tool in another category, without a new upload', async ({
+  page,
+}) => {
+  await open(page);
+  await setIn(page, '5.4');
+  await page.getByRole('button', { name: 'Extract frames', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Download/ }).first()).toBeEnabled({
+    timeout: 60_000,
+  });
+  // A soft navigation: Resize Image's view and its category's index load now.
+  await page
+    .locator('p', { hasText: 'Next:' })
+    .filter({ visible: true })
+    .getByRole('link', { name: 'Resize Image', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/resize-image$/);
+  // The frame arrives as if dropped: Resize works on it straight away.
+  await page.getByRole('button', { name: 'Resize', exact: true }).first().click();
+  const download = page.getByRole('button', { name: /^Download/ }).first();
+  await expect(download).toBeEnabled({ timeout: 30_000 });
+  const saved = page.waitForEvent('download');
+  await download.click();
+  const file = await saved;
+  expect(file.suggestedFilename()).toBe('clip-vp9-opus_00-00-05.400_resized.png');
+  // 256 × 144 is 16:9, so Keep ratio fills Full HD exactly.
+  expect(pngSize(readFileSync(await file.path()))).toEqual([1920, 1080]);
+});
