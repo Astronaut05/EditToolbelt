@@ -3,8 +3,15 @@ import { expect, test } from './fixtures';
 // C04 Contrast Checker (tools/color.md) and U03 Print Size & DPI Calculator
 // (tools/utility.md): live results, state in the URL.
 
-test('contrast: #777 on white fails AA, and the nearest pass is #767676', async ({ page }) => {
+test('contrast: opens on a pair that passes AA', async ({ page }) => {
   await page.goto('/contrast-checker');
+  const results = page.getByRole('region', { name: 'Results' });
+  await expect(results).toContainText('4.54:1');
+  await expect(results).toContainText('Passes');
+});
+
+test('contrast: #777 on white fails AA, and the nearest pass is #767676', async ({ page }) => {
+  await page.goto('/contrast-checker?t=%23777777');
   const results = page.getByRole('region', { name: 'Results' });
   await expect(results).toContainText('4.47:1');
   await expect(
@@ -20,7 +27,8 @@ test('contrast: #777 on white fails AA, and the nearest pass is #767676', async 
     '#767676',
   );
   await expect(results).toContainText('Passes');
-  await expect(page).toHaveURL(/t=%23767676/);
+  // The page's own default again, so the URL drops it.
+  await expect(page).not.toHaveURL(/t=/);
 
   await page.getByRole('textbox', { name: 'Text color', exact: true }).fill('black');
   await expect(results).toContainText('21.00:1');
