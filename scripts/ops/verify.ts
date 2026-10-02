@@ -373,6 +373,53 @@ export function accessProblems(apps: AccessApp[], host: string): string[] {
   const service = rules('non_identity');
   if (!service.some((r) => r.service_token || r.any_valid_service_token))
     problems.push("no Service Auth policy for CI's service token");
+  problems.push(...pathBypassProblems(apps, host));
+  return problems;
+}
+
+/** Where certificate authorities fetch their HTTP-01 challenges: the one path that may skip Access. */
+export const ACME_PATH = '/.well-known/acme-challenge/';
+
+/**
+ * Apps for a path under the site (`host/path`): the only one allowed to let
+ * anyone in is the ACME challenge path, so Railway can renew the site's
+ * certificates through Cloudflare.
+ */
+export function pathBypassProblems(apps: AccessApp[], host: string): string[] {
+  const problems: string[] = [];
+  for (const app of apps) {
+    const paths = [
+      app.domain,
+      ...(app.self_hosted_domains ?? []),
+      ...(app.destinations ?? []).map((d) => d.uri),
+    ]
+      .filter((d): d is string => typeof d === 'string')
+      .flatMap((d) => {
+        const slash = d.indexOf('/');
+        const name = slash < 0 ? d : d.slice(0, slash);
+        const path = slash < 0 ? '' : d.slice(slash);
+        return (name === host || name === `www.${host}`) &&
+          path !== '' &&
+          path !== '/' &&
+          path !== '/*'
+          ? [path]
+          : [];
+      });
+    if (paths.length === 0) continue;
+    const open = (app.policies ?? []).some(
+      (p) =>
+        p.decision === 'bypass' ||
+        (p.decision === 'allow' && (p.include ?? []).some((r) => r.everyone !== undefined)),
+    );
+    const outside = paths.filter(
+      (path) => !path.replace(/\*$/, '').replace(/\/?$/, '/').startsWith(ACME_PATH),
+    );
+    if (open && outside.length > 0) {
+      problems.push(
+        `an application lets anyone into ${[...new Set(outside)].join(', ')}, not only ${ACME_PATH}`,
+      );
+    }
+  }
   return problems;
 }
 
