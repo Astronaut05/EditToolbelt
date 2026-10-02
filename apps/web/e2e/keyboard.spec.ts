@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures';
+import { expect, remote, test, WORKSHOP_ONLY } from './fixtures';
 
 test.describe('keyboard', () => {
   test.skip(({ isMobile }) => isMobile, 'desktop keyboard');
@@ -27,6 +27,7 @@ test.describe('keyboard', () => {
   });
 
   test('Esc cancels a running job', async ({ page }) => {
+    test.skip(remote, WORKSHOP_ONLY);
     await page.goto('/workshop/tools/form', { waitUntil: 'networkidle' });
     await page
       .locator('input[type=file][data-hydrated]')

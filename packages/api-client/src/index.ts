@@ -23,6 +23,7 @@ import type {
   ToolDetail,
   ToolList,
   Upload,
+  UploadCancelled,
   UploadDone,
 } from '@etb/core/api';
 
@@ -159,7 +160,7 @@ export function createClient(options: ClientOptions = {}) {
       signal?: AbortSignal,
     ) => post<UploadDone>(`/uploads/${uploadId}/complete`, { parts }, signal),
     cancelUpload: async (uploadId: string) => {
-      await call<undefined>(`/uploads/${uploadId}`, { method: 'DELETE' });
+      await call<UploadCancelled>(`/uploads/${uploadId}`, { method: 'DELETE' });
     },
 
     /** The price; `{ status: 'probing' }` until our servers have checked the file. */

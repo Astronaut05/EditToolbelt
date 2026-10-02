@@ -12,12 +12,13 @@ import {
   ApiError,
   json,
   preflight,
-  rateLimit,
+  limit,
   readJson,
   requireCaller,
   route,
 } from '../../../../server/api';
 import { createJob, jobView, listJobs } from '../../../../server/jobs';
+import { jobFor } from '../../../../server/scoped';
 
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
@@ -25,8 +26,9 @@ export const OPTIONS = preflight;
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{8,128}$/;
 
 export const POST = route('jobs.create', async (request) => {
-  const { user, ref, keyId } = await requireCaller(request, 'jobs:write');
-  const limits = rateLimit(`jobs:${ref}`, 30, 60);
+  const caller = await requireCaller(request, 'jobs:write');
+  const { user, ref, keyId } = caller;
+  limit(request, `jobs:${ref}`, 30, 60);
   const key = request.headers.get('idempotency-key');
   if (key !== null && !IDEMPOTENCY_KEY.test(key)) {
     throw new ApiError(400, 'BAD_REQUEST', 'Bad Idempotency-Key', '8 to 128 printable characters.');
@@ -44,14 +46,15 @@ export const POST = route('jobs.create', async (request) => {
     key,
     keyId ? 'api' : 'web',
   );
-  const answer: JobEnvelope = { job: await jobView(job) };
-  return json(answer, { status: created ? 201 : 200, headers: limits });
+  // A repeat answers a job that may have finished: its result needs jobs:read.
+  const answer: JobEnvelope = { job: jobFor(caller, await jobView(job)) };
+  return json(answer, { status: created ? 201 : 200 });
 });
 
 export const GET = route('jobs.list', async (request) => {
   const { user, ref } = await requireCaller(request, 'jobs:read');
-  const limits = rateLimit(`jobs.read:${ref}`, 120, 60);
+  limit(request, `jobs.read:${ref}`, 120, 60);
   const cursor = new URL(request.url).searchParams.get('cursor');
   const page: JobList = await listJobs(user, cursor);
-  return json(page, { headers: limits });
+  return json(page);
 });

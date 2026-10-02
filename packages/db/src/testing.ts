@@ -1,26 +1,28 @@
 /**
- * For integration tests in any package (TEST_DATABASE_URL): applies the
- * migrations once, under an advisory lock, so test runs that start at the
- * same time (Turborepo runs packages in parallel) don't race on a fresh
- * database. Never for production: `pnpm db:migrate` does that.
+ * For integration tests against TEST_DATABASE_URL (`@etb/db/testing`). Test
+ * files of several packages run at once against one database, so migrations
+ * are applied under an advisory lock: the first applies them, the others wait
+ * and then find nothing to do.
  */
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import pg from 'pg';
+import type pg from 'pg';
 
-export const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
+export const MIGRATIONS_FOLDER = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
 
-/** Brings the database at `url` up to the latest migration. */
-export async function migrateForTests(url: string): Promise<void> {
-  const client = new pg.Client({ connectionString: url });
-  await client.connect();
+/** Applies pending migrations, one test process at a time. */
+export async function migrateForTests(pool: pg.Pool): Promise<void> {
+  const client = await pool.connect();
   try {
     await client.query("select pg_advisory_lock(hashtext('etb.test-migrations'))");
-    await migrate(drizzle(client), { migrationsFolder: MIGRATIONS });
+    await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
   } finally {
-    await client.end();
+    await client
+      .query("select pg_advisory_unlock(hashtext('etb.test-migrations'))")
+      .catch(() => undefined);
+    client.release();
   }
 }

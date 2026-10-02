@@ -47,6 +47,28 @@ test('signs in with an email link, once, and keeps no IP or user agent', async (
   );
 });
 
+test('signed in, sign-in goes on to a path on this site and nowhere else', async ({ page }) => {
+  await signIn(page, newEmail());
+  const site = new URL(page.url()).origin;
+  for (const next of [
+    '/%09/evil.example',
+    '/%0a/evil.example',
+    '/%5Cevil.example',
+    '//evil.example',
+    '/.//evil.example',
+    'https://evil.example/',
+  ]) {
+    // Not followed, so the Location itself is what's checked.
+    const answer = await page.request.get(`/sign-in?next=${next}`, { maxRedirects: 0 });
+    expect(answer.status(), next).toBe(307);
+    const location = answer.headers()['location'] ?? '';
+    expect(new URL(location, site).origin, next).toBe(site);
+    expect(location, next).not.toMatch(/^\s*[/\\]\s*[/\\]/);
+  }
+  await page.goto('/sign-in?next=%2Fdevelopers%3Fx%3D1');
+  await expect(page).toHaveURL(/\/developers\?x=1$/);
+});
+
 test('the account pages are dynamic, uncached and nonce-protected', async ({ page }) => {
   const response = await page.goto('/sign-in');
   const csp = response?.headers()['content-security-policy'] ?? '';

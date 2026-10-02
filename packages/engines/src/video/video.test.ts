@@ -279,6 +279,36 @@ describe('seamless audio', () => {
     expect(line.add(block(1.901, 100)).map((b) => b.numberOfFrames)).toEqual([100]);
   });
 
+  it('keeps the right samples on each side when it trims an interleaved block', () => {
+    const line = seamless();
+    line.add(block(0, 1000));
+    // Interleaved stereo, as WebKit's decoders give: left counts up, right down.
+    const frames = 1000;
+    const data = new Float32Array(frames * 2);
+    for (let i = 0; i < frames; i += 1) {
+      data[i * 2] = i / frames;
+      data[i * 2 + 1] = -i / frames;
+    }
+    const [trimmed] = line.add(
+      new AudioSample({
+        data,
+        format: 'f32',
+        numberOfChannels: 2,
+        sampleRate: 1000,
+        timestamp: 0.8,
+      }),
+    );
+    expect(trimmed?.numberOfFrames).toBe(800);
+    const left = new Float32Array(800);
+    const right = new Float32Array(800);
+    trimmed?.copyTo(left, { planeIndex: 0, format: 'f32-planar' });
+    trimmed?.copyTo(right, { planeIndex: 1, format: 'f32-planar' });
+    expect(left[0]).toBeCloseTo(0.2, 6);
+    expect(right[0]).toBeCloseTo(-0.2, 6);
+    expect(left[799]).toBeCloseTo(0.999, 6);
+    expect(right[799]).toBeCloseTo(-0.999, 6);
+  });
+
   it('fills a gap, and a tail the decoder dropped, with silence', () => {
     const line = seamless();
     // Starts late: silence first.

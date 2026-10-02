@@ -132,6 +132,7 @@ Written by the store's `complete` in the transaction that credits the purchase. 
 | cpu_seconds | numeric null | |
 | heartbeat_at, queued_at, started_at, finished_at, files_deleted_at | timestamptz | |
 | idempotency_key | text null | unique per (user_id, key) |
+| idempotency_hash | text null | SHA-256 of the canonical request body that first used the key; another body under the same key → 422. Null on rows from before migration 0009 |
 
 Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper).
 

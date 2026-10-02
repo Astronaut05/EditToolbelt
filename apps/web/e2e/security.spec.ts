@@ -1,4 +1,4 @@
-import { cspViolations, expect, PAGES, test } from './fixtures';
+import { cspViolations, expect, PAGES, remote, test } from './fixtures';
 
 test.describe('CSP and headers', () => {
   for (const { name, path } of PAGES) {
@@ -25,6 +25,19 @@ test.describe('CSP and headers', () => {
     expect(headers['x-content-type-options']).toBe('nosniff');
     expect(headers['content-security-policy']).toContain("frame-ancestors 'none'");
     expect(headers['cross-origin-embedder-policy']).toBeUndefined();
+    if (remote) {
+      // The server build (src/lib/csp.ts): prerendered pages allow inline
+      // scripts; pages rendered per request get a nonce and are never cached.
+      expect(headers['content-security-policy']).toMatch(
+        /^default-src 'self'; script-src 'self' 'unsafe-inline'/,
+      );
+      const signIn = (await request.get('/sign-in')).headers();
+      expect(signIn['content-security-policy']).toMatch(
+        /script-src 'self' 'nonce-[A-Za-z0-9+/=]+' 'strict-dynamic'/,
+      );
+      expect(signIn['cache-control']).toBe('private, no-store');
+      return;
+    }
     const html = await response.text();
     expect(html).toMatch(
       /<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-/,

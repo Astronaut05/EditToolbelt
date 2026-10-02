@@ -1,5 +1,5 @@
 {
-  "id": "f84f95e2-26b5-4cab-acbf-27f760d16bd7",
+  "id": "1efc25fd-cde9-4aec-b18f-0c3e4bb882a8",
   "prevId": "0da93887-71f5-4222-8eda-76bc2df932b1",
   "version": "7",
   "dialect": "postgresql",
@@ -681,7 +681,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "users_credit_balance_nonnegative": {
+          "name": "users_credit_balance_nonnegative",
+          "value": "\"users\".\"credit_balance\" >= 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.verifications": {
@@ -952,6 +957,12 @@
         },
         "idempotency_key": {
           "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_hash": {
+          "name": "idempotency_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1382,44 +1393,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "credit_transactions_purchase_once": {
-          "name": "credit_transactions_purchase_once",
-          "columns": [
-            {
-              "expression": "purchase_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"credit_transactions\".\"kind\" = 'purchase'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credit_transactions_refund_once": {
-          "name": "credit_transactions_refund_once",
-          "columns": [
-            {
-              "expression": "purchase_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "reason",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"credit_transactions\".\"kind\" = 'refund_purchase'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1455,9 +1428,9 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "credit_transactions_balance_after": {
-          "name": "credit_transactions_balance_after",
-          "value": "\"credit_transactions\".\"balance_after\" >= 0 or \"credit_transactions\".\"amount\" >= 0 or \"credit_transactions\".\"kind\" = 'refund_purchase'"
+        "credit_transactions_balance_after_nonnegative": {
+          "name": "credit_transactions_balance_after_nonnegative",
+          "value": "\"credit_transactions\".\"balance_after\" >= 0"
         },
         "credit_transactions_sign": {
           "name": "credit_transactions_sign",
@@ -1470,67 +1443,8 @@
         "credit_transactions_job_ref": {
           "name": "credit_transactions_job_ref",
           "value": "\"credit_transactions\".\"kind\" not in ('reserve', 'capture', 'release') or \"credit_transactions\".\"job_id\" is not null"
-        },
-        "credit_transactions_purchase_ref": {
-          "name": "credit_transactions_purchase_ref",
-          "value": "\"credit_transactions\".\"kind\" not in ('purchase', 'refund_purchase') or \"credit_transactions\".\"purchase_id\" is not null"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.payment_settings": {
-      "name": "payment_settings",
-      "schema": "",
-      "columns": {
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "payment_settings_updated_by_users_id_fk": {
-          "name": "payment_settings_updated_by_users_id_fk",
-          "tableFrom": "payment_settings",
-          "tableTo": "users",
-          "columnsFrom": ["updated_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.purchases": {
@@ -1560,7 +1474,7 @@
           "name": "provider_txn_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "pack_id": {
           "name": "pack_id",
@@ -1593,13 +1507,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'pending'"
-        },
-        "provider_data": {
-          "name": "provider_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "raw_event_id": {
           "name": "raw_event_id",
@@ -1643,48 +1550,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "purchases_provider_created_idx": {
-          "name": "purchases_provider_created_idx",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "purchases_provider_txn_key": {
-          "name": "purchases_provider_txn_key",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "provider_txn_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1708,14 +1573,15 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "purchases_positive": {
-          "name": "purchases_positive",
-          "value": "\"purchases\".\"credits\" > 0 and \"purchases\".\"amount_minor\" > 0"
+      "uniqueConstraints": {
+        "purchases_provider_txn_id_unique": {
+          "name": "purchases_provider_txn_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["provider_txn_id"]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.webhook_events": {
@@ -2313,14 +2179,7 @@
     "public.purchase_status": {
       "name": "purchase_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "completed",
-        "cancelled",
-        "refunded",
-        "partially_refunded",
-        "chargeback"
-      ]
+      "values": ["pending", "completed", "refunded", "partially_refunded", "chargeback"]
     },
     "public.tool_runtime": {
       "name": "tool_runtime",

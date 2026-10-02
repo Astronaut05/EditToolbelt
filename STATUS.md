@@ -79,6 +79,7 @@
 - M8: Merge Audio (beta). Drop 2 to 20 files, put them in order (arrow buttons, keyboard too), and join them back to back, with equal-power crossfades or with gaps, or mix them together, lowered just enough not to clip. Files at different rates meet at 48 kHz; the result can be normalised to −14, −16 or −23 LUFS (#63).
 - M8: LUT Preview on Image (beta). Drop a still and a .cube LUT (1D or 3D), set the intensity, and compare before and after; download the graded image. Tetrahedral interpolation, matching the LUT within 1/255; a broken .cube says what's wrong and on which line (#63).
 - Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#63).
+- CI runs the browser tests against the production image too, through a stand-in Cloudflare Access (152 pass on Chromium). The server build's search index is fresh within 30 s, as tool status is (#65).
 - Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
 
 - M5, part 1 (in review): payments built and switched off, with the M5 review's fixes. **M5 ≈ 50 %** (payments done, off; GPU tools next).
@@ -103,6 +104,7 @@
 Applies of the Railway project (Actions → Railway → "Apply the plan", environment `railway`). Work goes on around them.
 
 - **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Approve at Actions → Railway → run 36946470385 → Review deployments. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
+- **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and the token pair `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: deploying the GPU app and its T4 check, then each GPU tool's first real run.
 
 ## Blocked
 
@@ -110,6 +112,13 @@ Applies of the Railway project (Actions → Railway → "Apply the plan", enviro
 - Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark (IoU on 5 photos with reference masks, desktop and 2 phones) needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
 - Housekeeping only: `docs/design-handover` can't be deleted from this session (HTTP 403); see `docs/DECISIONS.md`.
 - M4's `LocalGpu` backend (upscale, stems and transcription on the 1080 Ti): this build environment has no GPU and can't download models (huggingface.co is blocked). The queue, the processor interface and `gpu_seconds` are ready for it; the GPU image (pinned Pascal build), the models and the three tools are built where the GPU is: on Astro's PC, during the stress test, or with M5's backend.
+
+## Parked for Astro
+
+Each item has a recommended pick; nothing else waits on it.
+
+- **CodeQL alert 17 (MD5 in Click's `sign_string`).** Click's protocol fixes the MD5 signature, so the code can't change. **Recommended:** Security → Code scanning → alert 17 → Dismiss → "Won't fix", with the reason "Click's SHOP-API signs with MD5; the secret never leaves the server". Until then it shows as an open alert.
+- **Click and Payme fiscal receipt codes.** The MXIK (IKPU) code, package code and VAT for "credits", and the seller's TIN or PINFL, from Astro's business registration. Both providers refuse to switch on without them. **Recommended:** look the codes up at tasnif.soliq.uz when the Click and Payme contracts are signed; `docs/runbooks/turn-on-payments.md` step 5 says where they go.
 
 ## Run it
 

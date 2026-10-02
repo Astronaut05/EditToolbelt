@@ -8,7 +8,7 @@ import { isListed, surfacesOf, tools } from '@etb/registry';
 import { SURFACES, type Surface } from '@etb/registry/schema';
 
 import { loadToolFlags } from '../../../../lib/flags';
-import { ApiError, preflight, route } from '../../../../server/api';
+import { ApiError, preflight, publicRoute } from '../../../../server/api';
 import { toolView } from '../../../../server/tools';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,7 @@ export const OPTIONS = preflight;
 const isSurface = (value: string): value is Surface =>
   (SURFACES as readonly string[]).includes(value);
 
-export const GET = route('tools', async (request) => {
+export const GET = publicRoute('tools', async (request) => {
   await loadToolFlags();
   const surface = new URL(request.url).searchParams.get('surface');
   if (surface !== null && !isSurface(surface)) {
