@@ -1279,3 +1279,58 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** `tools/photo.md` → P08, `tools/audio.md` → A12, `tools/video.md` → V17; the 2026-10-01 entry on server-only tools; Astro's M5 brief ("tools whose GPU path can't be verified stay beta and are switched on by an admin, like VFR to CFR was").
 **Reverse:** set a tool's status in Admin → Tools, or its default in `packages/registry/src/tools/`.
+
+## 2026-10-02 · Wave 3 GPU models: MI-GAN and BiRefNet_lite; LaMa and RobustVideoMatting not used
+
+**Decision:**
+- **P17 Object Eraser uses MI-GAN** (Picsart AI Research, ICCV 2023), not LaMa.
+  - LaMa's code is Apache-2.0 (Samsung Research), but no primary source gives the big-lama weights a licence. They aren't in the repository: the README links a Google Drive folder and a third party's Hugging Face copy (the Yandex links are dead), and they were trained on Places (research and education terms). `CLAUDE.md` rule 6: unclear means no.
+  - MI-GAN's weights have their own licence from the authors, `LICENSE-WEIGHTS`: MIT, "Copyright (c) 2024 Picsart AI Research (PAIR)"; the code is MIT too. We run the authors' ONNX pipeline (`migan_pipeline_v2.onnx`, 28 MB, Places2 at 512 px), linked from the README on the first author's Hugging Face account. It crops around the mask, fills, and blends back at the original size.
+  - Quality: built for phones, it is a little softer than LaMa on large areas next to fine detail; on objects of small and medium size (people in the distance, wires, signs, text) it is close. The FAQ says what works best.
+- **V21 Video Background Remover uses BiRefNet_lite** (general, Swin-T), not RobustVideoMatting.
+  - RVM's README says "Code is re-released under GPL-3.0 license", and the LICENSE is GPL-3.0's text. Nothing states a licence for the weights (its release assets), and GPL isn't one of `13`'s explicitly commercial weights licences. Not used.
+  - BiRefNet's code and weights are MIT (already approved for P07; re-read 2026-10-02). We run the authors' own ONNX export from their GitHub release `v1` (224 MB fp32), so no model code is needed in the image. Lite rather than the full Swin-L model: about 3× faster per frame, which keeps a minute of video affordable; the full model's ONNX is 928 MB and would cost more per minute than the price brings in.
+  - Per-frame segmentation flickers at edges where nothing moves, so a filter carries 60 % of the last frame's matte into each still pixel (luminance change under 6 %, measured on a 256 px grid) and none into moving pixels or after a cut (mean change over 12 %). Nothing lags behind a moving subject.
+- **V20 adds `realesr-animevideov3`**, the Real-ESRGAN authors' anime model for video (2.5 MB, steadier than the image model from frame to frame), to the upscale group.
+- **Pins:** each file's SHA-256 and size come from several independent manifests that pin the same source URL (huggingface.co can't be reached from this environment); the image build and CI's pins check confirm them before anything runs.
+
+**Why:** `CLAUDE.md` rule 6 and `docs/13` (weights need an explicitly commercial licence, checked at the primary source); the brief's alternatives (MIT or Apache weights released by their authors; BiRefNet for video).
+**Reverse:** a model's row in `docs/13` and `licenses.json` and its file in `gpu/pins.json`. If Samsung or the LaMa authors confirm a commercial licence for big-lama, it can replace MI-GAN in `_erase` (same image and mask in, same crop plan).
+
+## 2026-10-02 · The Wave 3 GPU functions on Modal (P17, V20, V21)
+
+**Decision:**
+- **GPUs:** `erase_object` on a T4 (MI-GAN fills a region in milliseconds; the call is decoding and encoding the photo). `upscale_video` and `remove_video_background` on an L4: Real-ESRGAN's convolutions and BiRefNet in fp32 use the L4's fp16 and TF32 tensor cores, about 2× a T4's speed for 1.35× its price. The registry's `gpu` says the same (a test holds them together).
+- **ONNX Runtime 1.26.0** runs MI-GAN and BiRefNet: the last release built for CUDA 12 (1.27 moved to CUDA 13, which Modal's drivers don't run, as for PyTorch 2.10). Its `cuda` extra leaves out cuBLAS and floats the versions, so the image installs the CUDA 12.8 and cuDNN 9.10 wheels torch 2.10 pins, by name, and calls `preload_dlls()`.
+- **Every function keeps the shape of 2 cores and 8 GiB**, which `config/business.ts` prices. Encoding 4K H.264, ProRes or VP9 on 2 cores can take as long as the model; a 4-core shape for the video functions is a lever once a real run shows the encoder is the bottleneck (it needs a per-function shape in `business.ts`).
+- **Video I/O** (`gpu/video.py`, standard library, tested against real ffmpeg): decode upright (our own turn filter, not autorotate, so the frame size is known) at a constant rate (`-fps_mode cfr` at the average rate, 120 fps at most) with the input's colour matrix (untagged HD read as BT.709); encode BT.709-tagged. H.264 MP4 with NVENC when a one-frame test passes, else libx264 (CRF 18, peaks capped at 50 Mbps for 4K, so 10 minutes fit one upload); ProRes 4444 (`prores_ks`, 16-bit alpha); VP9 with alpha (CRF 30). Sound is copied when the container takes it (MP4: AAC, MP3, AC-3, ALAC; MOV: AAC, ALAC, PCM; WebM: Opus, Vorbis), else AAC or Opus, with a note. HDR and 10-bit become 8-bit SDR, with a note.
+- **Limits, the same in the function, the worker and the web:** 18,000 frames (V20's "10 min cap" at 30 fps, so 5 min at 60), 4K either way round (V20's output, V21's input), and ProRes 4444 refused before charging past 4.5 GB (about 6.5 bits a pixel; one PUT to R2 holds 5 GiB, and `put_output` now refuses anything over 4.9 GB). Timeouts: 90 min for the video functions (jobs 95), 5 for the eraser (job 10).
+- **Smoke inputs**, made with the standard library: a 32 × 24 PNG with a mask marking its middle, and a one-second 64 × 48 Y4M clip (raw YUV, which ffmpeg reads), for both video functions.
+
+**Why:** Astro's Wave 3 brief (cheapest GPU that's enough, timeouts, scale-down, `gpu_seconds`, decode and encode with bounded memory, upload through the presigned PUT, remove every temp file); `tools/video.md` → V20 and V21.
+**Reverse:** `SPECS` and the images at the top of `modal_app.py`; the limits in `apps/web/src/lib/gpu-limits.ts`, `processors/upscale_video.py` and `video_background.py` (a test holds them together).
+
+## 2026-10-02 · Object Eraser's mask, and the brush that makes it (P17)
+
+**Decision:**
+- **The mask is an upload of its own**, like Burn Subtitles' subtitles: option `mask`, a PNG, white where to erase. The API's `GET /tools/object-eraser` lists it in `extra_uploads`, so API and panel callers can send their own masks. The registry now says what each extra upload must be (`uploadKinds`: subtitle types, or `image/png`), and the jobs API checks the mask's shape against the photo's before anything is charged.
+- **The mask may be scaled**: the page draws it at the photo's size up to 16 MP, and at the same shape above that (iOS Safari's canvas tops out near 16.7 MP). The GPU function scales it back up. A mask counts as the photo's shape within half a pixel of rounding plus 1 %; either way round, since a JPEG's probe gives its stored size and the page draws on it upright.
+- **Only marked pixels change.** The function splits the mask into regions apart (a coarse grid's touching cells, merged while their crops overlap), grows each by a few pixels (0.25 % of the long side, at least 3) to take edges and halos, fills each on a crop of itself plus its own size around it, and copies back only those pixels. The size, the alpha and the colour profile stay. PNG is the default because it keeps every other pixel exactly; JPG and WebP are written again at 95.
+- **The brush lives in the ToolShell** (`preset.mask`): Mark and Unmark, size in screen px, undo and clear, a tinted overlay; the strokes are kept in image px and drawn the same way on screen and into the mask (`ui/tool/brush.ts`, which the Refine brush now shares). Brushing is pointer-only (WCAG 2.1.1's path-dependent exception); its controls work from the keyboard. The run waits until something is marked.
+- **MI-GAN is small enough for a browser** (28 MB ONNX, about a quarter of a second a fill on a CPU). Rule 1 would make P17 hybrid, free in the browser with the server for the API and weak devices, but the spec says GPU, flat credits, so it's built on Modal and the browser path is a follow-up (the same ONNX through onnxruntime-web, as P07).
+
+**Why:** `tools/photo.md` → P17 ("output dims unchanged, masked area changed, rest identical"); the Burn Subtitles decision of 2026-10-01 (a second file beside the main one).
+**Reverse:** `uploadOptions` and `uploadKinds` in `@etb/registry/options`; `preset.mask` in the ToolShell.
+
+## 2026-10-02 · Upscale Video, Video Background Remover and Object Eraser: off until an admin switches them on
+
+**Decision:**
+- **Status `soon` in code**, complete enough for beta (a test parses each as beta), like every GPU tool: an admin sets beta in Admin → Tools once the smoke run passes.
+- **Prices are the README's placeholders:** P17 3 credits flat, V20 10 a minute (at least 10), V21 8 a minute (at least 8). `05` has the estimates: P17 and V20 clear the margin of 3 except 60 fps 4K; V21 likely doesn't (about 20 a minute by the formula). Reprice after the first real runs.
+- **Limits:** P17 25 MB free and 100 MB with credits, 50 MP. V20 and V21: 1 min and 200 MB free, 10 min and 2 GB with credits; V20 takes up to 1080p in (4× up to 960 × 540, checked when quoted), V21 up to 4K.
+- **Defaults:** V20 2× (4× fits only up to 960 × 540), General with medium noise cleanup, Animation for cartoons and anime. V21 ProRes 4444 MOV (what Premiere, Final Cut and Resolve key on), with WebM with alpha, green screen MP4 and a colour of your choice; the page shows ProRes's size before you start.
+- **Left for later, with the free previews of P08:** V20's 3-second preview and P17's reduced-size preview. A10's generic preview (a free snippet job) is on the branch `claude/a10-noise`, not on `main`; once it merges, V20 gets `previewSeconds` = 3 (the page cuts the snippet) and P17 a preview of a reduced copy and its mask. Building a second preview mechanism here would only conflict with it.
+- **No Playwright test yet**, as for the other GPU tools: they need Modal. The processors are tested with a stand-in GPU against real Postgres, the video I/O against real ffmpeg, the brush and the mask with stand-in canvases.
+
+**Why:** the 2026-10-02 entry on M5's GPU tools (off until an admin switches them on); `tools/README.md` prices; the brief ("reuse A10's generic preview mechanism if it exists on main … or leave the preview for later and log it").
+**Reverse:** status in Admin → Tools; prices in Admin → Tools or the registry entries.

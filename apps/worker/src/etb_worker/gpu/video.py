@@ -88,6 +88,8 @@ class VideoInfo:
     sar: str
     #: The first sound's codec, or None without sound.
     audio: str | None
+    #: The picture's stream in the file (not a cover image that may come first).
+    stream: int = 0
 
 
 def _fraction(value: object) -> Fraction | None:
@@ -175,6 +177,7 @@ def parse_probe(raw: dict[str, Any]) -> VideoInfo:
         turn=_TURNS.get(degrees, ""),
         sar=f"{sar.numerator}/{sar.denominator}" if sar and sar != 1 else "",
         audio=str(audio.get("codec_name") or "unknown") if audio else None,
+        stream=int(video.get("index") or 0),
     )
 
 
@@ -215,7 +218,7 @@ def notes_for(info: VideoInfo) -> list[str]:
     if info.variable:
         notes.append(f"Variable frame rate made constant at {fps_label(info.fps)} fps")
     if info.hdr:
-        notes.append("HDR video was made SDR, so colours may look flatter")
+        notes.append("HDR video was made SDR, so colors may look flatter")
     elif info.deep:
         notes.append("10-bit video was made 8-bit")
     return notes
@@ -256,7 +259,7 @@ def decode_args(source: Path, info: VideoInfo, pix_fmt: str = "rgb24") -> list[s
         "-i",
         str(source),
         "-map",
-        "0:v:0",
+        f"0:{info.stream}",
         "-an",
         "-sn",
         "-dn",

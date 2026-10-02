@@ -64,13 +64,16 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 - The CPU worker claims GPU jobs too, forwards them to the backend, then does upload/cleanup as usual — switching backend is a config change.
 - Every GPU job records `gpu_seconds`; admin shows real cost per tool.
 
-**What's built (M5, 2026-10-02):**
+**What's built (M5 and Wave 3, 2026-10-02):**
 - **The Modal app** `edittoolbelt-gpu` (`apps/worker/src/etb_worker/gpu/modal_app.py`), deployed by CI on merges to `main` (`.github/workflows/modal.yml`). One function per tool:
 
   | Function | Tools | GPU | Model | Timeout · idle window · containers |
   |---|---|---|---|---|
   | `upscale_image` | P08 | T4 | Real-ESRGAN `realesr-general-x4v3` (with its denoise twin, blended by strength) or `RealESRGAN_x4plus_anime_6B`, 512 px tiles with a 24 px margin, fp16 | 15 min · 10 s · 2 |
   | `transcribe` | A12, V17 | L4 | Whisper `large-v3` (OpenAI's `openai-whisper`), fp16, word timing on | 65 min · 30 s · 2 |
+  | `erase_object` | P17 | T4 | MI-GAN's ONNX pipeline (ONNX Runtime), one 512 px fill per region of the mask, on a crop around it | 5 min · 10 s · 2 |
+  | `upscale_video` | V20 | L4 | Real-ESRGAN `realesr-general-x4v3` (denoise blend) or `realesr-animevideov3`, every frame whole, fp16, batches of up to 2.1 MP | 90 min · 10 s · 2 |
+  | `remove_video_background` | V21 | L4 | BiRefNet_lite general (the authors' ONNX, fp32 on TF32 cores) at 1024 px on every frame, with a flicker filter where the picture holds still | 90 min · 10 s · 2 |
 
   T4 for the upscaler: small networks in tiles, where most of a call is reading, tiling and writing, so the cheaper second wins. L4 for Whisper: a 1.5 B parameter decoder runs about twice as fast as on a T4 for 1.35× the price. Every function asks for 2 CPU cores and 8 GiB, which `config/business.ts` prices with the GPU.
 - **Weights are pinned.** `gpu/pins.json` holds each file's URL, SHA-256 and licence; Modal downloads them while it builds the image and `gpu/weights.py` fails the build on a mismatch. Nothing is downloaded when a function runs. CI checks every pin against its source before deploying (no token needed).
@@ -79,7 +82,9 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 - **Processors** (`processors/upscale_image.py`, `processors/transcribe.py`, shared step `processors/remote.py`): they record the output key on the job before the call (so a dead worker's output is still swept), call the backend, and finish like any job: input deleted at once, output after 60 min. Transcription writes Whisper's JSON to storage; the worker reads it back, deletes it at once and writes SRT, VTT, ASS, TXT or JSON (`captions.py`).
 - **Metering:** each call's GPU seconds and cost land on the job whatever happened (`05` → GPU costs and the daily budget); the daily budget stops new GPU jobs.
 - **Smoke test:** `python -m etb_worker.gpu.check --smoke` calls each function once on a tiny input it makes itself (Actions → Modal → Run workflow → smoke).
-- **Not yet:** P07's hi-res server path (BiRefNet), A09 Stem Splitter (parked: Demucs's weights licence), `LocalGpu`, `DedicatedGpu`. A worker killed outright (not stopped) leaves its GPU call running until the function's timeout.
+- **Video on the GPU (Wave 3, `gpu/video.py`):** ffmpeg decodes the input to raw RGB frames, upright and at a constant frame rate (a phone's variable rate is evened out so the sound stays in sync), read with the input's colour matrix; the model works on them in batches; a second ffmpeg encodes them with the input's sound (copied when the container takes it). A reader and a writer thread with queues of 6 frames keep the GPU, the decoder and the encoder busy at once, and memory at a few frames whatever the length. H.264 uses NVENC when the GPU offers it (a one-frame test per container), libx264 otherwise; ProRes 4444 and VP9 with alpha are CPU encoders. Clips are capped at 18,000 frames (10 min at 30 fps) and 4K; one PUT holds 4.9 GB, so V21's ProRes is refused before charging past 4.5 GB.
+- **Extra inputs:** a remote processor can send its job's other uploads too (`extra_urls`, presigned like the input): Object Eraser's mask.
+- **Not yet:** P07's hi-res server path (BiRefNet), A09 Stem Splitter (parked: Demucs's weights licence), the free previews (P08's 512 px crop, P17's reduced size, V20's 3 s), `LocalGpu`, `DedicatedGpu`. A worker killed outright (not stopped) leaves its GPU call running until the function's timeout.
 
 ### Progress to the client
 - `GET /api/v1/jobs/:id/events` — Server-Sent Events: `queued {position}`, `progress {pct, stage}`, `succeeded {result}`, `failed {problem}`.

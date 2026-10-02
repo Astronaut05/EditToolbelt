@@ -90,10 +90,15 @@ def test_the_rate_to_make(average: str, real: str, expected: Fraction) -> None:
 
 
 def test_a_cover_picture_is_not_the_video() -> None:
-    cover = stream(disposition={"attached_pic": 1})
+    cover = stream(disposition={"attached_pic": 1}, index=0)
     with pytest.raises(CallFailed) as caught:
         video.parse_probe({"streams": [cover, {"codec_type": "audio", "codec_name": "mp3"}]})
     assert caught.value.code == "NO_VIDEO"
+    # A cover that comes first: the decoder reads the real picture's stream.
+    info = video.parse_probe({"streams": [cover, stream(index=1)]})
+    assert info.stream == 1
+    args = video.decode_args(Path("input"), info)
+    assert args[args.index("-map") + 1] == "0:1"
 
 
 def test_4k_either_way_round() -> None:

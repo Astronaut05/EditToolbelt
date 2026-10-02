@@ -591,7 +591,8 @@ def _upscale_frames(
     batch = np.stack([np.frombuffer(frame, np.uint8).reshape(height, width, 3) for frame in frames])
     dtype = torch.float16 if network.supports_half else torch.float32
     with torch.inference_mode():
-        pixels = torch.from_numpy(batch).to("cuda").permute(0, 3, 1, 2).to(dtype) / 255
+        pixels = torch.from_numpy(batch).to("cuda").permute(0, 3, 1, 2).contiguous()
+        pixels = pixels.to(dtype) / 255
         result = network(pixels)
         if result.shape[-2:] != (height * scale, width * scale):
             # 2x: the x4 result made half its size, smoothly (as Real-ESRGAN's own outscale).
