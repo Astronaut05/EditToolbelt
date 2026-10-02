@@ -1,0 +1,67 @@
+# Temporary (claude/debug-watermark only, never merged): PR #71's Chromium-only
+# timeout in watermark-image.spec.ts:95 ("20 mixed sizes"), with an
+# instrumented copy (e2e/zzdebug-watermark.spec.ts) that reports a lost
+# download instead of hanging, and the original spec logging its timeline.
+name: Debug watermark
+on:
+  push:
+    branches: ['claude/debug-watermark']
+permissions:
+  contents: read
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+jobs:
+  chromium:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: AI models and ONNX Runtime
+        run: pnpm models --strict
+      - name: Build static export
+        run: pnpm build
+        env:
+          APP_ENV: test
+      - name: Install Playwright's Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Workshop build
+        run: node scripts/workshop.ts --build-only
+        working-directory: apps/web
+        env:
+          APP_ENV: test
+      - name: Instrumented copy alone, repeat-each 3
+        id: alone
+        continue-on-error: true
+        run: pnpm exec playwright test e2e/zzdebug-watermark.spec.ts --project=chromium --repeat-each=3
+        working-directory: apps/web
+        env:
+          APP_ENV: test
+          PW_BROWSERS: chromium
+      - name: Original spec alone, repeat-each 3
+        id: original
+        if: always()
+        continue-on-error: true
+        run: pnpm exec playwright test e2e/watermark-image.spec.ts --project=chromium --repeat-each=3 -g "20 mixed"
+        working-directory: apps/web
+        env:
+          APP_ENV: test
+          PW_BROWSERS: chromium
+      - name: The whole chromium project, as CI runs it
+        id: project
+        if: always()
+        continue-on-error: true
+        run: pnpm exec playwright test --project=chromium --grep-invert zzdebug
+        working-directory: apps/web
+        env:
+          APP_ENV: test
+          PW_BROWSERS: chromium
+      - name: Result
+        if: always()
+        run: |
+          echo "alone: ${{ steps.alone.outcome }}, original: ${{ steps.original.outcome }}, project: ${{ steps.project.outcome }}"
