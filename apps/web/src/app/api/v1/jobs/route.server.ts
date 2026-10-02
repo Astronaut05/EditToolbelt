@@ -17,6 +17,7 @@ import {
   route,
 } from '../../../../server/api';
 import { createJob, jobView, listJobs } from '../../../../server/jobs';
+import { jobFor } from '../../../../server/scoped';
 
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
@@ -24,7 +25,8 @@ export const OPTIONS = preflight;
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{8,128}$/;
 
 export const POST = route('jobs.create', async (request) => {
-  const { user, ref, keyId } = await requireCaller(request, 'jobs:write');
+  const caller = await requireCaller(request, 'jobs:write');
+  const { user, ref, keyId } = caller;
   limit(request, `jobs:${ref}`, 30, 60);
   const key = request.headers.get('idempotency-key');
   if (key !== null && !IDEMPOTENCY_KEY.test(key)) {
@@ -42,7 +44,8 @@ export const POST = route('jobs.create', async (request) => {
     key,
     keyId ? 'api' : 'web',
   );
-  const answer: JobEnvelope = { job: await jobView(job) };
+  // A repeat answers a job that may have finished: its result needs jobs:read.
+  const answer: JobEnvelope = { job: jobFor(caller, await jobView(job)) };
   return json(answer, { status: created ? 201 : 200 });
 });
 

@@ -1238,3 +1238,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6: `/connect` had no limit on guessing live codes, which a signed-in attacker could approve into their own account.
 **Reverse:** `MISS_LIMIT` and `MISS_WINDOW_SEC` in `server/device.ts`.
+
+## 2026-10-02 · Answers show no more than the caller's scopes (M6 fix)
+
+**Decision:**
+- **A job's `result` is left out for a caller without `jobs:read`,** wherever `jobs:write` alone reaches a job: cancelling one that already ended, and repeating a start with the `Idempotency-Key` of a job that has finished. The field is optional in `Job` and absent (not `null`), so "no result yet" and "not yours to see" stay different.
+- **A quote's `balance`, `balance_after` and `free_jobs_left` are left out for a caller without `account:read`.** `can_start`, `blocked_by` and `funding` stay: they're what a key that may start jobs needs to decide, and they say nothing the start itself wouldn't.
+- One place decides (`server/scoped.ts`: `jobFor`, `quoteFor`, over `holds(caller, scope)`); the website's session holds every scope, so the site is unchanged. The schemas say which scope each field needs, so the OpenAPI document does too.
+- `run-tool.mjs` prints the balance only when the answer has it.
+
+**Why:** a review of M6 confirmed a `jobs:write`-only key could get a presigned download URL from cancel or a repeated start, and the balance from a quote.
+**Reverse:** have `jobFor` and `quoteFor` return what they're given.

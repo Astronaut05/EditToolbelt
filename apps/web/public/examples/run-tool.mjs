@@ -132,11 +132,12 @@ async function main() {
     await sleep(1000);
   }
   if (!quote.can_start) throw new Error(`${quote.blocked_by}: it costs ${quote.credits} credits`);
+  // The balance and free jobs left come only with a key that has account:read.
   say(
     quote.funding === 'credits'
-      ? `price: ${quote.credits} credits (balance after: ${quote.balance_after})`
+      ? `price: ${quote.credits} credits${quote.balance_after === undefined ? '' : ` (balance after: ${quote.balance_after})`}`
       : quote.funding === 'daily'
-        ? `price: one of today's free jobs (${quote.free_jobs_left} left)`
+        ? `price: one of today's free jobs${quote.free_jobs_left === undefined ? '' : ` (${quote.free_jobs_left} left)`}`
         : 'price: free',
   );
 

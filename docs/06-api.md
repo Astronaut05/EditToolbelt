@@ -27,7 +27,7 @@ Device flow, as built: `POST /auth/device` `{ client_name? }` (anonymous, 20 a m
 
 At `/connect` (RFC 8628 §5.1), a wrong, expired or used code gets the same answer whichever it is, and counts as a miss against the signed-in account and its address; 10 misses in 10 minutes refuse every code, the right one too, until the window ends. Approving is refused while the account has 10 keys, and an approved code gives no key once its account is disabled or deleted (`ACCESS_DENIED`).
 
-Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, starting and cancelling jobs), `account:read` (`/me`). The session cookie can do all three. A request with an `Authorization` header is judged by its key alone: 401 for a wrong or revoked key, 403 for a missing scope. At most 10 live keys per account; rate limits count per key.
+Scopes: `jobs:read` (jobs, progress, results), `jobs:write` (uploads, quotes, starting and cancelling jobs), `account:read` (`/me`). The session cookie can do all three. An answer never shows more than the caller's scopes allow: a job's `result` (its download URL) is left out without `jobs:read`, even where `jobs:write` reaches the job (cancelling a finished one, repeating a start), and a quote's `balance`, `balance_after` and `free_jobs_left` are left out without `account:read`. A request with an `Authorization` header is judged by its key alone: 401 for a wrong or revoked key, 403 for a missing scope. At most 10 live keys per account; rate limits count per key.
 
 ## Endpoints
 

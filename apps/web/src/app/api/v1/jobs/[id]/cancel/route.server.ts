@@ -3,8 +3,11 @@
  * gives its credits back. Cancelling a finished job changes nothing and
  * answers it as it is.
  */
+import type { JobEnvelope } from '@etb/core/api';
+
 import { json, preflight, requireCaller, route } from '../../../../../../server/api';
 import { cancelJob, jobView } from '../../../../../../server/jobs';
+import { jobFor } from '../../../../../../server/scoped';
 
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
@@ -12,7 +15,8 @@ export const OPTIONS = preflight;
 type Context = { params: Promise<{ id: string }> };
 
 export const POST = route('jobs.cancel', async (request, { params }: Context) => {
-  const { user } = await requireCaller(request, 'jobs:write');
-  const job = await cancelJob(user, (await params).id);
-  return json({ job: await jobView(job) });
+  const caller = await requireCaller(request, 'jobs:write');
+  const job = await cancelJob(caller.user, (await params).id);
+  // A finished job is answered as it is: its result needs jobs:read.
+  return json({ job: jobFor(caller, await jobView(job)) } satisfies JobEnvelope);
 });

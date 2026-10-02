@@ -53,10 +53,19 @@ describe('the OpenAPI document', () => {
   });
 
   it('describes bodies as they are on the wire', () => {
-    const job = doc.components.schemas.Job as { required: string[]; additionalProperties: boolean };
-    expect(job.required).toContain('result');
+    const job = doc.components.schemas.Job as {
+      required: string[];
+      additionalProperties: boolean;
+      properties: Record<string, unknown>;
+    };
+    expect(job.required).toContain('status');
     expect(job.additionalProperties).toBe(false);
-    expect(JSON.stringify(doc.components.schemas.Quote)).toContain('probing');
+    // Left out of answers to a key without jobs:read (docs/06 → Auth).
+    expect(job.required).not.toContain('result');
+    expect(JSON.stringify(job.properties.result)).toContain('jobs:read');
+    const quote = JSON.stringify(doc.components.schemas.Quote);
+    expect(quote).toContain('probing');
+    expect(quote).toContain('account:read');
   });
 });
 

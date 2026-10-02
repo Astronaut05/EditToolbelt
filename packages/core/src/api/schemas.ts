@@ -149,9 +149,22 @@ export const Quote = z
       funding: Funding,
       can_start: z.boolean(),
       blocked_by: z.enum(['QUOTA_EXCEEDED', 'INSUFFICIENT_CREDITS']).optional(),
-      free_jobs_left: z.number().int(),
-      balance: z.number().int(),
-      balance_after: z.number().int(),
+      /** The account's own numbers: only for a caller with account:read (the website has it). */
+      free_jobs_left: z
+        .number()
+        .int()
+        .optional()
+        .describe('Free server jobs left today (UTC). Only with the account:read scope.'),
+      balance: z
+        .number()
+        .int()
+        .optional()
+        .describe('Credits now. Only with the account:read scope.'),
+      balance_after: z
+        .number()
+        .int()
+        .optional()
+        .describe('Credits once this job is paid. Only with the account:read scope.'),
       estimate_seconds: z.number().nullable(),
       /** The options with every default filled in: what the job will run with. */
       options: z.record(z.string(), z.unknown()),
@@ -211,7 +224,12 @@ export const Job = z
     error: z
       .strictObject({ code: z.string(), detail: z.string(), credits_returned: z.boolean() })
       .nullable(),
-    result: JobResult.nullable(),
+    /** Only for a caller with jobs:read (the website has it): it holds the download URL. */
+    result: JobResult.nullable()
+      .optional()
+      .describe(
+        'Once it succeeds, the download; null before. Only with the jobs:read scope: answers to a key without it (cancel, a repeated start) leave it out.',
+      ),
   })
   .register(api, { id: 'Job' });
 export type Job = z.infer<typeof Job>;
