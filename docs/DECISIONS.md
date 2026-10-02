@@ -1159,3 +1159,15 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 **Why:** `tools/audio.md` → A07, A13.
 **Reverse:** the maths is in `@etb/core` (`fades.ts`, `channels.ts`), with tests; the pages only pick options.
+
+## 2026-10-02 · Smoke-testing production after each deploy
+
+**Decision:**
+- **The Smoke workflow runs when Railway reports a successful deploy to GitHub** (`deployment_status`), and by hand. It waits until `/healthz` names the deployed commit (20 minutes at most), then runs the `site` check of `scripts/ops/verify.ts` through Access with the CI service token: private without a token, `/readyz` green, the security headers, `www` redirecting.
+- **Not on `push` or after CI (`workflow_run`).** Railway deploys a commit on `main` only once its check suites pass (`checkSuites`), so a check on the same commit that waits for the deploy would hold up the deploy it waits for, then fail and stop it.
+- **No hourly run.** A scheduled run lands on the newest commit on `main`; if the site is down at that moment, its failed check would stop Railway deploying the fix. The worker's own heartbeats and alerts watch production between deploys.
+- **It skips cleanly** until the service token is set (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`), like the Ops checks.
+- `docs/runbooks/production.md` names every setting and where it lives, never a value.
+
+**Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
+**Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
