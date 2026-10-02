@@ -110,8 +110,10 @@ export {
 export {
   planConversion,
   videoConverterEngine,
+  videoFrameSource,
   videoPackets,
   type ConversionPlan,
+  type FrameSource,
   type VideoConverterOptions,
 } from './video/convert-video';
 export { bpmKeyEngine, Downmix, type BpmKeyOptions } from './audio/bpm-key';

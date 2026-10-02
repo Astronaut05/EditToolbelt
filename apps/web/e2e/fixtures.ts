@@ -109,3 +109,127 @@ export async function setRange(page: Page, start: string, end: string): Promise<
     await expect(outPoint).toHaveValue(shownTime(end), { timeout: 1000 });
   }).toPass({ timeout: 15_000 });
 }
+
+/**
+ * A video's frames at `times` (seconds), drawn at `width` × `height` (the
+ * coded size when left out), as RGBA pixels: the frame showing at each time.
+ * Decoded with WebCodecs in the page, not played in a <video> element: which
+ * files that plays differs by browser, and Playwright's Linux WebKit
+ * (GStreamer) crashed playing results back. The packets come from Node
+ * (@etb/engines → videoFrameSource), so any container the tools write works.
+ * Frames are drawn as they arrive and closed at once, so the decoder never
+ * runs out of frames to hand out.
+ */
+export async function framePixels(
+  page: Page,
+  file: Buffer,
+  times: number[],
+  size?: { width: number; height: number },
+): Promise<{ width: number; height: number; frames: number[][] }> {
+  const { videoFrameSource } = await import('@etb/engines');
+  const source = await videoFrameSource(
+    new Blob([new Uint8Array(file)]),
+    Math.min(...times),
+    Math.max(...times),
+  );
+  if (!source) throw new Error('no video track to read');
+  const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
+  const width = size?.width ?? source.config.codedWidth;
+  const height = size?.height ?? source.config.codedHeight;
+  const frames = await page.evaluate(
+    async ({ config, packets, wanted, w, h }) => {
+      const bytes = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+      const canvas = new OffscreenCanvas(w, h);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('no canvas');
+      const draw = (frame: VideoFrame) => {
+        ctx.drawImage(frame, 0, 0, w, h);
+        return Array.from(ctx.getImageData(0, 0, w, h).data);
+      };
+      // Each wanted time gets the last frame that starts at or before it.
+      const order = wanted
+        .map((t, i) => ({ at: Math.round(t * 1e6), i }))
+        .sort((a, b) => a.at - b.at);
+      const out: number[][] = [];
+      let next = 0;
+      let shown: VideoFrame | null = null;
+      const state: { failure: string | null } = { failure: null };
+      const decoder = new VideoDecoder({
+        output: (frame) => {
+          for (
+            ;
+            next < order.length && shown && frame.timestamp > (order[next]?.at ?? 0);
+            next += 1
+          )
+            out[order[next]?.i ?? 0] = draw(shown);
+          shown?.close();
+          shown = frame;
+        },
+        error: (error) => {
+          state.failure = error.message;
+        },
+      });
+      decoder.configure({
+        codec: config.codec,
+        codedWidth: config.codedWidth,
+        codedHeight: config.codedHeight,
+        ...(config.description ? { description: bytes(config.description) } : {}),
+      });
+      for (const packet of packets) {
+        decoder.decode(
+          new EncodedVideoChunk({
+            type: packet.key ? 'key' : 'delta',
+            timestamp: Math.round(packet.timestamp * 1e6),
+            data: bytes(packet.data),
+          }),
+        );
+      }
+      await decoder.flush();
+      decoder.close();
+      if (state.failure !== null) throw new Error(`decoding failed: ${state.failure}`);
+      const last = shown as VideoFrame | null;
+      if (!last) throw new Error('no frame decoded');
+      for (; next < order.length; next += 1) out[order[next]?.i ?? 0] = draw(last);
+      last.close();
+      return out;
+    },
+    {
+      config: {
+        codec: source.config.codec,
+        codedWidth: source.config.codedWidth,
+        codedHeight: source.config.codedHeight,
+        description: source.config.description ? b64(source.config.description) : null,
+      },
+      packets: source.packets.map((p) => ({
+        data: b64(p.data),
+        timestamp: p.timestamp,
+        key: p.key,
+      })),
+      wanted: times,
+      w: width,
+      h: height,
+    },
+  );
+  return { width, height, frames };
+}
+
+/** The mean colour of each of `count` vertical bands of the frame at `atSec` (see framePixels). */
+export async function frameBands(
+  page: Page,
+  file: Buffer,
+  atSec: number,
+  count = 3,
+): Promise<{ width: number; height: number; bands: number[][] }> {
+  const { width, height, frames } = await framePixels(page, file, [atSec]);
+  const px = frames[0] ?? [];
+  const bands = Array.from({ length: count }, () => [0, 0, 0]);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const band = bands[Math.min(count - 1, Math.floor((x * count) / width))];
+      if (!band) continue;
+      for (let c = 0; c < 3; c += 1) band[c] = (band[c] ?? 0) + (px[(y * width + x) * 4 + c] ?? 0);
+    }
+  }
+  const per = (width / count) * height;
+  return { width, height, bands: bands.map((b) => b.map((v) => v / per)) };
+}
