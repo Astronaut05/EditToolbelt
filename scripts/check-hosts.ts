@@ -11,8 +11,8 @@
  * no move of ours ever changes them.
  *
  * Prose is not scanned (Markdown, docs/, tools/), nor lockfiles,
- * licenses.json and models.json, whose URLs point at packages, license texts
- * and third-party model downloads.
+ * licenses.json, models.json and the GPU weights' pins.json, whose URLs point
+ * at packages, license texts and third-party model downloads.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -30,6 +30,7 @@ const SKIP_PATH = [
   /(^|\/)uv\.lock$/,
   /^licenses\.json$/,
   /^models\.json$/,
+  /^apps\/worker\/src\/etb_worker\/gpu\/pins\.json$/,
   /\.(png|jpe?g|webp|avif|gif|ico|mp4|mov|webm|wav|mp3|flac|onnx|wasm|woff2?|pdf|zip)$/i,
 ];
 

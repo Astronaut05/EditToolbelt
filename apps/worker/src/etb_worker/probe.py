@@ -43,6 +43,11 @@ CONTAINERS: dict[str, set[str]] = {
     "audio/x-wav": {"wav"},
     "audio/flac": {"flac"},
     "audio/ogg": {"ogg"},
+    "audio/webm": {"webm", "matroska"},
+    # Still images (Upscale Image): ffprobe reads them as one frame of "video".
+    "image/png": {"png_pipe"},
+    "image/jpeg": {"jpeg_pipe"},
+    "image/webp": {"webp_pipe"},
 }
 #: Subtitle files a tool takes beside a video (Burn Subtitles). ffprobe reads them as one stream.
 SUBTITLES: dict[str, set[str]] = {

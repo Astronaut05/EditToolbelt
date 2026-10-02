@@ -189,6 +189,18 @@ jobs:
         run: |
           uv export --locked --no-dev --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
           uvx --from pip-audit==2.10.1 pip-audit --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+      # The GPU images' packages (Modal), pinned with hashes in their own files. Two
+      # PyTorch 2.10 advisories are local-only and out of our reach (docs/DECISIONS.md,
+      # "The GPU images are pinned"): CVE-2026-4538 loads .pt2 archives, we load only
+      # our own SHA-256-pinned .pth weights; CVE-2025-3000 is torch.jit.script, which
+      # nothing calls. The fix needs PyTorch 2.13 (CUDA 13 wheels).
+      - name: pip-audit (GPU images)
+        working-directory: apps/worker/src/etb_worker/gpu
+        run: |
+          for file in requirements-*.txt; do
+            uvx --from pip-audit==2.10.1 pip-audit --disable-pip --require-hashes -r "$file" \
+              --ignore-vuln PYSEC-2026-139 --ignore-vuln PYSEC-2025-194
+          done
 
   stack:
     name: Local stack · docker compose smoke test

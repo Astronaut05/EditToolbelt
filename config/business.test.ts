@@ -4,6 +4,7 @@ import {
   MIN_PACK_PRICE_USD,
   creditNetUsd,
   disposableEmailDomains,
+  gpuRateUsd,
   packNetUsdPerCredit,
   packs,
 } from './business';
@@ -57,5 +58,15 @@ describe('disposableEmailDomains', () => {
       expect(domain).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
     }
     expect(new Set(disposableEmailDomains).size).toBe(disposableEmailDomains.length);
+  });
+});
+
+describe('gpuRateUsd', () => {
+  it('prices a GPU function by the second: its GPU, 2 cores and 8 GiB', () => {
+    // T4 $0.000164 + 2 × $0.0000131 + 8 × $0.00000222
+    expect(gpuRateUsd('T4')).toBeCloseTo(0.00020796, 8);
+    expect(gpuRateUsd('L4')).toBeCloseTo(0.00026596, 8);
+    // About 75 ¢ and 96 ¢ an hour.
+    expect(gpuRateUsd('L4') * 3600).toBeCloseTo(0.957, 2);
   });
 });
