@@ -86,9 +86,19 @@ def ffmpeg_progress(
 
 
 # The tool modules import the helpers above, so they come last.
-from etb_worker.processors import burn_subtitles, compress_video, vfr_to_cfr  # noqa: E402
+from etb_worker.processors import (  # noqa: E402
+    burn_subtitles,
+    compress_video,
+    remove_noise,
+    vfr_to_cfr,
+)
 
 PROCESSORS: dict[str, Processor] = {
     processor.tool_id: processor
-    for processor in (compress_video.PROCESSOR, vfr_to_cfr.PROCESSOR, burn_subtitles.PROCESSOR)
+    for processor in (
+        compress_video.PROCESSOR,
+        vfr_to_cfr.PROCESSOR,
+        burn_subtitles.PROCESSOR,
+        remove_noise.PROCESSOR,
+    )
 }
