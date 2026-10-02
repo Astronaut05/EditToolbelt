@@ -2,6 +2,8 @@
  * The panel's connect flow (docs/06 → Auth): the `request` fixture plays the
  * panel (no cookies), the page plays the person approving at /connect.
  */
+import { randomBytes } from 'node:crypto';
+
 import AxeBuilder from '@axe-core/playwright';
 import { apiKeys, deviceCodes, eq, users } from '@etb/db';
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -11,6 +13,29 @@ import { closeTestDb, linkFor, newEmail, setScheme, signIn, testDb } from './hel
 const db = testDb();
 
 test.describe.configure({ mode: 'serial' });
+
+/**
+ * A client address no other test shares: the IPv6 documentation range
+ * (RFC 3849) and 96 random bits, as Cloudflare would pass it.
+ */
+function newAddress(): string {
+  const hex = randomBytes(12).toString('hex');
+  return `2001:db8:${Array.from({ length: 6 }, (_, i) => hex.slice(4 * i, 4 * i + 4)).join(':')}`;
+}
+
+/*
+ * Every test calls from an address of its own, its page and its panel alike.
+ * The server counts wrong codes (10 in 10 minutes lock /connect), new device
+ * codes and API calls per address, in memory, for as long as it runs: all
+ * three browsers in CI, and every local run until it is stopped. On a shared
+ * address one test's misses (or one browser's) carry over into the next.
+ */
+test.use({
+  // eslint-disable-next-line no-empty-pattern -- Playwright reads a fixture's needs from this pattern
+  extraHTTPHeaders: async ({}, provide) => {
+    await provide({ 'cf-connecting-ip': newAddress() });
+  },
+});
 
 test.afterAll(async () => {
   await closeTestDb();
@@ -134,21 +159,18 @@ test('an expired or made-up code goes nowhere', async ({ page, request }) => {
   await expect(page.getByText(/That code is wrong or has expired/)).toBeVisible();
 });
 
-test('ten wrong codes lock the account out, the right one too', async ({ page, request }) => {
-  // DEBUG (claude/debug-connect-lockout only): step timings, the address, and
-  // what the page shows when there is no Decline button.
+test('ten wrong codes lock the account out, the right one too', async ({
+  page,
+  request,
+  extraHTTPHeaders,
+}) => {
+  // DEBUG (claude/debug-connect-lockout only): step timings and the address.
   const t0 = Date.now();
   const tag = `[lockout ${test.info().project.name} #${String(test.info().repeatEachIndex)}]`;
   const mark = (step: string) => {
     console.log(`${tag} +${String(Date.now() - t0)} ms ${step}`);
   };
-  // An address of its own, so the lockout touches no other test.
-  const address =
-    process.env.DEBUG_PIN_ADDRESS || `203.0.113.${String(Math.floor(Math.random() * 250) + 1)}`;
-  mark(`address ${address}`);
-  await page.setExtraHTTPHeaders({
-    'cf-connecting-ip': address,
-  });
+  mark(`address ${extraHTTPHeaders?.['cf-connecting-ip'] ?? '(none)'}`);
   await signIn(page, newEmail());
   mark('signed in');
   const wrong = /That code is wrong or has expired/;
@@ -156,11 +178,7 @@ test('ten wrong codes lock the account out, the right one too', async ({ page, r
   const declined = await start(request);
   mark('code started');
   await page.goto(`/connect?code=${declined.user_code}`);
-  mark(`connect page open: ${page.url()}`);
-  if (!(await page.getByRole('button', { name: 'Decline' }).isVisible())) {
-    const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ').slice(0, 400);
-    mark(`NO DECLINE BUTTON; the page says: ${text}`);
-  }
+  mark('connect page open');
   await page.getByRole('button', { name: 'Decline' }).click();
   await expect(page.getByRole('status')).toHaveText(/Declined/);
   mark('declined');

@@ -18,67 +18,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: before, whole server suite as in CI (1)
+          - name: after, connect.spec.ts x5, Firefox and WebKit
+            browsers: firefox webkit
+            args: e2e-server/connect.spec.ts --project=firefox --project=webkit --repeat-each=5
+            pin: ''
+          - name: after, connect.spec.ts x20, Firefox and WebKit
+            browsers: firefox webkit
+            args: e2e-server/connect.spec.ts --project=firefox --project=webkit --repeat-each=20
+            pin: ''
+          - name: after, whole server suite as in CI (1)
             browsers: chromium firefox webkit
             args: ''
             pin: ''
-          - name: before, whole server suite as in CI (2)
+          - name: after, whole server suite as in CI (2)
             browsers: chromium firefox webkit
             args: ''
             pin: ''
-          - name: before, whole server suite as in CI (3)
+          - name: after, whole server suite as in CI (3)
             browsers: chromium firefox webkit
             args: ''
             pin: ''
-          - name: before, whole server suite as in CI (4)
+          - name: after, whole server suite as in CI (4)
             browsers: chromium firefox webkit
             args: ''
             pin: ''
-          - name: before, whole server suite as in CI (5)
+          - name: after, whole server suite as in CI (5)
             browsers: chromium firefox webkit
             args: ''
             pin: ''
-          - name: before, whole server suite as in CI (6)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (7)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (8)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (9)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (10)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (11)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (12)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (13)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (14)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (15)
-            browsers: chromium firefox webkit
-            args: ''
-            pin: ''
-          - name: before, whole server suite as in CI (16)
+          - name: after, whole server suite as in CI (6)
             browsers: chromium firefox webkit
             args: ''
             pin: ''
