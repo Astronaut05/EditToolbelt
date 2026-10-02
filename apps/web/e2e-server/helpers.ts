@@ -90,3 +90,17 @@ export function totp(key: string, at = Date.now()): string {
   const code = (mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
   return String(code).padStart(6, '0');
 }
+
+/**
+ * Switches the page to a colour scheme and waits until its CSS transitions
+ * have finished. Fields and buttons fade their colours over a few hundred
+ * ms; axe run straight after the switch can measure a colour halfway, as
+ * light text on a still-light field, and report a contrast failure that no
+ * one ever sees.
+ */
+export async function setScheme(page: Page, scheme: 'light' | 'dark'): Promise<void> {
+  await page.emulateMedia({ colorScheme: scheme });
+  await page.evaluate(() =>
+    Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => null))),
+  );
+}

@@ -8,9 +8,9 @@ import { DeviceTokenRequest, type DeviceToken } from '@etb/core/api';
 import {
   json,
   preflight,
-  rateLimit,
+  limit,
   readJson,
-  route,
+  publicRoute,
   sourceOf,
 } from '../../../../../../server/api';
 import { collectKey } from '../../../../../../server/device';
@@ -18,8 +18,8 @@ import { collectKey } from '../../../../../../server/device';
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
 
-export const POST = route('auth.device.token', async (request) => {
-  const limits = rateLimit(`device.token:${sourceOf(request)}`, 60, 60);
+export const POST = publicRoute('auth.device.token', async (request) => {
+  limit(request, `device.token:${sourceOf(request)}`, 60, 60);
   const body = await readJson(request, DeviceTokenRequest);
   const collected = await collectKey(body.device_code);
   const answer: DeviceToken = {
@@ -28,5 +28,5 @@ export const POST = route('auth.device.token', async (request) => {
     name: collected.name,
     scopes: collected.scopes,
   };
-  return json(answer, { headers: limits });
+  return json(answer);
 });

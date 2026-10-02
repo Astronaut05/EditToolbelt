@@ -178,17 +178,9 @@ export {
   type Frame,
   type Upright,
 } from './image/upright';
+export { ADJUST_RANGES, adjustNote, adjustValue, applyAdjust, type Adjust } from './image/adjust';
+export { activeAreas, isNeutral, NO_ADJUST } from './image/edit-checks';
 export {
-  ADJUST_RANGES,
-  adjustNote,
-  adjustValue,
-  applyAdjust,
-  isNeutral,
-  NO_ADJUST,
-  type Adjust,
-} from './image/adjust';
-export {
-  activeAreas,
   applyRedact,
   areaBoxOf,
   defaultAmount,

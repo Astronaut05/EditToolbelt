@@ -3,4 +3,4 @@
  * (docs/06), shared by the web server, `/developers` and `@etb/api-client`.
  */
 export * from './schemas';
-export { ENDPOINTS, openApiDocument, type Endpoint } from './openapi';
+export { ENDPOINTS, openApiDocument, problemsOf, statusesOf, type Endpoint } from './openapi';
