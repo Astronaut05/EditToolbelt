@@ -6,6 +6,7 @@ What to do when something goes wrong (`docs/11` → Backups and recovery, Incide
 |---|---|
 | Deploying, rolling back, or finding a production setting | [production.md](production.md) |
 | An alert arrives (Telegram or email) | [alerts.md](alerts.md) |
+| The GPU budget alert (80 % or 100 % of the day's GPU budget) | [gpu-budget.md](gpu-budget.md) |
 | A tool misbehaves and must stop now | [disable-a-tool.md](disable-a-tool.md) |
 | A job is stuck, or someone asks about one | [stuck-job.md](stuck-job.md) |
 | Workers must stop (deploy, maintenance, a bad release) | [drain-workers.md](drain-workers.md) |
