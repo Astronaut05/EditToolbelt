@@ -111,13 +111,13 @@ function Choice<T extends string>({
               const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
               if (!step) return;
               event.preventDefault();
-              const next =
-                options[(options.indexOf(option) + step + options.length) % options.length];
+              const at = (options.indexOf(option) + step + options.length) % options.length;
+              const next = options[at];
               if (next) onChange(next);
-              const group = event.currentTarget.parentElement;
-              requestAnimationFrame(() => {
-                group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
-              });
+              // Focus moves now, not after the re-render, so quick presses each take a step.
+              event.currentTarget.parentElement
+                ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                [at]?.focus();
             }}
             className={cn(
               'inline-flex h-11 min-w-11 items-center justify-center',

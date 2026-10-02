@@ -164,13 +164,14 @@ export function DrawBar({
                 const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
                 if (!step) return;
                 event.preventDefault();
-                const index = MARK_TOOLS.indexOf(tool);
-                const next = MARK_TOOLS[(index + step + MARK_TOOLS.length) % MARK_TOOLS.length];
+                const at =
+                  (MARK_TOOLS.indexOf(tool) + step + MARK_TOOLS.length) % MARK_TOOLS.length;
+                const next = MARK_TOOLS[at];
                 if (next) onStyle({ ...style, tool: next });
-                const group = event.currentTarget.parentElement;
-                requestAnimationFrame(() => {
-                  group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
-                });
+                // Focus moves now, not after the re-render, so quick presses each take a step.
+                event.currentTarget.parentElement
+                  ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                  [at]?.focus();
               }}
               className={cn(
                 'inline-flex size-11 items-center justify-center',

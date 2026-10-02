@@ -226,10 +226,17 @@ test('marks are added, moved, resized and removed from the keyboard', async ({ p
   await expect(box).toHaveAccessibleDescription(/Arrow keys move it/);
 
   // A marker, then Delete: the drawing is back to one mark, and focus goes back to it.
+  // Two presses in a row, before the page redraws, still take two steps.
   await page.getByRole('radio', { name: 'Rectangle' }).focus();
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
+  await page.evaluate(() => {
+    for (let i = 0; i < 2; i += 1) {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      );
+    }
+  });
   await expect(page.getByRole('radio', { name: 'Numbered marker' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'Numbered marker' })).toBeFocused();
   await page.getByRole('button', { name: 'Add marker' }).focus();
   await page.keyboard.press('Enter');
   const marker = page.getByRole('group', { name: /^Numbered marker 2, number 1 at 200, 150$/ });
