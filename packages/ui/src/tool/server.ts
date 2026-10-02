@@ -67,6 +67,30 @@ export class ServerRunError extends Error {
   }
 }
 
+/** A free preview's two sides, played A/B: the snippet as sent, and as it came back. */
+export interface PreviewResult {
+  original: Blob;
+  result: Blob;
+  /** Where the snippet starts in the file, and how long it is, seconds. */
+  fromSec: number;
+  durationSec: number;
+  notes?: string[];
+}
+
+/**
+ * A free preview of a short snippet before the paid run (A10: 10 s, heard
+ * A/B). The page cuts the snippet and sends it; the shell asks first, shows
+ * the progress and plays the two sides.
+ */
+export interface ShellPreview {
+  seconds: number;
+  run: (
+    file: File,
+    options: Record<string, string>,
+    ctx: ServerRunContext,
+  ) => Promise<PreviewResult>;
+}
+
 export interface ShellServer {
   /** The price rule in words: "1 credit a minute, at least 2". */
   price: string;
@@ -82,6 +106,9 @@ export interface ShellServer {
     options: Record<string, string>,
     ctx: ServerRunContext,
   ) => Promise<ServerResult>;
+  /** What a run sends for this file, when it isn't the file itself (a video sends only its sound). */
+  uploadBytes?: (file: File) => number;
+  preview?: ShellPreview;
 }
 
 /** Whether the account can start a job this size, and the line that says what it costs. */
@@ -127,6 +154,23 @@ export function serverTerms(
         ? `No free server jobs left today, and this needs about ${plural(credits, 'credit')} (you have ${String(account.balance)}). Free jobs come back tomorrow (UTC).`
         : `This needs about ${plural(credits, 'credit')}; you have ${String(account.balance)}.`,
   };
+}
+
+/**
+ * What a free preview costs this account (docs/05 → Free allowance): one of a
+ * never-paid account's free jobs; nothing for a paid one (a few a day).
+ */
+export function previewTerms(account: ServerAccount): { ok: boolean; line: string } {
+  if (account.tier === 'paid') return { ok: true, line: 'Free: no credits used.' };
+  return account.freeJobsLeft > 0
+    ? {
+        ok: true,
+        line: `Free: uses 1 of your free server jobs today (${String(account.freeJobsLeft)} left).`,
+      }
+    : {
+        ok: false,
+        line: 'Previews use your free server jobs, and today’s are used. They come back tomorrow (UTC).',
+      };
 }
 
 export function plural(n: number, word: string): string {

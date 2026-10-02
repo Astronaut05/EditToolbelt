@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { serverTerms, type ShellServer } from './server';
+import { previewTerms, serverTerms, type ShellServer } from './server';
 
 const GB = 1024 ** 3;
 const server: ShellServer = {
@@ -46,6 +46,20 @@ describe('serverTerms', () => {
     expect(serverTerms(server, paid, 11 * GB, 5)).toEqual({
       ok: false,
       line: 'Our servers take up to 10.7 GB for this tool.',
+    });
+  });
+});
+
+describe('previewTerms', () => {
+  it('spends a never-paid account’s free job, and nothing of a paid one', () => {
+    expect(previewTerms(free)).toEqual({
+      ok: true,
+      line: 'Free: uses 1 of your free server jobs today (3 left).',
+    });
+    expect(previewTerms({ ...free, freeJobsLeft: 0 }).ok).toBe(false);
+    expect(previewTerms({ tier: 'paid', balance: 0, freeJobsLeft: 0 })).toEqual({
+      ok: true,
+      line: 'Free: no credits used.',
     });
   });
 });

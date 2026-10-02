@@ -15,5 +15,6 @@ export { audioConverterEngine } from './audio/convert';
 export { bpmKeyEngine } from './audio/bpm-key';
 export { channelsEngine, fadeEngine, probeChannels } from './audio/edit';
 export { loudnessMeterEngine, normalizeEngine } from './audio/loudness';
+export { previewSnippet, probeNoise, putSoundBack, soundAsFlac } from './audio/noise';
 export { probeAudio } from './audio/probe';
 export { audioPeaks, trimAudioEngine } from './audio/trim';

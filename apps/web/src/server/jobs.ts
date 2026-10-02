@@ -34,7 +34,7 @@ import {
   type Queryable,
 } from '@etb/db';
 import { costOf, hasServerPath, isAvailable, limitsOf, priceOf, tools } from '@etb/registry';
-import { parseServerOptions, uploadOptions } from '@etb/registry/options';
+import { parseServerOptions, previewSeconds, uploadOptions } from '@etb/registry/options';
 import type { ToolDef } from '@etb/registry/schema';
 
 import { log } from '../lib/log';
@@ -55,6 +55,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROBE_WAIT_MS = 8000;
 /** Outputs are deleted this long after the job ends (docs/01 → Retention). */
 const OUTPUT_TTL_MS = 60 * 60 * 1000;
+/** A preview snippet may run this much over its length: the page cuts at frame edges. */
+const PREVIEW_SLACK_MS = 500;
 
 interface Probe {
   duration_ms?: number;
@@ -118,6 +120,26 @@ async function dailyJobsUsed(userId: string, tx = db()): Promise<number> {
       and(
         eq(jobs.userId, userId),
         eq(jobs.funding, 'daily'),
+        gte(jobs.createdAt, startOfUtcDay()),
+        notInArray(jobs.status, [...GAVE_BACK]),
+      ),
+    );
+  return row?.n ?? 0;
+}
+
+/**
+ * Free previews this account ran today (UTC) on credits it never spent: a
+ * paid account's. Failed, cancelled and expired ones don't count.
+ */
+async function previewsUsed(userId: string, tx = db()): Promise<number> {
+  const [row] = await tx
+    .select({ n: count() })
+    .from(jobs)
+    .where(
+      and(
+        eq(jobs.userId, userId),
+        eq(jobs.funding, 'none'),
+        sql`${jobs.options}->>'preview' = 'true'`,
         gte(jobs.createdAt, startOfUtcDay()),
         notInArray(jobs.status, [...GAVE_BACK]),
       ),
@@ -197,12 +219,17 @@ function checkLimits(tool: ToolDef, tier: Tier, probe: Probe): void {
   }
 }
 
-/** The price and what pays for it: nothing, a free daily job, or credits. */
+/**
+ * The price and what pays for it: nothing, a free daily job, or credits. A
+ * free preview (docs/05 → Free allowance) costs no credits: a never-paid
+ * account spends one of its daily jobs on it, a paid one has a few a day.
+ */
 async function funding(
   user: CurrentUser,
   tier: Tier,
   credits: number,
   tx = db(),
+  preview = false,
 ): Promise<
   Pick<
     Extract<Quote, { status: 'ready' }>,
@@ -217,6 +244,16 @@ async function funding(
     .where(eq(users.id, user.id));
   const balance = fresh?.balance ?? 0;
   const base = { free_jobs_left: left, balance, balance_after: balance };
+  if (preview) {
+    const can =
+      tier === 'free'
+        ? left > 0
+        : (await previewsUsed(user.id, tx)) < freeAllowance.paidDailyPreviews;
+    const paidBy = tier === 'free' ? 'daily' : 'none';
+    return can
+      ? { ...base, funding: paidBy, can_start: true }
+      : { ...base, funding: paidBy, can_start: false, blocked_by: 'QUOTA_EXCEEDED' };
+  }
   if (credits === 0) return { ...base, funding: 'none', can_start: true };
   if (left > 0) return { ...base, funding: 'daily', can_start: true };
   if (balance >= credits) {
@@ -239,6 +276,8 @@ interface Prepared {
   extras: { upload: Upload; probe: Probe }[];
   credits: number;
   options: Record<string, unknown>;
+  /** A free preview of a snippet (`previewSeconds` in the registry's options). */
+  preview: boolean;
 }
 
 /**
@@ -292,9 +331,30 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   if (reason) throw new ApiError(422, 'NOTHING_TO_DO', 'Nothing to fix', reason);
   const extras = await extraUploads(user, tool, parsed.options);
   if (!extras) return null;
+  const preview = parsed.options.preview === true;
+  if (preview) checkPreview(tool, probe);
   const megapixels = ((probe.video?.width ?? 0) * (probe.video?.height ?? 0)) / 1e6;
-  const credits = priceOf(costOf(tool), { durationMs: probe.duration_ms ?? 0, megapixels });
-  return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options };
+  const credits = preview
+    ? 0
+    : priceOf(costOf(tool), { durationMs: probe.duration_ms ?? 0, megapixels });
+  return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options, preview };
+}
+
+/** A preview is a snippet the page cut: no longer than the tool's preview length. */
+function checkPreview(tool: ToolDef, probe: Probe): void {
+  const most = previewSeconds[tool.id as keyof typeof previewSeconds];
+  if (!most) {
+    throw new ApiError(400, 'BAD_REQUEST', 'No preview', `${tool.name} has no free preview.`);
+  }
+  if ((probe.duration_ms ?? 0) > most * 1000 + PREVIEW_SLACK_MS) {
+    throw new ApiError(
+      413,
+      'FILE_TOO_LARGE',
+      'Too long for a preview',
+      `A free preview is at most ${String(most)} s. Send a snippet, or run the whole file.`,
+      { max_duration_sec: most },
+    );
+  }
 }
 
 function probeErrorText(code: string): string {
@@ -306,7 +366,7 @@ function probeErrorText(code: string): string {
 export async function quote(user: CurrentUser, request: JobRequest): Promise<Quote> {
   const prepared = await prepare(user, request);
   if (!prepared) return { status: 'probing' };
-  const paying = await funding(user, prepared.tier, prepared.credits);
+  const paying = await funding(user, prepared.tier, prepared.credits, db(), prepared.preview);
   return {
     status: 'ready',
     tool_id: prepared.tool.id,
@@ -376,16 +436,18 @@ export async function createJob(
         `Wait for one to finish: ${String(cap)} can wait or run at a time.`,
       );
     }
-    const paying = await funding(user, prepared.tier, prepared.credits, tx);
+    const paying = await funding(user, prepared.tier, prepared.credits, tx, prepared.preview);
     if (!paying.can_start) {
       const quota = paying.blocked_by === 'QUOTA_EXCEEDED';
       throw new ApiError(
         quota ? 429 : 402,
         quota ? 'QUOTA_EXCEEDED' : 'INSUFFICIENT_CREDITS',
         quota ? 'No free jobs left today' : 'Not enough credits',
-        quota
-          ? `You've used today's ${String(freeAllowance.signedInDailyServerJobs)} free server jobs. They come back tomorrow (UTC).`
-          : `This needs ${String(prepared.credits)} credits; you have ${String(paying.balance)}.`,
+        quota && prepared.preview && prepared.tier === 'paid'
+          ? `You've used today's ${String(freeAllowance.paidDailyPreviews)} free previews. They come back tomorrow (UTC).`
+          : quota
+            ? `You've used today's ${String(freeAllowance.signedInDailyServerJobs)} free server jobs. They come back tomorrow (UTC).`
+            : `This needs ${String(prepared.credits)} credits; you have ${String(paying.balance)}.`,
         { credits: prepared.credits, balance: paying.balance },
       );
     }
@@ -479,7 +541,12 @@ const ERROR_TEXT: Record<string, string> = {
   STORAGE_UNAVAILABLE: 'Storage wasn’t answering. Try again.',
   INTERNAL: 'Something went wrong on our side.',
 };
-const PROCESSOR_CODES: ReadonlySet<string> = new Set(['TARGET_TOO_SMALL', 'NO_VIDEO']);
+const PROCESSOR_CODES: ReadonlySet<string> = new Set([
+  'TARGET_TOO_SMALL',
+  'NO_VIDEO',
+  'NO_AUDIO',
+  'TOO_MANY_CHANNELS',
+]);
 
 function errorText(job: Job): string {
   const code = job.errorCode ?? '';

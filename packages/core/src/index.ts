@@ -77,6 +77,7 @@ export {
   type FadeCurve,
   type Fades,
 } from './audio/fades';
+export { flacBytes, LEVEL_WINDOW_SEC, NOISE_PREVIEW_SECONDS, previewStart } from './audio/noise';
 export {
   CHANNEL_ACTIONS,
   channelActionOf,

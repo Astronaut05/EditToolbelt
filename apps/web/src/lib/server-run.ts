@@ -38,6 +38,12 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   vtt: 'text/vtt',
   ass: 'text/x-ssa',
   ssa: 'text/x-ssa',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
 };
 
 /** The worker's stages, in words. */
@@ -47,6 +53,11 @@ const STAGES: Record<string, string> = {
   processing: 'Working',
   analysing: 'Analysing',
   compressing: 'Compressing',
+  reading: 'Reading the sound',
+  measuring: 'Measuring the background',
+  cleaning: 'Cleaning',
+  'checking peaks': 'Checking the peaks',
+  saving: 'Saving',
   uploading: 'Saving the result',
   done: 'Saving the result',
 };
@@ -255,10 +266,12 @@ export function serverPath(
         offer = await quote(toolId, uploadId, options, ctx);
         if (!offer.can_start) {
           throw new ServerRunError(
-            offer.blocked_by === 'QUOTA_EXCEEDED'
-              ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`
-              : `This needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`,
-            'Not enough credits',
+            offer.credits === 0
+              ? 'No free previews left today. They come back tomorrow (UTC)'
+              : offer.blocked_by === 'QUOTA_EXCEEDED'
+                ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`
+                : `This needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`,
+            offer.credits === 0 ? 'No free previews left' : 'Not enough credits',
           );
         }
         const asExpected =

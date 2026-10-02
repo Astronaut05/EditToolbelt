@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseServerOptions } from './options';
+import { parseServerOptions, previewSeconds } from './options';
 
 describe('parseServerOptions', () => {
   it('fills in defaults and checks each mode', () => {
@@ -54,5 +54,17 @@ describe('parseServerOptions', () => {
     });
     expect(parseServerOptions('vfr-to-cfr', { fps: '29.97' }).ok).toBe(true);
     expect(parseServerOptions('vfr-to-cfr', { fps: '29' }).ok).toBe(false);
+  });
+
+  it('cleans speech at Medium in the file’s own format by default, and knows previews', () => {
+    expect(parseServerOptions('remove-noise', {})).toEqual({
+      ok: true,
+      options: { strength: 'medium', dehum: 'off', deess: false, format: 'keep', preview: false },
+    });
+    expect(parseServerOptions('remove-noise', { dehum: '60', preview: true }).ok).toBe(true);
+    expect(parseServerOptions('remove-noise', { dehum: 55 }).ok).toBe(false);
+    expect(parseServerOptions('remove-noise', { format: 'aiff' }).ok).toBe(false);
+    expect(previewSeconds['remove-noise']).toBe(10);
+    expect(previewSeconds['compress-video']).toBeUndefined();
   });
 });

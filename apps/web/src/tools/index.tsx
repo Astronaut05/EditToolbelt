@@ -41,6 +41,7 @@ const VIEWS: Readonly<Record<ToolId, View>> = {
   'normalize-audio': dynamic(() => import('./normalize-audio')),
   'qr-code-generator': dynamic(() => import('./qr-code-generator')),
   'remove-background': dynamic(() => import('./remove-background')),
+  'remove-noise': dynamic(() => import('./remove-noise')),
   'resize-image': dynamic(() => import('./resize-image')),
   'rotate-image': dynamic(() => import('./rotate-image')),
   'social-media-image-resizer': dynamic(() => import('./social-media-image-resizer')),

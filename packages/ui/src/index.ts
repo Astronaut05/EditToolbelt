@@ -71,15 +71,19 @@ export {
 } from './tool/format';
 export { ProgressBar, type ProgressMeta } from './tool/ProgressBar';
 export { Readout, ReadoutRow, type Fact } from './tool/Readout';
+export { ABPlayer } from './tool/ABPlayer';
 export {
+  previewTerms,
   ServerRunError,
   serverTerms,
+  type PreviewResult,
   type ServerAccount,
   type ServerInfo,
   type ServerQuote,
   type ServerResult,
   type ServerRunContext,
   type ServerStage,
+  type ShellPreview,
   type ShellServer,
 } from './tool/server';
 export { Timeline, type TimelineRange } from './tool/Timeline';
