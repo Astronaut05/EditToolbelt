@@ -12,6 +12,7 @@ What to do when something goes wrong (`docs/11` → Backups and recovery, Incide
 | Workers must stop (deploy, maintenance, a bad release) | [drain-workers.md](drain-workers.md) |
 | The database is lost or damaged | [restore-database.md](restore-database.md) |
 | A secret leaked, or it's time to rotate | [rotate-secrets.md](rotate-secrets.md) |
+| Turning payments on (Paddle, Click, Payme), or off again | [turn-on-payments.md](turn-on-payments.md) |
 | Payment webhooks stop arriving (from M5) | [webhook-outage.md](webhook-outage.md) |
 | Personal data may have leaked | [data-breach.md](data-breach.md) |
 

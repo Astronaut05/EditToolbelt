@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import type { ReactNode } from 'react';
 
 import {
   accounts,
@@ -24,6 +25,8 @@ import {
   Table,
   when,
 } from '../../../../../components/admin/AdminFrame';
+import { formatMoney, packName } from '../../../../../lib/money';
+import { providerName } from '../../../../../lib/pay-with';
 import { db } from '../../../../../server/db';
 import { requestTime } from '../../../../../server/time';
 import { changeCredits, deleteUser, revokeKeys, setDisabled } from '../../actions';
@@ -76,6 +79,8 @@ export default async function AdminUser({ params, searchParams }: Props) {
       .where(and(eq(sessions.userId, id), gte(sessions.expiresAt, new Date(requestTime())))),
   ]);
   const error = typeof query.error === 'string' ? ERRORS[query.error] : undefined;
+  // docs/05 → Fraud and abuse: a chargeback flags the account here.
+  const chargebacks = bought.filter((row) => row.status === 'chargeback').length;
   const state = user.deletedAt ? 'deleted' : user.disabledAt ? 'disabled' : 'active';
 
   return (
@@ -100,6 +105,16 @@ export default async function AdminUser({ params, searchParams }: Props) {
           ['Signs in with', ['email link', ...methods.map((m) => m.providerId)].join(', ')],
           ['Signed-in sessions', live?.n ?? 0],
           ['Credits', user.creditBalance],
+          ...(chargebacks > 0
+            ? ([
+                [
+                  'Flag',
+                  <strong key="flag">
+                    {chargebacks} chargeback{chargebacks === 1 ? '' : 's'}: check before granting
+                  </strong>,
+                ],
+              ] as [string, ReactNode][])
+            : []),
           ['Product news', user.marketingOptIn ? 'yes' : 'no'],
         ]}
       />
@@ -151,22 +166,29 @@ export default async function AdminUser({ params, searchParams }: Props) {
 
       <Section title="Purchases">
         {bought.length === 0 ? (
-          <p className="text-14 text-text-muted">None. Payments arrive in M5.</p>
+          <p className="text-14 text-text-muted">None.</p>
         ) : (
-          <Table label="Purchases" head={['When', 'Pack', 'Credits', 'Paid', 'Status']}>
+          <Table label="Purchases" head={['When', 'Provider', 'Pack', 'Credits', 'Paid', 'Status']}>
             {bought.map((row) => (
               <tr key={row.id}>
                 <td>{when(row.createdAt)}</td>
-                <td>{row.packId}</td>
+                <td>{providerName(row.provider)}</td>
+                <td>{packName(row.packId)}</td>
                 <td>{row.credits}</td>
-                <td>
-                  {(row.amountMinor / 100).toFixed(2)} {row.currency}
-                </td>
-                <td>{row.status}</td>
+                <td>{formatMoney(row.amountMinor, row.currency)}</td>
+                <td>{row.status === 'chargeback' ? <strong>chargeback</strong> : row.status}</td>
               </tr>
             ))}
           </Table>
         )}
+        <p className="text-14">
+          <a
+            href={`/admin/payments?user=${encodeURIComponent(user.email ?? user.id)}`}
+            className="underline underline-offset-4"
+          >
+            In Payments
+          </a>
+        </p>
       </Section>
 
       <Section title="Recent server jobs">

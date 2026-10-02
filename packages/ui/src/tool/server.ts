@@ -21,6 +21,8 @@ export interface ServerAccount {
   balance: number;
   /** Free server jobs left today (never-paid accounts). */
   freeJobsLeft: number;
+  /** Where to buy credits while they're on sale; null or absent otherwise (no link shows). */
+  buyHref?: string | null;
 }
 
 /** The server's price once it has checked the file. */
@@ -56,12 +58,16 @@ export interface ServerRunContext {
   confirm: (quote: ServerQuote) => Promise<boolean>;
 }
 
-/** A failure to show as it is: the server's words, and whether credits came back. */
+/**
+ * A failure to show as it is: the server's words, whether credits came back,
+ * and whether more credits would fix it (then "Buy credits" shows, if on sale).
+ */
 export class ServerRunError extends Error {
   constructor(
     message: string,
     readonly title = 'Our servers couldn’t do this',
     readonly creditsReturned = false,
+    readonly needsCredits = false,
   ) {
     super(message);
   }
@@ -119,13 +125,16 @@ export interface ShellServer {
   preview?: ShellPreview;
 }
 
-/** Whether the account can start a job this size, and the line that says what it costs. */
+/**
+ * Whether the account can start a job this size, the line that says what it
+ * costs, and whether more credits would let it (`needsCredits`).
+ */
 export function serverTerms(
   server: ShellServer,
   account: ServerAccount,
   bytes: number,
   credits: number | null,
-): { ok: boolean; line: string } {
+): { ok: boolean; line: string; needsCredits?: boolean } {
   const limit = server.maxBytes[account.tier];
   if (bytes > limit) {
     return {
@@ -147,6 +156,7 @@ export function serverTerms(
     return {
       ok: account.balance > 0,
       line: `${server.price}; you have ${plural(account.balance, 'credit')}. The price is confirmed before it starts.`,
+      ...(account.balance <= 0 && { needsCredits: true }),
     };
   }
   if (account.balance >= credits) {
@@ -157,6 +167,7 @@ export function serverTerms(
   }
   return {
     ok: false,
+    needsCredits: true,
     line:
       account.tier === 'free'
         ? `No free server jobs left today, and this needs about ${plural(credits, 'credit')} (you have ${String(account.balance)}). Free jobs come back tomorrow (UTC).`
