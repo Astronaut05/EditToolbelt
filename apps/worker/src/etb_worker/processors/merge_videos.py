@@ -517,8 +517,10 @@ class MergeVideos:
         with_sound = any(clip.audio for clip in clips)
         inputs: list[str] = []
         for clip in clips:
-            # Every input, not just the first, may open local files only.
-            inputs += ["-protocol_whitelist", "file,pipe", "-i", clip.name]
+            # Every input, not just the first, may open local files only. Every clip's
+            # decoder opens at the start: two threads each keep 20 of them, even at 4K,
+            # within the sandbox's address space on a machine with many cores.
+            inputs += ["-threads", "2", "-protocol_whitelist", "file,pipe", "-i", clip.name]
         out = ctx.workdir / f"out.{ext}"
         report = ffmpeg_progress(round(t.length * 1000), ctx.progress, "encoding", 5, 98)
         ctx.run(
