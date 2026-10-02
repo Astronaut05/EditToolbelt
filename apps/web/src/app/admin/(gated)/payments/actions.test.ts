@@ -217,8 +217,9 @@ describe.skipIf(!TEST_DATABASE_URL)('Admin → Payments refund actions', () => {
         CLICK_SERVICE_ID: '12345',
         CLICK_MERCHANT_USER_ID: '3333',
         CLICK_SECRET_KEY: 'SECRET123',
-        // A reserved name: should config/business.ts be filled in, nothing real is called.
-        CLICK_MERCHANT_API_URL: 'https://merchant.click.invalid/v2/merchant/',
+        // A closed port on this machine: refused at once, with no DNS lookup to wait on
+        // (a resolver that is slow to say `.invalid` doesn't exist outlasted the test's 5 s).
+        CLICK_MERCHANT_API_URL: 'http://127.0.0.1:1/v2/merchant/',
       },
     };
     try {
