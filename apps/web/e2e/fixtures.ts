@@ -1,3 +1,5 @@
+import { inflateRawSync } from 'node:zlib';
+
 import { test as base, expect, type Page } from '@playwright/test';
 
 /**
@@ -242,8 +244,8 @@ export async function frameBands(
   return { width, height, bands: bands.map((b) => b.map((v) => v / per)) };
 }
 
-/** The entries of a stored (uncompressed) ZIP, in order: enough for the ZIPs the tools make. */
-export function unzipStored(zip: Buffer): { name: string; data: Buffer }[] {
+/** A ZIP's entries in order, read from their local headers: stored, or also deflated if allowed. */
+function readZip(zip: Buffer, deflated: boolean): { name: string; data: Buffer }[] {
   const entries: { name: string; data: Buffer }[] = [];
   let at = 0;
   while (zip.readUInt32LE(at) === 0x04034b50) {
@@ -251,13 +253,24 @@ export function unzipStored(zip: Buffer): { name: string; data: Buffer }[] {
     const size = zip.readUInt32LE(at + 18);
     const nameLength = zip.readUInt16LE(at + 26);
     const extraLength = zip.readUInt16LE(at + 28);
-    expect(method).toBe(0);
+    expect(deflated ? [0, 8] : [0]).toContain(method);
     const start = at + 30 + nameLength + extraLength;
+    const data = zip.subarray(start, start + size);
     entries.push({
       name: zip.toString('utf8', at + 30, at + 30 + nameLength),
-      data: zip.subarray(start, start + size),
+      data: method === 8 ? inflateRawSync(data) : data,
     });
     at = start + size;
   }
   return entries;
+}
+
+/** The entries of a stored (uncompressed) ZIP, in order: enough for the ZIPs the tools make. */
+export function unzipStored(zip: Buffer): { name: string; data: Buffer }[] {
+  return readZip(zip, false);
+}
+
+/** The entries of a batch's "Download all" ZIP, deflated or stored, in order. */
+export function unzip(zip: Buffer): { name: string; data: Buffer }[] {
+  return readZip(zip, true);
 }

@@ -35,28 +35,10 @@ jobs:
         working-directory: apps/web
         env:
           APP_ENV: test
-      - name: Instrumented copy alone, repeat-each 3
-        id: alone
+      - name: The fixed spec on Chromium, repeat-each 5
+        id: fixed
         continue-on-error: true
-        run: pnpm exec playwright test e2e/zzdebug-watermark.spec.ts --project=chromium --repeat-each=3
-        working-directory: apps/web
-        env:
-          APP_ENV: test
-          PW_BROWSERS: chromium
-      - name: Original spec alone, repeat-each 3
-        id: original
-        if: always()
-        continue-on-error: true
-        run: pnpm exec playwright test e2e/watermark-image.spec.ts --project=chromium --repeat-each=3 -g "20 mixed"
-        working-directory: apps/web
-        env:
-          APP_ENV: test
-          PW_BROWSERS: chromium
-      - name: The whole chromium project, as CI runs it
-        id: project
-        if: always()
-        continue-on-error: true
-        run: pnpm exec playwright test --project=chromium --grep-invert zzdebug
+        run: pnpm exec playwright test e2e/watermark-image.spec.ts --project=chromium --repeat-each=5
         working-directory: apps/web
         env:
           APP_ENV: test
@@ -64,4 +46,5 @@ jobs:
       - name: Result
         if: always()
         run: |
-          echo "alone: ${{ steps.alone.outcome }}, original: ${{ steps.original.outcome }}, project: ${{ steps.project.outcome }}"
+          echo "fixed: ${{ steps.fixed.outcome }}"
+          test "${{ steps.fixed.outcome }}" = success
