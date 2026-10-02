@@ -2394,7 +2394,16 @@ function Workspace({
                 className="max-h-full max-w-full"
               />
             ) : (
-              <audio src={output.url} controls aria-label="Result" className="w-full max-w-120" />
+              // The header only, until played: with the default (auto), Linux
+              // WebKit (GStreamer) can freeze the page loading the result
+              // (docs/DECISIONS.md, 2026-10-02, a result's audio player).
+              <audio
+                src={output.url}
+                controls
+                preload="metadata"
+                aria-label="Result"
+                className="w-full max-w-120"
+              />
             )}
             <MediaTag className="left-3.5">Result</MediaTag>
           </div>
