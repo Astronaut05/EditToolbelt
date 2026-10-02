@@ -162,7 +162,8 @@ def test_the_decoder_reads_the_priced_time_and_one_frame_past_the_cap(tmp_path: 
     )
     args = video.decode_args(tmp_path / "input", info, max_seconds=6.1, max_frames=180)
     # -t before -i: the input is read no further (the sound's input too, in the encoder).
-    assert args[args.index("-t") + 1 : args.index("-t") + 3] == ["6.100", "-i"]
+    at = args.index("-t")
+    assert args[at + 1 : at + 5] == ["6.100", "-protocol_whitelist", "file,pipe", "-i"]
     assert args[args.index("-frames:v") + 1] == "181"
     encode, _ = video.encode_args(
         tmp_path / "out.mp4",
@@ -175,7 +176,7 @@ def test_the_decoder_reads_the_priced_time_and_one_frame_past_the_cap(tmp_path: 
         max_seconds=6.1,
     )
     at = encode.index(str(tmp_path / "input"))
-    assert encode[at - 3 : at] == ["-t", "6.100", "-i"]
+    assert encode[at - 5 : at] == ["-t", "6.100", "-protocol_whitelist", "file,pipe", "-i"]
     with pytest.raises(ValueError, match="positive"):
         video.decode_args(tmp_path / "input", info, max_seconds=0, max_frames=180)
 
