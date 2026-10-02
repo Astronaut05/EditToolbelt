@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   and,
   desc,
@@ -43,9 +45,45 @@ const one = (value: string | string[] | undefined) =>
 const SAVED: Record<string, string> = {
   on: 'Switched on. It’s in the audit log.',
   off: 'Switched off. It’s in the audit log.',
-  refund: 'Refund requested. The credits come off when the provider’s refund event arrives.',
-  recorded: 'Refund recorded: the credits came off. It’s in the audit log.',
+  refund:
+    'Refund requested. The credits come off, in proportion, when the provider’s refund event arrives.',
+  recorded: 'Refund recorded: the credits came off in proportion. It’s in the audit log.',
 };
+
+/** What the admin needs to size a refund of the unused part. */
+function RefundFacts({
+  paid,
+  credits,
+  balance,
+}: {
+  paid: string;
+  credits: number;
+  balance: number | null;
+}) {
+  return (
+    <p className="text-13.5 text-text-muted">
+      Paid {paid} for {credits} credits.
+      {balance === null ? '' : ` Their balance now: ${String(balance)} credits.`} Credits come off
+      in proportion to the money.
+    </p>
+  );
+}
+
+/** The money refunded, in the purchase's currency. */
+function AmountField({ id, currency }: { id: string; currency: string }) {
+  return (
+    <label className="flex flex-col gap-1.5 text-14">
+      <span className="font-strong">Amount refunded ({currency})</span>
+      <input
+        id={id}
+        name="amount"
+        required
+        inputMode="decimal"
+        className="h-11 rounded-control border border-border bg-bg px-3 text-16"
+      />
+    </label>
+  );
+}
 
 const yes = (value: boolean, good = 'yes', bad = 'no') => (
   <span className={value ? '' : 'font-strong'}>{value ? good : bad}</span>
@@ -83,7 +121,7 @@ export default async function AdminPayments({ searchParams }: Props) {
   const [states, rows, events] = await Promise.all([
     paymentStates(db(), env),
     db()
-      .select({ purchase: purchases, email: users.email })
+      .select({ purchase: purchases, email: users.email, balance: users.creditBalance })
       .from(purchases)
       .leftJoin(users, eq(users.id, purchases.userId))
       .where(and(...where))
@@ -255,7 +293,7 @@ export default async function AdminPayments({ searchParams }: Props) {
               '',
             ]}
           >
-            {rows.map(({ purchase, email }) => {
+            {rows.map(({ purchase, email, balance }) => {
               const provider = onNow.get(purchase.provider as (typeof PROVIDER_IDS)[number]);
               const refundable =
                 purchase.status === 'completed' || purchase.status === 'partially_refunded';
@@ -284,6 +322,15 @@ export default async function AdminPayments({ searchParams }: Props) {
                         </summary>
                         <form action={refundPurchase} className="mt-2 flex w-72 flex-col gap-2">
                           <input type="hidden" name="purchaseId" value={purchase.id} />
+                          <RefundFacts
+                            paid={formatMoney(purchase.amountMinor, purchase.currency)}
+                            credits={purchase.credits}
+                            balance={balance}
+                          />
+                          <AmountField
+                            id={`refund-amount-${purchase.id}`}
+                            currency={purchase.currency}
+                          />
                           <ReasonField id={`refund-${purchase.id}`} />
                           <Button type="submit" size="sm" className="self-start">
                             Refund through {provider.name}
@@ -297,9 +344,20 @@ export default async function AdminPayments({ searchParams }: Props) {
                         </summary>
                         <form action={recordRefund} className="mt-2 flex w-72 flex-col gap-2">
                           <input type="hidden" name="purchaseId" value={purchase.id} />
+                          {/* New on every page load: a double submit records once. */}
+                          <input type="hidden" name="refundId" value={randomUUID()} />
                           <p className="text-13.5 text-text-muted">
-                            After refunding it in Click’s cabinet: takes its credits back.
+                            After refunding it in Click’s cabinet: the amount you refunded there.
                           </p>
+                          <RefundFacts
+                            paid={formatMoney(purchase.amountMinor, purchase.currency)}
+                            credits={purchase.credits}
+                            balance={balance}
+                          />
+                          <AmountField
+                            id={`record-amount-${purchase.id}`}
+                            currency={purchase.currency}
+                          />
                           <ReasonField id={`record-${purchase.id}`} />
                           <Button type="submit" size="sm" className="self-start">
                             Record the refund
@@ -326,10 +384,12 @@ export default async function AdminPayments({ searchParams }: Props) {
           </p>
         )}
         <p className="text-14 text-text-muted">
-          Paddle refunds go through Paddle’s API from here; the credits come off when Paddle
-          approves. Payme refunds are made in Payme’s cabinet and arrive as its cancel call. Click
-          has no refund call: refund in Click’s cabinet, then record it here. A refund can take a
-          balance below zero; paid jobs then wait for a top-up.
+          Refunds are for the unused part of a pack: give the money refunded, and the credits come
+          off in proportion, never more than are left of the purchase. Paddle refunds go through
+          Paddle’s API from here, full or partial; the credits come off when Paddle approves. Payme
+          refunds are made in Payme’s cabinet and arrive as its cancel call. Click has no refund
+          call: refund in Click’s cabinet, then record the amount here. A refund can take a balance
+          below zero; paid jobs then wait for a top-up.
         </p>
       </Section>
 

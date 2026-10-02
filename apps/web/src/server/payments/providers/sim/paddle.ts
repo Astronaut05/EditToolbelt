@@ -281,13 +281,30 @@ export class FakePaddleApi {
     }
     if (method === 'POST' && url.pathname === '/adjustments' && isRecord(body)) {
       const transactionId = String(body.transaction_id);
-      if (!this.transactions.has(transactionId)) return this.error(404, 'entity_not_found');
+      const transaction = this.transactions.get(transactionId);
+      if (!transaction) return this.error(404, 'entity_not_found');
+      const items: unknown[] = Array.isArray(body.items) ? body.items : [];
+      const [item] = items;
+      const details = isRecord(transaction.details) ? transaction.details : {};
+      const paid = isRecord(details.totals) ? String(details.totals.grand_total) : '500';
+      if (body.type === 'partial') {
+        // Paddle's rules: one partial item of this transaction, with an amount.
+        const lineItems: unknown[] = Array.isArray(details.line_items) ? details.line_items : [];
+        const known = lineItems.some(
+          (line) => isRecord(line) && isRecord(item) && line.id === item.item_id,
+        );
+        if (items.length !== 1 || !isRecord(item) || !known || item.type !== 'partial')
+          return this.error(400, 'bad_request');
+        if (!(Number(item.amount) > 0) || Number(item.amount) > Number(paid))
+          return this.error(400, 'adjustment_amount_above_remaining_allowed');
+      }
       return this.ok(
         adjustmentData({
           transactionId,
           status: 'pending_approval',
-          type: 'full',
+          type: body.type === 'partial' ? 'partial' : 'full',
           action: 'refund',
+          total: body.type === 'partial' && isRecord(item) ? String(item.amount) : paid,
         }),
       );
     }

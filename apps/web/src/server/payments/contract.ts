@@ -147,6 +147,11 @@ export interface PaymentProvider {
    * route answers 404 otherwise.
    */
   handleWebhook(request: Request, ctx: ProviderContext): Promise<Response>;
-  /** A refund through the provider's API, where there is one (Paddle). Click and Payme refunds arrive as their own calls. */
-  refund?(purchase: PurchaseRecord, ctx: ProviderContext): Promise<void>;
+  /**
+   * Asks the provider to refund `amountMinor` of the purchase, where it has
+   * an API for it (Paddle): the whole payment, or part of it. The credits
+   * come off when the provider's refund call arrives. Click and Payme
+   * refunds are made in their cabinets.
+   */
+  refund?(purchase: PurchaseRecord, ctx: ProviderContext, amountMinor: number): Promise<void>;
 }

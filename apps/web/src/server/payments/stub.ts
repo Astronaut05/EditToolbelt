@@ -6,12 +6,12 @@
  * around it is the real thing: the switches, checkout, the store, the ledger.
  * Never a real provider's protocol.
  */
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
 
 import type { PaymentProvider, ProviderId } from './contract';
-import { readBody } from './providers/shared';
+import { creditsForRefund, readBody } from './providers/shared';
 import { returnUrl } from './urls';
 
 export const STUB_KEY = 'PAYMENTS_STUB_KEY';
@@ -77,8 +77,13 @@ export function stubProvider(id: ProviderId): PaymentProvider {
       await ctx.store.markEventProcessed(event.id);
       return Response.json({ status: done.status });
     },
-    async refund(purchase, ctx) {
-      await ctx.store.refund(purchase.id, { refundId: `stub_refund_${purchase.id}` });
+    async refund(purchase, ctx, amountMinor) {
+      // Applied at once, in proportion to the money, as the real refund call would.
+      const credits = creditsForRefund(purchase.credits, amountMinor, purchase.amountMinor);
+      await ctx.store.refund(purchase.id, {
+        refundId: `stub_refund_${randomUUID()}`,
+        ...(credits === undefined ? {} : { credits }),
+      });
     },
   };
 }

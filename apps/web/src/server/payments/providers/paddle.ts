@@ -11,8 +11,9 @@
  *   5 minutes either way), stored once per event_id, then:
  *   `transaction.paid` / `transaction.completed` complete the purchase;
  *   approved `refund` and `chargeback` adjustments take the credits back.
- * - Refund: a full refund adjustment through the API; the credits go when
- *   Paddle approves it and says so by webhook.
+ * - Refund: a refund adjustment through the API, full or partial (the
+ *   amount the admin gives); the credits go, in proportion to the money,
+ *   when Paddle approves it and says so by webhook.
  */
 import { createHmac } from 'node:crypto';
 
@@ -23,6 +24,7 @@ import type { Checkout, PaymentProvider, ProviderContext, PurchaseRecord } from 
 import {
   asString,
   assertCheckoutable,
+  creditsForRefund,
   describeError,
   isRecord,
   packFor,
@@ -197,6 +199,14 @@ function totalsOf(transaction: Record<string, unknown>): Record<string, unknown>
     : {};
 }
 
+/** The transaction's one line item (txnitm_…), which a partial refund names. */
+function lineItemIdOf(transaction: unknown): string | null {
+  const details = isRecord(transaction) && isRecord(transaction.details) ? transaction.details : {};
+  const items: unknown[] = Array.isArray(details.line_items) ? details.line_items : [];
+  const [item] = items;
+  return isRecord(item) ? asString(item.id) : null;
+}
+
 /**
  * Why a paid transaction can't complete its purchase as is, or null when it
  * can: one item, quantity 1, the price checkout set, and exactly the
@@ -249,6 +259,7 @@ async function onPaid(
     paidTotal: asString(totalsOf(transaction).grand_total),
     paidCurrency: asString(transaction.currency_code),
     paidAt: ctx.now().toISOString(),
+    lineItemId: lineItemIdOf(transaction),
   });
   return undefined;
 }
@@ -266,6 +277,21 @@ async function paidTotalOf(purchase: PurchaseRecord, ctx: ProviderContext): Prom
   return Number(isRecord(details.totals) ? details.totals.grand_total : NaN);
 }
 
+/** The line item a partial refund names: kept at completion, or read back from Paddle. */
+async function lineItemOf(purchase: PurchaseRecord, ctx: ProviderContext): Promise<string> {
+  const kept = asString(purchase.providerData.lineItemId);
+  if (kept) return kept;
+  const transaction = await paddleApi(
+    ctx,
+    'get transaction',
+    'GET',
+    `/transactions/${encodeURIComponent(purchase.providerTxnId ?? '')}`,
+  );
+  const id = lineItemIdOf(transaction);
+  if (!id) throw new PaddleApiError(200, 'unexpected_response', 'get transaction');
+  return id;
+}
+
 /** Credits a refund takes: undefined for all that's left, otherwise in proportion to the money. */
 async function refundCredits(
   adjustment: Record<string, unknown>,
@@ -276,10 +302,7 @@ async function refundCredits(
   const items = Array.isArray(adjustment.items) ? adjustment.items.filter(isRecord) : [];
   if (items.length > 0 && items.every((item) => item.type === 'full')) return undefined;
   const refunded = Number(isRecord(adjustment.totals) ? adjustment.totals.total : NaN);
-  const paid = await paidTotalOf(purchase, ctx);
-  if (!(refunded > 0) || !(paid > 0)) throw new Error('Cannot size a partial refund');
-  if (refunded >= paid) return undefined;
-  return Math.min(purchase.credits, Math.max(1, Math.round((purchase.credits * refunded) / paid)));
+  return creditsForRefund(purchase.credits, refunded, await paidTotalOf(purchase, ctx));
 }
 
 function stringList(value: unknown): string[] {
@@ -413,24 +436,46 @@ export const paddle: PaymentProvider = {
     }
   },
 
-  async refund(purchase, ctx): Promise<void> {
+  async refund(purchase, ctx, amountMinor): Promise<void> {
     if (purchase.provider !== 'paddle' || !purchase.providerTxnId)
       throw new Error('Not a paid Paddle purchase');
-    if (purchase.status !== 'completed')
-      throw new Error(
-        `A ${purchase.status} purchase can't be refunded in full here; use Paddle's dashboard`,
-      );
-    const adjustment = await paddleApi(ctx, 'create adjustment', 'POST', '/adjustments', {
-      action: 'refund',
-      transaction_id: purchase.providerTxnId,
-      type: 'full',
-      reason: 'Refund of unused credits, requested through EditToolbelt',
-    });
+    if (purchase.status !== 'completed' && purchase.status !== 'partially_refunded')
+      throw new Error(`A ${purchase.status} purchase can't be refunded`);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > purchase.amountMinor)
+      throw new Error('A refund is more than zero and at most what was paid');
+    const reason = 'Refund of unused credits, requested through EditToolbelt';
+    // The whole payment of a purchase nothing came back from yet: a full
+    // refund. Anything else: a partial one of the transaction's one item, for
+    // the amount given (Paddle refuses more than is left of it).
+    const full = purchase.status === 'completed' && amountMinor === purchase.amountMinor;
+    const adjustment = await paddleApi(
+      ctx,
+      'create adjustment',
+      'POST',
+      '/adjustments',
+      full
+        ? { action: 'refund', transaction_id: purchase.providerTxnId, type: 'full', reason }
+        : {
+            action: 'refund',
+            transaction_id: purchase.providerTxnId,
+            type: 'partial',
+            reason,
+            items: [
+              {
+                item_id: await lineItemOf(purchase, ctx),
+                type: 'partial',
+                amount: String(amountMinor),
+              },
+            ],
+          },
+    );
     const adjustmentId = isRecord(adjustment) ? asString(adjustment.id) : null;
-    // Credits go when Paddle approves the refund (adjustment.created/updated, status approved).
+    // Credits go when Paddle approves the refund (adjustment.created/updated,
+    // status approved), in proportion to what it actually refunded.
     await ctx.store.updateData(purchase.id, {
       refundRequestedAt: ctx.now().toISOString(),
       refundRequestId: adjustmentId,
+      refundRequestedMinor: amountMinor,
     });
   },
 };

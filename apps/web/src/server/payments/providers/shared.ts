@@ -77,6 +77,23 @@ export function parseSums(text: string): number | null {
   return Number.isSafeInteger(tiyin) ? tiyin : null;
 }
 
+/**
+ * Credits a refund of `refundedMinor` out of `paidMinor` takes back from a
+ * purchase of `credits` (docs/05 → Refunds: the unused portion): in
+ * proportion, rounded, at least 1. Undefined for the whole payment or more:
+ * then the store takes all that's left. The store never takes more than is
+ * left either way.
+ */
+export function creditsForRefund(
+  credits: number,
+  refundedMinor: number,
+  paidMinor: number,
+): number | undefined {
+  if (!(refundedMinor > 0) || !(paidMinor > 0)) throw new Error('Cannot size a refund');
+  if (refundedMinor >= paidMinor) return undefined;
+  return Math.min(credits, Math.max(1, Math.round((credits * refundedMinor) / paidMinor)));
+}
+
 /** The buyer comes back here after paying (Click, Payme). */
 export function returnUrl(ctx: ProviderContext, purchaseId: string): string {
   const origin = ctx.siteUrl.replace(/\/+$/, '');

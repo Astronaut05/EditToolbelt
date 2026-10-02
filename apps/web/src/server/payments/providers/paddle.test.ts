@@ -634,7 +634,7 @@ describe('Paddle refunds', () => {
     const s = setup();
     const { purchase, transactionId } = await paid(s);
     if (!paddle.refund) throw new Error('Paddle refunds through its API');
-    await paddle.refund(purchase, s.ctx);
+    await paddle.refund(purchase, s.ctx, purchase.amountMinor);
 
     expect(s.api.calls.at(-1)).toMatchObject({
       method: 'POST',
@@ -654,11 +654,65 @@ describe('Paddle refunds', () => {
     expect(s.store.balance()).toBe(0);
   });
 
-  it('refuse a purchase that isn’t completed', async () => {
+  it('ask Paddle for part of it: the credits go in proportion to what Paddle refunds', async () => {
+    const s = setup();
+    const { purchase, transactionId, transaction } = await paid(s, 'creator');
+    if (!paddle.refund) throw new Error('Paddle refunds through its API');
+    expect(s.store.peek(purchase.id).providerData.lineItemId).toMatch(/^txnitm_/);
+    // $15.00 for 700 credits; 100 used: $12.86 back for the 600 unused.
+    await paddle.refund(purchase, s.ctx, 1286);
+    const lineItems = (transaction.details as { line_items: { id: string }[] }).line_items;
+    expect(s.api.calls.at(-1)).toMatchObject({
+      method: 'POST',
+      path: '/adjustments',
+      body: {
+        action: 'refund',
+        transaction_id: transactionId,
+        type: 'partial',
+        items: [{ item_id: lineItems[0]?.id, type: 'partial', amount: '1286' }],
+      },
+    });
+    const requested = s.store.peek(purchase.id);
+    expect(requested.providerData.refundRequestedMinor).toBe(1286);
+    await deliver(
+      s,
+      'adjustment.updated',
+      adjustmentData({
+        id: String(requested.providerData.refundRequestId),
+        transactionId,
+        type: 'partial',
+        total: '1286',
+      }),
+    );
+    expect(s.store.peek(purchase.id).status).toBe('partially_refunded');
+    expect(s.store.balance()).toBe(100);
+
+    // The rest later: a partially refunded purchase refunds again, partially.
+    await paddle.refund(s.store.peek(purchase.id), s.ctx, 214);
+    expect(s.api.calls.at(-1)?.body).toMatchObject({ type: 'partial' });
+  });
+
+  it('read the line item back from Paddle when it wasn’t kept', async () => {
+    const s = setup();
+    const { purchase, transactionId } = await checkedOut(s);
+    await s.store.complete(purchase.id);
+    if (!paddle.refund) throw new Error('Paddle refunds through its API');
+    await paddle.refund(s.store.peek(purchase.id), s.ctx, 250);
+    expect(s.api.calls.slice(-2).map((call) => `${call.method} ${call.path}`)).toEqual([
+      `GET /transactions/${transactionId}`,
+      'POST /adjustments',
+    ]);
+  });
+
+  it('refuse a purchase that isn’t paid, and an amount that isn’t', async () => {
     const s = setup();
     const { purchase } = await checkedOut(s);
     if (!paddle.refund) throw new Error('Paddle refunds through its API');
-    await expect(paddle.refund(purchase, s.ctx)).rejects.toThrow();
+    await expect(paddle.refund(purchase, s.ctx, 500)).rejects.toThrow();
     expect(s.api.calls).toHaveLength(1);
+    const done = await paid(s);
+    for (const amount of [0, -1, 1.5, 501])
+      await expect(paddle.refund(done.purchase, s.ctx, amount)).rejects.toThrow(/at most/);
+    expect(s.api.calls.filter((call) => call.path === '/adjustments')).toHaveLength(0);
   });
 });
