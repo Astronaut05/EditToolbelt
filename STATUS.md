@@ -81,11 +81,12 @@
 - Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#63).
 - CI runs the browser tests against the production image too, through a stand-in Cloudflare Access (152 pass on Chromium). The server build's search index is fresh within 30 s, as tool status is (#65).
 - Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
-- M5, GPU tools (branch `claude/m5-gpu`, not merged; tested with a stand-in GPU, real runs wait for the Modal token):
+- M5, GPU tools (#66; tested with a stand-in GPU, real runs wait for the Modal token):
   - The Modal app's tool functions: `upscale_image` on a T4 (Real-ESRGAN, 2× or 4×, General with noise cleanup or Illustration, seamless tiles, up to 64 MP) and `transcribe` on an L4 (Whisper large-v3, 100 languages, word timing). Weights are pinned by SHA-256 and checked when Modal builds each image; CI checks the pins before every deploy. Files move only through presigned R2 URLs; nothing stays on Modal.
   - The worker's ServerlessGpu: spawn, poll every 2 s with progress, cancel with the job; GPU jobs finish like CPU ones (input deleted at once, output after 60 min, failures refund). Transcripts become SRT, VTT, ASS (karaoke with word timing), TXT or JSON on the worker.
   - Metering: every GPU call's seconds and cost on its job; Modal's T4 and L4 prices in `config/business.ts` (placeholders, read 2026-10-02). A daily GPU budget ($1 until changed in Admin → Dashboard → GPU) stops new GPU jobs when it's spent and alerts at 80 % and 100 %. Admin shows GPU cost against credits by tool.
   - Upscale Image (P08), Transcribe Audio (A12) and Auto Subtitles (V17) have their pages, options, prices and FAQ; Auto Subtitles sends only a video's sound, taken out in the browser. Each stays `soon` until an admin sets it to beta.
+- Fix: a result's audio player loads only its header until it's played. Loading the whole file could freeze the page in Linux WebKit (GStreamer), which hung Merge Audio's join test 1 run in 4 or 5.
 
 ## Next
 
