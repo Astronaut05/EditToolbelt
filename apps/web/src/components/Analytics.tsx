@@ -6,7 +6,11 @@ import { useEffect } from 'react';
 
 import { analyticsEnabled, track, trackPageview } from '../lib/analytics';
 
-/** Page views on every route change, and Web Vitals (docs/10 → real-user metrics). */
+/**
+ * Page views on every route change, and Web Vitals (docs/10 → real-user
+ * metrics). Personal pages (/admin, /account…) send neither: lib/analytics.ts
+ * drops everything there.
+ */
 export function Analytics() {
   const pathname = usePathname();
 

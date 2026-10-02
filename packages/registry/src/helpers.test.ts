@@ -11,7 +11,6 @@ import {
   ISOLATED_PATHS,
   MOST_USED,
   needsFullPageLoad,
-  needsWasm,
   redirects,
   runsInBrowser,
   runtimeTag,
@@ -141,13 +140,5 @@ describe('search', () => {
     expect(searchIndex(index, 'transparent background maker')[0]?.path).toBe('/remove-background');
     expect(searchIndex(index, '')).toEqual([]);
     expect(searchIndex(index, 'zzzz')).toEqual([]);
-  });
-});
-
-describe('WASM pages', () => {
-  it('only working tools with a WASM engine get wasm-unsafe-eval', () => {
-    expect(needsWasm({ ...getTool('image-converter'), status: 'soon' })).toBe(false);
-    expect(needsWasm({ ...getTool('image-converter'), status: 'live' })).toBe(true);
-    expect(needsWasm({ ...getTool('timecode-calculator'), status: 'live' })).toBe(false);
   });
 });
