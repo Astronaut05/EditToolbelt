@@ -5,6 +5,7 @@
  */
 export const TOOL_IDS = [
   'aspect-ratio-calculator',
+  'audio-channels',
   'audio-converter',
   'bitrate-calculator',
   'bpm-key-finder',
@@ -19,6 +20,7 @@ export const TOOL_IDS = [
   'dpi-calculator',
   'exif-remover',
   'extract-audio',
+  'fade-audio',
   'gif-to-mp4',
   'image-converter',
   'loudness-meter',

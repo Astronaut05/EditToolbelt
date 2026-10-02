@@ -13,6 +13,7 @@ export { trimEngine } from './video/trim';
 export { videoToGifEngine } from './video/video-to-gif';
 export { audioConverterEngine } from './audio/convert';
 export { bpmKeyEngine } from './audio/bpm-key';
+export { channelsEngine, fadeEngine, probeChannels } from './audio/edit';
 export { loudnessMeterEngine, normalizeEngine } from './audio/loudness';
 export { probeAudio } from './audio/probe';
 export { audioPeaks, trimAudioEngine } from './audio/trim';

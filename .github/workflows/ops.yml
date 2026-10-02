@@ -35,9 +35,12 @@ jobs:
         run: node scripts/ops/verify.ts
         env:
           OPS_CHECKS: ${{ inputs.checks }}
+          OPS_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           SITE_URL: ${{ vars.SITE_URL }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           CF_READ_TOKEN: ${{ secrets.CF_READ_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

@@ -96,8 +96,18 @@ async function checkR2(env: Env, site: string): Promise<string> {
     secretAccessKey: env.R2_SECRET_ACCESS_KEY ?? '',
     region: 'auto',
   };
+  let endpoint: URL;
+  try {
+    endpoint = new URL(s3.endpoint);
+  } catch {
+    throw new Failed(
+      `R2_ENDPOINT is not a URL (${shapeOf(s3.endpoint)}): paste the EU endpoint R2 shows, starting with https://`,
+    );
+  }
+  // The endpoint R2 shows has no path; one pasted with the bucket on the end still works.
+  s3.endpoint = endpoint.origin;
   expect(
-    new URL(s3.endpoint).hostname.split('.').includes('eu'),
+    endpoint.hostname.split('.').includes('eu'),
     'R2_ENDPOINT is not the EU jurisdiction endpoint (its host has no `.eu.` label)',
   );
   const key = `ops-check/${randomUUID()}.txt`;
@@ -111,8 +121,13 @@ async function checkR2(env: Env, site: string): Promise<string> {
   });
   expect(put.ok, `PUT with the app's key answered HTTP ${String(put.status)}`);
   expect(put.headers.get('etag'), 'PUT answered no ETag');
+  // CORS headers are settings, not secrets: say what came back.
+  const allowOrigin = put.headers.get('access-control-allow-origin');
   const exposed = (put.headers.get('access-control-expose-headers') ?? '').toLowerCase();
-  expect(exposed.includes('etag'), 'CORS: ETag is not exposed to the site (ExposeHeaders)');
+  expect(
+    exposed.includes('etag'),
+    `CORS: ETag is not exposed to the site (the upload answered Access-Control-Allow-Origin: ${allowOrigin ?? 'none'}, Access-Control-Expose-Headers: ${exposed || 'none'})`,
+  );
 
   try {
     const get = await fetch(presign(s3, 'GET', key));
@@ -205,7 +220,44 @@ export function corsProblems(rules: CorsRule[], site: string): string[] {
   return problems;
 }
 
+/** The read-only token works and the account id looks like one; a readable reason if not. */
+async function checkToken(env: Env): Promise<void> {
+  const account = env.CF_ACCOUNT_ID ?? '';
+  expect(
+    /^[0-9a-f]{32}$/.test(account),
+    `CF_ACCOUNT_ID should be 32 hexadecimal characters (it is ${shapeOf(account)})`,
+  );
+  const token = env.CF_READ_TOKEN ?? '';
+  const verify = async (path: string) => {
+    const response = await fetch(`${CLOUDFLARE_API}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      result?: { status?: string };
+      errors?: { code: number }[];
+    };
+    return { ok: Boolean(data.success), status: data.result?.status, errors: data.errors ?? [] };
+  };
+  // A user token verifies at /user, an account-owned one under its account.
+  const asUser = await verify('/user/tokens/verify');
+  const asAccount = asUser.ok ? asUser : await verify(`/accounts/${account}/tokens/verify`);
+  const result = asUser.ok ? asUser : asAccount;
+  const codes = [asUser, ...(asUser.ok ? [] : [asAccount])]
+    .map(
+      (r, i) =>
+        `${i === 0 ? 'as a user token' : 'as an account token'}: ${r.errors.map((e) => String(e.code)).join(', ') || 'no error code'}`,
+    )
+    .join('; ');
+  expect(
+    result.ok,
+    `CF_READ_TOKEN is not a working API token (${shapeOf(token)}; Cloudflare answered ${codes}). Use the token from My Profile → API Tokens → edittoolbelt-ci-read, not an R2 key or the Global API Key`,
+  );
+  expect(result.status === 'active', `CF_READ_TOKEN is ${result.status ?? 'not active'}`);
+}
+
 async function checkCloudflareR2(env: Env, site: string): Promise<string> {
+  await checkToken(env);
   const account = env.CF_ACCOUNT_ID ?? '';
   const bucket = env.R2_BUCKET ?? 'edittoolbelt-files';
   const eu = { 'cf-r2-jurisdiction': 'eu' };
@@ -218,18 +270,216 @@ async function checkCloudflareR2(env: Env, site: string): Promise<string> {
     ...lifecycleProblems(lifecycle.rules ?? []),
     ...corsProblems(cors.rules ?? [], site),
   ];
-  expect(problems.length === 0, problems.join('; '));
+  // Bucket settings aren't secrets: show what the API answered when it doesn't fit.
+  expect(
+    problems.length === 0,
+    `${problems.join('; ')}. Lifecycle as the API answers it: ${JSON.stringify(lifecycle)}`,
+  );
   return 'EU jurisdiction; every object expires and every multipart upload aborts within 1 day; CORS rule for the site';
+}
+
+// ── DNS and email records, read with the same token ─────────────────────────
+
+interface DnsRecord {
+  type: string;
+  name: string;
+  content: string;
+  proxied?: boolean;
+}
+
+async function zoneRecords(env: Env, host: string): Promise<DnsRecord[]> {
+  const zones = await cloudflare<{ id: string; name: string }[]>(
+    env,
+    `/zones?name=${encodeURIComponent(host)}`,
+  );
+  const zone = zones[0];
+  expect(zone, "the read-only token cannot see the site's zone");
+  return cloudflare<DnsRecord[]>(env, `/zones/${zone.id}/dns_records?per_page=500`);
+}
+
+/** What the domain's records say about the site and its email; names only, never values. */
+export function dnsProblems(records: DnsRecord[], host: string): string[] {
+  const problems: string[] = [];
+  for (const name of [host, `www.${host}`]) {
+    const record = records.find((r) => r.name === name && ['CNAME', 'A', 'AAAA'].includes(r.type));
+    if (!record) problems.push(`no record for ${name}`);
+    else if (!record.proxied) problems.push(`${name} is not proxied through Cloudflare`);
+  }
+  const txt = records.filter((r) => r.type === 'TXT');
+  const unquote = (value: string) => value.replace(/^"|"$/g, '');
+  if (!txt.some((r) => unquote(r.content).startsWith('v=spf1')))
+    problems.push('no SPF record (TXT v=spf1)');
+  if (!records.some((r) => r.name.includes('._domainkey.')))
+    problems.push('no DKIM record (…._domainkey)');
+  if (!txt.some((r) => r.name === `_dmarc.${host}` && unquote(r.content).startsWith('v=DMARC1')))
+    problems.push('no DMARC record (_dmarc, v=DMARC1)');
+  return problems;
+}
+
+async function checkDns(env: Env, site: string): Promise<string> {
+  const host = new URL(site).hostname;
+  const records = await zoneRecords(env, host);
+  const problems = dnsProblems(records, host);
+  expect(problems.length === 0, problems.join('; '));
+  return `${host} and www proxied; SPF, DKIM and DMARC records present`;
+}
+
+// ── Cloudflare Access in front of the site ───────────────────────────────────
+
+interface AccessRule {
+  email?: { email?: string };
+  email_domain?: unknown;
+  everyone?: unknown;
+  service_token?: { token_id?: string };
+  any_valid_service_token?: unknown;
+}
+
+interface AccessPolicy {
+  decision?: string;
+  include?: AccessRule[];
+}
+
+interface AccessApp {
+  type?: string;
+  domain?: string;
+  self_hosted_domains?: string[];
+  destinations?: { type?: string; uri?: string }[];
+  policies?: AccessPolicy[];
+}
+
+/** One self-hosted app covering the site and www: one email allowed, CI's service token, nobody else. */
+export function accessProblems(apps: AccessApp[], host: string): string[] {
+  const covers = (app: AccessApp, name: string) => {
+    const domains = [
+      app.domain,
+      ...(app.self_hosted_domains ?? []),
+      ...(app.destinations ?? []).map((d) => d.uri),
+    ].filter((d): d is string => typeof d === 'string');
+    return domains.some((d) => d === name || d === `${name}/` || d === `${name}/*`);
+  };
+  const app = apps.find((a) => covers(a, host));
+  if (!app) return ['no Access application covers the site'];
+  const problems: string[] = [];
+  if (!covers(app, `www.${host}`)) problems.push('the Access application does not cover www');
+  const policies = app.policies ?? [];
+  const rules = (decision: string) =>
+    policies.filter((p) => p.decision === decision).flatMap((p) => p.include ?? []);
+  const allow = rules('allow');
+  const emails = allow.filter((r) => r.email?.email).length;
+  if (emails !== 1) problems.push(`the allow policy names ${String(emails)} emails, not 1`);
+  if (allow.some((r) => r.everyone !== undefined || r.email_domain !== undefined))
+    problems.push('the allow policy lets in more than one person (everyone or a whole domain)');
+  if (rules('bypass').length > 0) problems.push('a bypass policy opens the whole site');
+  const service = rules('non_identity');
+  if (!service.some((r) => r.service_token || r.any_valid_service_token))
+    problems.push("no Service Auth policy for CI's service token");
+  return problems;
+}
+
+async function checkAccess(env: Env, site: string): Promise<string> {
+  const host = new URL(site).hostname;
+  const apps = await cloudflare<AccessApp[]>(
+    env,
+    `/accounts/${env.CF_ACCOUNT_ID ?? ''}/access/apps`,
+  );
+  const problems = accessProblems(apps, host);
+  expect(problems.length === 0, problems.join('; '));
+  return 'one application covers the site and www; one email allowed; a Service Auth policy for CI';
+}
+
+// ── The live site, from outside and through Access ───────────────────────────
+
+async function checkSite(env: Env, site: string): Promise<string> {
+  const outside = await fetch(`${site}/`, { redirect: 'manual' });
+  const location = outside.headers.get('location') ?? '';
+  expect(
+    (outside.status >= 300 &&
+      outside.status < 400 &&
+      new URL(location, site).hostname.endsWith('.cloudflareaccess.com')) ||
+      outside.status === 403,
+    `without Access the home page answered HTTP ${String(outside.status)}, not the Access login`,
+  );
+  const token = {
+    'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID ?? '',
+    'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
+  };
+  const get = (path: string) => fetch(`${site}${path}`, { headers: token, redirect: 'manual' });
+  const health = await get('/healthz');
+  expect(health.ok, `/healthz answered HTTP ${String(health.status)} through Access`);
+  const { version } = (await health.json()) as { version?: string };
+  const ready = await get('/readyz');
+  expect(ready.ok, `/readyz answered HTTP ${String(ready.status)}: ${await ready.text()}`);
+  const home = await get('/');
+  expect(home.ok, `the home page answered HTTP ${String(home.status)} through Access`);
+  const missing = [
+    'content-security-policy',
+    'strict-transport-security',
+    'x-content-type-options',
+    'x-frame-options',
+    'referrer-policy',
+    'permissions-policy',
+  ].filter((name) => !home.headers.get(name));
+  expect(missing.length === 0, `the home page lacks ${missing.join(', ')}`);
+  const www = await fetch(`${site.replace('://', '://www.')}/convert?x=1`, {
+    headers: token,
+    redirect: 'manual',
+  });
+  expect(
+    www.status === 308 && www.headers.get('location') === `${site}/convert?x=1`,
+    `www answered HTTP ${String(www.status)}, not a redirect to the site`,
+  );
+  return `private (Access login without a token); through Access: version ${version ?? '?'}, ready, security headers, www redirects`;
 }
 
 // ── Running them ─────────────────────────────────────────────────────────────
 
 /** An error a check didn't expect, named without its message (which may carry a URL or a value). */
 function unexpected(error: unknown): string {
-  const cause =
-    error instanceof Error ? (error.cause as { code?: unknown } | undefined) : undefined;
-  const code = typeof cause?.code === 'string' ? ` ${cause.code}` : '';
+  const own = error as { code?: unknown; cause?: { code?: unknown } } | undefined;
+  const code =
+    typeof own?.code === 'string'
+      ? ` ${own.code}`
+      : typeof own?.cause?.code === 'string'
+        ? ` ${own.cause.code}`
+        : '';
   return `${error instanceof Error ? error.name : 'Error'}${code} (details withheld)`;
+}
+
+/**
+ * The shape of a secret, never its content: its length and what is off about
+ * it. Secrets pasted into GitHub often carry a space, quotes, a newline or a
+ * "Bearer " prefix; values are trimmed before use, and the rest is reported.
+ */
+export function shapeOf(value: string): string {
+  const notes: string[] = [`${String(value.length)} characters`];
+  if (/^["']|["']$/.test(value)) notes.push('quoted');
+  if (/\s/.test(value)) notes.push('has spaces or line breaks inside');
+  if (/^bearer\s/i.test(value)) notes.push('starts with "Bearer "');
+  if (/^https?:\/\//.test(value)) notes.push('is a URL');
+  // Which kinds of characters, never which characters.
+  const kinds = [
+    [/[a-z]/, 'lowercase'],
+    [/[A-Z]/, 'uppercase'],
+    [/[0-9]/, 'digits'],
+    [/_/, '_'],
+    [/-/, '-'],
+    [/\./, '.'],
+    [/[^A-Za-z0-9_.\-\s"']/, 'other symbols'],
+  ] as const;
+  notes.push(
+    `made of ${
+      kinds
+        .filter(([re]) => re.test(value))
+        .map(([, name]) => name)
+        .join(', ') || 'nothing'
+    }`,
+  );
+  return notes.join(', ');
+}
+
+/** Secrets as checked: surrounding whitespace removed, as GitHub's form keeps it. */
+export function cleaned(env: Env): Env {
+  return Object.fromEntries(Object.entries(env).map(([name, value]) => [name, value?.trim()]));
 }
 
 interface Check {
@@ -245,12 +495,22 @@ export const CHECKS: Check[] = [
     run: checkR2,
   },
   { name: 'cloudflare-r2', needs: ['CF_READ_TOKEN', 'CF_ACCOUNT_ID'], run: checkCloudflareR2 },
+  { name: 'dns', needs: ['CF_READ_TOKEN', 'SITE_URL'], run: checkDns },
+  { name: 'access', needs: ['CF_READ_TOKEN', 'CF_ACCOUNT_ID', 'SITE_URL'], run: checkAccess },
+  {
+    name: 'site',
+    needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
+    run: checkSite,
+  },
 ];
 
-export async function runChecks(env: Env): Promise<Outcome[]> {
+export async function runChecks(raw: Env): Promise<Outcome[]> {
+  const env = cleaned(raw);
   // An unset repository variable arrives as an empty string.
-  const site = new URL(env.SITE_URL?.trim() ? env.SITE_URL : 'http://localhost:3000').origin;
-  const wanted = (env.OPS_CHECKS ?? '')
+  const site = new URL(env.SITE_URL ? env.SITE_URL : 'http://localhost:3000').origin;
+  // A push names its checks in the commit message: a line `ops-checks: r2,dns`.
+  const fromMessage = /^ops-checks:\s*(.+)$/m.exec(env.OPS_COMMIT_MESSAGE ?? '')?.[1];
+  const wanted = (env.OPS_CHECKS || fromMessage || '')
     .split(',')
     .map((name) => name.trim())
     .filter(Boolean);
