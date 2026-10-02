@@ -97,11 +97,11 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
     try:
         result = ctx.gpu.run(call)
     except GpuCancelled as stopped:
-        ctx.record_gpu(GpuUsage(stopped.gpu_seconds, stopped.gpu_seconds))
+        ctx.record_gpu(GpuUsage(stopped.gpu_seconds, stopped.billed_seconds))
         _drop(storage, key)
         raise ToolError("CANCELLED", "cancelled") from None
     except GpuError as error:
-        ctx.record_gpu(GpuUsage(error.gpu_seconds, error.gpu_seconds))
+        ctx.record_gpu(GpuUsage(error.gpu_seconds, error.billed_seconds))
         _drop(storage, key)
         raise JobFailed(error.code, GPU_TEXT.get(error.code, str(error))) from None
     except Exception:

@@ -14,10 +14,16 @@ backend is a config change (``GPU_BACKEND``):
 - ``LocalGpu``: the development card in the local stack (docs/01 -> Local
   GPU). Not built yet, so it says so.
 
-A call's GPU time comes back from the function itself (measured inside it).
-When a call fails, is cancelled or times out without saying, the wall-clock
-time since the spawn stands in: an upper bound, so the daily budget errs on
-the safe side.
+What a call is billed (docs/05 -> GPU costs), all upper bounds so the daily
+budget errs on the safe side:
+
+- A warm call that worked: the GPU seconds the function measured, plus its
+  idle window.
+- A cold call, or one the function reports as failed: the larger of that and
+  the wall-clock time since the spawn (which covers the container's boot,
+  which Modal bills and the function can't time).
+- A call that didn't say (cancelled, timed out, raised): its wall-clock time
+  plus the longest idle window of any function.
 """
 
 from __future__ import annotations
@@ -28,19 +34,33 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from etb_worker.gpu import APP_NAME
+from etb_worker.gpu import APP_NAME, MAX_IDLE_TAIL_SEC
 from etb_worker.settings import Settings
 
 POLL_SEC = 2.0
 
 
 class GpuError(Exception):
-    """A call that didn't produce a result. ``code`` is the job's error code."""
+    """A call that didn't produce a result. ``code`` is the job's error code.
 
-    def __init__(self, code: str, detail: str, *, gpu_seconds: float = 0.0) -> None:
+    ``gpu_seconds`` is what it used as far as we know; ``billed_seconds`` what
+    it costs (by default: that, plus the longest idle window).
+    """
+
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        *,
+        gpu_seconds: float = 0.0,
+        billed_seconds: float | None = None,
+    ) -> None:
         super().__init__(detail)
         self.code = code
         self.gpu_seconds = gpu_seconds
+        self.billed_seconds = (
+            gpu_seconds + MAX_IDLE_TAIL_SEC if billed_seconds is None else billed_seconds
+        )
 
 
 class GpuCancelled(GpuError):
@@ -71,7 +91,7 @@ class GpuResult:
     gpu: str
     #: Measured inside the function: the call, plus loading the model when it was cold.
     gpu_seconds: float
-    #: What it is billed as: the GPU seconds plus the idle window after it (an upper bound).
+    #: What it is billed as (an upper bound, see the module's docstring).
     billed_seconds: float
     wall_seconds: float
 
@@ -91,10 +111,16 @@ def parse_answer(answer: object, wall_seconds: float) -> GpuResult:
     if not isinstance(answer, dict):
         raise GpuError("GPU_FAILED", "the GPU function gave no answer", gpu_seconds=wall_seconds)
     gpu_seconds = _seconds(answer.get("gpu_seconds"), wall_seconds)
+    tail = _seconds(answer.get("idle_tail_seconds"), float(MAX_IDLE_TAIL_SEC))
     if not answer.get("ok"):
         code = str(answer.get("code") or "GPU_FAILED")
-        raise GpuError(code, str(answer.get("detail") or "failed"), gpu_seconds=gpu_seconds)
-    tail = _seconds(answer.get("idle_tail_seconds"), 0.0)
+        detail = str(answer.get("detail") or "failed")
+        billed = max(gpu_seconds + tail, wall_seconds)
+        raise GpuError(code, detail, gpu_seconds=gpu_seconds, billed_seconds=billed)
+    billed = gpu_seconds + tail
+    if answer.get("cold") is not False:
+        # Cold (or not saying): the container's boot is billed too, and only the wall clock saw it.
+        billed = max(billed, wall_seconds)
     notes = answer.get("notes")
     meta = answer.get("meta")
     return GpuResult(
@@ -102,7 +128,7 @@ def parse_answer(answer: object, wall_seconds: float) -> GpuResult:
         notes=[str(note) for note in notes] if isinstance(notes, list) else [],
         gpu=str(answer.get("gpu") or "unknown"),
         gpu_seconds=gpu_seconds,
-        billed_seconds=gpu_seconds + tail,
+        billed_seconds=billed,
         wall_seconds=wall_seconds,
     )
 
@@ -140,7 +166,9 @@ class ModalGpu:
         try:
             handle = self._lookup(self.app_name, call.function).spawn(**call.kwargs)
         except modal.exception.Error as error:
-            raise GpuError("GPU_UNAVAILABLE", f"spawn failed: {type(error).__name__}") from None
+            raise GpuError(
+                "GPU_UNAVAILABLE", f"spawn failed: {type(error).__name__}", billed_seconds=0.0
+            ) from None
         call_id = getattr(handle, "object_id", None)
         if isinstance(call_id, str) and call_id:
             call.on_spawn(call_id)
@@ -211,6 +239,7 @@ class LocalGpu:
         raise GpuError(
             "GPU_UNAVAILABLE",
             "LocalGpu isn't set up on this machine: run GPU tools with GPU_BACKEND=modal",
+            billed_seconds=0.0,
         )
 
     def cancel(self, call_id: str) -> bool:

@@ -1328,3 +1328,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** review of #66, findings 8 and 9 (c); Astro's spending cap.
 **Reverse:** the gate is `BudgetState.open` in `gpu/budget.py` (committed vs spent), the lock `jobqueue.claim_gpu`; `config/business.ts` → `gpuBudget.worstCaseIdleSec` mirrors the worker's `MAX_IDLE_TAIL_SEC` (a test holds them together).
+
+## 2026-10-02 · What a GPU call is billed: cold, failed and unreported calls
+
+**Decision:**
+- **A warm call that worked:** GPU seconds measured inside the function + its idle window, as before.
+- **A cold call, or one the function reports as failed:** the larger of that and the wall-clock time since the spawn. Modal bills the container's boot and imports, which only the worker's clock sees; a failed call's container idles for its window like any other. (The wall clock also holds Modal's dispatch, so it errs high.)
+- **A call that didn't say** (cancelled, timed out, raised, no answer, or its worker died): wall-clock time + the longest idle window of any function (30 s, `MAX_IDLE_TAIL_SEC`), where before it was wall time alone.
+- **A spawn that failed** bills nothing: no call exists.
+
+**Why:** review of #66, finding 9 (a, b); `docs/05`: the idle window counts "whatever happened".
+**Reverse:** `parse_answer` and `GpuError.billed_seconds` in `gpu/backend.py`.

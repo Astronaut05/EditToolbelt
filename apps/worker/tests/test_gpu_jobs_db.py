@@ -367,8 +367,9 @@ def test_a_gpu_failure_fails_the_job_and_gives_the_credits_back(db: Conn) -> Non
         int(one(db, "select credit_balance from users where id = %s", user)["credit_balance"]) == 10
     )
     # What it cost is still on the job (the budget counts it); nothing it wrote is left.
+    # It didn't say what it used, so its time is billed with the longest idle window.
     assert float(row["gpu_seconds"]) == 30.0
-    assert float(row["gpu_cost_usd"]) == pytest.approx(30.0 * RATE)
+    assert float(row["gpu_cost_usd"]) == pytest.approx((30.0 + MAX_IDLE_TAIL_SEC) * RATE)
     assert storage.objects == {}
 
 
@@ -721,7 +722,7 @@ def test_a_stopping_worker_cancels_its_call_records_it_and_hands_the_job_back(db
     assert (row["gpu_call_at"], row["gpu_call_id"]) == (None, None)
     used = float(row["gpu_seconds"])
     assert used > 0.2
-    assert float(row["gpu_cost_usd"]) == pytest.approx(used * RATE, rel=0.01)
+    assert float(row["gpu_cost_usd"]) == pytest.approx((used + MAX_IDLE_TAIL_SEC) * RATE, rel=0.01)
     # Handed back, not finished: the input stays for the next attempt, the credits stay reserved.
     assert input_key in storage.objects
     assert ledger(db, job) == ["reserve"]
