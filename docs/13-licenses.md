@@ -33,6 +33,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | aws4fetch | signs S3 requests and presigns upload and download URLs for object storage (server only; no dependencies) | MIT | ✅ 1.0.20, checked 2026-09-30 |
 | pino | logging | MIT | ✅ |
 | structlog | Python logging | MIT / Apache-2.0 | ✅ |
+| Modal client (`modal`) | the worker calls the GPU functions on Modal; CI deploys the Modal app. Its own dependencies are permissive (aiohttp, grpclib, protobuf, rich, synchronicity …) | Apache-2.0 | ✅ 1.6.0, checked 2026-10-01 |
 | next-intl | i18n | MIT | 🔍 |
 | Lucide | icons | ISC | ✅ lucide-react 1.49.0, checked 2026-09-30 |
 | Onest (variable) + IBM Plex Mono | UI and numeric fonts, self-hosted | OFL-1.1 | ✅ |

@@ -1120,3 +1120,21 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 **Reverse:**
 - Delete `.railway/` and configure the services in Railway's dashboard.
 - Unset `CF_ACCESS_*` and change the proxy's production rule at Go public.
+
+## 2026-10-01 · The GPU app on Modal: one Python project with the worker
+
+**Decision:**
+- **The Modal app lives in the worker's package** (`apps/worker/src/etb_worker/gpu/modal_app.py`), as the app `edittoolbelt-gpu`. The worker and the deploy share one Python project, one lockfile and one license check.
+- **The `modal` client (Apache-2.0)** is a worker dependency:
+  - The worker calls the app's functions by name and polls them; Modal never calls us.
+  - The images Modal builds hold only what each function needs: the models, pinned by hash, come with M5's GPU tools.
+- **Deploys:** CI deploys the app on every merge to `main` that touches it, then calls it (`.github/workflows/modal.yml`). Actions → Modal → Run workflow deploys by hand.
+  - "gpu check" also runs a few seconds on a T4: the only call that costs GPU time outside a job.
+  - A push to a `claude/ops-*` branch runs `ping` once without deploying, for the Phase 1 check.
+- **The functions so far:** `ping` (no GPU) and `gpu_check` (T4, `max_containers=1`).
+
+**Why:**
+- `docs/01` → GPU backend and Astro's instruction of 2026-10-01: Modal is `ServerlessGpu`. L4 by default, T4 where it's enough; scale to zero; files only through presigned URLs.
+- One project keeps the worker's calls and the functions they call in step.
+
+**Reverse:** move `gpu/` to its own project with its own lockfile; the worker would then depend on `modal` only.
