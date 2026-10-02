@@ -135,6 +135,14 @@ test('one part marked by hand downloads as that part alone', async ({ page, isMo
   const input = saw(8);
   await open(page, 'saw.wav', input);
   await pick(page, isMobile, 'Where to split', 'marks');
+  // "By hand" starts from one part, the whole file, in place of the two equal
+  // ones. Split waits until it's there; an edit made before would be replaced.
+  await expect(page.getByRole('button', { name: 'Split', exact: true })).toBeEnabled();
+  const parts = page
+    .getByRole('group', { name: 'Ranges' })
+    .getByRole('button', { name: /^Range / });
+  await expect(parts).toHaveCount(1);
+  await expect(parts).toHaveAccessibleName('Range 1: 00:00.000 to 00:08.000');
   await setRange(page, '2', '5');
   const out = await split(page);
   expect(out.name).toBe('saw_parts.wav');
