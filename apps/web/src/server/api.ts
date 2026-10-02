@@ -221,16 +221,19 @@ export async function readJson<S extends z.ZodType>(
 }
 
 /**
- * Where an anonymous call comes from, for its rate limit: the address
- * Cloudflare or a reverse proxy passes. Only compared, never kept or logged.
+ * Where a call comes from, for its rate limit: the address Cloudflare or a
+ * reverse proxy passes. Only compared, never kept or logged.
  */
-export function sourceOf(request: Request): string {
+export function addressOf(headers: Pick<Headers, 'get'>): string {
   return (
-    request.headers.get('cf-connecting-ip') ??
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    headers.get('cf-connecting-ip') ??
+    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
     'direct'
   );
 }
+
+/** Where an API call comes from (`addressOf` its headers). */
+export const sourceOf = (request: Request): string => addressOf(request.headers);
 
 /** A write carrying our session cookie must come from our own origin. */
 export function requireSameOrigin(request: Request): void {

@@ -1224,3 +1224,17 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6 found the headers missing on `/tools`, `openapi.json`, cancel, complete, `DELETE /uploads/:id`, every 401 and 403, and any error thrown after a route's own limit, though `docs/06` promises them on every answer.
 **Reverse:** the budgets are `CALLER_LIMIT` and `ADDRESS_LIMIT` in `server/api.ts`; `publicRoute` is `route(name, handler, true)`.
+
+## 2026-10-02 · /connect: wrong codes lock out, and approving checks the account (M6 fix)
+
+**Decision:**
+- **A miss is any code that isn't waiting:** malformed, unknown, expired, used or declined, typed on `/connect` or sent to its approve and decline. Each gets the same "wrong or has expired" answer.
+- **10 misses in 10 minutes, per account and per address, lock that account and that address out until the window ends** (RFC 8628 §5.1). While locked out nothing is looked up, the right code included, and the page says how many minutes are left. Counted in the process's limiter (`strike` / `lockoutLeft` in `server/rate-limit.ts`), like the API's limits; the address is `sourceOf`'s.
+  - Fixed window, not sliding: simple, and 35 bits of code against 10 tries per 10 minutes per account and per address is out of reach either way.
+  - Misses are logged as `device.code_missed` with the account ref only, never the code.
+- **`decide()` refuses to approve (`full`) while the account has 10 live keys**, and leaves the code waiting, so the person can revoke one and come back; declining always works. The page already hid the button; a direct post could approve before.
+- **`collectKey` answers `ACCESS_DENIED` for an approved code whose account was disabled or deleted since**, instead of making a key for it.
+- **`@etb/db/testing` applies migrations under an advisory lock,** so the web app's database tests (`device.db.test.ts`) and `@etb/db`'s can run at once against one test database.
+
+**Why:** a review of M6: `/connect` had no limit on guessing live codes, which a signed-in attacker could approve into their own account.
+**Reverse:** `MISS_LIMIT` and `MISS_WINDOW_SEC` in `server/device.ts`.

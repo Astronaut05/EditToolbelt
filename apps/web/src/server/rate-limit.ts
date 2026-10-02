@@ -111,13 +111,12 @@ export function strike(key: string, windowSec: number, now = Date.now()): number
 
 /**
  * Once `limit` failures were struck in the key's window, every attempt is
- * refused until the window ends: throws 429 RATE_LIMITED with `Retry-After`.
+ * refused until the window ends: answers the seconds left, 0 if not locked.
  */
-export function refuseIfLockedOut(key: string, limit: number, now = Date.now()): void {
+export function lockoutLeft(key: string, limit: number, now = Date.now()): number {
   const window = windows.get(key);
-  if (!window || window.resetAt <= now || window.count < limit) return;
-  const reset = secondsLeft(window, now);
-  throw refusal(headersOf(limit, window.count, reset), reset);
+  if (!window || window.resetAt <= now || window.count < limit) return 0;
+  return Math.max(1, secondsLeft(window, now));
 }
 
 /** How many windows are held now; for tests. */

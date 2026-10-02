@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ApiError } from './problem';
-import {
-  countCall,
-  MAX_WINDOWS,
-  rateLimit,
-  refuseIfLockedOut,
-  strike,
-  windowCount,
-} from './rate-limit';
+import { countCall, MAX_WINDOWS, rateLimit, lockoutLeft, strike, windowCount } from './rate-limit';
 
 const unique = (name: string) => `test:${name}:${String(Math.random())}`;
 
@@ -76,31 +69,19 @@ describe('the windows', () => {
 });
 
 describe('lockouts after failures', () => {
-  it('refuse every attempt once the limit is struck, until the window ends', () => {
+  it('lock once the limit is struck, until the window ends', () => {
     const key = unique('strikes');
     const t0 = 30_000_000;
     for (let i = 1; i <= 9; i += 1) {
       expect(strike(key, 600, t0 + i)).toBe(i);
-      expect(() => {
-        refuseIfLockedOut(key, 10, t0 + i);
-      }).not.toThrow();
+      expect(lockoutLeft(key, 10, t0 + i)).toBe(0);
     }
     strike(key, 600, t0 + 10);
-    try {
-      refuseIfLockedOut(key, 10, t0 + 60_000);
-      expect.unreachable();
-    } catch (error) {
-      expect((error as ApiError).status).toBe(429);
-      expect((error as ApiError).headers['Retry-After']).toBe('541');
-    }
-    expect(() => {
-      refuseIfLockedOut(key, 10, t0 + 600_001);
-    }).not.toThrow();
+    expect(lockoutLeft(key, 10, t0 + 60_000)).toBe(541);
+    expect(lockoutLeft(key, 10, t0 + 600_001)).toBe(0);
   });
 
   it('never lock out a key with no strikes', () => {
-    expect(() => {
-      refuseIfLockedOut(unique('none'), 1);
-    }).not.toThrow();
+    expect(lockoutLeft(unique('none'), 1)).toBe(0);
   });
 });
