@@ -661,20 +661,6 @@ function defaults(options: ShellOption[]): Record<string, string> {
   return Object.fromEntries(options.map((option) => [option.id, option.default]));
 }
 
-/** A04, V12: the files to join, together: their size, and their length once each is read. */
-function joinedSize(queue: readonly OrderedFile[]): { bytes: number; durationSec?: number } {
-  let bytes = 0;
-  let durationSec: number | undefined = 0;
-  for (const q of queue) {
-    bytes += q.size;
-    durationSec =
-      durationSec === undefined || q.durationSec === undefined
-        ? undefined
-        : durationSec + q.durationSec;
-  }
-  return { bytes, durationSec };
-}
-
 function isImage(preset: ShellPreset) {
   return preset.noun === 'image';
 }
@@ -752,6 +738,11 @@ export function ToolShell({
       return next;
     });
   }, []);
+  // The files to join count together on our servers: their size, and their length once all are read.
+  const joinedBytes = preset.combine ? queue.reduce((sum, q) => sum + q.size, 0) : null;
+  const joinedSec = queue.every((q) => q.durationSec !== undefined)
+    ? queue.reduce((sum, q) => sum + (q.durationSec ?? 0), 0)
+    : undefined;
   /** A11: the ranges are being found in the file. */
   const [detecting, setDetecting] = useState(false);
   /** Which search is the latest, and the timer that waits for typing to stop. */
@@ -978,15 +969,14 @@ export function ToolShell({
       setOnServer(true);
       setState({ kind: 'running', input, stage: 'Uploading', fraction: 0, elapsedSec: 0 });
       try {
-        const joined = preset.combine ? joinedSize(queue) : null;
         const credits = server.estimate(
-          joined ? joined.durationSec : (media?.durationSec ?? input.durationSec),
+          joinedBytes === null ? (media?.durationSec ?? input.durationSec) : joinedSec,
         );
         const free =
           credits === 0 || (account !== null && account !== undefined && account.freeJobsLeft > 0);
         const out = await server.run(file, options, {
           signal: abort.signal,
-          ...(joined && { files: queue.map((q) => q.file) }),
+          ...(preset.combine && { files: queue.map((q) => q.file) }),
           offered: { credits, free },
           progress: ({ stage, fraction, amount, step }) => {
             setState({
@@ -1058,15 +1048,14 @@ export function ToolShell({
         });
       }
     },
-    [account, media, options, preset.combine, queue, server, track],
+    [account, joinedBytes, joinedSec, media, options, preset.combine, queue, server, track],
   );
 
-  // A04, V12: files to join count together, against the browser's limit and on our servers.
-  const joined = preset.combine ? joinedSize(queue) : null;
+  // Why the server is offered: the person chose it, or the files to join are too big together.
   const offerReason =
     serverReason ??
-    (server && joined && joined.bytes > preset.maxBytes
-      ? `These files come to ${formatBytes(joined.bytes)}, over the browser limit of ${formatBytes(preset.maxBytes)} in all. Our servers can take them.`
+    (server && joinedBytes !== null && joinedBytes > preset.maxBytes
+      ? `These files come to ${formatBytes(joinedBytes)}, over the browser limit of ${formatBytes(preset.maxBytes)}. Our servers can take them.`
       : null);
 
   // The account decides the offer's terms: loaded when the offer shows.
@@ -1610,11 +1599,11 @@ export function ToolShell({
   );
 
   // The offer's numbers: the price for this file's length, and whether this account can start it.
-  const serverBytes = joined?.bytes ?? (state.kind === 'ready' ? state.input.size : 0);
+  const serverBytes = joinedBytes ?? (state.kind === 'ready' ? state.input.size : 0);
   const serverCredits =
     server && state.kind === 'ready'
       ? server.estimate(
-          joined ? joined.durationSec : (media?.durationSec ?? state.input.durationSec),
+          joinedBytes === null ? (media?.durationSec ?? state.input.durationSec) : joinedSec,
         )
       : null;
   const serverOffer =
