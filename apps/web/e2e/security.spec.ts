@@ -116,7 +116,9 @@ test.describe('cross-origin isolation', () => {
   // full-page-load links come back with the registry's crossOriginIsolated flag.
   test('no page is isolated, the video converter included', async ({ page }) => {
     for (const path of ['/', '/photo', '/video-converter']) {
-      await page.goto(path);
+      // Settled first: WebKit fails the next navigation with "internal error"
+      // now and then while the router's prefetches are still in flight.
+      await page.goto(path, { waitUntil: 'networkidle' });
       expect(await page.evaluate(() => crossOriginIsolated)).toBe(false);
     }
   });
