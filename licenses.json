@@ -287,7 +287,7 @@
       "section": "Platform and app",
       "ecosystem": "pypi",
       "packages": ["pillow"],
-      "use": "server image probe/ops; reads and writes images in the Upscale Image GPU image",
+      "use": "server image probe/ops; reads, resizes and writes images and frames in the GPU images (Upscale Image, Object Eraser, Video Background Remover)",
       "license": "MIT-CMU",
       "scope": "server",
       "status": "approved",
@@ -514,14 +514,19 @@
       "label": "BiRefNet (general / lite / HR / dynamic / portrait)",
       "section": "Models",
       "ecosystem": "model",
-      "packages": ["BiRefNet", "onnx-community/BiRefNet_lite-ONNX"],
-      "use": "background removal",
+      "packages": [
+        "BiRefNet",
+        "onnx-community/BiRefNet_lite-ONNX",
+        "BiRefNet-general-bb_swin_v1_tiny-epoch_232"
+      ],
+      "use": "background removal (P07 in the browser), video background removal (V21, on our GPU servers)",
       "license": "MIT",
       "weightsLicense": "MIT",
       "scope": "browser",
       "status": "approved",
-      "source": "https://github.com/ZhengPeng7/BiRefNet",
-      "checked": "2026-09-29"
+      "source": "https://github.com/ZhengPeng7/BiRefNet/blob/main/LICENSE",
+      "checked": "2026-10-02",
+      "version": "V21: the authors' ONNX release v1, BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx (pinned by SHA-256 in apps/worker/src/etb_worker/gpu/pins.json)"
     },
     {
       "label": "BEN2 base (PramaLLC)",
@@ -578,9 +583,10 @@
         "RealESRGAN_x4plus",
         "RealESRGAN_x4plus_anime_6B",
         "realesr-general-x4v3",
-        "realesr-general-wdn-x4v3"
+        "realesr-general-wdn-x4v3",
+        "realesr-animevideov3"
       ],
-      "use": "image upscale (P08), on our GPU servers only",
+      "use": "image upscale (P08) and video upscale (V20), on our GPU servers only",
       "license": "BSD-3-Clause",
       "weightsLicense": "BSD-3-Clause",
       "scope": "server",
@@ -631,12 +637,28 @@
       "label": "LaMa",
       "section": "Models",
       "ecosystem": "model",
-      "packages": ["LaMa"],
-      "use": "object eraser (inpainting)",
+      "packages": ["LaMa", "big-lama"],
+      "use": "object eraser (inpainting); not used: no primary source states the big-lama weights' own licence (hosted outside the Apache-2.0 repository); its training data (Places) is a known risk only; P17 uses MI-GAN",
       "license": "Apache-2.0",
       "weightsLicense": "unknown",
       "scope": "server",
-      "status": "verify"
+      "status": "verify",
+      "source": "https://github.com/advimman/lama/blob/main/LICENSE",
+      "checked": "2026-10-02"
+    },
+    {
+      "label": "MI-GAN (Picsart AI Research, ICCV 2023)",
+      "section": "Models",
+      "ecosystem": "model",
+      "packages": ["MI-GAN", "migan_pipeline_v2"],
+      "use": "object eraser (P17), on our GPU servers only",
+      "license": "MIT",
+      "weightsLicense": "MIT",
+      "scope": "server",
+      "status": "approved",
+      "version": "migan_pipeline_v2.onnx (pinned by SHA-256 in apps/worker/src/etb_worker/gpu/pins.json)",
+      "source": "https://github.com/Picsart-AI-Research/MI-GAN/blob/main/LICENSE-WEIGHTS",
+      "checked": "2026-10-02"
     },
     {
       "label": "YuNet (OpenCV zoo)",
@@ -665,13 +687,14 @@
       "label": "RobustVideoMatting",
       "section": "Models",
       "ecosystem": "model",
-      "packages": ["RobustVideoMatting"],
-      "use": "video background removal",
+      "packages": ["RobustVideoMatting", "rvm_mobilenetv3", "rvm_resnet50"],
+      "use": "video background removal; not used: the README re-licenses the code under GPL-3.0 and states no licence for the weights; V21 uses BiRefNet_lite",
       "license": "GPL-3.0",
       "weightsLicense": "unknown",
       "scope": "server",
-      "status": "conditional",
-      "condition": "server only, and only if the weights allow commercial use"
+      "status": "verify",
+      "source": "https://github.com/PeterL1n/RobustVideoMatting/blob/master/README.md",
+      "checked": "2026-10-02"
     },
     {
       "label": "ffmpeg / ffprobe",
@@ -791,6 +814,19 @@
       "checked": "2026-10-02"
     },
     {
+      "label": "ONNX Runtime GPU (`onnxruntime-gpu`)",
+      "section": "GPU images (Modal, server only)",
+      "ecosystem": "pypi",
+      "packages": ["onnxruntime-gpu"],
+      "use": "runs MI-GAN (P17) and BiRefNet (V21) on the GPU, inside the Modal images only (gpu/requirements-onnx.txt, hashed); its own dependencies are permissive: flatbuffers (Apache-2.0), protobuf (BSD-3-Clause), packaging (Apache-2.0 OR BSD-2-Clause)",
+      "license": "MIT",
+      "scope": "server",
+      "status": "approved",
+      "version": "1.26.0 (the last release built for CUDA 12)",
+      "source": "https://github.com/microsoft/onnxruntime/blob/main/LICENSE",
+      "checked": "2026-10-02"
+    },
+    {
       "label": "NVIDIA CUDA runtime wheels (`nvidia-*-cu12`, `cuda-bindings`)",
       "section": "GPU images (Modal, server only)",
       "ecosystem": "pypi",
@@ -812,7 +848,7 @@
         "nvidia-cufile-cu12",
         "cuda-bindings"
       ],
-      "use": "CUDA libraries PyTorch's wheels pull in, inside the Modal images only",
+      "use": "CUDA libraries PyTorch's wheels pull in, and the same versions installed by name for ONNX Runtime, inside the Modal images only",
       "license": "LicenseRef-NVIDIA-Proprietary",
       "scope": "server",
       "status": "conditional",
@@ -874,11 +910,11 @@
       "checked": "2026-10-02"
     },
     {
-      "label": "ffmpeg (Debian's package, in the Whisper image)",
+      "label": "ffmpeg (Debian's package, in the Whisper and video images)",
       "section": "GPU images (Modal, server only)",
       "ecosystem": "system",
       "packages": ["ffmpeg"],
-      "use": "Whisper decodes audio with it, inside the Modal image only",
+      "use": "Whisper decodes audio with it; Upscale Video and Video Background Remover decode frames and encode H.264, ProRes 4444 and VP9 with it, inside the Modal images only",
       "license": "GPL-2.0",
       "scope": "server",
       "status": "conditional",

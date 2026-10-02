@@ -37,6 +37,15 @@
       "source": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
       "hashFrom": "the same file's SHA-256 as Hugging Face lists it for a copy (cgfgui/upscale)"
     },
+    "realesr-animevideov3.pth": {
+      "group": "upscale",
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth",
+      "sha256": "b8a8376811077954d82ca3fcf476f1ac3da3e8a68a4f4d71363008000a18b75d",
+      "bytes": 2504012,
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "hashFrom": "OpenModelDB's entry for the release asset (data/models/4x-realesr-animevideo-v3.json) and several independent manifests that pin the same URL"
+    },
     "large-v3.pt": {
       "group": "whisper",
       "url": "https://openaipublic.azureedge.net/main/whisper/models/e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb/large-v3.pt",
@@ -45,6 +54,24 @@
       "license": "MIT",
       "source": "https://github.com/openai/whisper/blob/main/README.md",
       "hashFrom": "openai-whisper 20250625 (whisper/__init__.py): OpenAI's download path is the file's SHA-256"
+    },
+    "migan_pipeline_v2.onnx": {
+      "group": "inpaint",
+      "url": "https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx",
+      "sha256": "6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b",
+      "bytes": 28079181,
+      "license": "MIT",
+      "source": "https://github.com/Picsart-AI-Research/MI-GAN/blob/main/LICENSE-WEIGHTS",
+      "hashFrom": "several independent manifests that pin this file from the first author's Hugging Face repository, which MI-GAN's README links (e.g. a Nix fetchurl hash and Rust and Go model tables)"
+    },
+    "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx": {
+      "group": "matte",
+      "url": "https://github.com/ZhengPeng7/BiRefNet/releases/download/v1/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+      "sha256": "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
+      "bytes": 224005088,
+      "license": "MIT",
+      "source": "https://github.com/ZhengPeng7/BiRefNet/blob/main/LICENSE",
+      "hashFrom": "many independent pins of the authors' release asset (a Dockerfile ADD --checksum, an AUR PKGBUILD, several model manifests)"
     }
   }
 }

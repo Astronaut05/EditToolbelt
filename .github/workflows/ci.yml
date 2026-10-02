@@ -189,11 +189,13 @@ jobs:
         run: |
           uv export --locked --no-dev --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
           uvx --from pip-audit==2.10.1 pip-audit --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
-      # The GPU images' packages (Modal), pinned with hashes in their own files. Two
-      # PyTorch 2.10 advisories are local-only and out of our reach (docs/DECISIONS.md,
-      # "The GPU images are pinned"): CVE-2026-4538 loads .pt2 archives, we load only
-      # our own SHA-256-pinned .pth weights; CVE-2025-3000 is torch.jit.script, which
-      # nothing calls. The fix needs PyTorch 2.13 (CUDA 13 wheels).
+      # The GPU images' packages (Modal), pinned with hashes in their own files: every
+      # requirements-*.txt (upscale, whisper, onnx; test_gpu_consistency.py holds the
+      # list to the images in modal_app.py). Two PyTorch 2.10 advisories are local-only
+      # and out of our reach (docs/DECISIONS.md, "The GPU images are pinned"):
+      # CVE-2026-4538 loads .pt2 archives, we load only our own SHA-256-pinned .pth
+      # weights; CVE-2025-3000 is torch.jit.script, which nothing calls. The fix needs
+      # PyTorch 2.13 (CUDA 13 wheels). The onnx file has no PyTorch.
       - name: pip-audit (GPU images)
         working-directory: apps/worker/src/etb_worker/gpu
         run: |

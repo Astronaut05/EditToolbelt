@@ -2,7 +2,16 @@ import { gpuRateUsd } from '@etb/config/business';
 import { getTool, priceOf } from '@etb/registry';
 import { describe, expect, it } from 'vitest';
 
-import { gpuRate, outputSize, priceInput, refusal } from './job-rules';
+import { maskFits, MAX_PRORES_BYTES } from '../lib/gpu-limits';
+import {
+  extrasRefusal,
+  frameCount,
+  gpuRate,
+  outputSize,
+  priceInput,
+  proresBytes,
+  refusal,
+} from './job-rules';
 
 const photo = { video: { width: 1000, height: 750 }, duration_ms: 0 };
 
@@ -57,5 +66,100 @@ describe('gpuRate', () => {
     expect(gpuRate(getTool('upscale-image'))).toBe(gpuRateUsd('T4').toFixed(8));
     expect(gpuRate(getTool('auto-subtitles'))).toBe(gpuRateUsd('L4').toFixed(8));
     expect(gpuRate(getTool('compress-video'))).toBeNull();
+    expect(gpuRate(getTool('object-eraser'))).toBe(gpuRateUsd('T4').toFixed(8));
+    expect(gpuRate(getTool('upscale-video'))).toBe(gpuRateUsd('L4').toFixed(8));
+  });
+});
+
+const clip = (width: number, height: number, seconds: number, fps = 30, rotation = 0) => ({
+  duration_ms: seconds * 1000,
+  video: { width, height, fps, rotation },
+  audio: { codec: 'aac' },
+});
+
+describe('Upscale Video', () => {
+  it('prices by the minute and measures a phone clip upright', () => {
+    expect(
+      priceOf(getTool('upscale-video').cost, priceInput('upscale-video', clip(1280, 720, 90), {})),
+    ).toBe(15);
+    expect(outputSize('upscale-video', clip(1920, 1080, 5, 30, 270), { scale: '2' })).toEqual({
+      width: 2160,
+      height: 3840,
+    });
+  });
+
+  it('makes up to 4K, either way round', () => {
+    expect(refusal('upscale-video', clip(1920, 1080, 10), { scale: '2' })).toBeNull();
+    expect(refusal('upscale-video', clip(960, 540, 10), { scale: '4' })).toBeNull();
+    const refused = refusal('upscale-video', clip(1280, 720, 10), { scale: '4' });
+    expect(refused).toMatchObject({ status: 413, code: 'FILE_TOO_LARGE' });
+    expect(refused?.detail).toContain('5120 × 2880 px');
+    expect(refusal('upscale-video', { duration_ms: 5000, video: null }, {})).toMatchObject({
+      code: 'UNSUPPORTED_FORMAT',
+    });
+  });
+
+  it('takes 18,000 frames: 10 minutes at 30 fps, 5 at 60', () => {
+    expect(frameCount(clip(640, 360, 600))).toBe(18_000);
+    expect(refusal('upscale-video', clip(640, 360, 600), { scale: '2' })).toBeNull();
+    const fast = refusal('upscale-video', clip(640, 360, 360, 59.94), { scale: '2' });
+    expect(fast).toMatchObject({ status: 413, code: 'FILE_TOO_LARGE', title: 'Too long' });
+    expect(fast?.detail).toBe(
+      'This clip is 21,578 frames (6.0 min at 59.94 fps); Upscale Video takes up to 18,000, which is 5.0 min at this frame rate. Trim it first.',
+    );
+  });
+});
+
+describe('Video Background Remover', () => {
+  it('refuses ProRes 4444 past one upload, but not WebM or green', () => {
+    const twoMinutes = clip(1920, 1080, 120);
+    expect(proresBytes(twoMinutes)).toBeGreaterThan(MAX_PRORES_BYTES);
+    const refused = refusal('video-background-remover', twoMinutes, { output: 'prores' });
+    expect(refused).toMatchObject({ status: 413, code: 'FILE_TOO_LARGE' });
+    expect(refused?.detail).toContain('about 6.1 GB');
+    expect(refused?.detail).toContain('about 1.5 min of this video');
+    expect(refusal('video-background-remover', twoMinutes, { output: 'webm' })).toBeNull();
+    expect(refusal('video-background-remover', twoMinutes, { output: 'green' })).toBeNull();
+    expect(
+      refusal('video-background-remover', clip(1920, 1080, 60), { output: 'prores' }),
+    ).toBeNull();
+  });
+
+  it('takes up to 4K in', () => {
+    expect(refusal('video-background-remover', clip(4096, 2160, 5), {})).toMatchObject({
+      title: 'Too many pixels',
+    });
+  });
+});
+
+describe('Object Eraser', () => {
+  const image = { video: { width: 4000, height: 3000 } };
+
+  it('takes a mask of the image’s shape, at its size or scaled', () => {
+    expect(maskFits(4000, 3000, 4000, 3000)).toBe(true);
+    expect(maskFits(4619, 3464, 8000, 6000)).toBe(true);
+    expect(maskFits(3000, 4000, 4000, 3000)).toBe(false);
+    expect(
+      extrasRefusal('object-eraser', image, [{ video: { width: 2000, height: 1500 } }]),
+    ).toBeNull();
+    // A JPEG's probe is its stored size; the page draws the mask on the photo upright.
+    expect(
+      extrasRefusal('object-eraser', image, [{ video: { width: 1500, height: 2000 } }]),
+    ).toBeNull();
+  });
+
+  it('refuses a mask of another shape, or none, before anything is charged', () => {
+    expect(
+      extrasRefusal('object-eraser', image, [{ video: { width: 1000, height: 1000 } }]),
+    ).toMatchObject({ status: 422, title: 'The mask doesn’t fit' });
+    expect(extrasRefusal('object-eraser', image, [{ video: null }])).toMatchObject({
+      title: 'Not a mask',
+    });
+    expect(extrasRefusal('burn-subtitles', image, [])).toBeNull();
+  });
+
+  it('is a flat 3 credits, whatever the size', () => {
+    expect(priceOf(getTool('object-eraser').cost, priceInput('object-eraser', image, {}))).toBe(3);
+    expect(refusal('object-eraser', { video: null }, {})).toMatchObject({ title: 'Not an image' });
   });
 });

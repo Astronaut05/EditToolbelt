@@ -86,6 +86,8 @@ class JobContext:
     start_call: Callable[[str, int], bool] = lambda _key, _expires_sec: True
     #: Records the backend's id for the call once it exists, so it can be cancelled by id.
     call_spawned: Callable[[str], None] = lambda _call_id: None
+    #: Remote processors: the other inputs' storage keys, in order (Object Eraser: the mask).
+    extra_input_keys: list[str] = field(default_factory=list)
 
     def run(self, args: list[str], on_line: Callable[[str], None] | None = None) -> str:
         """Runs a tool in the sandbox, in the job's temp dir, under the job's time limit."""
@@ -123,9 +125,12 @@ def ffmpeg_progress(
 from etb_worker.processors import (  # noqa: E402
     burn_subtitles,
     compress_video,
+    object_eraser,
     transcribe,
     upscale_image,
+    upscale_video,
     vfr_to_cfr,
+    video_background,
 )
 
 PROCESSORS: dict[str, Processor] = {
@@ -138,5 +143,8 @@ PROCESSORS: dict[str, Processor] = {
         upscale_image.PROCESSOR,
         transcribe.TRANSCRIBE_AUDIO,
         transcribe.AUTO_SUBTITLES,
+        object_eraser.PROCESSOR,
+        upscale_video.PROCESSOR,
+        video_background.PROCESSOR,
     )
 }
