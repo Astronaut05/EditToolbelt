@@ -87,6 +87,7 @@ Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newes
 **Decision:** The build writes the search index to `/search-index.json` (≈ 20 KB); the header search (`/` or the button) and the home search load it on first focus, so it's never in the initial JS. On desktop the home search takes focus on load (the search line is the hero); on touch screens it doesn't, so no keyboard pops up.
 **Why:** `10` → Initial JS budget; design README → Home.
 **Reverse:** `packages/ui/src/layout/useSearch.ts`, `apps/web/src/components/HomeSearch.tsx`.
+_The `/` shortcut: superseded by Ctrl+K / ⌘K in [`decisions/2026-10-02-search-and-tap-tempo-shortcuts.md`](decisions/2026-10-02-search-and-tap-tempo-shortcuts.md)._
 
 ## 2026-09-29 · Fonts
 
@@ -480,6 +481,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - An analyser tool that reads the file first (a probe) now also runs as the file arrives, as `autoRun` asks.
 **Why:** `tools/audio.md` → A03 (in-house DSP, no AGPL libraries); `CLAUDE.md` rules 1 and 6.
 **Reverse:** `packages/core/src/audio/analysis.ts` (`detectTempo`, `detectKey`); swap in a trained model later if accuracy on real music falls short.
+_The T key: since 2026-10-02 it taps only while focus is in the tempo panel, see [`decisions/2026-10-02-search-and-tap-tempo-shortcuts.md`](decisions/2026-10-02-search-and-tap-tempo-shortcuts.md)._
 
 ## 2026-09-30 · Color Palette (C01) and Color Picker (C02) in the shell
 

@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 
 import { cn } from '../cn';
 import { AppLink } from '../primitives/AppLink';
+import { isApple, letterOf, useModifierLabel } from '../primitives/keys';
 import { useGo, useSearch } from './useSearch';
 
 /** Custom event any button can dispatch to open the search overlay. */
@@ -16,9 +17,37 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /**
- * Search from any page: `/` or the header button opens a full-width sheet
- * under the header with the 72 px input and the results (design README → Not
- * drawn yet). On the home page `/` focuses the hero search instead.
+ * Ctrl+K, or ⌘K on Apple keyboards, from anywhere: a shortcut with a modifier,
+ * so a stray key press or a spoken word can't set it off (WCAG 2.1.4). Not
+ * Ctrl+K in a text field on a Mac, where it deletes to the end of the line.
+ */
+function isSearchShortcut(event: globalThis.KeyboardEvent): boolean {
+  if (event.altKey || event.shiftKey || event.ctrlKey === event.metaKey) return false;
+  if (letterOf(event) !== 'k') return false;
+  return !(event.ctrlKey && isApple() && isTyping(event.target));
+}
+
+/**
+ * `/` opens search only while focus is in the site header (WCAG 2.1.4), not
+ * in the phone menu's sheet, which the header also holds.
+ */
+function isHeaderSlash(event: globalThis.KeyboardEvent): boolean {
+  return (
+    event.key === '/' &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    event.target instanceof Element &&
+    event.target.closest('[data-site-header]') !== null &&
+    event.target.closest('dialog') === null
+  );
+}
+
+/**
+ * Search from any page: Ctrl+K (⌘K), the header button, or `/` from the
+ * header opens a full-width sheet under the header with the 72 px input and
+ * the results (design README → Not drawn yet). On the home page the shortcut
+ * focuses the hero search instead.
  */
 export function SearchOverlay() {
   const [open, setOpen] = useState(false);
@@ -32,14 +61,7 @@ export function SearchOverlay() {
 
   useEffect(() => {
     function onKey(event: globalThis.KeyboardEvent) {
-      if (
-        event.key !== '/' ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        isTyping(event.target)
-      )
-        return;
+      if (!isSearchShortcut(event) && !isHeaderSlash(event)) return;
       event.preventDefault();
       const hero = document.getElementById('home-search');
       if (hero instanceof HTMLInputElement) hero.focus();
@@ -200,13 +222,14 @@ export function SearchButton({
   className?: string;
   compact?: boolean;
 }) {
+  const mod = useModifierLabel();
   return (
     <button
       type="button"
       onClick={() => {
         window.dispatchEvent(new Event(OPEN_SEARCH_EVENT));
       }}
-      aria-keyshortcuts="/"
+      aria-keyshortcuts="Control+K Meta+K"
       className={cn(
         'inline-flex items-center hover:text-text',
         compact ? 'text-text' : 'text-text-muted',
@@ -216,6 +239,14 @@ export function SearchButton({
     >
       <Search aria-hidden="true" size={compact ? 19 : 16} strokeWidth={compact ? 1.6 : 1.75} />
       <span className={cn(compact && 'sr-only')}>Search</span>
+      {!compact && (
+        <kbd
+          aria-hidden="true"
+          className="font-mono text-11.5 font-medium tracking-meta text-text-muted"
+        >
+          {mod === '⌘' ? '⌘K' : `${mod} K`}
+        </kbd>
+      )}
     </button>
   );
 }

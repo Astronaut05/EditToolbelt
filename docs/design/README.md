@@ -78,7 +78,7 @@ Left: breadcrumb, H1, a mono `COMING SOON` tag, tagline, and a numbered "what it
 - **States:** hover (text goes to `--text`, underline on links), pressed, disabled (38% opacity, no pointer), error. For errors use `ErrorState` in the preview area with the same layout as the empty state: mono "COULDN'T READ THIS FILE", a 32 px heading saying what happened, one line on what to do, and a retry button. Don't use red backgrounds; only a `--danger` dot.
 - **Other shells:** `CanvasEditor`, `Timeline`, `BatchList`, calculator tools (inputs left, live results right in mono), server-tool `PriceConfirm` (same row style: "This will use 6 credits · you have 120").
 - **Other pages:** legal pages (single 720 px text column, 46 px H1, body 16/1.6), `/developers`, account, admin (dense, `D`=8, same tokens).
-- **Search overlay,** opened by `/` or the header search: a full-width sheet under the header with the 72 px input and the result list.
+- **Search overlay,** opened by Ctrl+K (⌘K on a Mac), the header search, or `/` while focus is in the header: a full-width sheet under the header with the 72 px input and the result list. (A bare `/` from anywhere was dropped on 2026-10-02: WCAG 2.1.4, see `docs/decisions/2026-10-02-search-and-tap-tempo-shortcuts.md`.)
 
 ## Changes to `docs/03-design-system.md` this implies
 
@@ -105,5 +105,5 @@ All pairs pass. CI's contrast check on the token table should reproduce these nu
 
 - [ ] Every screen in `screens/` is reproduced in Storybook/Ladle or on a real route, in light and dark, and matches at 1440 and 390 px.
 - [ ] Only the places listed in rule 1 use the accent.
-- [ ] Keyboard: everything reachable, focus visible, `Esc` cancels, `/` opens search.
+- [ ] Keyboard: everything reachable, focus visible, `Esc` cancels, Ctrl+K (⌘K) opens search.
 - [ ] No AI tells from `03` → "AI tells".

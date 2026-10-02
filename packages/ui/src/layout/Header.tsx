@@ -14,6 +14,7 @@ export const ACCOUNT_PATH = '/account';
  * current one in --text, search, and "Sign in" after a hairline. 56 px on
  * desktop, 52 px with search and menu icons on phones. Pages that know the
  * visitor is signed in (account, admin) pass `signedIn` for "Account" instead.
+ * `data-site-header` scopes the `/` search shortcut (SearchOverlay).
  */
 export function Header({
   current,
@@ -31,7 +32,10 @@ export function Header({
     ? { href: ACCOUNT_PATH, label: 'Account' }
     : { href: SIGN_IN_PATH, label: 'Sign in' };
   return (
-    <header className="sticky top-0 z-30 h-13 border-b border-border bg-bg lg:h-(--header-h)">
+    <header
+      data-site-header
+      className="sticky top-0 z-30 h-13 border-b border-border bg-bg lg:h-(--header-h)"
+    >
       <div className="flex h-full items-center pr-1 pl-4 lg:gap-6.5 lg:px-10">
         <AppLink href="/" className="-my-2 py-2" aria-label="EditToolbelt home">
           <Wordmark />

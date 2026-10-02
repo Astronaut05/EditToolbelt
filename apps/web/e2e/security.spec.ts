@@ -11,7 +11,7 @@ test.describe('CSP and headers', () => {
   test('search and client-side navigation stay within the CSP', async ({ page, isMobile }) => {
     test.skip(isMobile, 'keyboard shortcut');
     await page.goto('/photo', { waitUntil: 'networkidle' });
-    await page.keyboard.press('/');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.keyboard.type('trim vid');
     await expect(page.getByRole('option').first()).toContainText('Trim Video');
     await page.keyboard.press('Enter');
