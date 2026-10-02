@@ -24,7 +24,7 @@ import {
 import { Copy, Download, ImagePlus, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 
-import { ChoiceRow, Rows, SelectField, TextAreaField, TextField } from './calc-ui';
+import { ChoiceRow, Rows, SelectField, TextAreaField, TextField, useReady } from './calc-ui';
 
 const TYPES: { value: QrType; label: string }[] = [
   { value: 'url', label: 'Link' },
@@ -169,6 +169,7 @@ function useOffscreenPreview(
 /** U01 QR Code Generator (tools/utility.md): static codes, drawn by us, never tracked. */
 export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
   const [type, setType] = useState<QrType>('url');
+  const ready = useReady();
   const [fields, setFields] = useState<Fields>({ ...EMPTY, url: 'https://example.com' });
   const [chosenEc, setEc] = useState<EcLevel>('M');
   const [dots, setDots] = useState<'square' | 'rounded'>('square');
@@ -507,6 +508,7 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
                 <Button
                   size="sm"
                   aria-label="Remove logo"
+                  disabled={!ready}
                   onClick={() => {
                     setLogo(null);
                   }}
@@ -519,6 +521,7 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
             {!logo && (
               <Button
                 size="sm"
+                disabled={!ready}
                 onClick={() => logoInput.current?.click()}
                 icon={<ImagePlus aria-hidden="true" size={16} strokeWidth={1.75} />}
               >
@@ -595,11 +598,13 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
             <Button
               variant="primary"
               icon={<Download aria-hidden="true" size={18} strokeWidth={2} />}
+              disabled={!ready}
               onClick={downloadPng}
             >
               Download PNG
             </Button>
             <Button
+              disabled={!ready}
               onClick={() => {
                 save(new Blob([svg], { type: 'image/svg+xml' }), `${fileBase}.svg`);
               }}
@@ -608,6 +613,7 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
             </Button>
             <Button
               icon={<Copy aria-hidden="true" size={16} strokeWidth={1.75} />}
+              disabled={!ready}
               onClick={() => {
                 png()
                   .then((blob) =>
@@ -658,6 +664,7 @@ export default function QrCodeGenerator({ tool }: { tool: ShellTool }) {
                 size="md"
                 className="ml-auto"
                 icon={<Download aria-hidden="true" size={18} strokeWidth={2} />}
+                disabled={!ready}
                 onClick={downloadPng}
               >
                 Download PNG
