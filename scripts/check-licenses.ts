@@ -57,6 +57,8 @@ const Register = z.strictObject({
       source: z.url().optional(),
       /** Where the source of an LGPL part we ship is offered (shown on /licenses). */
       sourceOffer: z.url().optional(),
+      /** How the shipped file is built from that source, at the version we ship. */
+      buildSource: z.url().optional(),
       checked: z.iso.date().optional(),
     }),
   ),
@@ -314,6 +316,9 @@ function main(): number {
     if (entry.status === 'conditional' && !entry.condition) {
       errors.push(`"${entry.label}" is conditional but states no condition.`);
     }
+    if (entry.buildSource && !entry.sourceOffer) {
+      errors.push(`"${entry.label}" has a buildSource but no sourceOffer.`);
+    }
   }
 
   // 2. Direct npm dependencies of every workspace package.
@@ -374,6 +379,16 @@ function main(): number {
     if (bannedReason) {
       errors.push(`${label} is installed but banned: ${bannedReason}`);
       continue;
+    }
+    // An LGPL part's build link names the version we ship, so an upgrade can't leave it behind.
+    const buildSource = npm.get(pkg.name)?.buildSource;
+    for (const version of buildSource ? pkg.versions : []) {
+      if (!buildSource?.includes(version)) {
+        errors.push(
+          `${label}: its buildSource (${String(buildSource)}) isn't for ${version}. ` +
+            'Point it at the source of the version installed.',
+        );
+      }
     }
     if (npm.has(pkg.name) || reviewed.has(pkg.name)) continue;
     const license = pkg.license;
