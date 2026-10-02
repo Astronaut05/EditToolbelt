@@ -182,6 +182,12 @@ export type Quote = z.infer<typeof Quote>;
 export const JobCreate = QuoteRequest.extend({
   /** The quote's `credits`; the job is refused (409) if the price has changed since. */
   quote_credits: z.number().int().min(0),
+  /**
+   * The quote's `funding`; the job is refused (409) if what pays has changed
+   * since (today's free jobs ran out, so it would take credits). Send it:
+   * without it, the job takes whatever pays at that moment.
+   */
+  quote_funding: Funding.optional(),
 }).register(api, { id: 'JobCreate' });
 
 export const JOB_STATUSES = [
@@ -266,6 +272,8 @@ export const Me = z
     credit_balance: z.number().int(),
     free_jobs_left: z.number().int(),
     max_concurrent_jobs: z.number().int(),
+    /** The website's page that sells credits, while they're on sale; null otherwise. */
+    buy_url: z.url().nullable(),
   })
   .register(api, { id: 'Me' });
 export type Me = z.infer<typeof Me>;

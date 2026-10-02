@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { MAX_PART_BATCH, PART_BATCH, partLength, planParts, type PartPlan } from '@etb/core/upload';
-import { and, count, eq, gt, isNull, purchases, sql, uploads } from '@etb/db';
+import { and, count, eq, gt, inArray, isNull, purchases, sql, uploads } from '@etb/db';
 import { hasServerPath, isAvailable, limitsOf, tools } from '@etb/registry';
 import { SUBTITLE_MIME_TYPES } from '@etb/registry/options';
 
@@ -53,7 +53,13 @@ export async function tierOf(userId: string): Promise<Tier> {
   const [row] = await db()
     .select({ n: count() })
     .from(purchases)
-    .where(and(eq(purchases.userId, userId), eq(purchases.status, 'completed')));
+    .where(
+      and(
+        eq(purchases.userId, userId),
+        // Paid: a pack that went through and wasn't wholly taken back.
+        inArray(purchases.status, ['completed', 'partially_refunded']),
+      ),
+    );
   return (row?.n ?? 0) > 0 ? 'paid' : 'free';
 }
 

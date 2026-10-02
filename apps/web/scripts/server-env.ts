@@ -22,6 +22,9 @@ export const TEST_STORAGE = {
   S3_SECRET_ACCESS_KEY: 'etb-local-secret',
 };
 
+/** The test stub's webhook key (src/server/payments/stub.ts): a stand-in, never a real provider's. */
+export const PAYMENTS_STUB_KEY = 'e2e-stub-key-not-a-real-provider-key';
+
 export function serverTestEnv(): Record<string, string> {
   const database = process.env.TEST_DATABASE_URL;
   if (!database) {
@@ -40,5 +43,13 @@ export function serverTestEnv(): Record<string, string> {
     BETTER_AUTH_SECRET: 'e2e-only-secret-never-used-anywhere-else-0123',
     MAIL_OUTBOX_DIR: OUTBOX,
     ...TEST_STORAGE,
+    // Payments as production has them once turned on, with the test stub
+    // standing in for Paddle (src/server/payments/stub.ts). Each provider's
+    // admin switch still starts off, so nothing is sold until a test turns it on.
+    PAYMENTS_ENABLED: 'true',
+    PAYMENTS_STUB: 'paddle',
+    PAYMENTS_STUB_KEY: PAYMENTS_STUB_KEY,
+    // Accounts start at 0 credits, as the job tests expect; the grant has its own tests.
+    WELCOME_GRANT_ENABLED: 'false',
   };
 }

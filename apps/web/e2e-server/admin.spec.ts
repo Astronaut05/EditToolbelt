@@ -20,7 +20,7 @@ import {
 } from '@etb/db';
 import { expect, test, type Page } from '@playwright/test';
 
-import { closeTestDb, newEmail, setScheme, signIn, testDb, totp } from './helpers';
+import { becomeAdmin, closeTestDb, newEmail, setScheme, signIn, testDb, totp } from './helpers';
 
 const db = testDb();
 
@@ -32,29 +32,6 @@ test.afterAll(async () => {
   await db.delete(toolFlags).where(eq(toolFlags.toolId, 'crop-image'));
   await closeTestDb();
 });
-
-/** Signs in a new account, makes it an admin and sets up TOTP; returns its id and the key. */
-async function becomeAdmin(page: Page): Promise<{ id: string; key: string }> {
-  const email = newEmail();
-  await signIn(page, email);
-  const [admin] = await db
-    .update(users)
-    .set({ role: 'admin' })
-    .where(eq(users.email, email))
-    .returning({ id: users.id });
-  if (!admin) throw new Error('no user');
-  await page.goto('/admin');
-  await expect(page).toHaveURL(/\/admin\/two-factor$/);
-  await page.getByRole('button', { name: 'Set up two-factor' }).click();
-  await expect(page.getByRole('img', { name: 'QR code for your authenticator app' })).toBeVisible();
-  const key = (await page.getByText(/^Key:/).innerText()).replace('Key:', '').trim();
-  await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(10);
-  await page.getByLabel('3. Enter the code the app shows').fill(totp(key));
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
-  await expect(page.getByRole('banner').getByRole('link', { name: 'Account' })).toBeVisible();
-  return { id: admin.id, key };
-}
 
 async function saveTool(page: Page, id: string, fill: (page: Page) => Promise<void>) {
   await page.goto(`/admin/tools/${id}`);
@@ -287,6 +264,7 @@ test('the signed-in pages pass axe, light and dark', async ({ page }) => {
     `/admin/users/${user.id}`,
     '/admin/audit',
     '/admin/system',
+    '/admin/payments',
   ];
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {

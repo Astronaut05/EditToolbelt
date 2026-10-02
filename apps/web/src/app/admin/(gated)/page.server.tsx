@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   jobs,
+  purchases,
   serviceHeartbeats,
   sessions,
   sql,
@@ -28,6 +29,7 @@ import {
   when,
 } from '../../../components/admin/AdminFrame';
 import { loadToolFlags } from '../../../lib/flags';
+import { formatMoney } from '../../../lib/money';
 import { db } from '../../../server/db';
 import { serverEnv } from '../../../server/env';
 import { gpuCostByTool, gpuStarting, gpuToday, usd } from '../../../server/gpu';
@@ -48,9 +50,35 @@ const ms = (value: number | null | undefined) =>
       ? `${(value / 1000).toFixed(1)} s`
       : `${(value / 60_000).toFixed(1)} min`;
 
+/** Paid purchases since `from`, by currency: how many, the credits and the money (docs/07 → Dashboard). */
+async function salesSince(from: Date) {
+  const rows = await db()
+    .select({
+      currency: purchases.currency,
+      n: count(),
+      credits: sum(purchases.credits),
+      amount: sum(purchases.amountMinor),
+    })
+    .from(purchases)
+    .where(
+      and(
+        gte(purchases.createdAt, from),
+        inArray(purchases.status, ['completed', 'partially_refunded']),
+      ),
+    )
+    .groupBy(purchases.currency);
+  if (rows.length === 0) return 'none';
+  return rows
+    .map(
+      (row) =>
+        `${String(row.n)} · ${Number(row.credits ?? 0).toLocaleString('en-US')} credits · ${formatMoney(Number(row.amount ?? 0), row.currency)}`,
+    )
+    .join('; ');
+}
+
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-/** docs/07 → Dashboard: accounts, tools, server jobs, GPU cost and services; money arrives in M5. */
+/** docs/07 → Dashboard: accounts, tools, server jobs, GPU cost, services and sales. */
 export default async function AdminDashboard({ searchParams }: Props) {
   const query = await searchParams;
   await loadToolFlags();
@@ -207,8 +235,21 @@ export default async function AdminDashboard({ searchParams }: Props) {
             ))}
           </Table>
         )}
+        <p className="text-14 text-text-muted">GPU cost shows once GPU tools run (M5).</p>
+      </Section>
+      <Section title="Sales">
+        <Facts
+          items={[
+            ['Last 24 h', await salesSince(since(24))],
+            ['Last 7 days', await salesSince(since(24 * 7))],
+          ]}
+        />
         <p className="text-14 text-text-muted">
-          Credits sold and revenue arrive with payments (M5).
+          Paid packs not refunded, before the providers’ fees.{' '}
+          <a href="/admin/payments" className="underline underline-offset-4">
+            Payments
+          </a>{' '}
+          has every purchase.
         </p>
       </Section>
       <Section title="GPU (Modal)">

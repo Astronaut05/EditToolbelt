@@ -308,6 +308,23 @@ async function identify(request: Request): Promise<Caller> {
   return { user, keyId: null, ref: `user:${user.id}`, scopes: 'all' };
 }
 
+/**
+ * The website's signed-in user, never an API key (buying credits, docs/06:
+ * web only). A write must come from our own origin.
+ */
+export async function requireSession(request: Request): Promise<CurrentUser> {
+  if (request.headers.get('authorization') !== null) {
+    throw new ApiError(
+      403,
+      'FORBIDDEN',
+      'The website only',
+      'Credits are bought on the website, signed in; API keys can’t buy them.',
+    );
+  }
+  if (WRITES.has(request.method)) requireSameOrigin(request);
+  return requireUser();
+}
+
 /** The signed-in caller, or 401. */
 export async function requireUser(): Promise<CurrentUser> {
   const signedIn = await currentUser();

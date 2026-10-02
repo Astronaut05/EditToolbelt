@@ -17,7 +17,7 @@ import {
 import { cn } from '../cn';
 import { AppLink } from '../primitives/AppLink';
 import { Breadcrumb } from '../primitives/Breadcrumb';
-import { Button } from '../primitives/Button';
+import { Button, ButtonLink } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
 import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel, OptionStack } from '../primitives/OptionsPanel';
@@ -568,6 +568,8 @@ export type ShellState =
       body: string;
       /** The file, when our servers can try it instead. */
       retry?: { input: InputInfo; file: File };
+      /** Where to buy credits, when more would fix it and they're on sale. */
+      buyHref?: string;
     };
 
 export interface ToolShellProps {
@@ -989,11 +991,13 @@ export function ToolShell({
           /\.$/,
           '',
         );
+        const buyHref = known?.needsCredits ? account?.buyHref : null;
         setState({
           kind: 'error',
           label: "Couldn't process this file",
           title: known?.title ?? 'Our servers couldn’t do this',
           body: `${message}.${known?.creditsReturned ? ' Credits returned.' : ''}`,
+          ...(buyHref && { buyHref }),
         });
       }
     },
@@ -1716,7 +1720,15 @@ export function ToolShell({
                 Use our servers
               </Button>
             )}
-            <Button variant={state.retry ? 'secondary' : 'primary'} onClick={cancel}>
+            {state.buyHref && (
+              <ButtonLink href={state.buyHref} variant="primary">
+                Buy credits
+              </ButtonLink>
+            )}
+            <Button
+              variant={state.retry || state.buyHref ? 'secondary' : 'primary'}
+              onClick={cancel}
+            >
               Try another file
             </Button>
           </>
