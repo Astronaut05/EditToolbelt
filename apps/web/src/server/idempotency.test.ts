@@ -24,6 +24,10 @@ describe('the idempotency hash', () => {
     expect(requestHash(body)).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('hashes a request without quote_funding as before it existed', () => {
+    expect(requestHash({ ...body, quoteFunding: undefined })).toBe(requestHash(body));
+  });
+
   it('takes no options as empty options', () => {
     const bare = { ...body, options: undefined };
     expect(requestHash(bare)).toBe(requestHash({ ...body, options: {} }));
@@ -32,6 +36,10 @@ describe('the idempotency hash', () => {
   it('tells any change apart', () => {
     const base = requestHash(body);
     expect(requestHash({ ...body, quoteCredits: 3 })).not.toBe(base);
+    expect(requestHash({ ...body, quoteFunding: 'daily' })).not.toBe(base);
+    expect(requestHash({ ...body, quoteFunding: 'daily' })).not.toBe(
+      requestHash({ ...body, quoteFunding: 'credits' }),
+    );
     expect(requestHash({ ...body, toolId: 'vfr-to-cfr' })).not.toBe(base);
     expect(requestHash({ ...body, uploadId: `${body.uploadId.slice(0, -1)}2` })).not.toBe(base);
     expect(requestHash({ ...body, options: { ...body.options, targetMb: 11 } })).not.toBe(base);
