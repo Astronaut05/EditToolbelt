@@ -31,6 +31,7 @@ export {
   applyCredit,
   InsufficientCreditsError,
   ledgerMismatches,
+  type CreditOptions,
   type CreditRefs,
   type LedgerRow,
 } from './credits';
