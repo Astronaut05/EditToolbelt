@@ -2,6 +2,8 @@
 
 Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newest last. Each entry: date, decision, why, how to reverse. Earlier decisions (M0 and its sign-off) are in `CHANGES.md`.
 
+**New entries go in [`docs/decisions/`](decisions/README.md), one file each** (from 2026-10-02). Entries below stay here; an edit to one of them (a "superseded by" note) is still made in place.
+
 ## 2026-09-29 · Autonomous mode starts
 
 **Decision:** From now until the M2 local launch, work continues through M1a, M1b, M2 and M2b without waiting for sign-off. Checkpoints: (1) M1a skeleton clickable, (2) M1 done, (3) M2 local launch ready to stress-test. `CLAUDE.md` rules 6 and 10 and the header of `docs/14-open-questions.md` say so.
