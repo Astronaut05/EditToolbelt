@@ -5,9 +5,9 @@
  * a built HTML file is hashed and allowed by its sha256, Next's own script
  * files load from 'self' (with SRI integrity attributes), and nothing else
  * runs. The policy goes into the page as a <meta http-equiv> tag, right after
- * the charset, before any script. Pages that load WebAssembly carry
- * <meta name="etb-csp" content="wasm"> (set from the registry) and get
- * 'wasm-unsafe-eval'; the marker is removed from the output.
+ * the charset, before any script. Every page gets 'wasm-unsafe-eval': a
+ * client-side navigation keeps the policy of the page it started on, and some
+ * tools compile WebAssembly under it (docs/decisions/2026-10-02-server-build-csp.md).
  */
 import { createHash } from 'node:crypto';
 
@@ -16,7 +16,6 @@ import { buildCsp } from '../src/lib/csp.ts';
 export { originOf } from '../src/lib/csp.ts';
 
 const INLINE_SCRIPT = /<script(?![^>]*\ssrc=)([^>]*)>([\s\S]*?)<\/script>/gi;
-const FLAGS = /<meta name="etb-csp" content="([^"]*)"\/?>/;
 
 export interface CspOptions {
   /** Extra origins for connect-src (models host, analytics), e.g. "https://models.example.com". */
@@ -34,13 +33,11 @@ export function inlineScriptHashes(html: string): string[] {
   return [...hashes];
 }
 
-/** Adds the CSP meta tag to one HTML document and drops the etb-csp marker. */
+/** Adds the CSP meta tag to one HTML document. */
 export function injectCsp(html: string, options: CspOptions = {}): string {
-  const flags = FLAGS.exec(html)?.[1]?.split(/\s+/).filter(Boolean) ?? [];
-  const cleaned = html.replace(FLAGS, '');
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${buildCsp({ hashes: inlineScriptHashes(cleaned), wasm: flags.includes('wasm'), connect: options.connect ?? [] })}"/>`;
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${buildCsp({ hashes: inlineScriptHashes(html), wasm: true, connect: options.connect ?? [] })}"/>`;
   const charset = /<meta charSet="utf-8"\/>/i;
-  if (charset.test(cleaned)) return cleaned.replace(charset, (tag) => tag + meta);
-  if (cleaned.includes('<head>')) return cleaned.replace('<head>', `<head>${meta}`);
+  if (charset.test(html)) return html.replace(charset, (tag) => tag + meta);
+  if (html.includes('<head>')) return html.replace('<head>', `<head>${meta}`);
   throw new Error('No <head> to put the CSP in');
 }
