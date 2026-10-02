@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PaymentProvider, ProviderId } from './contract';
-import { availableProviders, providerState, type PaymentEnv } from './switches';
+import { availableProviders, providerState, UNFINISHED, type PaymentEnv } from './switches';
 
 function fake(id: ProviderId, requiredEnv: string[]): PaymentProvider {
   return {
@@ -31,6 +31,7 @@ function env(overrides: Partial<PaymentEnv> = {}): PaymentEnv {
     },
     providers: [PADDLE, CLICK, PAYME],
     fiscal: FISCAL,
+    unfinished: {},
     ...overrides,
   };
 }
@@ -90,6 +91,20 @@ describe('providerState', () => {
       false,
     );
     expect(providerState('paddle', env({ providers: [CLICK] }), on).connected).toBe(false);
+  });
+
+  it('keeps Click off while its fiscal receipt submission isn’t built', () => {
+    const real = env({ unfinished: UNFINISHED });
+    const click = providerState('click', real, on);
+    expect(click.on).toBe(false);
+    expect(click.blockers).toEqual([
+      'Sending Click’s fiscal receipt to the tax service isn’t built yet (Click’s ofd_data/submit_items, with the seller’s TIN or PINFL).',
+    ]);
+    // Its webhook still answers for purchases already made (there are none while it's off).
+    expect(click.connected).toBe(true);
+    // Payme sends its receipt itself; Paddle needs none.
+    expect(providerState('payme', real, on).on).toBe(true);
+    expect(providerState('paddle', real, on).on).toBe(true);
   });
 
   it('never shows a key’s value', () => {

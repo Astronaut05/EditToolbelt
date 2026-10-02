@@ -6,7 +6,8 @@
  * 1. `PAYMENTS_ENABLED=true`, the global kill switch (env, default off);
  * 2. the admin's switch for that provider (`payment_settings`, default off);
  * 3. the provider is in this build and every one of its `requiredEnv` is set;
- *    Click and Payme also need the fiscal receipt codes in config/business.ts.
+ *    Click and Payme also need the fiscal receipt codes in config/business.ts,
+ *    and nothing a sale needs may be unbuilt (`UNFINISHED`).
  *
  * The admin switch refuses to turn on while 3 isn't met, and every change
  * goes into the audit log with its reason. Read on every request (three rows,
@@ -41,12 +42,26 @@ export interface FiscalReceipt {
   packageCode: string;
 }
 
+/**
+ * What a provider's sales need that this release doesn't have yet. The
+ * admin switch refuses to turn it on while its entry is here; remove the
+ * entry with the code that builds it.
+ */
+export const UNFINISHED: Partial<Record<ProviderId, string>> = {
+  // docs/DECISIONS.md → "Click: Prepare and Complete": Uzbek law wants a
+  // fiscal receipt for every sale, and Click doesn't send one for us.
+  click:
+    'Sending Click’s fiscal receipt to the tax service isn’t built yet (Click’s ofd_data/submit_items, with the seller’s TIN or PINFL).',
+};
+
 /** What the switches read: the kill switch, the env (keys) and the providers in this build. */
 export interface PaymentEnv {
   enabled: boolean;
   vars: Readonly<Record<string, string | undefined>>;
   providers: readonly PaymentProvider[];
   fiscal: FiscalReceipt;
+  /** `UNFINISHED` in the running server; tests pass their own. */
+  unfinished: Partial<Record<ProviderId, string>>;
 }
 
 /** The built providers, with the test stub standing in for one (PAYMENTS_STUB, APP_ENV=test only). */
@@ -67,6 +82,7 @@ export function paymentEnv(): PaymentEnv {
     vars: process.env,
     providers: availableProviders(built, env.APP_ENV === 'test' ? env.PAYMENTS_STUB : undefined),
     fiscal: fiscalReceipt,
+    unfinished: UNFINISHED,
   };
 }
 
@@ -125,6 +141,7 @@ export function providerState(
     ...fiscal
       .filter((field) => !field.set)
       .map((field) => `${field.name} is empty in config/business.ts.`),
+    ...(env.unfinished[id] ? [env.unfinished[id]] : []),
   ];
   const switchedOn = setting?.enabled ?? false;
   return {
@@ -219,7 +236,8 @@ export type SwitchResult = { ok: true; changed: boolean } | { ok: false; reason:
 /**
  * The admin turns a provider on or off, with a reason, into the audit log.
  * Turning on is refused while its keys, its fiscal fields or its code are
- * missing; turning off always works.
+ * missing, or while part of it is unbuilt (`UNFINISHED`); turning off always
+ * works.
  */
 export async function setProviderSwitch(
   db: Db,
