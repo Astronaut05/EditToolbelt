@@ -105,6 +105,12 @@ def true_peak(path: Path) -> float:
     return float(log.rsplit("Peak:", 1)[1].split("dBFS")[0])
 
 
+def result_path(output: Output) -> Path:
+    """The result file: Noise Reduction always writes one here."""
+    assert output.path is not None
+    return output.path
+
+
 def clean(
     source: Path,
     tmp_path: Path,
@@ -230,7 +236,7 @@ def test_noisy_speech_comes_out_cleaner_by_the_baseline(
     # what the noise reduction leaves (or takes from the voice) counts as error.
     reference_wav = write_wav(tmp_path / "voice.wav", [voice], RATE)
     reference = decode(filtered(reference_wav, prefilter(options), tmp_path / "ref.wav"))
-    before, after = decode(noisy), decode(output.path)
+    before, after = decode(noisy), decode(result_path(output))
     assert len(after) == len(before)
     gain = snr(reference, after) - snr(reference, before)
     assert gain >= BASELINE_SNR_GAIN_DB, f"SNR improved by {gain:.1f} dB"
@@ -238,7 +244,7 @@ def test_noisy_speech_comes_out_cleaner_by_the_baseline(
     drop = level(before, 1.45, 1.75) - level(after, 1.45, 1.75)
     assert drop >= BASELINE_PAUSE_DROP_DB, f"pause {drop:.1f} dB quieter"
     assert tone(before, 50) - tone(after, 50) >= 25
-    assert true_peak(output.path) <= -1.0
+    assert true_peak(result_path(output)) <= -1.0
     assert output.meta["notes"][0] == "Medium: background noise down by up to 24 dB"
     assert "hiss-like" in output.meta["notes"][1]
     assert "50 Hz hum removed" in output.meta["notes"][2]
@@ -250,7 +256,7 @@ def test_strength_orders_how_much_is_taken_out(noisy: Path, tmp_path: Path) -> N
         folder = tmp_path / strength
         folder.mkdir()
         output = clean(noisy, folder, {"strength": strength, "dehum": "50"})
-        pauses.append(level(decode(output.path), 1.45, 1.75))
+        pauses.append(level(decode(result_path(output)), 1.45, 1.75))
     assert pauses[0] > pauses[1] > pauses[2]
 
 
@@ -260,7 +266,7 @@ def test_pink_noise_is_taken_for_rumble(voice: array[float], tmp_path: Path) -> 
     )
     output = clean(source, tmp_path, {"strength": "medium"})
     assert "rumble-heavy" in output.meta["notes"][1]
-    drop = level(decode(source), 1.45, 1.75) - level(decode(output.path), 1.45, 1.75)
+    drop = level(decode(source), 1.45, 1.75) - level(decode(result_path(output)), 1.45, 1.75)
     assert drop >= 15, f"pause {drop:.1f} dB quieter"
 
 
@@ -273,7 +279,7 @@ def test_the_sound_stays_where_it_was(tmp_path: Path) -> None:
         hiss[at] = 0.8
     source = write_wav(tmp_path / "clicks.wav", [hiss], rate)
     output = clean(source, tmp_path, {"strength": "light"})
-    after = decode(output.path, rate)
+    after = decode(result_path(output), rate)
     assert len(after) == rate * 2
     for at in clicks:
         stretch = [abs(v) for v in after[at - 200 : at + 200]]
@@ -294,11 +300,11 @@ def test_a_loud_stereo_mp3_stays_under_minus_one_dbtp(voice: array[float], tmp_p
     )
     output = clean(mp3, tmp_path, {"strength": "medium"}, mime="audio/mpeg")
     assert (output.ext, output.content_type) == ("mp3", "audio/mpeg")
-    assert true_peak(output.path) <= -1.0
+    assert true_peak(result_path(output)) <= -1.0
     assert any(note.startswith("Turned down") for note in output.meta["notes"])
     assert "MP3 at 192 kbps" in output.meta["notes"]
     # The same length within an MP3 frame.
-    frames = len(decode(output.path, rate, 2)) // 2
+    frames = len(decode(result_path(output), rate, 2)) // 2
     assert abs(frames - len(decode(mp3, rate, 2)) // 2) <= 1152
 
 
@@ -317,12 +323,12 @@ def test_a_24_bit_flac_stays_24_bit_and_de_essing_softens_the_s(
     plain = clean(flac, tmp_path / "plain", {"deess": False}, mime="audio/flac")
     soft = clean(flac, tmp_path / "soft", {"deess": True}, mime="audio/flac")
     for output in (plain, soft):
-        probe = summarize(probe_json(output.path), "audio/flac")
+        probe = summarize(probe_json(result_path(output)), "audio/flac")
         assert probe["audio"]["codec"] == "flac"
         bits = subprocess.run(  # noqa: S603
             [
                 *("ffprobe", "-v", "error", "-show_entries", "stream=bits_per_raw_sample"),
-                *("-of", "csv=p=0", str(output.path)),
+                *("-of", "csv=p=0", str(result_path(output))),
             ],
             check=True,
             capture_output=True,
@@ -331,7 +337,7 @@ def test_a_24_bit_flac_stays_24_bit_and_de_essing_softens_the_s(
         assert bits == "24"
     highs = tmp_path / "highs.wav"
     sibilance = [
-        level(decode(filtered(out.path, ["highpass=f=5000:p=2"], highs)), 0, 6)
+        level(decode(filtered(result_path(out), ["highpass=f=5000:p=2"], highs)), 0, 6)
         for out in (plain, soft)
     ]
     assert sibilance[0] - sibilance[1] >= 2

@@ -320,9 +320,7 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   if (!extras) return null;
   const preview = parsed.options.preview === true;
   if (preview) checkPreview(tool, probe);
-  const credits = preview
-    ? 0
-    : priceOf(costOf(tool), priceInput(tool.id, probe, parsed.options));
+  const credits = preview ? 0 : priceOf(costOf(tool), priceInput(tool.id, probe, parsed.options));
   return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options, preview };
 }
 
