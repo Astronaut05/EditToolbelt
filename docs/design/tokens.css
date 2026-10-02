@@ -71,6 +71,8 @@
 
   /* ---- layout ---- */
   --header-h: 56px;
+  --header-h-phone: 52px;       /* below 1024px */
+  --action-bar-h: 91px;         /* ToolShell's bar fixed to the bottom below 1024px: 1px rule, 12 + 52 + 26 */
   --tool-left-col: 560px;       /* ≥1024px: settings column; preview fills the rest */
   --page-gutter: 40px;          /* desktop; 16px on phones */
   --content-max: 1440px;
