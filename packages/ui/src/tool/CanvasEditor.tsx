@@ -54,6 +54,7 @@ import {
 } from './BlurLayer';
 import { boxLabel, dragHandle, moveBox, turnEdit, type Edit, type Handle } from './crop';
 import { DrawBar, DrawLayer, defaultSize, maxPenSize, newMark, type DrawStyle } from './DrawLayer';
+import { MEDIA_FOCUS } from './media-focus';
 import { TextBar } from './TextBar';
 import { newTextLayer, TextLayers } from './TextLayers';
 import type { EditorState } from './useEditor';
@@ -724,7 +725,10 @@ export function CanvasEditor({
                   aria-describedby={hintId}
                   onKeyDown={onBoxKey}
                   {...pointer}
-                  className="absolute cursor-move touch-none border border-media-text shadow-[0_0_0_100vmax_color-mix(in_srgb,var(--media-scrim)_55%,transparent)] outline-offset-4"
+                  className={cn(
+                    'absolute cursor-move touch-none border border-media-text shadow-[0_0_0_100vmax_color-mix(in_srgb,var(--media-scrim)_55%,transparent)]',
+                    MEDIA_FOCUS,
+                  )}
                   style={{
                     left: box.x * fit,
                     top: box.y * fit,

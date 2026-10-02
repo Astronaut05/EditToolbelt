@@ -38,6 +38,7 @@ import {
 import { cn } from '../cn';
 import { ColorInput, Slider } from '../primitives/fields';
 import { baseOf, boxMapping, type Nudge, type ToImage } from './mapping';
+import { MEDIA_FOCUS } from './media-focus';
 
 const icon = (Icon: typeof Pencil) => <Icon size={16} strokeWidth={1.75} aria-hidden="true" />;
 
@@ -467,7 +468,7 @@ export function DrawLayer({
                   onMarkKey(event, index);
                 }}
                 // The pointer draws on the canvas underneath, over marks too.
-                className="pointer-events-none absolute outline-offset-2"
+                className={cn('pointer-events-none absolute', MEDIA_FOCUS)}
                 style={{
                   left: pct(box.x, natural.width),
                   top: pct(box.y, natural.height),

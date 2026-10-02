@@ -29,6 +29,7 @@ import {
 import { cn } from '../cn';
 import { ColorInput, Slider } from '../primitives/fields';
 import { boxMapping, type Nudge, type ToImage } from './mapping';
+import { MEDIA_FOCUS } from './media-focus';
 
 const icon = (Icon: typeof Square) => <Icon size={16} strokeWidth={1.75} aria-hidden="true" />;
 
@@ -623,7 +624,8 @@ export function BlurLayer({
                   });
                 }}
                 className={cn(
-                  'absolute rounded-[50%] border-2 outline-offset-2',
+                  'absolute rounded-[50%] border-2',
+                  MEDIA_FOCUS,
                   item.off
                     ? 'border-dashed border-media-text/80 shadow-[0_0_0_1px_var(--media-scrim)]'
                     : 'border-media-text shadow-[0_0_0_1px_var(--media-scrim)]',
@@ -648,7 +650,7 @@ export function BlurLayer({
               onKeyDown={(event) => {
                 onAreaKey(event, index);
               }}
-              className="pointer-events-none absolute outline-offset-2"
+              className={cn('pointer-events-none absolute', MEDIA_FOCUS)}
               style={style}
             />
           );

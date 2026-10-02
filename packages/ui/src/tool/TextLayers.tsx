@@ -13,7 +13,9 @@ import {
 } from '@etb/engines';
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
+import { cn } from '../cn';
 import { baseOf, boxMapping, imagePerScreen, type Nudge, type ToImage } from './mapping';
+import { MEDIA_FOCUS } from './media-focus';
 
 /** Snapping reach to the image's middle lines, in screen pixels. */
 const SNAP_PX = 8;
@@ -251,7 +253,10 @@ export function TextLayers({
           aria-description="Drag to move. Arrow keys move it 1 px, Shift 10 px. Delete removes it."
           onPointerDown={onPointerDown}
           onKeyDown={onKeyDown}
-          className="absolute cursor-move touch-none border border-dashed border-media-text shadow-[0_0_0_1px_var(--media-scrim)] outline-offset-4"
+          className={cn(
+            'absolute cursor-move touch-none border border-dashed border-media-text shadow-[0_0_0_1px_var(--media-scrim)]',
+            MEDIA_FOCUS,
+          )}
           style={{
             left: `${String((chosen.x / natural.width) * 100)}%`,
             top: `${String((chosen.y / natural.height) * 100)}%`,
