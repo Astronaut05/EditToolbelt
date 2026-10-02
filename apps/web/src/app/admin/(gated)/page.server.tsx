@@ -15,13 +15,24 @@ import {
   toolStatsDaily,
   users,
 } from '@etb/db';
+import { gpuPricing } from '@etb/config/business';
 import { statusOf, tools } from '@etb/registry';
+import { Button, Input } from '@etb/ui';
 
-import { AdminFrame, Facts, Section, Table, when } from '../../../components/admin/AdminFrame';
+import {
+  AdminFrame,
+  Facts,
+  ReasonField,
+  Section,
+  Table,
+  when,
+} from '../../../components/admin/AdminFrame';
 import { loadToolFlags } from '../../../lib/flags';
 import { db } from '../../../server/db';
 import { serverEnv } from '../../../server/env';
+import { gpuCostByTool, gpuToday, usd } from '../../../server/gpu';
 import { requestTime } from '../../../server/time';
+import { saveGpuBudget } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,8 +48,11 @@ const ms = (value: number | null | undefined) =>
       ? `${(value / 1000).toFixed(1)} s`
       : `${(value / 60_000).toFixed(1)} min`;
 
-/** docs/07 → Dashboard: accounts, tools, server jobs and services; money arrives in M5. */
-export default async function AdminDashboard() {
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+/** docs/07 → Dashboard: accounts, tools, server jobs, GPU cost and services; money arrives in M5. */
+export default async function AdminDashboard({ searchParams }: Props) {
+  const query = await searchParams;
   await loadToolFlags();
   const d = db();
   const now = requestTime();
@@ -59,6 +73,8 @@ export default async function AdminDashboard() {
     [timings],
     byTool,
     nightly,
+    gpu,
+    gpuTools,
   ] = await Promise.all([
     d.select({ n: count() }).from(users).where(live),
     d
@@ -124,6 +140,8 @@ export default async function AdminDashboard() {
       .where(gte(toolStatsDaily.day, new Date(now - 8 * 24 * HOUR).toISOString().slice(0, 10)))
       .orderBy(desc(toolStatsDaily.day), desc(toolStatsDaily.jobsTotal))
       .limit(60),
+    gpuToday(),
+    gpuCostByTool(7),
   ]);
 
   const byStatus = new Map<string, number>();
@@ -190,8 +208,74 @@ export default async function AdminDashboard() {
           </Table>
         )}
         <p className="text-14 text-text-muted">
-          GPU cost shows once GPU tools run (M5); credits sold and revenue arrive with payments.
+          Credits sold and revenue arrive with payments (M5).
         </p>
+      </Section>
+      <Section title="GPU (Modal)">
+        <div id="gpu" className="flex flex-col gap-4">
+          {query.saved === 'budget' && <p role="status">Budget saved. It’s in the audit log.</p>}
+          {query.error === 'budget' && (
+            <p role="alert">
+              Give a budget from $0 to $1,000 a day and a reason of at least 3 characters.
+            </p>
+          )}
+          <Facts
+            items={[
+              [
+                'Spent today (UTC)',
+                `${usd(gpu.spentUsd)} of ${usd(gpu.budgetUsd)}${gpu.budgetUsd > 0 ? ` (${String(Math.round((gpu.spentUsd / gpu.budgetUsd) * 100))} %)` : ''}`,
+              ],
+              ['GPU jobs today', gpu.jobs],
+              ['GPU jobs starting', gpu.spentUsd < gpu.budgetUsd ? 'Yes' : 'No: budget reached'],
+              [
+                'Prices a second',
+                `T4 $${String(gpuPricing.gpuUsdPerSecond.T4)}, L4 $${String(gpuPricing.gpuUsdPerSecond.L4)}, plus ${String(gpuPricing.functionCpuCores)} cores and ${String(gpuPricing.functionMemoryGib)} GiB (read ${gpuPricing.checkedOn}; confirm in Modal)`,
+              ],
+            ]}
+          />
+          <p className="text-14 text-text-muted">
+            The worker stops starting GPU jobs once today’s spend reaches the budget, and alerts at
+            80 % and 100 %. Waiting jobs expire after 15 min with their credits back. Costs include
+            each call’s idle window, so they err high.
+          </p>
+          <form action={saveGpuBudget} className="flex max-w-md flex-col gap-3">
+            <label className="flex flex-col gap-1.5 text-14">
+              <span className="font-strong">Daily budget (USD)</span>
+              <Input
+                name="dailyUsd"
+                type="number"
+                min={0}
+                max={1000}
+                step={0.5}
+                defaultValue={gpu.budgetUsd}
+                required
+              />
+            </label>
+            <ReasonField id="budget-reason" />
+            <Button type="submit" className="self-start">
+              Save the budget
+            </Button>
+          </form>
+          {gpuTools.length > 0 && (
+            <Table
+              label="GPU cost and credits by tool, last 7 days"
+              head={['Tool', 'Jobs', 'GPU', 'Cost', 'Free jobs', 'Credits', 'Worth', 'Margin']}
+            >
+              {gpuTools.map((row) => (
+                <tr key={row.toolId}>
+                  <td>{row.toolId}</td>
+                  <td>{row.jobs}</td>
+                  <td>{`${row.gpuSeconds.toFixed(0)} s`}</td>
+                  <td>{usd(row.costUsd)}</td>
+                  <td>{usd(row.freeCostUsd)}</td>
+                  <td>{row.credits}</td>
+                  <td>{usd(row.creditsUsd)}</td>
+                  <td>{row.margin === null ? '–' : `${row.margin.toFixed(1)}×`}</td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </div>
       </Section>
       <Section title="Server jobs by day">
         {nightly.length === 0 ? (
@@ -201,7 +285,7 @@ export default async function AdminDashboard() {
         ) : (
           <Table
             label="Server jobs by day"
-            head={['Day', 'Tool', 'Runtime', 'Jobs', 'Failed', 'p50', 'p95', 'Credits']}
+            head={['Day', 'Tool', 'Runtime', 'Jobs', 'Failed', 'p50', 'p95', 'GPU', 'Credits']}
           >
             {nightly.map((row) => (
               <tr key={`${row.day}/${row.toolId}/${row.runtime}`}>
@@ -212,6 +296,11 @@ export default async function AdminDashboard() {
                 <td>{row.jobsFailed}</td>
                 <td>{ms(row.p50Ms)}</td>
                 <td>{ms(row.p95Ms)}</td>
+                <td>
+                  {Number(row.gpuSeconds) > 0
+                    ? `${Number(row.gpuSeconds).toFixed(0)} s, ${usd(Number(row.gpuCostUsd))}`
+                    : '–'}
+                </td>
                 <td>{row.creditsCharged}</td>
               </tr>
             ))}

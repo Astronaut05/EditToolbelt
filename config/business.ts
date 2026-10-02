@@ -59,6 +59,49 @@ export function packNetUsdPerCredit(pack: Pack): number {
 export const creditNetUsd: number = Math.min(...packs.map(packNetUsdPerCredit));
 
 // ---------------------------------------------------------------------------
+// GPU costs (docs/05 → GPU costs and the daily budget). Modal bills each GPU
+// function's container by the second: its GPU, plus the CPU cores and memory
+// it asks for (apps/worker/src/etb_worker/gpu/modal_app.py: every tool
+// function asks for 2 cores and 8 GiB). PLACEHOLDERS taken on 2026-10-02 from
+// Modal's published per-second prices; confirm them in Modal's dashboard.
+// ---------------------------------------------------------------------------
+
+export type GpuType = 'T4' | 'L4';
+
+export const gpuPricing = {
+  /** When these prices were read; Admin shows it beside the costs. */
+  checkedOn: '2026-10-02',
+  /** USD per GPU-second. */
+  gpuUsdPerSecond: { T4: 0.000164, L4: 0.000222 } satisfies Record<GpuType, number>,
+  /** USD per CPU core-second and per GiB-second. */
+  cpuCoreUsdPerSecond: 0.0000131,
+  memoryGibUsdPerSecond: 0.00000222,
+  /** What every tool function asks Modal for (modal_app.py: CPU_CORES, MEMORY_MIB). */
+  functionCpuCores: 2,
+  functionMemoryGib: 8,
+} as const;
+
+/**
+ * USD a second of one GPU function's container: its GPU, CPU and memory. The
+ * jobs API writes it on each GPU job (`jobs.gpu_rate_usd`); the worker prices
+ * the job's GPU time with it and stops at the daily budget.
+ */
+export function gpuRateUsd(gpu: GpuType): number {
+  return (
+    gpuPricing.gpuUsdPerSecond[gpu] +
+    gpuPricing.functionCpuCores * gpuPricing.cpuCoreUsdPerSecond +
+    gpuPricing.functionMemoryGib * gpuPricing.memoryGibUsdPerSecond
+  );
+}
+
+export const gpuBudget = {
+  /** The daily GPU budget until an admin sets another (the `gpu_budget` row's default). */
+  defaultDailyUsd: 1,
+  /** Alerts go out at these shares of it; GPU jobs stop starting at 1. */
+  alertAt: [0.8, 1],
+} as const;
+
+// ---------------------------------------------------------------------------
 // Free allowance and abuse limits (docs/05 → Free allowance, Fraud and abuse).
 // Anonymous visitors get browser tools only; server jobs require sign-in.
 // ---------------------------------------------------------------------------

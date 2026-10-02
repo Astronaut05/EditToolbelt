@@ -133,12 +133,8 @@
           "name": "accounts_user_id_users_id_fk",
           "tableFrom": "accounts",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -232,12 +228,8 @@
           "name": "api_keys_user_id_users_id_fk",
           "tableFrom": "api_keys",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -247,9 +239,7 @@
         "api_keys_hash_unique": {
           "name": "api_keys_hash_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "hash"
-          ]
+          "columns": ["hash"]
         }
       },
       "policies": {},
@@ -353,12 +343,8 @@
           "name": "device_codes_user_id_users_id_fk",
           "tableFrom": "device_codes",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -366,12 +352,8 @@
           "name": "device_codes_api_key_id_api_keys_id_fk",
           "tableFrom": "device_codes",
           "tableTo": "api_keys",
-          "columnsFrom": [
-            "api_key_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["api_key_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -381,16 +363,12 @@
         "device_codes_device_hash_unique": {
           "name": "device_codes_device_hash_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "device_hash"
-          ]
+          "columns": ["device_hash"]
         },
         "device_codes_user_code_unique": {
           "name": "device_codes_user_code_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "user_code"
-          ]
+          "columns": ["user_code"]
         }
       },
       "policies": {},
@@ -475,12 +453,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -490,9 +464,7 @@
         "sessions_token_unique": {
           "name": "sessions_token_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "token"
-          ]
+          "columns": ["token"]
         }
       },
       "policies": {},
@@ -576,12 +548,8 @@
           "name": "two_factors_user_id_users_id_fk",
           "tableFrom": "two_factors",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1151,12 +1119,8 @@
           "name": "jobs_user_id_users_id_fk",
           "tableFrom": "jobs",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1313,12 +1277,8 @@
           "name": "uploads_user_id_users_id_fk",
           "tableFrom": "uploads",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1328,9 +1288,7 @@
         "uploads_storage_key_unique": {
           "name": "uploads_storage_key_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "storage_key"
-          ]
+          "columns": ["storage_key"]
         }
       },
       "policies": {},
@@ -1448,12 +1406,8 @@
           "name": "credit_transactions_user_id_users_id_fk",
           "tableFrom": "credit_transactions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1461,12 +1415,8 @@
           "name": "credit_transactions_purchase_id_purchases_id_fk",
           "tableFrom": "credit_transactions",
           "tableTo": "purchases",
-          "columnsFrom": [
-            "purchase_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["purchase_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1474,12 +1424,8 @@
           "name": "credit_transactions_admin_id_users_id_fk",
           "tableFrom": "credit_transactions",
           "tableTo": "users",
-          "columnsFrom": [
-            "admin_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["admin_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1617,12 +1563,8 @@
           "name": "purchases_user_id_users_id_fk",
           "tableFrom": "purchases",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1630,12 +1572,8 @@
           "name": "purchases_raw_event_id_webhook_events_id_fk",
           "tableFrom": "purchases",
           "tableTo": "webhook_events",
-          "columnsFrom": [
-            "raw_event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["raw_event_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1645,9 +1583,7 @@
         "purchases_provider_txn_id_unique": {
           "name": "purchases_provider_txn_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "provider_txn_id"
-          ]
+          "columns": ["provider_txn_id"]
         }
       },
       "policies": {},
@@ -1806,12 +1742,8 @@
           "name": "admin_audit_log_admin_id_users_id_fk",
           "tableFrom": "admin_audit_log",
           "tableTo": "users",
-          "columnsFrom": [
-            "admin_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["admin_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1933,12 +1865,8 @@
           "name": "free_quota_user_id_users_id_fk",
           "tableFrom": "free_quota",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1946,10 +1874,7 @@
       "compositePrimaryKeys": {
         "free_quota_user_id_day_pk": {
           "name": "free_quota_user_id_day_pk",
-          "columns": [
-            "user_id",
-            "day"
-          ]
+          "columns": ["user_id", "day"]
         }
       },
       "uniqueConstraints": {},
@@ -1995,12 +1920,8 @@
           "name": "gpu_budget_updated_by_users_id_fk",
           "tableFrom": "gpu_budget",
           "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -2055,10 +1976,7 @@
       "compositePrimaryKeys": {
         "service_heartbeats_service_instance_pk": {
           "name": "service_heartbeats_service_instance_pk",
-          "columns": [
-            "service",
-            "instance"
-          ]
+          "columns": ["service", "instance"]
         }
       },
       "uniqueConstraints": {},
@@ -2172,12 +2090,8 @@
           "name": "tool_flags_updated_by_users_id_fk",
           "tableFrom": "tool_flags",
           "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -2264,11 +2178,7 @@
       "compositePrimaryKeys": {
         "tool_stats_daily_day_tool_id_runtime_pk": {
           "name": "tool_stats_daily_day_tool_id_runtime_pk",
-          "columns": [
-            "day",
-            "tool_id",
-            "runtime"
-          ]
+          "columns": ["day", "tool_id", "runtime"]
         }
       },
       "uniqueConstraints": {},
@@ -2307,42 +2217,22 @@
     "public.device_code_status": {
       "name": "device_code_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "approved",
-        "denied",
-        "used"
-      ]
+      "values": ["pending", "approved", "denied", "used"]
     },
     "public.user_role": {
       "name": "user_role",
       "schema": "public",
-      "values": [
-        "user",
-        "admin"
-      ]
+      "values": ["user", "admin"]
     },
     "public.job_source": {
       "name": "job_source",
       "schema": "public",
-      "values": [
-        "web",
-        "mobile",
-        "panel",
-        "api"
-      ]
+      "values": ["web", "mobile", "panel", "api"]
     },
     "public.job_status": {
       "name": "job_status",
       "schema": "public",
-      "values": [
-        "queued",
-        "running",
-        "succeeded",
-        "failed",
-        "cancelled",
-        "expired"
-      ]
+      "values": ["queued", "running", "succeeded", "failed", "cancelled", "expired"]
     },
     "public.credit_kind": {
       "name": "credit_kind",
@@ -2361,33 +2251,17 @@
     "public.purchase_status": {
       "name": "purchase_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "completed",
-        "refunded",
-        "partially_refunded",
-        "chargeback"
-      ]
+      "values": ["pending", "completed", "refunded", "partially_refunded", "chargeback"]
     },
     "public.tool_runtime": {
       "name": "tool_runtime",
       "schema": "public",
-      "values": [
-        "client",
-        "server-cpu",
-        "server-gpu",
-        "hybrid"
-      ]
+      "values": ["client", "server-cpu", "server-gpu", "hybrid"]
     },
     "public.tool_status": {
       "name": "tool_status",
       "schema": "public",
-      "values": [
-        "live",
-        "beta",
-        "soon",
-        "disabled"
-      ]
+      "values": ["live", "beta", "soon", "disabled"]
     }
   },
   "schemas": {},
