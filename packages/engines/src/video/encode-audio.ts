@@ -39,18 +39,20 @@ function silence(shape: Shape, timestamp: number, frames: number): AudioSample {
   return new AudioSample({ ...shape, data, timestamp });
 }
 
-/** `sample` without its first `skip` frames. */
+/**
+ * `sample` without its first `skip` frames. Each plane is copied whole and
+ * then cut: WebKit's copyTo hangs converting to planar from a frameOffset
+ * (docs/DECISIONS.md, 2026-10-02, decoded audio copied whole).
+ */
 function dropStart(sample: AudioSample, skip: number): AudioSample {
-  const frames = sample.numberOfFrames - skip;
+  const all = sample.numberOfFrames;
+  const frames = all - skip;
   const channels = sample.numberOfChannels;
   const data = new Float32Array(frames * channels);
+  const plane = new Float32Array(all);
   for (let c = 0; c < channels; c += 1) {
-    sample.copyTo(data.subarray(c * frames, (c + 1) * frames), {
-      planeIndex: c,
-      format: 'f32-planar',
-      frameOffset: skip,
-      frameCount: frames,
-    });
+    sample.copyTo(plane, { planeIndex: c, format: 'f32-planar' });
+    data.set(plane.subarray(skip), c * frames);
   }
   const out = new AudioSample({
     data,

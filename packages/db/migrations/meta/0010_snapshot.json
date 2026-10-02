@@ -1,6 +1,6 @@
 {
-  "id": "af0426e8-2102-4ff1-9491-624ce7a1c21f",
-  "prevId": "50662877-170a-41dc-90b4-29ff1d3ffa14",
+  "id": "52b6be45-bf3b-4231-8d48-7fdfe90d8e87",
+  "prevId": "1efc25fd-cde9-4aec-b18f-0c3e4bb882a8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -994,6 +994,12 @@
         },
         "idempotency_key": {
           "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_hash": {
+          "name": "idempotency_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": false

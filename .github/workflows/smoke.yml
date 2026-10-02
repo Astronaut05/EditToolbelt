@@ -1,8 +1,12 @@
-# After every production deploy: the live site, through Cloudflare Access
-# (scripts/ops/verify.ts → site). Railway reports each deploy to GitHub as a
-# deployment; when one succeeds, this waits until /healthz reports that commit,
-# then checks the site: private without a token, ready, security headers, www.
-# Skipped cleanly until the Access service token is set (CF_ACCESS_CLIENT_ID,
+# After every production deploy: the live site, through Cloudflare Access.
+# Railway reports each deploy to GitHub as a deployment; when one succeeds:
+# 1. site: waits until /healthz reports that commit, then checks the site
+#    (scripts/ops/verify.ts → site): private without a token, ready, security
+#    headers, www.
+# 2. browser: the browser tests (apps/web/e2e/) against the live site, the
+#    deployed commit's own tests, with an Access session from the service
+#    token (apps/web/playwright.prod.config.ts). Chromium.
+# Both skip cleanly until the Access service token is set (CF_ACCESS_CLIENT_ID,
 # CF_ACCESS_CLIENT_SECRET). Run it by hand from Actions → Smoke → Run workflow.
 #
 # Not on `push` or `workflow_run`: Railway deploys a commit only once its check
@@ -44,3 +48,42 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           EXPECT_VERSION: ${{ github.event.deployment.sha || inputs.version }}
           EXPECT_WAIT_MINUTES: '20'
+
+  browser:
+    name: Production · every tool in the browser, through Access
+    needs: site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Is the service token set?
+        id: token
+        run: |
+          if [ -n "$ID" ] && [ -n "$SECRET" ]; then
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No Access service token yet (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET): browser tests skipped."
+          fi
+        env:
+          ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.token.outputs.set == 'true'
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.token.outputs.set == 'true'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.token.outputs.set == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - if: steps.token.outputs.set == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright's Chromium
+        if: steps.token.outputs.set == 'true'
+        run: pnpm exec playwright install chromium
+      - name: Browser tests against the live site
+        if: steps.token.outputs.set == 'true'
+        run: pnpm --filter @etb/web e2e:prod
+        env:
+          E2E_BASE_URL: ${{ vars.SITE_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

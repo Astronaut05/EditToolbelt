@@ -68,15 +68,15 @@
     {
       "idx": 9,
       "version": "7",
-      "when": 1790903437324,
-      "tag": "0009_gpu_costs_and_budget",
+      "when": 1790906719508,
+      "tag": "0009_job_idempotency_hash",
       "breakpoints": true
     },
     {
       "idx": 10,
       "version": "7",
-      "when": 1790910843811,
-      "tag": "0010_gpu_calls",
+      "when": 1790927487850,
+      "tag": "0010_gpu_costs_and_calls",
       "breakpoints": true
     }
   ]

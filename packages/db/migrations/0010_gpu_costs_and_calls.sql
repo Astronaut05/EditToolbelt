@@ -9,7 +9,14 @@ CREATE TABLE "gpu_budget" (
 --> statement-breakpoint
 ALTER TABLE "jobs" ADD COLUMN "gpu_rate_usd" numeric;--> statement-breakpoint
 ALTER TABLE "jobs" ADD COLUMN "gpu_cost_usd" numeric;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN "gpu_call_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN "gpu_call_id" text;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN "gpu_output_keys" text[] DEFAULT '{}'::text[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN "gpu_put_expires_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "tool_stats_daily" ADD COLUMN "gpu_cost_usd" numeric DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "gpu_budget" ADD CONSTRAINT "gpu_budget_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "jobs_gpu_spend_idx" ON "jobs" USING btree ("started_at") WHERE "jobs"."gpu_rate_usd" is not null;--> statement-breakpoint
+CREATE INDEX "jobs_gpu_call_idx" ON "jobs" USING btree ("gpu_call_at") WHERE "jobs"."gpu_call_at" is not null;--> statement-breakpoint
+CREATE INDEX "jobs_gpu_keys_idx" ON "jobs" USING btree ("gpu_put_expires_at") WHERE "jobs"."gpu_put_expires_at" is not null;--> statement-breakpoint
 -- The one budget row, at the default ($1 a day) until an admin changes it.
 INSERT INTO "gpu_budget" ("id") VALUES (1) ON CONFLICT DO NOTHING;

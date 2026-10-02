@@ -41,8 +41,9 @@ import { log } from '../lib/log';
 import type { CurrentUser } from './account';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
+import { requestHash } from './idempotency';
 import { extrasRefusal, gpuRate, priceInput, refusal, type Probe } from './job-rules';
-import { ApiError } from './problem';
+import { ApiError, problemType } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
 import { ownUpload, SUBTITLE_TYPES, tierOf, type Tier, type Upload } from './uploads';
 
@@ -311,6 +312,34 @@ export async function quote(user: CurrentUser, request: JobRequest): Promise<Quo
   };
 }
 
+/**
+ * The job this `Idempotency-Key` already started, if any. The same key with
+ * another body is refused (422); jobs from before the hash was kept answer
+ * as they always did.
+ */
+async function replayOf(
+  user: CurrentUser,
+  key: string,
+  hash: string,
+  q: Queryable = db(),
+): Promise<{ job: Job; created: false } | null> {
+  const [existing] = await q
+    .select()
+    .from(jobs)
+    .where(and(eq(jobs.userId, user.id), eq(jobs.idempotencyKey, key)));
+  if (!existing) return null;
+  if (existing.idempotencyHash !== null && existing.idempotencyHash !== hash) {
+    throw new ApiError(
+      422,
+      'IDEMPOTENCY_KEY_REUSED',
+      'This Idempotency-Key was used for another request',
+      'It started a job with a different body. Send a new key for a new request.',
+      { type: problemType('idempotency') },
+    );
+  }
+  return { job: existing, created: false };
+}
+
 export async function createJob(
   user: CurrentUser,
   request: JobRequest & { quoteCredits: number },
@@ -318,13 +347,30 @@ export async function createJob(
   /** `api` for a call with an API key, `web` for the website's own. */
   source: 'web' | 'api' = 'web',
 ): Promise<{ job: Job; created: boolean }> {
-  if (idempotencyKey) {
-    const [existing] = await db()
-      .select()
-      .from(jobs)
-      .where(and(eq(jobs.userId, user.id), eq(jobs.idempotencyKey, idempotencyKey)));
-    if (existing) return { job: existing, created: false };
+  if (!idempotencyKey) return startJob(user, request, null, null, source);
+  const hash = requestHash(request);
+  const replay = await replayOf(user, idempotencyKey, hash);
+  if (replay) return replay;
+  try {
+    return await startJob(user, request, idempotencyKey, hash, source);
+  } catch (error) {
+    // A retry that came while the first try was committing finds its upload
+    // used (409): the first try's job is the answer.
+    if (error instanceof ApiError && error.code === 'CONFLICT') {
+      const late = await replayOf(user, idempotencyKey, hash);
+      if (late) return late;
+    }
+    throw error;
   }
+}
+
+async function startJob(
+  user: CurrentUser,
+  request: JobRequest & { quoteCredits: number },
+  idempotencyKey: string | null,
+  idempotencyHash: string | null,
+  source: 'web' | 'api',
+): Promise<{ job: Job; created: boolean }> {
   const prepared = await prepare(user, request);
   if (!prepared) {
     throw new ApiError(
@@ -347,12 +393,9 @@ export async function createJob(
   const outcome = await db().transaction(async (tx) => {
     // One account's creates in a row, so its limits hold under double clicks.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`etb.jobs:${user.id}`}))`);
-    if (idempotencyKey) {
-      const [existing] = await tx
-        .select()
-        .from(jobs)
-        .where(and(eq(jobs.userId, user.id), eq(jobs.idempotencyKey, idempotencyKey)));
-      if (existing) return { job: existing, created: false };
+    if (idempotencyKey && idempotencyHash) {
+      const replay = await replayOf(user, idempotencyKey, idempotencyHash, tx);
+      if (replay) return replay;
     }
     await checkUnused(prepared.upload, tx);
     for (const extra of prepared.extras) await checkUnused(extra.upload, tx);
@@ -403,6 +446,7 @@ export async function createJob(
         // Its GPU's price a second: the worker costs the job and keeps to the daily budget.
         gpuRateUsd: gpuRate(prepared.tool),
         idempotencyKey,
+        idempotencyHash,
       })
       .returning();
     if (!row) throw new Error('job row not written');
@@ -618,7 +662,13 @@ export async function listJobs(user: CurrentUser, cursor: string | null): Promis
 }
 
 const FINAL: ReadonlySet<string> = new Set(['succeeded', 'failed', 'cancelled', 'expired']);
+/**
+ * How often a stream reads the job: every second, and every 2 s once a
+ * queued job has waited 10 s (a long wait needs no second-by-second reads).
+ */
 const STREAM_POLL_MS = 1000;
+const STREAM_POLL_QUEUED_MS = 2000;
+const STREAM_QUEUED_AFTER_MS = 10_000;
 const STREAM_PING_MS = 20_000;
 /** A stream closes after this; EventSource reconnects on its own. */
 const STREAM_MAX_MS = 15 * 60 * 1000;
@@ -641,12 +691,14 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
  * GET /jobs/:id/events as server-sent events: `progress` whenever status,
  * progress, stage or queue position changes, then one `done` with the whole
  * job once it ends, and the stream closes. A comment line every 20 s keeps
- * proxies from closing a quiet stream.
+ * proxies from closing a quiet stream. `onClose` runs once, when it stops
+ * reading the job: it ended, the stream ran its 15 minutes, or the client left.
  */
 export function jobEvents(
   user: CurrentUser,
   first: Job,
   signal: AbortSignal,
+  onClose: () => void = () => undefined,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let closed = false;
@@ -681,7 +733,8 @@ export function jobEvents(
             quietSince = Date.now();
           }
           if (Date.now() - started > STREAM_MAX_MS) break;
-          await pause(STREAM_POLL_MS, signal);
+          const waiting = job.status === 'queued' && Date.now() - started > STREAM_QUEUED_AFTER_MS;
+          await pause(waiting ? STREAM_POLL_QUEUED_MS : STREAM_POLL_MS, signal);
           [job] = await db()
             .select()
             .from(jobs)
@@ -690,6 +743,7 @@ export function jobEvents(
       } catch (error) {
         log.warn({ err: error, job_id: first.id }, 'job.events_failed');
       } finally {
+        onClose();
         if (!closed) {
           closed = true;
           controller.close();

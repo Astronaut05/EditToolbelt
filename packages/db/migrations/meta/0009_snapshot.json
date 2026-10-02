@@ -1,5 +1,5 @@
 {
-  "id": "50662877-170a-41dc-90b4-29ff1d3ffa14",
+  "id": "1efc25fd-cde9-4aec-b18f-0c3e4bb882a8",
   "prevId": "0da93887-71f5-4222-8eda-76bc2df932b1",
   "version": "7",
   "dialect": "postgresql",
@@ -918,18 +918,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "gpu_rate_usd": {
-          "name": "gpu_rate_usd",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "gpu_cost_usd": {
-          "name": "gpu_cost_usd",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": false
-        },
         "cpu_seconds": {
           "name": "cpu_seconds",
           "type": "numeric",
@@ -969,6 +957,12 @@
         },
         "idempotency_key": {
           "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_hash": {
+          "name": "idempotency_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1882,65 +1876,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.gpu_budget": {
-      "name": "gpu_budget",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "smallint",
-          "primaryKey": true,
-          "notNull": true,
-          "default": 1
-        },
-        "daily_usd": {
-          "name": "daily_usd",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "1"
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "gpu_budget_updated_by_users_id_fk": {
-          "name": "gpu_budget_updated_by_users_id_fk",
-          "tableFrom": "gpu_budget",
-          "tableTo": "users",
-          "columnsFrom": ["updated_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "gpu_budget_one_row": {
-          "name": "gpu_budget_one_row",
-          "value": "\"gpu_budget\".\"id\" = 1"
-        },
-        "gpu_budget_not_negative": {
-          "name": "gpu_budget_not_negative",
-          "value": "\"gpu_budget\".\"daily_usd\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.service_heartbeats": {
       "name": "service_heartbeats",
       "schema": "",
@@ -2153,13 +2088,6 @@
         },
         "gpu_seconds": {
           "name": "gpu_seconds",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "0"
-        },
-        "gpu_cost_usd": {
-          "name": "gpu_cost_usd",
           "type": "numeric",
           "primaryKey": false,
           "notNull": true,
