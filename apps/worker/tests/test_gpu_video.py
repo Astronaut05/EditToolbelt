@@ -78,6 +78,15 @@ def test_a_phone_video_is_turned_upright_and_its_rate_made_constant() -> None:
     assert info.audio == "aac"
 
 
+def test_a_rotate_tag_that_isnt_a_number_is_no_rotation() -> None:
+    # The tag is whatever the uploader wrote; the probe reads it the same way.
+    for value in ("abc", "nan", "1e400"):
+        info = video.parse_probe({"streams": [stream(tags={"rotate": value})]})
+        assert (info.width, info.height, info.turn) == (1920, 1080, "")
+    info = video.parse_probe({"streams": [stream(tags={"rotate": "90"})]})
+    assert (info.width, info.height, info.turn) == (1080, 1920, "transpose=clock")
+
+
 @pytest.mark.parametrize(
     ("average", "real", "expected"),
     [
