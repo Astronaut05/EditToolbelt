@@ -50,6 +50,24 @@ def test_jobs_outlive_their_gpu_call() -> None:
         assert int(found.group(1)) * 60 > modal_app.SPECS[function].timeout, tool
 
 
+def test_no_call_of_ours_queues_on_modal() -> None:
+    """A function has a container for every job its tools may run at once (maxConcurrent).
+
+    The worker's clock for a call starts at the spawn: time spent queueing on
+    Modal behind our own calls would count against the job's limit.
+    """
+    for function, spec in modal_app.SPECS.items():
+        concurrent = 0
+        for tool, (category, uses) in TOOLS.items():
+            if uses != function:
+                continue
+            source = (ROOT / f"packages/registry/src/tools/{category}/{tool}.ts").read_text("utf-8")
+            found = re.search(r"maxConcurrent: (\d+)", source)
+            assert found, f"{tool} has no maxConcurrent"
+            concurrent += int(found.group(1))
+        assert spec.max_containers >= concurrent, function
+
+
 def test_the_worst_case_idle_window_covers_every_function() -> None:
     """Calls that didn't say, and the budget's worst case, bill this idle window (gpu/__init__)."""
     for function, spec in modal_app.SPECS.items():

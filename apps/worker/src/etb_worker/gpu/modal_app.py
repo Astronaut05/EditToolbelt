@@ -23,6 +23,10 @@ The weights are downloaded while Modal builds each image and checked
 against the SHA-256 in pins.json (weights.py); a mismatch fails the build.
 Every function asks for the same CPU and memory, which config/business.ts
 prices together with the GPU.
+
+A function never lets an exception out: Modal would log its traceback, and
+urllib's errors can quote the presigned URL. Anything unexpected comes back
+as ``GPU_FAILED`` with a fixed sentence and only the exception's type.
 """
 
 from __future__ import annotations
@@ -62,7 +66,9 @@ SPECS: dict[str, Spec] = {
     # Loading the networks takes about a second, so idling longer buys little.
     "upscale_image": Spec("T4", 15 * 60, 10, 2, 100 * 1024**2),
     # Loading large-v3 takes 15 to 25 s: a 30 s window catches the next file of a batch.
-    "transcribe": Spec("L4", 65 * 60, 30, 2, 2 * 1024**3),
+    # A12 and V17 share it: as many containers as both tools' maxConcurrent, so no call of
+    # ours ever queues on Modal behind another (the worker's clock would count the wait).
+    "transcribe": Spec("L4", 65 * 60, 30, 4, 2 * 1024**3),
 }
 
 app = modal.App(APP_NAME)
@@ -93,6 +99,13 @@ whisper_env = _with_weights(
 
 #: Models stay loaded for the container's life; a call that loads one reports itself cold.
 _LOADED: dict[str, Any] = {}
+
+
+def _unexpected(call: Call, error: Exception) -> dict[str, Any]:
+    """A failure nobody worded: a fixed sentence and the exception's type, never its text."""
+    return call.failed(
+        CallFailed("GPU_FAILED", f"The GPU function failed ({type(error).__name__}).")
+    )
 
 
 def _options(spec: Spec) -> dict[str, Any]:
@@ -266,6 +279,8 @@ def upscale_image(
         return call.ok(meta, notes)
     except CallFailed as error:
         return call.failed(error)
+    except Exception as error:  # noqa: BLE001 - see the module's docstring
+        return _unexpected(call, error)
     finally:
         clear(work)
 
@@ -343,5 +358,7 @@ def transcribe(input_url: str, output_url: str | None, options: dict[str, Any]) 
         )
     except CallFailed as error:
         return call.failed(error)
+    except Exception as error:  # noqa: BLE001 - see the module's docstring
+        return _unexpected(call, error)
     finally:
         clear(work)

@@ -1339,3 +1339,12 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** review of #66, finding 9 (a, b); `docs/05`: the idle window counts "whatever happened".
 **Reverse:** `parse_answer` and `GpuError.billed_seconds` in `gpu/backend.py`.
+
+## 2026-10-02 · GPU functions answer every failure; Whisper gets a container per job
+
+**Decision:**
+- **Every GPU function catches `Exception`** and answers `GPU_FAILED` with a fixed sentence and only the exception's type ("The GPU function failed (URLError)."), never its text: urllib's errors can quote the presigned URL, and an uncaught exception's traceback lands in Modal's logs. The worker shows the person its own fixed sentence for `GPU_FAILED`, as before. Tests run the functions locally (`.local()`, no Modal).
+- **`transcribe` gets `max_containers` 4**, the sum of A12's and V17's `maxConcurrent` (2 + 2), where it had 2. The other option, making the worker's clock exclude time queued on Modal, needs to know when a call starts running, which Modal doesn't report while we poll. With a container for every job our claims allow, none of our calls queues behind another; only a cold start waiting for an L4 does, which the 5 minutes between the function's and the job's limits cover. The budget gate still decides how many run. A test holds every function's containers at or above its tools' `maxConcurrent` total.
+
+**Why:** review of #66, finding 14 (first two points).
+**Reverse:** `_unexpected` and `SPECS` in `gpu/modal_app.py`.
