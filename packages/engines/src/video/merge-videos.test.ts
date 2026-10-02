@@ -5,7 +5,13 @@ import { EncodedPacketSink } from 'mediabunny';
 import { describe, expect, it } from 'vitest';
 
 import { openInput } from './media';
-import { mergeVideosEngine, placeCopiedSound, trackEnds, type PacketTiming } from './merge-videos';
+import {
+  mergeVideosEngine,
+  placeCopiedSound,
+  standardFps,
+  trackEnds,
+  type PacketTiming,
+} from './merge-videos';
 
 const fixture = (name: string) =>
   new Blob([
@@ -182,5 +188,19 @@ describe('mergeVideosEngine', () => {
     ).rejects.toThrow(
       'These clips come to 2.4 GB together, over the browser limit of 2 GB. Merge fewer at a time.',
     );
+  });
+});
+
+describe('standardFps', () => {
+  it('rounds a measured rate to the nearest standard one', () => {
+    expect(standardFps(29.98)).toBe(29.97);
+    expect(standardFps(30.02)).toBe(30);
+    expect(standardFps(23.98)).toBe(23.976);
+    expect(standardFps(24.4)).toBe(24);
+    expect(standardFps(25.3)).toBe(25);
+    expect(standardFps(59.95)).toBe(59.94);
+    expect(standardFps(48)).toBe(50);
+    expect(standardFps(120)).toBe(60);
+    expect(standardFps(10)).toBe(23.976);
   });
 });

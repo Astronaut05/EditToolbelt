@@ -146,7 +146,7 @@ async function openClips(files: Blob[]): Promise<Clip[]> {
 const STANDARD_FPS = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60];
 
 /** The nearest standard rate: phones say 29.98, cameras 23.976. */
-function standardFps(fps: number): number {
+export function standardFps(fps: number): number {
   return STANDARD_FPS.reduce(
     (best, f) => (Math.abs(f - fps) < Math.abs(best - fps) ? f : best),
     30,
