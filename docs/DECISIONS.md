@@ -1209,3 +1209,18 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6 found the open redirect (TAB in `next`).
 **Reverse:** nothing to undo; `safeNext` is the only gate, and its tests list what it refuses.
+
+## 2026-10-02 · One general rate limit in the API wrapper, and its headers on every answer (M6 fix)
+
+**Decision:**
+- **`route()` in `server/api.ts` owns the `RateLimit-*` headers.** Every limit a request is counted against is remembered for that request (`limit(request, key, max, windowSec)`), and the answer, errors included, gets the headers of the one it is closest to: the fewest calls left, then the longest wait. A 429 keeps its `Retry-After`.
+- **A general budget sits under the routes' own limits:**
+  - 600 calls a minute per key, or per account for the website, counted in `requireCaller` as soon as the caller is known, so a 403 for a missing scope carries it.
+  - 300 a minute per address for the anonymous routes (`publicRoute`: `/tools`, `/tools/:id`, `openapi.json`, both device endpoints) and for any call whose key or session is refused, so every 401 carries it too.
+  - The per-route limits stay as they were (uploads 30, quotes 60, jobs 30, …); cancel, complete and `DELETE /uploads/:id` have only the general one.
+- **The limiter's map is bounded:** expired windows are swept every 500 calls, and past 50,000 windows the oldest go first (down to 45,000, so a flood doesn't sweep on every call). Before, it swept only above 10,000 and never shrank below that.
+- **`readJson` refuses a body over its cap before reading it:** 413 at once when `Content-Length` says so, otherwise as soon as the bytes read pass the cap; the cap is in bytes, and a body that isn't UTF-8 is a 400.
+- Preflights (`OPTIONS`) aren't counted and carry no `RateLimit-*` headers: a browser never shows their answer to the page.
+
+**Why:** a review of M6 found the headers missing on `/tools`, `openapi.json`, cancel, complete, `DELETE /uploads/:id`, every 401 and 403, and any error thrown after a route's own limit, though `docs/06` promises them on every answer.
+**Reverse:** the budgets are `CALLER_LIMIT` and `ADDRESS_LIMIT` in `server/api.ts`; `publicRoute` is `route(name, handler, true)`.

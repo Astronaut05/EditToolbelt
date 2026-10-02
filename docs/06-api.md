@@ -9,6 +9,7 @@ One API for everything: the website's own tool pages, the Premiere panel, the mo
 - Schemas defined once in Zod (`@etb/core/api`, `packages/core/src/api/`) → OpenAPI 3.1 generated at build → published at `/api/v1/openapi.json` and a docs page at `/developers`.
 - Typed client `packages/api-client` generated from the same schemas; used by the web app and the panel.
 - Rate-limit headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
+  Done as: every call counts against a general budget of 600 a minute per key (or per account for the website), or 300 a minute per address for anonymous calls and refused keys or sessions; routes add their own, stricter limits. Each answer, errors included, carries the headers of the limit it is closest to, and a 429 adds `Retry-After`.
 - CORS: our own origins only for cookie auth; API-key auth allowed from any origin (keys are secret, so browser use is the developer's own risk — docs say so).
   Done as: every answer carries `Access-Control-Allow-Origin: *` and never `Allow-Credentials`, so a browser won't give another site an answer made with our cookie (which is SameSite=Lax anyway); a cookie write must come from our origin.
 
