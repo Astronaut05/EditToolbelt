@@ -656,9 +656,13 @@ export async function listJobs(user: CurrentUser, cursor: string | null): Promis
 }
 
 const FINAL: ReadonlySet<string> = new Set(['succeeded', 'failed', 'cancelled', 'expired']);
-/** How often a stream reads the job: every second while it runs, every 2 s while it waits. */
+/**
+ * How often a stream reads the job: every second, and every 2 s once a
+ * queued job has waited 10 s (a long wait needs no second-by-second reads).
+ */
 const STREAM_POLL_MS = 1000;
 const STREAM_POLL_QUEUED_MS = 2000;
+const STREAM_QUEUED_AFTER_MS = 10_000;
 const STREAM_PING_MS = 20_000;
 /** A stream closes after this; EventSource reconnects on its own. */
 const STREAM_MAX_MS = 15 * 60 * 1000;
@@ -723,7 +727,8 @@ export function jobEvents(
             quietSince = Date.now();
           }
           if (Date.now() - started > STREAM_MAX_MS) break;
-          await pause(job.status === 'queued' ? STREAM_POLL_QUEUED_MS : STREAM_POLL_MS, signal);
+          const waiting = job.status === 'queued' && Date.now() - started > STREAM_QUEUED_AFTER_MS;
+          await pause(waiting ? STREAM_POLL_QUEUED_MS : STREAM_POLL_MS, signal);
           [job] = await db()
             .select()
             .from(jobs)
