@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  centredPoints,
   defaultAmount,
   faceArea,
   isNeutral,
@@ -52,7 +53,7 @@ import {
   type FaceSearch,
 } from './BlurLayer';
 import { boxLabel, dragHandle, moveBox, turnEdit, type Edit, type Handle } from './crop';
-import { DrawBar, DrawLayer, defaultSize, type DrawStyle } from './DrawLayer';
+import { DrawBar, DrawLayer, defaultSize, maxPenSize, newMark, type DrawStyle } from './DrawLayer';
 import { TextBar } from './TextBar';
 import { newTextLayer, TextLayers } from './TextLayers';
 import type { EditorState } from './useEditor';
@@ -515,10 +516,26 @@ export function CanvasEditor({
           <DrawBar
             style={pen}
             onStyle={setPen}
-            maxSize={Math.max(20, Math.round(Math.max(natural.width, natural.height) / 20))}
+            maxSize={maxPenSize(natural)}
             canClear={marks.length > 0}
             onClear={() => {
               onEdit({ ...edit, marks: [] });
+            }}
+            onAdd={() => {
+              // In the middle, level on screen however the photo is turned; then focused, to move.
+              const added = newMark(
+                pen,
+                centredPoints(pen.tool, natural, nudge(1, 0)),
+                marks,
+                upright,
+              );
+              onEdit({ ...edit, marks: [...marks, added] });
+              const index = marks.length;
+              requestAnimationFrame(() => {
+                stageRef.current
+                  ?.querySelector<HTMLElement>(`[data-mark="${String(index)}"]`)
+                  ?.focus();
+              });
             }}
           />
         )}
@@ -655,6 +672,8 @@ export function CanvasEditor({
                   <DrawLayer
                     toImage={toImage}
                     upright={upright}
+                    nudge={nudge}
+                    active={mode === 'draw'}
                     natural={natural}
                     marks={marks}
                     style={pen}

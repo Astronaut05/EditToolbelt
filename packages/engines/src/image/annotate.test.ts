@@ -3,10 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   arrowHead,
   arrowShaftEnd,
+  centredPoints,
+  markBounds,
   markerRadius,
+  moveMark,
   nextMarker,
   readableOn,
+  resizeMark,
   type Mark,
+  type MarkTool,
   type Point,
 } from './annotate';
 
@@ -65,5 +70,137 @@ describe('markers', () => {
     expect(readableOn('#ffeb3b')).toBe('#000000');
     expect(readableOn('#1a237e')).toBe('#ffffff');
     expect(readableOn('#c62828')).toBe('#ffffff');
+  });
+});
+
+describe('marks from the keyboard', () => {
+  const natural = { width: 400, height: 300 };
+  const make = (tool: MarkTool, points: Point[], size = 4): Mark => ({
+    tool,
+    points,
+    color: '#ff0000',
+    size,
+    opacity: 1,
+  });
+
+  it('are added in the middle of the image', () => {
+    // A box a quarter of the image across, as Blur's "Add box".
+    expect(centredPoints('rect', natural)).toEqual([
+      [150, 113],
+      [250, 188],
+    ]);
+    expect(centredPoints('marker', natural)).toEqual([[200, 150]]);
+    // A line a quarter of the longer side long, left to right through the middle.
+    expect(centredPoints('arrow', natural)).toEqual([
+      [150, 150],
+      [250, 150],
+    ]);
+    // Along the screen's left to right in a turned photo: here, up the image.
+    expect(centredPoints('line', natural, [0, -1])).toEqual([
+      [200, 200],
+      [200, 100],
+    ]);
+  });
+
+  it('move together and stay inside the image', () => {
+    const arrow = make('arrow', [
+      [150, 150],
+      [250, 150],
+    ]);
+    expect(moveMark(arrow, 10, -5, natural).points).toEqual([
+      [160, 145],
+      [260, 145],
+    ]);
+    // Stopped at the right edge: the tip lands on it, the shape unchanged.
+    expect(moveMark(arrow, 500, 0, natural).points).toEqual([
+      [300, 150],
+      [400, 150],
+    ]);
+    const stroke = make('brush', [
+      [5, 5],
+      [20, 30],
+      [40, 10],
+    ]);
+    expect(moveMark(stroke, -10, -10, natural).points).toEqual([
+      [0, 0],
+      [15, 25],
+      [35, 5],
+    ]);
+  });
+
+  it('resize by their end, far corner or stroke, inside the image', () => {
+    // An arrow's tip moves; its tail stays.
+    const arrow = make('arrow', [
+      [150, 150],
+      [250, 150],
+    ]);
+    expect(resizeMark(arrow, 10, 0, natural).points).toEqual([
+      [150, 150],
+      [260, 150],
+    ]);
+    // A box drawn from its bottom right still grows from its far corner, and never below 2 px.
+    const box = make('rect', [
+      [250, 188],
+      [150, 113],
+    ]);
+    expect(resizeMark(box, 10, 0, natural).points).toEqual([
+      [150, 113],
+      [260, 188],
+    ]);
+    expect(resizeMark(box, -500, 0, natural).points).toEqual([
+      [150, 113],
+      [152, 188],
+    ]);
+    expect(resizeMark(box, 500, 500, natural).points).toEqual([
+      [150, 113],
+      [400, 300],
+    ]);
+    // A stroke stretches from its top left; a level stroke has no height to stretch.
+    const stroke = make('brush', [
+      [100, 100],
+      [150, 100],
+      [200, 100],
+    ]);
+    expect(resizeMark(stroke, 100, 10, natural).points).toEqual([
+      [100, 100],
+      [200, 100],
+      [300, 100],
+    ]);
+  });
+
+  it('change a marker’s size by its own step, within the pen’s range', () => {
+    const marker = make('marker', [[200, 150]], 4);
+    expect(resizeMark(marker, 1, 0, natural, 1, 20).size).toBe(5);
+    expect(resizeMark(marker, 0, 1, natural, -4, 20).size).toBe(1);
+    expect(resizeMark(make('marker', [[200, 150]], 19), 0, 0, natural, 4, 20).size).toBe(20);
+    // Its place doesn't change.
+    expect(resizeMark(marker, 1, 0, natural, 1, 20).points).toEqual([[200, 150]]);
+  });
+
+  it('are framed with their stroke, arrowhead or circle', () => {
+    expect(
+      markBounds(
+        make('rect', [
+          [150, 113],
+          [250, 188],
+        ]),
+      ),
+    ).toEqual({ x: 148, y: 111, width: 104, height: 79 });
+    // A marker's circle: 5 × the size, at least 14 px.
+    expect(markBounds(make('marker', [[200, 150]], 4))).toEqual({
+      x: 180,
+      y: 130,
+      width: 40,
+      height: 40,
+    });
+    // An arrow's head is wider than its line.
+    const arrow = markBounds(
+      make('arrow', [
+        [150, 150],
+        [250, 150],
+      ]),
+    );
+    expect(arrow.height).toBeGreaterThan(4);
+    expect(markBounds(make('line', []))).toEqual({ x: 0, y: 0, width: 0, height: 0 });
   });
 });

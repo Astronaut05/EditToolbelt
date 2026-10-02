@@ -142,10 +142,14 @@ export { takenDate } from './files/taken';
 export { fileChecksumEngine, type FileChecksumOptions } from './files/checksum';
 export {
   arrowHead,
+  centredPoints,
   drawMark,
   drawMarks,
   MARK_TOOLS,
+  markBounds,
+  moveMark,
   nextMarker,
+  resizeMark,
   type Mark,
   type MarkTool,
   type Point,
