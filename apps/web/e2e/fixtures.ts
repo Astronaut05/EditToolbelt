@@ -1,5 +1,6 @@
 import { inflateRawSync } from 'node:zlib';
 
+import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
 
 /**
@@ -48,6 +49,32 @@ export const WORKSHOP_ONLY = 'the workshop is only in local builds';
 
 export async function cspViolations(page: import('@playwright/test').Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __csp: string[] }).__csp);
+}
+
+/** axe's serious and critical WCAG 2.2 AA findings on the page, as "rule: targets". */
+export async function seriousViolations(page: Page): Promise<string[]> {
+  // A colour scheme just switched may still be easing its colours (WebKit): axe would
+  // read a contrast halfway between the two. Endless animations (a spinner) aren't awaited.
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]),
+  );
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  return results.violations
+    .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
+    .map(
+      (violation) =>
+        `${violation.id}: ${violation.nodes.map((node) => node.target.join(' ')).join(', ')}`,
+    );
 }
 
 /** One page of each kind (docs/12 → axe on every page type). */

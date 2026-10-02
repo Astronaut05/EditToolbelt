@@ -17,7 +17,8 @@ import {
 import { ChoiceRow, Results, Rows, TextField } from './calc-ui';
 import { oneOf, useQueryState } from './url-state';
 
-const DEFAULTS = { t: '#777777', b: '#ffffff', aim: 'aa' };
+// The lightest grey that passes AA on white: the page meets AA as it opens.
+const DEFAULTS = { t: '#767676', b: '#ffffff', aim: 'aa' };
 
 const AIMS = ['aa', 'aaa', 'large'] as const;
 type Aim = (typeof AIMS)[number];
@@ -79,7 +80,7 @@ export default function ContrastChecker({ tool }: { tool: ShellTool }) {
         onChange={(value) => {
           set('t', value);
         }}
-        placeholder="#777777"
+        placeholder="#767676"
         width="w-52"
         invalid={!text.ok}
       />

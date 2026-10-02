@@ -1,18 +1,4 @@
-import AxeBuilder from '@axe-core/playwright';
-
-import { expect, PAGES, remote, test, WORKSHOP_ONLY } from './fixtures';
-
-async function seriousViolations(page: import('@playwright/test').Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-    .analyze();
-  return results.violations
-    .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
-    .map(
-      (violation) =>
-        `${violation.id}: ${violation.nodes.map((node) => node.target.join(' ')).join(', ')}`,
-    );
-}
+import { expect, PAGES, remote, seriousViolations, test, WORKSHOP_ONLY } from './fixtures';
 
 for (const scheme of ['light', 'dark'] as const) {
   test.describe(`axe, ${scheme}`, () => {
