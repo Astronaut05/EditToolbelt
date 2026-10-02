@@ -5,9 +5,8 @@ sends an alert unless the same rule and subject alerted in the last 30
 minutes (immediate alerts, like a ledger mismatch, skip the cool-down), and
 records it in the ``alerts`` table either way it's sent.
 
-Rules for things that arrive later are added with them: webhook errors (M5)
-and tool margin (the digest, once jobs have costs). The sweeper's storage
-checks and the lifecycle rules are raised by retention.py.
+Tool margin (the digest, once jobs have costs) arrives with job costs. The
+sweeper's storage checks and the lifecycle rules are raised by retention.py.
 """
 
 from __future__ import annotations
@@ -30,6 +29,9 @@ QUEUE_WINDOW = timedelta(minutes=10)
 QUEUE_P95_SEC = 120
 USE_LIMIT = 0.80
 SWEEPER_STALE = timedelta(minutes=30)
+# Paddle retries a failed delivery for 3 days; an error older than that was seen.
+WEBHOOK_WINDOW = timedelta(days=3)
+WEBHOOK_ALERTS_PER_CHECK = 10
 
 
 @dataclass(frozen=True)
@@ -215,6 +217,42 @@ def sweeper_stale(conn: Conn) -> list[Alert]:
     ]
 
 
+def webhook_errors(conn: Conn) -> list[Alert]:
+    """A payment webhook processed with an error (docs/07 -> Alerts: immediate, no cool-down).
+
+    The error column holds only what a person must look at: a payment that
+    wasn't credited, a refund for a purchase in the wrong state, a store
+    failure. Once per event: its row in ``alerts`` (rule ``webhook_error``,
+    subject the event's id) marks it alerted, so a provider's retries that
+    fail the same way don't alert again. The error text is ours, never the
+    payload.
+    """
+    rows = conn.execute(
+        """
+        select e.id::text as id, e.provider, e.type, e.error
+        from webhook_events e
+        where e.error is not null
+          and e.processed_at > now() - %s
+          and not exists (
+            select 1 from alerts a where a.rule = 'webhook_error' and a.subject = e.id::text
+          )
+        order by e.processed_at
+        limit %s
+        """,
+        (WEBHOOK_WINDOW, WEBHOOK_ALERTS_PER_CHECK),
+    ).fetchall()
+    return [
+        Alert(
+            "webhook_error",
+            row["id"],
+            f"Payment webhook error: {row['provider']} {row['type'][:60]}: {row['error'][:300]}. "
+            "See Admin, Payments, Webhook events.",
+            immediate=True,
+        )
+        for row in rows
+    ]
+
+
 Rule = Callable[[Conn], list[Alert]]
 
 DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
@@ -223,4 +261,5 @@ DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
     ("tool_failure_rate", tool_failure_rates),
     ("queue_wait", queue_wait),
     ("sweeper_stale", sweeper_stale),
+    ("webhook_error", webhook_errors),
 )
