@@ -1,9 +1,10 @@
 'use client';
 
 import type { Engine, NamesPlan } from '@etb/engines';
-import { ChevronRight, Download, Undo2 } from 'lucide-react';
+import { ChevronRight, Download } from 'lucide-react';
 import {
   lazy,
+  startTransition,
   Suspense,
   useCallback,
   useEffect,
@@ -23,51 +24,45 @@ import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel, OptionStack } from '../primitives/OptionsPanel';
 import { ColorInput, Input, NumberWithUnit, Select, Slider } from '../primitives/fields';
 import { Dialog } from '../primitives/overlays';
-import { PositionGrid } from '../primitives/PositionGrid';
-import { PresetChecklist, type PresetGroup } from '../primitives/PresetPicker';
+import type { PresetGroup } from '../primitives/PresetPicker';
 import { PrivacyBadge, type Noun } from '../primitives/PrivacyBadge';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { StatePanel } from '../primitives/states';
-import { BatchList, type BatchItem } from './BatchList';
+import type { BatchItem } from './BatchList';
 import { BeforeAfter, MediaTag } from './BeforeAfter';
 import { CalculatorShell } from './CalculatorShell';
 import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
-import {
-  canRenameInPlace,
-  renameAll,
-  RenameInPlaceError,
-  undoRenames,
-  zipLimit,
-  type MovableFile,
-  type Renamed,
-} from './in-place';
 import { DropZone } from './DropZone';
-import { FactGrid, type GridFact } from './FactGrid';
-import { FileOrder, type OrderedFile } from './FileOrder';
+import type { GridFact } from './FactGrid';
+import type { OrderedFile } from './FileOrder';
+import type * as FolderRename from './FolderRename';
+import type { Renamed } from './in-place';
 import type { SwatchInfo } from './Swatches';
 import { accepts, handOff, takeHandoff } from './handoff';
-import { durationBucket, formatBytes, outputName, sizeBucket } from './format';
+import { durationBucket, formatBytes, outputName, plural, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import type { FocusFrame } from './FocusPicker';
 import type { GraphInfo } from './LineGraph';
 import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
-import { ServerNotice } from './ServerNotice';
-import {
-  plural,
-  ServerRunError,
-  serverTerms,
-  type ServerAccount,
-  type ServerInfo,
-  type ServerQuote,
-  type ShellServer,
-} from './server';
+import type { ServerAccount, ServerInfo, ServerQuote, ShellServer } from './server';
+import type * as ServerPath from './ServerNotice';
 import type { TimelineRange } from './Timeline';
+import type { MultiRange } from './TimelineWorkspace';
 import { useEditor, type EditorState } from './useEditor';
 
-// Workspaces only some tools use load when shown, so each tool page carries
-// only its own (docs/10 → initial JS on a tool page).
+// Workspaces and controls only some tools use load when shown, so each tool
+// page carries only its own (docs/10 → initial JS on a tool page).
+const BatchList = lazy(() => import('./BatchList').then((m) => ({ default: m.BatchList })));
+const FactGrid = lazy(() => import('./FactGrid').then((m) => ({ default: m.FactGrid })));
+const FileOrder = lazy(() => import('./FileOrder').then((m) => ({ default: m.FileOrder })));
+const PositionGrid = lazy(() =>
+  import('../primitives/PositionGrid').then((m) => ({ default: m.PositionGrid })),
+);
+const PresetChecklist = lazy(() =>
+  import('../primitives/PresetPicker').then((m) => ({ default: m.PresetChecklist })),
+);
 const CanvasEditor = lazy(() =>
   import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
 );
@@ -88,32 +83,9 @@ function subscribeWide(onChange: () => void) {
     query.removeEventListener('change', onChange);
   };
 }
-const Timeline = lazy(() => import('./Timeline').then((m) => ({ default: m.Timeline })));
-
-const noSubscribe = () => () => undefined;
-
-/** A file in a folder the user opened (U02): a handle that can be renamed, and its file. */
-interface FolderFile extends MovableFile {
-  getFile(): Promise<File>;
-}
-
-interface FolderHandle {
-  name: string;
-  values(): AsyncIterable<{ kind: string; name: string }>;
-}
-
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
-/** U02: why the files can't be renamed yet, if they can't. */
-function namesBlocked(plan: NamesPlan | null): string | undefined {
-  if (!plan) return 'Reading the files…';
-  if (plan.error) return plan.error;
-  const unusable = plan.names.filter((name) => name.blocks).length;
-  if (unusable > 0) {
-    return `${plural(unusable, 'new name')} can’t be used: see the list. Change the rules until none are flagged.`;
-  }
-  return undefined;
-}
+const TimelineWorkspace = lazy(() =>
+  import('./TimelineWorkspace').then((m) => ({ default: m.TimelineWorkspace })),
+);
 
 /** What the shell needs from the registry entry (serialisable, no Zod). */
 export interface ShellTool {
@@ -371,17 +343,21 @@ function OptionControl({
       group.presets.push({ id: choice.value, label: choice.label, detail: choice.detail ?? '' });
     }
     return (
-      <PresetChecklist groups={groups} value={value} onChange={onChange} label={option.label} />
+      <Suspense fallback={null}>
+        <PresetChecklist groups={groups} value={value} onChange={onChange} label={option.label} />
+      </Suspense>
     );
   }
   if (option.kind === 'grid') {
     return (
-      <PositionGrid
-        label={option.label}
-        options={option.choices ?? []}
-        value={value}
-        onChange={onChange}
-      />
+      <Suspense fallback={null}>
+        <PositionGrid
+          label={option.label}
+          options={option.choices ?? []}
+          value={value}
+          onChange={onChange}
+        />
+      </Suspense>
     );
   }
   if (option.kind === 'select') {
@@ -540,13 +516,6 @@ export interface ShellPreset {
   ranges?: boolean;
 }
 
-/** A timeline's several ranges (`preset.ranges`): the list, the selected one, and changes. */
-interface MultiRange {
-  ranges: TimelineRange[];
-  active: number;
-  onChange: (ranges: TimelineRange[], active: number) => void;
-}
-
 /** What a preset's probe found. */
 export interface ProbeInfo {
   durationSec: number;
@@ -684,6 +653,19 @@ export function ToolShell({
 }: ToolShellProps) {
   const [state, setState] = useState<ShellState>(initialState ?? { kind: 'empty' });
   // The server path: why it's offered for this file, the account, and a price to confirm.
+  // Its notice, terms and errors load with a tool whose server path is on.
+  const [serverPath, setServerPath] = useState<typeof ServerPath | null>(null);
+  const serverOn = Boolean(server);
+  useEffect(() => {
+    if (!serverOn) return;
+    let live = true;
+    void import('./ServerNotice').then((loaded) => {
+      if (live) setServerPath(loaded);
+    });
+    return () => {
+      live = false;
+    };
+  }, [serverOn]);
   const [serverReason, setServerReason] = useState<string | null>(null);
   const [account, setAccount] = useState<ServerAccount | null | undefined>(undefined);
   // Whether the current run is on our servers (the running note says where the work happens).
@@ -783,18 +765,33 @@ export function ToolShell({
   }, []);
   const [batch, setBatch] = useState<BatchItem[]>([]);
   const [batchDone, setBatchDone] = useState(false);
-  /** U02: the new names for the files as they are now, and the folder they came from, if any. */
+  /**
+   * U02: the new names for the files as they are now, the folder they came
+   * from, if any, and what was renamed in it. Its checks, folder picker and
+   * renames in place load with the tools that rename (`names`).
+   */
+  const [renaming, setRenaming] = useState<typeof FolderRename | null>(null);
   const [namesPlan, setNamesPlan] = useState<NamesPlan | null>(null);
-  const [folder, setFolder] = useState<{ name: string; handles: FolderFile[] } | null>(null);
+  const [folder, setFolder] = useState<FolderRename.Folder | null>(null);
   const [renamed, setRenamed] = useState<Renamed[] | null>(null);
-  const [confirmRename, setConfirmRename] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const planRound = useRef(0);
-  const folderable = useSyncExternalStore(
-    noSubscribe,
-    () => Boolean(preset.names?.inPlace) && canRenameInPlace(),
-    () => false,
-  );
+  useEffect(() => {
+    if (!preset.names) return;
+    let live = true;
+    void import('./FolderRename').then((loaded) => {
+      // A transition, so settings the server rendered (the checklist) stay on
+      // screen until their own code has loaded.
+      if (live)
+        startTransition(() => {
+          setRenaming(loaded);
+        });
+    });
+    return () => {
+      live = false;
+    };
+  }, [preset.names]);
+  const folderable = Boolean(preset.names?.inPlace && renaming?.canRenameInPlace());
   const batchOutputs = useRef(new Map<string, { blob: Blob; name: string }>());
   const [sheet, setSheet] = useState<number | null>(null);
   const controller = useRef<AbortController | null>(null);
@@ -1027,7 +1024,7 @@ export function ToolShell({
         if (abort.signal.aborted) return;
         track('tool_run_failed', { error_code: 'server', engine_path: 'server' });
         setAccount(undefined);
-        const known = error instanceof ServerRunError ? error : null;
+        const known = serverPath && error instanceof serverPath.ServerRunError ? error : null;
         const message = (error instanceof Error ? error.message : 'Unknown error').replace(
           /\.$/,
           '',
@@ -1040,7 +1037,7 @@ export function ToolShell({
         });
       }
     },
-    [account, media, options, server, track],
+    [account, media, options, server, serverPath, track],
   );
 
   // The account decides the offer's terms: loaded when the offer shows.
@@ -1308,82 +1305,18 @@ export function ToolShell({
     };
   }, [namer, planFiles, options, renamed]);
 
-  /** U02: a folder's files (not its subfolders or hidden files), to rename where they are. */
-  const openFolder = useCallback(async () => {
-    let dir: FolderHandle;
-    try {
-      dir = await (
-        window as unknown as {
-          showDirectoryPicker: (options: { mode: 'readwrite' }) => Promise<FolderHandle>;
-        }
-      ).showDirectoryPicker({ mode: 'readwrite' });
-    } catch {
-      return; // The picker was closed.
-    }
-    const handles: FolderFile[] = [];
-    for await (const entry of dir.values()) {
-      if (entry.kind === 'file' && !entry.name.startsWith('.')) {
-        handles.push(entry as unknown as FolderFile);
-      }
-    }
-    handles.sort((a, b) => byName.compare(a.name, b.name));
-    if (handles.length === 0) {
-      setState({
-        kind: 'error',
-        label: 'Empty folder',
-        title: 'No files in this folder',
-        body: 'Open a folder with files in it. Folders inside it are left as they are.',
-      });
-      return;
-    }
-    const files = await Promise.all(handles.map((handle) => handle.getFile()));
-    intake(files);
-    setFolder({ name: dir.name, handles });
-  }, [intake]);
-
-  /** U02: every file in the opened folder gets its new name, after the confirm. */
-  const renameInFolder = useCallback(async () => {
-    setConfirmRename(false);
-    if (!folder || !namesPlan) return;
-    const pairs = folder.handles.map((handle, i) => ({
-      handle,
-      to: namesPlan.names[i]?.to ?? handle.name,
-    }));
-    setRenameError(null);
-    setBatch((items) => items.map((item) => ({ ...item, status: 'running', progress: 0 })));
-    track('tool_run_started', { path: 'client', files: String(pairs.length) });
-    try {
-      const done = await renameAll(pairs, (fraction) => {
-        setBatch((items) => items.map((item) => ({ ...item, progress: fraction })));
-      });
-      setRenamed(done);
-      setBatch((items) => items.map((item) => ({ ...item, status: 'done', progress: undefined })));
-      setBatchDone(true);
-    } catch (error) {
-      setRenameError(
-        error instanceof RenameInPlaceError ? error.message : 'The files couldn’t be renamed.',
-      );
-      setBatch((items) =>
-        items.map((item) => ({ ...item, status: 'queued', progress: undefined })),
-      );
-      track('tool_run_failed', { error_code: 'engine', engine_path: 'client' });
-    }
-  }, [folder, namesPlan, track]);
-
-  /** U02: the opened folder's files get their old names back. */
-  const undoRename = useCallback(async () => {
-    if (!renamed) return;
-    try {
-      await undoRenames(renamed);
-      setRenamed(null);
-      setBatchDone(false);
-      setBatch((items) => items.map((item) => ({ ...item, status: 'queued' })));
-    } catch (error) {
-      setRenameError(
-        error instanceof Error ? error.message : 'The old names couldn’t be put back.',
-      );
-    }
-  }, [renamed]);
+  /** U02: a folder's files, to rename where they are. */
+  const openFolder = useCallback(() => {
+    void renaming?.openFolder(
+      (files, opened) => {
+        intake(files);
+        setFolder(opened);
+      },
+      (error) => {
+        setState({ kind: 'error', ...error });
+      },
+    );
+  }, [intake, renaming]);
 
   const cancel = useCallback(() => {
     controller.current?.abort();
@@ -1533,15 +1466,6 @@ export function ToolShell({
   const showCrop = cropping && state.kind === 'ready' && batch.length === 0;
   // An analyzer changes nothing: its notes are the verdict.
   const notesTitle = tool.ui === 'analyzer' ? 'Verdict' : undefined;
-  // U02: files dropped, not a folder opened, download renamed in a ZIP, which has a size limit.
-  const zipFull =
-    preset.names && !folder && state.kind === 'ready'
-      ? zipLimit(
-          (state.files ?? []).reduce((sum, f) => sum + f.size, 0),
-          preset.names.zipMaxBytes,
-          folderable,
-        )
-      : undefined;
   const blocked =
     state.kind !== 'ready'
       ? undefined
@@ -1554,7 +1478,19 @@ export function ToolShell({
             : preset.detect && ranges.length === 0
               ? preset.detect.empty
               : preset.names && !renamed
-                ? (zipFull ?? namesBlocked(namesPlan))
+                ? renaming
+                  ? renaming.namesBlocked(
+                      namesPlan,
+                      // Files dropped, not a folder opened, download renamed in a ZIP.
+                      folder
+                        ? undefined
+                        : {
+                            bytes: (state.files ?? []).reduce((sum, f) => sum + f.size, 0),
+                            maxBytes: preset.names.zipMaxBytes,
+                            inPlace: folderable,
+                          },
+                    )
+                  : 'Reading the files…'
                 : preset.blocked?.(options, state.files?.length ?? 1);
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
@@ -1591,17 +1527,21 @@ export function ToolShell({
   const serverOffer =
     server && serverReason !== null && state.kind === 'ready'
       ? {
-          ok: account ? serverTerms(server, account, state.input.size, serverCredits).ok : false,
-          notice: (className: string) => (
-            <ServerNotice
-              server={server}
-              reason={serverReason}
-              account={account}
-              bytes={state.input.size}
-              credits={serverCredits}
-              className={className}
-            />
-          ),
+          ok:
+            account && serverPath
+              ? serverPath.serverTerms(server, account, state.input.size, serverCredits).ok
+              : false,
+          notice: (className: string) =>
+            serverPath && (
+              <serverPath.ServerNotice
+                server={server}
+                reason={serverReason}
+                account={account}
+                bytes={state.input.size}
+                credits={serverCredits}
+                className={className}
+              />
+            ),
         }
       : null;
   // Within the browser's limits the server is a choice, never a push.
@@ -1628,28 +1568,15 @@ export function ToolShell({
   const result = state.kind === 'result';
   const actions = hasFile && (
     <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-border bg-bg px-4 pt-3 pb-6.5 lg:static lg:mt-6.5 lg:gap-3 lg:border-0 lg:bg-transparent lg:p-0">
-      {inBatch && folder ? (
-        renamed ? (
-          <Button
-            variant="primary"
-            className="flex-1"
-            onClick={() => void undoRename()}
-            icon={<Undo2 aria-hidden="true" size={18} strokeWidth={2} />}
-          >
-            Undo rename
-          </Button>
-        ) : (
-          <Button
-            variant="primary"
-            className="flex-1"
-            disabled={batchRunning || Boolean(blocked)}
-            onClick={() => {
-              setConfirmRename(true);
-            }}
-          >
-            {preset.runLabel ?? 'Start'} in “{folder.name}”
-          </Button>
-        )
+      {inBatch && folder && renaming ? (
+        <renaming.FolderAction
+          folder={folder}
+          plan={namesPlan}
+          renamed={renamed}
+          disabled={batchRunning || Boolean(blocked)}
+          runLabel={preset.runLabel}
+          host={{ setBatch, setBatchDone, setRenamed, setError: setRenameError, track }}
+        />
       ) : inBatch ? (
         batchDone ? (
           <Button
@@ -1909,7 +1836,7 @@ export function ToolShell({
         });
       }}
       onSample={preset.sampleUrl ? () => void trySample() : undefined}
-      onFolder={folderable ? () => void openFolder() : undefined}
+      folder={folderable && renaming && <renaming.OpenFolderButton onClick={openFolder} />}
       active
     />
   );
@@ -1943,17 +1870,7 @@ export function ToolShell({
             {blocked}
           </p>
         )}
-        {renameError && (
-          <p role="alert" className="mt-3.5 px-4 text-14 leading-body lg:px-0">
-            {renameError}
-          </p>
-        )}
-        {renamed && folder && (
-          <p role="status" className="mt-3.5 px-4 text-14 leading-body text-text-muted lg:px-0">
-            {plural(renamed.length, 'file')} renamed in “{folder.name}”. Undo puts the old names
-            back while this page is open.
-          </p>
-        )}
+        {renaming && <renaming.RenameNotes error={renameError} renamed={renamed} folder={folder} />}
         {state.kind === 'ready' && media?.warnings && media.warnings.length > 0 && (
           <Notes title="Before you start" notes={media.warnings} className="mt-6 px-4 lg:px-0" />
         )}
@@ -1987,74 +1904,8 @@ export function ToolShell({
         {preview}
       </section>
 
-      {asking && (
-        <Dialog
-          open
-          onClose={() => {
-            asking.answer(false);
-          }}
-          title="Confirm the price"
-        >
-          <p className="text-15.5 leading-body">
-            {asking.quote.funding === 'credits'
-              ? `Our servers checked the file: this costs ${plural(asking.quote.credits, 'credit')}. You have ${String(asking.quote.balance)}.`
-              : 'Our servers checked the file: this one is free.'}
-          </p>
-          <p className="mt-2 text-14 text-text-muted">
-            Credits are only kept if it succeeds; a failed job gives them back.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button
-              variant="primary"
-              onClick={() => {
-                asking.answer(true);
-              }}
-            >
-              Start · {plural(asking.quote.credits, 'credit')}
-            </Button>
-            <Button
-              onClick={() => {
-                asking.answer(false);
-              }}
-            >
-              Not now
-            </Button>
-          </div>
-        </Dialog>
-      )}
-
-      {confirmRename && folder && (
-        <Dialog
-          open
-          onClose={() => {
-            setConfirmRename(false);
-          }}
-          title="Rename in the folder"
-        >
-          <p className="text-15.5 leading-body">
-            {plural(
-              namesPlan?.names.filter((name, i) => name.to !== folder.handles[i]?.name).length ?? 0,
-              'file',
-            )}{' '}
-            in “{folder.name}” get their new names.
-          </p>
-          <p className="mt-2 text-14 text-text-muted">
-            Nothing else in the folder changes. Undo puts the old names back while this page is
-            open.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button variant="primary" onClick={() => void renameInFolder()}>
-              Rename
-            </Button>
-            <Button
-              onClick={() => {
-                setConfirmRename(false);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </Dialog>
+      {asking && serverPath && (
+        <serverPath.PriceDialog quote={asking.quote} answer={asking.answer} />
       )}
 
       {/* Phone result: title, settings as tappable rows, handoff links. */}
@@ -2298,7 +2149,9 @@ function Workspace({
   if (combine && state.kind === 'ready') {
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
-        <FileOrder {...combine} />
+        <Suspense fallback={null}>
+          <FileOrder {...combine} />
+        </Suspense>
       </div>
     );
   }
@@ -2306,7 +2159,9 @@ function Workspace({
   if (tool.ui === 'batch' || batch.length > 0) {
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
-        <BatchList items={batch} onDownload={onDownloadItem} />
+        <Suspense fallback={null}>
+          <BatchList items={batch} onDownload={onDownloadItem} />
+        </Suspense>
       </div>
     );
   }
@@ -2323,17 +2178,19 @@ function Workspace({
 
   if (tool.ui === 'timeline' && state.kind === 'ready') {
     return (
-      <TimelineWorkspace
-        url={state.input.url}
-        video={preset.noun === 'video'}
-        durationSec={media?.durationSec ?? 60}
-        fps={media?.fps}
-        thumbs={thumbs}
-        peaks={peaks}
-        range={range}
-        setRange={setRange}
-        multiRange={multiRange}
-      />
+      <Suspense fallback={null}>
+        <TimelineWorkspace
+          url={state.input.url}
+          video={preset.noun === 'video'}
+          durationSec={media?.durationSec ?? 60}
+          fps={media?.fps}
+          thumbs={thumbs}
+          peaks={peaks}
+          range={range}
+          setRange={setRange}
+          multiRange={multiRange}
+        />
+      </Suspense>
     );
   }
 
@@ -2397,7 +2254,9 @@ function Workspace({
     const grid = preset.analyze?.(input) ?? output.details ?? [];
     return (
       <div className="px-4 py-6 lg:px-10 lg:pt-8.5">
-        <FactGrid facts={grid} />
+        <Suspense fallback={null}>
+          <FactGrid facts={grid} />
+        </Suspense>
         {output.graph && (
           <Suspense fallback={null}>
             <LineGraph graph={output.graph} />
@@ -2543,80 +2402,5 @@ function Workspace({
         />
       </div>
     </>
-  );
-}
-
-/**
- * Trim-type tools: the clip on top (following the playhead and handles), the
- * timeline below. Browsers that can't play the codec still show the frames.
- */
-function TimelineWorkspace({
-  url,
-  video,
-  durationSec,
-  fps,
-  thumbs,
-  peaks,
-  range,
-  setRange,
-  multiRange,
-}: {
-  url?: string;
-  video: boolean;
-  durationSec: number;
-  fps?: number;
-  thumbs: string[];
-  peaks: number[];
-  range: TimelineRange;
-  setRange: (range: TimelineRange) => void;
-  multiRange: MultiRange | null;
-}) {
-  const player = useRef<HTMLVideoElement>(null);
-  const listener = useRef<HTMLAudioElement>(null);
-  return (
-    <div className="flex flex-col gap-5 px-4 py-6 lg:px-10 lg:pt-8.5">
-      {video && url && (
-        <video
-          ref={player}
-          src={url}
-          controls
-          muted
-          playsInline
-          preload="metadata"
-          aria-label="Your video"
-          className="aspect-video max-h-[46dvh] w-full bg-media-scrim object-contain"
-        />
-      )}
-      <Suspense fallback={null}>
-        <Timeline
-          durationSec={durationSec}
-          fps={fps ? Math.round(fps) : undefined}
-          kind={video ? 'video' : 'audio'}
-          value={range}
-          onChange={setRange}
-          {...(multiRange && {
-            ranges: multiRange.ranges,
-            active: multiRange.active,
-            onRangesChange: multiRange.onChange,
-          })}
-          thumbnails={thumbs}
-          peaks={peaks}
-          onSeek={(time) => {
-            const media = player.current ?? listener.current;
-            if (media && media.readyState > 0) media.currentTime = time;
-          }}
-        />
-      </Suspense>
-      {!video && url && (
-        <audio
-          ref={listener}
-          src={url}
-          controls
-          preload="metadata"
-          aria-label="Your audio"
-          className="w-full"
-        />
-      )}
-    </div>
   );
 }

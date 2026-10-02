@@ -1434,3 +1434,15 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Decision:** `planesOf` (`packages/engines/src/audio/stream.ts`) copies each plane of a decoded block whole and cuts the frames it wants from that copy. It never asks `AudioData.copyTo` for a `frameOffset`. Loop Video's boomerang, Reverse Audio's selections and Replace and Merge Audio's parts all read through it. `dropStart` in `packages/engines/src/video/encode-audio.ts`, which trims an overlapping block for every video tool that re-encodes sound, does the same.
 **Why:** in WebKit (Playwright's WebKit 26.6 on Linux), `copyTo` from interleaved `f32`, which is what its Opus decoder gives, to `f32-planar` with a `frameOffset` above 0 never returns. The page hangs, then crashes a minute or more later. A boomerang's backward sound starts partway into a block, so in WebKit its Download never came on. A test page showed the call alone hangs. Offset 0 (whole or shorter), planar to planar and interleaved to interleaved all work, and Chromium and Firefox handle all five cases. A block is a few thousand frames, so copying it whole costs nothing.
 **Reverse:** pass `frameOffset` and `frameCount` to `copyTo` again once WebKit converts from an offset; `stream.test.ts` checks the cut either way.
+
+## 2026-10-02 · The ToolShell loads tool-specific parts only on the tools that use them
+
+**Decision:** code in the shared ToolShell that only some tools use is no longer in the scripts every tool page loads.
+- **Loaded when shown, with `React.lazy`** (like the canvas editor, timeline and colour picker before): the batch list, the combine list (`FileOrder`), the analyzer's fact grid, the `grid` and `checklist` option controls, and the timeline workspace (now `TimelineWorkspace.tsx`, which loads with the Timeline).
+- **Loaded on mount and kept in state**, because the shell calls into them while it renders (whether the run is blocked, whether the server offer can start):
+  - U02's name checks, folder picker, renames in place and undo (`FolderRename.tsx`), only for a preset with `names`. The drop zone takes the "Open a folder" button as a `folder` slot instead of an `onFolder` callback, so its icon comes with it.
+  - The server path's notice, price dialog, terms and error class (`ServerNotice.tsx`), only for a tool with `server`.
+- `plural` moves from `server.ts` to `format.ts`.
+
+**Why:** Batch Rename and Watermark Images (PR #71) put about 2.7 KB of their own code into the shell, which took /remove-background past the 180 KB script-transfer budget for tool pages. On the CI build, /remove-background now loads 176,252 bytes of script, down from 181,047, and /video-converter 173,511, down from 178,309 (Lighthouse: 172 KB and 169 KB, down from 177 KB and 174 KB). The budgets are unchanged.
+**Reverse:** import those modules statically in `packages/ui/src/tool/ToolShell.tsx` again.
