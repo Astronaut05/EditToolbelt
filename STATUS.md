@@ -1,6 +1,6 @@
 # Status
 
-**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter, Normalize Loudness, Fade In / Fade Out, Audio Channel Tools, Rotate & Flip Video, Resize Video for Social, Extract Frames, Remove Silence, Add or Replace Audio in Video, Merge Audio and LUT Preview (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 part 1 is in review: payments built complete and switched off (Paddle, Click and Payme behind one interface, the purchase store, the switches, `/credits/buy`, Admin → Payments, the welcome grant); turning them on is `docs/runbooks/turn-on-payments.md`, after Astro's contracts. M5's GPU tools are merged (#66): Upscale Image, Transcribe Audio and Auto Subtitles on Modal, with metering and a daily GPU budget, off until Modal runs them and an admin switches each on; Stem Splitter is parked for Astro (its weights' licence). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Now:** Phase 2, building on its own while Phase 1 waits on Astro (Railway approvals and the Modal token, below). **Milestone:** M8 and Wave 3, finishing: every tool is built. In review: Noise Reduction with VFR to CFR and Burn Subtitles in beta (#76), tool group B (#71; Merge Videos, Speed & Pitch, Video Speed, Watermark, Batch Rename), then groups C, D and E (branches `claude/tools-c`, `-d`, `-e`), the GPU decode cap (#84) and the probe's packet-measured length (#85). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal, off until the Modal token is in and an admin switches each on. **M6 done:** the public API. M1 to M4 done. Then the final pass (production smoke through Access, Lighthouse, a11y, a reviewer audit).
 
 ## Done
 
@@ -95,47 +95,52 @@
   - Licences: LaMa (P17) and RobustVideoMatting (V21) are not used, their weights have no stated licence; MI-GAN's weights are MIT from its authors, BiRefNet's MIT. Each tool stays `soon` until an admin sets it to beta.
   - Up to date with the M5 review's fixes (`claude/m5-gpu` at 5e74484 merged in): GPU slots of their own, each call's Modal id and output key on its job (a dead worker's call is cancelled and billed, its key swept until the URL expires), the worst-case budget gate, the billing of cold and failed calls, and `GPU_FAILED` for anything unexpected in the functions. Object Eraser and Video Background Remover install `gpu/requirements-onnx.txt` (hashed, compiled from PyPI); Upscale Video reuses Upscale Image's image. A video job's worst case (95 min on an L4, about $1.52) is over the default $1 budget, so one runs alone; raise the budget for more.
 
-- M5, part 1 (in review): payments built and switched off, with the M5 review's fixes. **M5 ≈ 50 %** (payments done, off; GPU tools next).
+- M5, part 1: payments built and switched off, with the M5 review's fixes (#67).
   - Three locks, all off by default: `PAYMENTS_ENABLED`, the admin switch per provider in Admin → Payments (refused, with the reason, while its keys or fiscal codes are missing; audit-logged), and the provider's keys. While off: no "Buy credits" anywhere, and `/credits/buy` and checkout answer 404. A provider's webhooks answer while its keys are set, so refunds, chargebacks and payments already under way still land; only new payments are refused. Webhook errors alert at once.
   - Buying: `/credits/buy` (Click and Payme first in sum for Uzbekistan, Paddle first in dollars elsewhere; never COEP), `POST /api/v1/credits/checkout` (session only), `/credits/return` follows the purchase, `/account` lists purchases. Webhooks at `/api/webhooks/{paddle,click,payme}`.
   - The purchase store: complete and refund move the purchase and its ledger row in one transaction, idempotent; a refund may take a balance below zero (paid jobs then wait for a top-up). Webhook events are processed again after a failure.
   - The welcome grant: 30 credits once per verified inbox at sign-in; throwaway domains refused.
   - A job quoted as a free daily job is never charged credits unasked (`quote_funding`, 409, the site asks again).
+  - Click's fiscal receipts (#80): queued with each Click sale and sent to Click's Merchant API with retries until accepted; Admin → Payments shows each and can send it again; unsent after 6 tries or an hour alerts. Click still waits for the seller's TIN or PINFL, the MXIK and package codes, and `CLICK_MERCHANT_API_URL`.
+- Tool pages no longer grow with the number of tools: views load through their category's index. Initial JS of hubs and tool pages 146.4 KB (was 148.3), 147.2 KB with every tool of groups B to E (was 149.9) (#78).
+- Security: a server job reads its input only as far as it was priced. The probe takes a file's length from its header, which the uploader writes; every ffmpeg read of the input now stops at that length plus 2 % and a second, so a file that says 3 s and holds 12 s comes back as about 4 s (#79, from the Wave 3 and Noise Reduction review).
+- Fix: a result's video player loads only its header until played (Linux WebKit failed to load 58 of 100 results with the default), and calculator fields keep an edit made before the page finished loading (QR Code's type picked early was lost) (#82).
+- Test fix: every connect test calls from an address of its own, so one browser's lockout can't greet the next (#81).
+- Process: decisions are one file each in `docs/decisions/`, and feature PRs leave this file to a status PR like this one; every merge used to put the other open PRs in conflict (#83).
 
 ## Next
 
-0. Phase 1 (with Astro): the production setup, step by step, each checked from CI (`.github/workflows/ops.yml`). Then Phase 2 runs on its own: M5 (payments built and off), M5's GPU tools on Modal, the rest of M8 and Wave 3, a final pass.
-
-1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
-2. M6 sign-off once parts 1 to 4 merge.
-3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
-4. M5: payments are built and off (part 1, in review). Turning them on follows `docs/runbooks/turn-on-payments.md` once Astro has the Paddle, Click and Payme contracts and the fiscal codes. M5's GPU tools (#66, #77): add the Modal token (GitHub and Railway), run Actions → Modal → Run workflow with "smoke", then switch each tool to beta in Admin → Tools and reprice from the measured GPU seconds (Video Background Remover likely needs about 20 credits a minute, `docs/05`). Then P07's hi-res server path (BiRefNet: pin the weights from CI), the free previews once A10's preview merges (P08's 512 px crop, P17's reduced size, V20's 3 s), Object Eraser in the browser (MI-GAN is 28 MB), and the light cue editor (with T03).
+1. Merge the open PRs as their checks pass: #76 (Noise Reduction), #71 (group B), then groups C, D and E one after the other (each is validated on top of the one before), #84 (GPU decode cap), #85 (packet-measured length).
+2. Merge Videos on our servers (branch `claude/merge-videos-server`), after #71: each clip read only as far as it was priced (a clip that misstates its length is re-encoded and cut there).
+3. A status PR after that batch, then the final pass: Playwright smoke against production through Access once it's deployed, Lighthouse, a11y, a fresh reviewer's audit of everything merged today.
+4. Follow-ups: the batch list redraws every 120 ms instead of once a file (branch `claude/perf-batch-list`, after group E; 50 tiny files 4.4-5.0 s down to 3.1-3.7 s, the rest still to profile); torch to 2.13 or later in the GPU images with the first Modal run (Dependabot's two low alerts, `docs/decisions/2026-10-02-torch-alerts.md`); Upscale Image could refuse a decoded size other than the priced one.
+5. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover likely about 20 credits a minute, `docs/05`). Then P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), Object Eraser in the browser (MI-GAN is 28 MB).
+6. M7, the Premiere panel, comes last (not in this run).
 
 ## Waiting for Astro's approval
 
-Applies of the Railway project (Actions → Railway → "Apply the plan", environment `railway`). Work goes on around them.
+Railway's environment `railway` needs an approval for each apply and deploy (Actions → Railway → the run → Review deployments). Work goes on around them.
 
-- **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Approve at Actions → Railway → run 36946470385 → Review deployments. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
-- **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and the token pair `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: deploying the GPU app and its T4 check, then each GPU tool's first real run.
-
-## Parked for Astro
-
-- **A09 Stem Splitter: which stem model.** Demucs htdemucs is the best open model, and its code is MIT, but its weights sit outside the repository (Meta's file server) with no licence stated, and it was trained on MUSDB18-HQ, a research dataset. Under `CLAUDE.md` rule 6 an unclear weights licence means not using it, so A09 stays `soon` and nothing downloads it. **Recommended pick:** ask the author (Alexandre Défossez, who maintains the fork at github.com/adefossez/demucs) to confirm in an issue that the released htdemucs weights are MIT for commercial use; with a yes, approve htdemucs (4 stems, about a day to wire on the same GPU app, L4). Without one, the fallback is Spleeter (Deezer): MIT code, with its weights published as the repository's own release assets (the same reading that approved Real-ESRGAN), but noticeably weaker separation, TensorFlow, and training data its README doesn't name.
-
-## Blocked
-
-- HEIC opens only in Safari until open question 10 (HEVC patents) is answered; `/convert/heic-to-jpg` and `/convert/heic-to-png` wait for it. Everything else continues.
-- Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark (IoU on 5 photos with reference masks, desktop and 2 phones) needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
-- Housekeeping only: `docs/design-handover` can't be deleted from this session (HTTP 403); see `docs/DECISIONS.md`.
-- M4's `LocalGpu` backend (the 1080 Ti): this build environment has no GPU. M5's tools run on Modal instead (`GPU_BACKEND=modal`); `LocalGpu` is a stub that says it isn't set up.
-- M5's and Wave 3's GPU tools have never run on a real GPU: this environment has no GPU and no Modal token, and can reach neither huggingface.co nor Modal. The processors, the backend and the budget are tested with a stand-in GPU against real Postgres; the functions need Actions → Modal → Run workflow → "smoke" once the token is in GitHub's secrets. Three of the Real-ESRGAN hashes were read from Hugging Face's listings of copies of the files, not the release itself; CI's pins check confirms or corrects them before any image is built.
+- **Railway: create Postgres, web and worker** (plan: 3 to add). Run 36946470385. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
+- **Railway: deploy main** (run 36985036224, from #66 at 08:36). Later merges deploy with the next approved run.
+- **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: the GPU app's deploy and T4 check, then each GPU tool's first real run.
 
 ## Parked for Astro
 
 Each item has a recommended pick; nothing else waits on it.
 
-- **CodeQL alert 17 (MD5 in Click's `sign_string`).** Click's protocol fixes the MD5 signature, so the code can't change. **Recommended:** Security → Code scanning → alert 17 → Dismiss → "Won't fix", with the reason "Click's SHOP-API signs with MD5; the secret never leaves the server". Until then it shows as an open alert.
-- **Click and Payme fiscal receipt codes.** The MXIK (IKPU) code, package code and VAT for "credits", and the seller's TIN or PINFL, from Astro's business registration. Both providers refuse to switch on without them. **Recommended:** look the codes up at tasnif.soliq.uz when the Click and Payme contracts are signed; `docs/runbooks/turn-on-payments.md` step 5 says where they go.
+- **A09 Stem Splitter: which stem model.** Demucs htdemucs is the best open model, and its code is MIT, but its weights sit outside the repository (Meta's file server) with no licence stated, and it was trained on MUSDB18-HQ, a research dataset. Under `CLAUDE.md` rule 6 an unclear weights licence means not using it, so A09 stays `soon`. **Recommended:** ask the author (Alexandre Défossez, github.com/adefossez/demucs) to confirm in an issue that the released htdemucs weights are MIT for commercial use; with a yes, approve htdemucs (about a day to wire, L4). Without one, Spleeter (Deezer): MIT code and release-asset weights, but weaker separation.
+- **DeepFilterNet for Noise Reduction (A10).** Its code is MIT / Apache-2.0, but nothing licenses the pretrained weights, so A10 runs on ffmpeg's FFT noise filter. **Recommended:** keep the FFT filter; if the author confirms the weights' licence, the model replaces only the worker's denoise step.
+- **CodeQL alert 17 (MD5 in Click's `sign_string`).** Click's protocol fixes the MD5 signature, so the code can't change. **Recommended:** Security → Code scanning → alert 17 → Dismiss → "Won't fix", with the reason "Click's SHOP-API signs with MD5; the secret never leaves the server".
+- **Click and Payme fiscal codes.** The MXIK (IKPU) code, package code and VAT for "credits", and the seller's TIN or PINFL (`config/business.ts` → `fiscalReceipt`), plus `CLICK_MERCHANT_API_URL`. Both providers refuse to switch on without them. **Recommended:** look the codes up at tasnif.soliq.uz when the Click and Payme contracts are signed; `docs/runbooks/turn-on-payments.md` step 5 says where they go.
+- **Housekeeping (needs repo admin; this session gets HTTP 403):** delete the diagnosis branches `claude/debug-groups`, `claude/debug-webkit`, `claude/debug-xbrowser`, `claude/debug-merge-audio`, `claude/debug-firefox-axe`, `claude/debug-watermark`, `claude/debug-webkit-flakes`, `claude/debug-connect-lockout` (never merged), and `docs/design-handover`.
+
+## Blocked
+
+- HEIC opens only in Safari until open question 10 (HEVC patents) is answered; `/convert/heic-to-jpg` and `/convert/heic-to-png` wait for it.
+- Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
+- M4's `LocalGpu` backend (the 1080 Ti): no GPU here. The GPU tools run on Modal (`GPU_BACKEND=modal`); `LocalGpu` is a stub that says it isn't set up.
+- The GPU tools have never run on a real GPU: no GPU and no Modal token here, and neither huggingface.co nor Modal is reachable. The processors, the backend, the budget and the decode caps are tested with a stand-in GPU against real Postgres and real ffmpeg; the functions need Actions → Modal → Run workflow → "smoke" once the token is in. Three Real-ESRGAN hashes were read from Hugging Face's listings of copies; CI's pins check confirms or corrects them before any image is built.
 
 ## Run it
 
