@@ -432,6 +432,9 @@ def test_the_daily_budget_stops_gpu_jobs_and_alerts_once_at_80_and_100(
     db: Conn, settings: Settings
 ) -> None:
     before = one(db, "select daily_usd from gpu_budget where id = 1")["daily_usd"]
+    today = budget.state(db).day.isoformat()
+    # Another test's scheduler may have alerted today already (a reused database).
+    db.execute("delete from alerts where rule = 'gpu_budget' and subject like %s", (f"{today}/%",))
     user = new_user(db)
     storage = FakeStorage()
     gpu_job = new_job(db, storage, user, "upscale-image", IMAGE, {})
@@ -481,10 +484,10 @@ def test_the_daily_budget_stops_gpu_jobs_and_alerts_once_at_80_and_100(
         assert str(claimed["id"]) == gpu_job
     finally:
         db.execute("update gpu_budget set daily_usd = %s where id = 1", (before,))
-        db.execute("update jobs set status = 'cancelled' where id in (%s, %s)", (gpu_job, cpu_job))
-        day = budget.state(db).day.isoformat()
+        # Its spend mustn't count against later tests' budget (none of these has ledger rows).
+        db.execute("delete from jobs where id in (%s, %s, %s)", (gpu_job, cpu_job, spent_job))
         db.execute(
-            "delete from alerts where rule = 'gpu_budget' and subject like %s", (f"{day}/%",)
+            "delete from alerts where rule = 'gpu_budget' and subject like %s", (f"{today}/%",)
         )
 
 
