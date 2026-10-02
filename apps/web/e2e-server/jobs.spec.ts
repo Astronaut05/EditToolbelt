@@ -340,7 +340,7 @@ test('a job starts at the quoted price, once per Idempotency-Key, once per uploa
 
 test('an answer shows no more than the key’s scopes allow', async ({ page, request }) => {
   const owner = await newUser(page);
-  await applyCredit(db, owner, 'admin_grant', 10);
+  await applyCredit(db, owner, 'welcome_grant', 10);
   const writeOnly = await keyFor(owner, ['jobs:write']);
   const file = await upload(owner);
   const body = { tool_id: 'compress-video', upload_id: file.id, options: OPTIONS };

@@ -210,7 +210,11 @@ test('answers match the schemas, and their statuses the document', async ({ requ
     .returning({ id: uploads.id });
   const probing = await call('post', '/api/v1/jobs/quote', {
     headers,
-    data: { tool_id: 'compress-video', upload_id: unprobed?.id },
+    data: {
+      tool_id: 'compress-video',
+      upload_id: unprobed?.id,
+      options: { mode: 'size', targetMb: 10 },
+    },
   });
   expect(probing.status()).toBe(202);
   await expectShape(probing, QuoteProbing);
