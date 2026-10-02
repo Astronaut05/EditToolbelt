@@ -20,6 +20,7 @@ export const VIEW_IDS = {
     'social-media-image-resizer',
     'split-image',
     'upscale-image',
+    'watermark-image',
   ],
   video: [
     'auto-subtitles',
@@ -28,6 +29,7 @@ export const VIEW_IDS = {
     'extract-audio',
     'extract-frames',
     'gif-to-mp4',
+    'merge-videos',
     'mute-video',
     'replace-audio',
     'resize-video',
@@ -38,12 +40,14 @@ export const VIEW_IDS = {
     'video-background-remover',
     'video-converter',
     'video-info',
+    'video-speed',
     'video-to-gif',
   ],
   audio: [
     'audio-channels',
     'audio-converter',
     'bpm-key-finder',
+    'change-pitch',
     'fade-audio',
     'loudness-meter',
     'merge-audio',
@@ -67,7 +71,7 @@ export const VIEW_IDS = {
     'subtitle-shift',
     'timecode-calculator',
   ],
-  utility: ['dpi-calculator', 'qr-code-generator'],
+  utility: ['batch-rename', 'dpi-calculator', 'qr-code-generator'],
 } as const satisfies Record<CategoryId, readonly string[]>;
 
 /** The ids of one category's views. */

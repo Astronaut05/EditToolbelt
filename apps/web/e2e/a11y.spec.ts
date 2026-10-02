@@ -56,6 +56,34 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test('rename list with a clash, and the watermark grid: no serious issues', async ({
+      page,
+      isMobile,
+    }) => {
+      await page.goto('/batch-rename', { waitUntil: 'networkidle' });
+      const file = (name: string) => ({
+        name,
+        mimeType: 'text/plain',
+        buffer: Buffer.from(name),
+      });
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles([file('a.txt'), file('A.TXT'), file('b.txt')]);
+      await expect(page.getByText(/^Can’t use: /).first()).toBeAttached();
+      expect(await seriousViolations(page)).toEqual([]);
+      await page.goto('/watermark-image', { waitUntil: 'networkidle' });
+      const sample = await page.request.get('/samples/mug.jpg');
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles({ name: 'mug.jpg', mimeType: 'image/jpeg', buffer: await sample.body() });
+      // On phones the grid is in its settings sheet.
+      if (isMobile) await page.getByRole('button', { name: /^Position/ }).click();
+      await expect(page.getByRole('radiogroup', { name: 'Position' })).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('merge list with files: no serious issues', async ({ page }) => {
       await page.goto('/merge-audio', { waitUntil: 'networkidle' });
       // Two tiny silent WAVs: a list to check, nothing to decode at length.

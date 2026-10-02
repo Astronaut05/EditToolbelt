@@ -17,6 +17,14 @@ export * as contrast from './color/contrast';
 export { CSS_NAMED_COLORS } from './color/names';
 export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
 export {
+  ANCHORS,
+  markBox,
+  tileBoxes,
+  type Anchor,
+  type MarkBox,
+  type Placement as MarkPlacement,
+} from './image/watermark';
+export {
   extractPalette,
   paletteAse,
   paletteCss,
@@ -107,6 +115,8 @@ export {
   type CutOptions,
 } from './audio/silence';
 export { Resampler } from './audio/resample';
+export { Fft } from './audio/fft';
+export { TimeStretch } from './audio/stretch';
 export {
   placedGain,
   placedLength,
@@ -125,3 +135,12 @@ export {
   type MusicGain,
   type MusicPart,
 } from './audio/mix';
+export {
+  DATE_FORMATS,
+  DEFAULT_RULES,
+  planRenames,
+  RenameError,
+  splitName,
+  type RenameFile,
+  type RenameRules,
+} from './rename';

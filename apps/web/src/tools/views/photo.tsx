@@ -18,4 +18,5 @@ export default viewIndex<ViewIds<'photo'>>({
   'social-media-image-resizer': dynamic(() => import('../social-media-image-resizer')),
   'split-image': dynamic(() => import('../split-image')),
   'upscale-image': dynamic(() => import('../upscale-image')),
+  'watermark-image': dynamic(() => import('../watermark-image')),
 });

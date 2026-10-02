@@ -36,6 +36,11 @@ export interface DropZoneProps {
   onFiles: (files: File[]) => void;
   onReject: (message: string) => void;
   onSample?: () => void;
+  /**
+   * Desktop: a button that opens a folder instead (U02 renames files where
+   * they are). The shell passes it in, as it loads only with the tools that use it.
+   */
+  folder?: ReactNode;
   /** Phone: offer the camera (images and video). */
   camera?: boolean;
   /** Keyboard and paste shortcuts are live (only while the drop zone is shown). */
@@ -195,6 +200,7 @@ export function DropZone(props: DropZoneProps) {
             {props.chooseLabel}
           </Button>
           {props.onSample && <Button onClick={props.onSample}>Try a sample</Button>}
+          {props.folder}
         </div>
         <p className="mt-5.5 font-mono text-12 uppercase tracking-meta text-text-muted">
           {props.formats}

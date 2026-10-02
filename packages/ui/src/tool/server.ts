@@ -6,7 +6,7 @@
  */
 import type { CreditRule } from '@etb/registry/schema';
 
-import { formatBytes } from './format';
+import { formatBytes, plural } from './format';
 
 /** What a page knows about a tool's server path (serialisable, from the registry). */
 export interface ServerInfo {
@@ -190,8 +190,4 @@ export function previewTerms(account: ServerAccount): { ok: boolean; line: strin
         ok: false,
         line: 'Previews use your free server jobs, and today’s are used. They come back tomorrow (UTC).',
       };
-}
-
-export function plural(n: number, word: string): string {
-  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
 }

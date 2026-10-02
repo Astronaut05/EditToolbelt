@@ -10,6 +10,7 @@ export default viewIndex<ViewIds<'audio'>>({
   'audio-channels': dynamic(() => import('../audio-channels')),
   'audio-converter': dynamic(() => import('../audio-converter')),
   'bpm-key-finder': dynamic(() => import('../bpm-key-finder')),
+  'change-pitch': dynamic(() => import('../change-pitch')),
   'fade-audio': dynamic(() => import('../fade-audio')),
   'loudness-meter': dynamic(() => import('../loudness-meter')),
   'merge-audio': dynamic(() => import('../merge-audio')),

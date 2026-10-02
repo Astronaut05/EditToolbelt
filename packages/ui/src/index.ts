@@ -30,6 +30,7 @@ export {
   type PresetGroup,
 } from './primitives/PresetPicker';
 export { PrivacyBadge, type Noun } from './primitives/PrivacyBadge';
+export { PositionGrid } from './primitives/PositionGrid';
 export { SegmentedControl, type SegmentOption } from './primitives/SegmentedControl';
 export {
   CapabilityNotice,
