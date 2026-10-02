@@ -11,8 +11,8 @@ Every 5 minutes, one worker:
   storage still lists. Ours are deleted too: storage may have completed one
   while the web failed to record it, and then the file is there;
 - deletes completed uploads no job used before they expired;
-- then lists the bucket: anything older than 2 hours means the sweeper is
-  missing something, and alerts.
+- then lists the bucket: anything older than 2 hours, other than a queued or
+  running job's input, means the sweeper is missing something, and alerts.
 
 Bucket lifecycle rules (1-day expiry, 1-day multipart abort) are only the
 backstop; they exist on R2, not on the local gateway, and are checked daily.
@@ -105,7 +105,9 @@ def sweep(
             counts["orphans_aborted"] += 1
 
     alerts: list[Alert] = []
-    old = [item for item in storage.objects() if now - item.modified > TOO_OLD]
+    old = _not_in_use(
+        conn, [item.key for item in storage.objects() if now - item.modified > TOO_OLD]
+    )
     if old:
         alerts.append(
             Alert(
@@ -129,6 +131,28 @@ def sweep(
     if any(counts.values()):
         log.info("retention.swept", **counts)
     return counts, alerts
+
+
+def _not_in_use(conn: Conn, keys: list[str]) -> list[str]:
+    """``keys`` less the inputs of queued and running jobs.
+
+    A CPU tool may run 2 hours after up to 15 minutes in the queue, so a
+    job's own input can pass the 2-hour mark while it is still needed.
+    """
+    if not keys:
+        return []
+    rows = conn.execute(
+        """
+        select k.key from unnest(%s::text[]) as k(key)
+        where not exists (
+          select 1 from jobs j
+          where j.status in ('queued', 'running')
+            and (j.input_key = k.key or k.key = any(j.extra_input_keys))
+        )
+        """,
+        (keys,),
+    ).fetchall()
+    return [row["key"] for row in rows]
 
 
 def _sweep_gpu_keys(conn: Conn, storage: Storage) -> int:

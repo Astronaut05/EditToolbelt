@@ -19,10 +19,10 @@ A worker (or the web) stopped writing its heartbeat for 2 minutes.
 
 ## disk: "The worker's disk is N % full"
 
-Job temp folders live under the worker's temp dir and are deleted after every job, whatever happens.
+Job and probe folders live under `etb-work` in the worker's temp dir and are deleted after every job, whatever happens. A killed worker's folders are removed when the worker starts again.
 
-1. `docker compose exec worker sh -c 'df -h /tmp; du -sh /tmp/etb-* 2>/dev/null | sort -h | tail'`.
-2. Leftover `etb-job-*` folders older than the longest job timeout are from a killed worker: delete them.
+1. `docker compose exec worker sh -c 'df -h /tmp; du -sh /tmp/etb-work/* 2>/dev/null | sort -h | tail'`.
+2. Leftover `etb-job-*` folders older than the longest job timeout are from a killed worker that hasn't restarted: restart it (it clears them), or delete them.
 3. Still full: fewer `WORKER_SLOTS`, or a bigger disk.
 
 ## tool_failure_rate: "<tool>: N of M server jobs failed in the last 30 min"

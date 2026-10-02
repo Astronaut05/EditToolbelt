@@ -538,6 +538,69 @@ def test_a_worker_stopping_hands_its_job_back(
     db.execute("update jobs set status = 'cancelled' where id = %s", (job,))
 
 
+def test_a_job_cancelled_while_its_worker_stops_loses_its_input_at_once(
+    db: Conn, storage: Storage, media: dict[str, Any]
+) -> None:
+    user = new_user(db)
+    key = put_input(storage, media["mp4"])
+    job = new_job(db, user, key)
+    run = runner(storage, Remux(slow=True))
+    claimed = claim_this(db, run, job)
+    thread = threading.Thread(target=run.run, args=(claimed,))
+    thread.start()
+    time.sleep(1)
+    # A deploy stops the worker just as the person cancels (what the web's stopJob does to
+    # a running job): nothing is handed back, so the input goes now, not when its upload
+    # expires.
+    run.stopping.set()
+    db.execute(
+        "update jobs set status = 'cancelled', error_code = 'CANCELLED', finished_at = now()"
+        " where id = %s",
+        (job,),
+    )
+    run.stop_current()
+    thread.join(20)
+    assert not thread.is_alive()
+    row = one(db, "select status, input_key from jobs where id = %s", job)
+    assert (row["status"], row["input_key"]) == ("cancelled", None)
+    assert not exists(storage, key)
+    assert one(db, "select deleted_at from uploads where storage_key = %s", key)["deleted_at"]
+
+
+def test_a_job_reaped_from_a_stalled_worker_keeps_its_input_for_the_retry(
+    db: Conn, storage: Storage, media: dict[str, Any]
+) -> None:
+    user = new_user(db)
+    key = put_input(storage, media["mp4"])
+    job = new_job(db, user, key)
+    stalled = runner(storage, Remux(slow=True))
+    claimed = claim_this(db, stalled, job)
+    thread = threading.Thread(target=stalled.run, args=(claimed,))
+    thread.start()
+    time.sleep(1)
+    # The worker was only slow (a database stall over 60 s), not dead. In one transaction,
+    # so its own heartbeat can't land in between.
+    with db.transaction():
+        db.execute(
+            "update jobs set heartbeat_at = now() - interval '2 minutes' where id = %s", (job,)
+        )
+        jobqueue.reap(db)
+    # Its heartbeat finds the job isn't its own any more and stops the tool.
+    thread.join(20)
+    assert not thread.is_alive()
+    row = one(db, "select status, input_key from jobs where id = %s", job)
+    assert (row["status"], row["input_key"]) == ("queued", key)
+    assert exists(storage, key)
+
+    # So the retry runs.
+    again = runner(storage)
+    again.run(claim_this(db, again, job))
+    row = one(db, "select status, input_key, output_key from jobs where id = %s", job)
+    assert (row["status"], row["input_key"]) == ("succeeded", None)
+    assert not exists(storage, key)
+    storage.delete(row["output_key"])
+
+
 def test_a_worker_that_dies_mid_job_has_it_requeued_then_failed(
     db: Conn, storage: Storage, media: dict[str, Any]
 ) -> None:
@@ -776,6 +839,49 @@ def test_the_sweeper_alerts_on_anything_older_than_two_hours(db: Conn, storage: 
     _counts, alerts = sweep(db, storage, now=datetime.now(UTC) + timedelta(hours=3))
     assert "storage_old_objects" in [alert.rule for alert in alerts]
     storage.delete(key)
+
+
+def test_the_old_objects_alert_leaves_out_inputs_of_jobs_still_running(
+    db: Conn, clean_env: pytest.MonkeyPatch, media: dict[str, Any]
+) -> None:
+    # A bucket of its own, so other tests' objects don't count.
+    bucket = f"etb-test-old-{uuid.uuid4().hex[:8]}"
+    for name, value in {
+        "DATABASE_URL": URL,
+        "S3_ENDPOINT": S3,
+        "S3_REGION": "us-east-1",
+        "S3_BUCKET": bucket,
+        "S3_ACCESS_KEY_ID": "etb-local",
+        "S3_SECRET_ACCESS_KEY": "etb-local-secret",
+    }.items():
+        clean_env.setenv(name, value)
+    storage = Storage(Settings())
+    storage._client.create_bucket(Bucket=bucket)  # test setup
+    try:
+        user = new_user(db)
+        # A long job: its input is older than 2 hours and still in use.
+        key = put_input(storage, media["mp4"])
+        job = new_job(db, user, key)
+        db.execute(
+            "update jobs set status = 'running', worker_id = 'busy', heartbeat_at = now()"
+            " where id = %s",
+            (job,),
+        )
+        later = datetime.now(UTC) + timedelta(hours=3)
+        _counts, alerts = sweep(db, storage, now=later)
+        assert "storage_old_objects" not in [alert.rule for alert in alerts]
+
+        # Something nobody uses any more, as old: that alerts.
+        stray = f"in/{uuid.uuid4()}"
+        storage._client.put_object(Bucket=bucket, Key=stray, Body=b"x")
+        _counts, alerts = sweep(db, storage, now=later)
+        [alert] = [alert for alert in alerts if alert.rule == "storage_old_objects"]
+        assert alert.message.startswith("1 object(s)")
+        db.execute("update jobs set status = 'cancelled' where id = %s", (job,))
+    finally:
+        for item in storage.objects():
+            storage.delete(item.key)
+        storage._client.delete_bucket(Bucket=bucket)
 
 
 def test_lifecycle_rules_read_as_not_supported_on_the_local_gateway(

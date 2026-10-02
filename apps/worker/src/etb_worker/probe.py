@@ -15,7 +15,6 @@ import itertools
 import json
 import shutil
 import statistics
-import tempfile
 from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
@@ -27,6 +26,7 @@ from etb_worker.db import Conn
 from etb_worker.logs import get_logger
 from etb_worker.sandbox import Limits, ToolError, ffprobe, run
 from etb_worker.storage import Storage, StorageError
+from etb_worker.workdir import new_dir
 
 # ffprobe's format_name lists every name of its demuxer ("mov,mp4,m4a,3gp,3g2,mj2").
 CONTAINERS: dict[str, set[str]] = {
@@ -337,7 +337,7 @@ def probe_next(
         ).fetchone()
         if row is None:
             return False
-        workdir = Path(tempfile.mkdtemp(prefix="etb-probe-"))
+        workdir = new_dir("etb-probe-")
         try:
             path = workdir / "input"
             storage.download(row["storage_key"], path)

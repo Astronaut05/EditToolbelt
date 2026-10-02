@@ -1,7 +1,8 @@
 """Worker entry point: ``python -m etb_worker`` (or ``etb-worker``).
 
-Validate env, configure logging, run the hello-world job (retrying while
-Postgres and storage start up), then until SIGTERM/SIGINT run the job slots
+Validate env, configure logging, clear the job folders a killed worker left
+(workdir.py), run the hello-world job (retrying while Postgres and storage
+start up), then until SIGTERM/SIGINT run the job slots
 (slots.py: CPU slots probe uploads and run CPU jobs, GPU slots run GPU jobs)
 beside the scheduler (scheduler.py: heartbeats, queue upkeep, the retention
 sweep, alerts, the daily jobs).
@@ -26,6 +27,7 @@ from etb_worker.scheduler import DAILY, TICK_SEC, Scheduler
 from etb_worker.settings import Settings, load_settings
 from etb_worker.slots import listen, run_gpu_slot, run_slot
 from etb_worker.storage import Storage
+from etb_worker.workdir import clear_leftovers
 
 RETRY_DELAYS_SEC = (1, 2, 4, 8, 15)
 
@@ -57,6 +59,15 @@ def run_hello_with_retries(
     return False
 
 
+def remove_leftovers() -> None:
+    """A worker killed mid-job left its folders (users' files) behind: they go first."""
+    removed = clear_leftovers()
+    if removed is None:
+        get_logger().info("worker.leftovers_skipped", reason="another worker on this host")
+    elif removed:
+        get_logger().info("worker.leftovers_removed", folders=removed)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="etb-worker")
     parser.add_argument(
@@ -74,6 +85,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     log = get_logger()
     log.info("worker.started", pid=os.getpid())
+    if not args.task:
+        remove_leftovers()
 
     stop = threading.Event()
 

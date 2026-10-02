@@ -295,17 +295,35 @@ def fail(conn: Conn, job: Job, worker_id: str | None, code: str, detail: str) ->
     return True
 
 
-def requeue(conn: Conn, job_id: str, worker_id: str) -> None:
-    """A worker stopping on purpose hands its job back at once."""
-    conn.execute(
+def requeue(conn: Conn, job_id: str, worker_id: str) -> bool:
+    """A worker stopping on purpose hands its job back at once.
+
+    False when it was no longer ours: cancelled meanwhile, or reaped.
+    """
+    row = conn.execute(
         """
         update jobs
         set status = 'queued', worker_id = null, stage = null, progress = 0,
             heartbeat_at = null, queued_at = now(), updated_at = now()
         where id = %s and worker_id = %s and status = 'running'
+        returning id
         """,
         (job_id, worker_id),
-    )
+    ).fetchone()
+    return row is not None
+
+
+def runs_elsewhere(conn: Conn, job_id: str, worker_id: str) -> bool:
+    """Whether the job is back in the queue or running on another worker.
+
+    Then its next attempt needs the inputs: a worker that handed the job
+    back, or stalled long enough to be reaped, must leave them.
+    """
+    row = conn.execute("select status, worker_id from jobs where id = %s", (job_id,)).fetchone()
+    if row is None:
+        return False
+    status, owner = str(row["status"]), row["worker_id"]
+    return status == "queued" or (status == "running" and owner != worker_id)
 
 
 @dataclass(frozen=True)
