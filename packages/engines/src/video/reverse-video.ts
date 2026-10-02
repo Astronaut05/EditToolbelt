@@ -3,8 +3,10 @@
  * sound reversed or left out. The picture is read from its end a stretch at
  * a time (./clip-frames.ts), so memory doesn't grow with the clip's length,
  * and each frame keeps its own duration, so a variable frame rate stays as
- * it was, backwards. The sound is turned round ten seconds at a time (A15's
- * reader), lined up with the picture's end.
+ * it was, backwards: the output track only gets a frame rate when the clip
+ * has a steady one. The picture is encoded at an even size. The sound is
+ * turned round ten seconds at a time (A15's reader), lined up with the
+ * picture's end.
  */
 import { reversePieces } from '@etb/core';
 import {
@@ -22,7 +24,7 @@ import { reversedFrames } from '../audio/reverse';
 import { EngineAbortError } from '../dummy';
 import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput } from '../types';
-import { ClipFrames } from './clip-frames';
+import { ClipFrames, encoderSize, steadyRate } from './clip-frames';
 import { VIDEO_LIMITS } from './limits';
 import { codecLabel, MediaInputError, openInput } from './media';
 import { containerFormat, sourceFamily } from './trim';
@@ -71,11 +73,8 @@ export const reverseVideoEngine: Engine<ReverseVideoOptions> = {
       if ((await video.computeDuration()) > VIDEO_LIMITS.maxSeconds) {
         throw new MediaInputError('This video is over 60 min, the browser limit for video.');
       }
-      const videoCodec = await encoderFor(
-        format.mimeType,
-        await video.getDisplayWidth(),
-        await video.getDisplayHeight(),
-      );
+      const size = await encoderSize(video);
+      const videoCodec = await encoderFor(format.mimeType, size.width, size.height);
 
       const clip = await ClipFrames.read(video, fps, ctx.signal);
       const end = clip.end;
@@ -89,7 +88,7 @@ export const reverseVideoEngine: Engine<ReverseVideoOptions> = {
         codec: videoCodec,
         quality: new Quality('high'),
       });
-      output.addVideoTrack(videoSource, { frameRate: fps });
+      output.addVideoTrack(videoSource, steadyRate(metrics));
       const audioSource =
         audio && audioCodec
           ? new AudioSampleSource({ codec: audioCodec, quality: new Quality({ bitrate: 160_000 }) })

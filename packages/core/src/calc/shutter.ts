@@ -16,13 +16,14 @@ export function angleFromSpeed(fps: number, seconds: number): number {
 
 /**
  * A shutter speed as typed: "1/48", "48" (cameras show the denominator),
- * "0.02", "1s" or "1/2 s". Seconds, or NaN.
+ * "0.02", or in seconds with a unit: "1s", "2 sec", "1/2 s", or `2"` as
+ * cameras show long exposures. Seconds, or NaN.
  */
 export function parseSpeed(text: string): number {
-  const clean = text
-    .trim()
-    .toLowerCase()
-    .replace(/\s*(?:s|sec|")$/, '');
+  const typed = text.trim().toLowerCase();
+  const clean = typed.replace(/\s*(?:sec|s|")$/, '');
+  // A unit says the number is seconds, whatever its size.
+  const seconds = clean !== typed;
   if (!clean) return Number.NaN;
   const slash = clean.indexOf('/');
   if (slash !== -1) {
@@ -33,7 +34,7 @@ export function parseSpeed(text: string): number {
   const value = Number(clean);
   if (!(value > 0)) return Number.NaN;
   // A bare number over 1 is what a camera shows: the denominator.
-  return value > 1 && !/s$/.test(text.trim().toLowerCase()) ? 1 / value : value;
+  return value > 1 && !seconds ? 1 / value : value;
 }
 
 const trim = (value: number, digits: number) => String(Number(value.toFixed(digits)));

@@ -3,7 +3,7 @@
  * Video's boomerang). Every frame's time comes from its packet, so each frame
  * keeps its own duration. Frames are copied out of the decoder as soon as
  * they arrive, so the decoder never runs short of frames, and drawn at the
- * clip's display size, rotation applied.
+ * clip's display size, rotation applied, rounded to even (encoderSize).
  *
  * Backwards, the clip is read in stretches from its end: each stretch is
  * decoded (from the keyframe before it) and handed out last frame first. A
@@ -15,6 +15,32 @@ import { EncodedPacketSink, VideoSample, VideoSampleSink, type InputVideoTrack }
 import { EngineAbortError } from '../dummy';
 import { shownFor } from './held';
 import { MediaInputError } from './media';
+
+/** A side rounded to even: H.264 and HEVC encoders refuse odd sizes (1437 × 899 is drawn at 1438 × 900). */
+export const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+
+/** The size a clip is encoded at again: its display size, rotation applied, each side even. */
+export async function encoderSize(
+  video: InputVideoTrack,
+): Promise<{ width: number; height: number }> {
+  return {
+    width: even(await video.getDisplayWidth()),
+    height: even(await video.getDisplayHeight()),
+  };
+}
+
+/**
+ * An output track's frame rate: the clip's own when its frames sit on a
+ * steady clock, else none. Mediabunny snaps every timestamp of a track that
+ * has a frame rate to it, so a variable frame rate given one comes out
+ * constant (and two close frames can land on one time).
+ */
+export function steadyRate(metrics: { underlyingFrameRate: number | null } | null): {
+  frameRate?: number;
+} {
+  const rate = metrics?.underlyingFrameRate;
+  return rate && rate > 0 ? { frameRate: rate } : {};
+}
 
 /** Bytes of frames held at once while a stretch is turned round. */
 const BUDGET = 384 * 1024 ** 2;
@@ -63,13 +89,8 @@ export class ClipFrames {
     }
     times.sort((a, b) => a - b);
     if (times.length === 0) throw new MediaInputError('This video has no frames in it.');
-    return new ClipFrames(
-      video,
-      times,
-      await shownFor(video, fps),
-      await video.getDisplayWidth(),
-      await video.getDisplayHeight(),
-    );
+    const size = await encoderSize(video);
+    return new ClipFrames(video, times, await shownFor(video, fps), size.width, size.height);
   }
 
   get count(): number {

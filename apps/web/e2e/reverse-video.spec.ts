@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { probeMedia, videoPackets } from '@etb/engines';
+import { probeMedia, videoFrameSource, videoPackets } from '@etb/engines';
 import type { Page } from '@playwright/test';
 
 import { choose, cspViolations, expect, framePixels, test } from './fixtures';
@@ -12,6 +12,8 @@ import { choose, cspViolations, expect, framePixels, test } from './fixtures';
 // left out.
 
 const MKV = fileURLToPath(new URL('../../../fixtures/video/clip-vp9-opus.mkv', import.meta.url));
+/** 2 s at 255 × 143 px, 60 frames on an irregular clock (fixtures/video/README.md). */
+const VFR = fileURLToPath(new URL('../../../fixtures/video/clip-vfr-odd.mkv', import.meta.url));
 const FPS = 30;
 const FRAMES = 120;
 
@@ -127,4 +129,40 @@ test('the sound can be left out', async ({ page, isMobile }) => {
   const info = await probeMedia(new Blob([out.bytes]));
   expect(info.audio).toHaveLength(0);
   expect((await videoPackets(new Blob([out.bytes]))).length).toBe(FRAMES);
+});
+
+/** The time between each frame and the next, in the order shown (the packets, read in Node). */
+async function gaps(bytes: Buffer<ArrayBuffer>): Promise<number[]> {
+  const source = await videoFrameSource(new Blob([bytes]), 0, 3600);
+  const times = (source?.packets ?? []).map((p) => p.timestamp).sort((a, b) => a - b);
+  return times.slice(1).map((t, i) => t - (times[i] ?? 0));
+}
+
+test('a variable frame rate stays as it was, backwards, and an odd size is made even', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/reverse-video');
+  await page.locator('input[type=file][data-hydrated]').first().setInputFiles(VFR);
+  await expect(
+    page
+      .getByText(/255 × 143/)
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible();
+  const out = await run(page);
+  // H.264 and HEVC encoders refuse odd sizes, so every result is even.
+  const info = await probeMedia(new Blob([out.bytes]));
+  expect([info.video?.width, info.video?.height]).toEqual([256, 144]);
+  // Each frame shows as long as it did, backwards: not snapped to a 30 fps grid.
+  const source = await gaps(readFileSync(VFR));
+  const result = await gaps(out.bytes);
+  expect(result).toHaveLength(source.length);
+  result.slice(1).forEach((gap, i) => {
+    expect(
+      Math.abs(gap - (source[source.length - 1 - i] ?? 0)),
+      `gap ${String(i + 1)}`,
+    ).toBeLessThan(0.0015);
+  });
+  expect(new Set(source.map((g) => Math.round(g * 1000))).size).toBeGreaterThan(5);
 });

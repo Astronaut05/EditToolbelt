@@ -1635,3 +1635,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** `tools/color.md` → C07.
 **Reverse:** `packages/core/src/color/gradient.ts`.
+
+## 2026-10-02 · Reverse and Loop Video: even sizes, variable frame rate kept, the copies' sound meets
+
+**Decision:**
+- **Even sizes:** encoded again (Reverse Video, Loop Video's boomerang or a cut copy), the picture is its display size with each side rounded to even, as Merge Videos and Resize Video do: 1437 × 899 is drawn at 1438 × 900.
+- **Variable frame rate is kept:** the output's video track gets a frame rate only when Mediabunny finds a steady one under the frames (`underlyingFrameRate`). Checked in Mediabunny 1.60: a track's `frameRate` becomes the MP4 timescale, and Matroska rounds every timestamp to it, so a phone or screen recording came out constant, two close frames sometimes on one time. Change Video Speed sets `frameRate` the same way and needs the same change on its own branch.
+- **Loop Video's fast copy:** each copy's last sound packet ran past the picture's end into the next copy's first, up to one packet (21 ms of AAC). Players that play sound back to back, as Chrome does, drifted later at every loop. Now the last packet is kept only when it runs over by half a packet or less, and the next copy's sound starts where it ends. There's no overlap or gap, and the sound is within half a packet of the picture at every join, however many copies. The encoder's lead-in is skipped by where a packet ends, not where it starts, so a packet that starts in the lead-in but carries the clip's first sound plays in every copy.
+- **Shutter speeds with a unit are seconds:** `2 sec`, `2 s` and `2"` (how cameras show long exposures) are 2 s. A bare `2` is still the camera's 1/2.
+
+**Why:** M8 review, findings 4, 13 and 14, and the overlap marked plausible under finding 2 (confirmed: the copy kept packets up to the cut and every packet's own length). H.264 and HEVC encoders refuse odd sizes: Safari stopped, Chrome fell back to AV1 in MP4.
+**Reverse:** `even`, `encoderSize` and `steadyRate` in `packages/engines/src/video/clip-frames.ts`, `audioSeam` in `loop-video.ts`, `parseSpeed` in `packages/core/src/calc/shutter.ts`. The test clip is `fixtures/video/clip-vfr-odd.mkv`.

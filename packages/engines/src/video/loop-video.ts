@@ -3,12 +3,14 @@
  * to a length, or played forwards then backwards as a boomerang.
  *
  * Repeats are copied packet for packet, each copy's timestamps moved along
- * by the clip's length: instant and lossless, the "fast concat". A length
- * that ends partway through a copy cuts its last frames off, which is safe
- * only when no frame depends on a later one; a clip with reordered frames
- * (B-frames) is encoded again instead. So is a boomerang, whose backward
- * half is read a stretch at a time (./clip-frames.ts) and whose sound is
- * reversed with it.
+ * by the clip's length: instant and lossless, the "fast concat". The copies'
+ * sound meets without overlapping (audioSeam). A length that ends partway
+ * through a copy cuts its last frames off, which is safe only when no frame
+ * depends on a later one; a clip with reordered frames (B-frames) is encoded
+ * again instead. So is a boomerang, whose backward half is read a stretch at
+ * a time (./clip-frames.ts) and whose sound is reversed with it. Encoded
+ * again, the picture is an even size. Either way the video track only gets
+ * a frame rate when the clip has a steady one, so a variable one stays.
  */
 import { reversePieces, type ReversePiece } from '@etb/core';
 import {
@@ -16,6 +18,7 @@ import {
   AudioSampleSource,
   BufferTarget,
   EncodedAudioPacketSource,
+  EncodedPacket,
   EncodedPacketSink,
   EncodedVideoPacketSource,
   Output,
@@ -30,7 +33,7 @@ import { reversedFrames } from '../audio/reverse';
 import { EngineAbortError } from '../dummy';
 import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput } from '../types';
-import { ClipFrames } from './clip-frames';
+import { ClipFrames, encoderSize, steadyRate } from './clip-frames';
 import { shownFor } from './held';
 import { VIDEO_LIMITS } from './limits';
 import { codecLabel, MediaInputError, openInput } from './media';
@@ -90,6 +93,28 @@ export function loopPlan(
     );
   }
   return { loops: times, total: times * loop, label: `${String(times)}×` };
+}
+
+/**
+ * Where one copy's sound meets the next, on the fast path: `end` is where
+ * the copy's last packet would stop (its `duration`), `next` where the next
+ * copy's first packet starts at its own time. A copy's last packet usually
+ * runs past the picture's end (an AAC packet is 21 ms), so at their own
+ * times the two overlap, and a player that plays sound back to back drifts
+ * later by up to a packet every loop. So the last packet is kept only when
+ * it overruns by half a packet or less, and the next copy is moved (`shift`)
+ * to start where this one ends: no overlap, no gap, and the sound stays
+ * within half a packet of the picture however many copies there are. A real
+ * gap (sound that stops before the picture) is left as it is.
+ */
+export function audioSeam(
+  end: number,
+  duration: number,
+  next: number,
+): { keep: boolean; shift: number } {
+  const keep = end - next <= duration / 2 + EPSILON;
+  const meet = (keep ? end : end - duration) - next;
+  return { keep, shift: meet >= -duration / 2 - EPSILON ? meet : 0 };
 }
 
 /** Whether any frame is shown before one decoded ahead of it: B-frames. */
@@ -188,13 +213,8 @@ export const loopVideoEngine: Engine<LoopVideoOptions> = {
       if (copy && !sourceCodec)
         throw new MediaInputError('This video’s codec isn’t one this tool can copy.');
       const packetSource = copy && sourceCodec ? new EncodedVideoPacketSource(sourceCodec) : null;
-      const videoCodec = copy
-        ? null
-        : await encoderFor(
-            format.mimeType,
-            await video.getDisplayWidth(),
-            await video.getDisplayHeight(),
-          );
+      const size = await encoderSize(video);
+      const videoCodec = copy ? null : await encoderFor(format.mimeType, size.width, size.height);
       const sampleSource = videoCodec
         ? new VideoSampleSource({ codec: videoCodec, quality: new Quality('high') })
         : null;
@@ -203,10 +223,10 @@ export const loopVideoEngine: Engine<LoopVideoOptions> = {
           ...(format.supportsVideoTransformationMetadata && {
             transformationMatrix: await video.getTransformationMatrix(),
           }),
-          frameRate: fps,
+          ...steadyRate(metrics),
         });
       }
-      if (sampleSource) output.addVideoTrack(sampleSource, { frameRate: fps });
+      if (sampleSource) output.addVideoTrack(sampleSource, steadyRate(metrics));
 
       // The sound: copied with the picture, or decoded and encoded again.
       const audioCodecIn = audio ? await audio.getCodec() : null;
@@ -257,20 +277,46 @@ export const loopVideoEngine: Engine<LoopVideoOptions> = {
         if (!audio || !audioPackets) return;
         const config = await audio.getDecoderConfig();
         let firstPacket = true;
+        const add = async (packet: EncodedPacket, timestamp: number) => {
+          await audioPackets.add(
+            packet.clone({ timestamp }),
+            firstPacket && config ? { decoderConfig: config } : undefined,
+          );
+          firstPacket = false;
+        };
+        /** Where a later copy's sound starts in the clip: its first packet that isn't all lead-in. */
+        let start: number | null = null;
+        /** How far this copy's sound is moved so it meets the last one (audioSeam). */
+        let shift = 0;
         for (let loop = 0; loop < plan.loops; loop += 1) {
           const offset = loop * loopLength;
           const limit = first + Math.min(loopLength, plan.total - offset);
+          let held: EncodedPacket | null = null;
+          /** The held packet's length; Matroska leaves some at 0, so the one before stands in. */
+          let length = 0;
           for await (const packet of new EncodedPacketSink(audio).packets()) {
             if (ctx.signal.aborted) throw new EngineAbortError();
             // A copy's sound stops where its picture does; the encoder's lead-in plays only once.
             if (packet.timestamp >= limit - EPSILON) break;
-            if (loop > 0 && packet.timestamp < first) continue;
-            await audioPackets.add(
-              packet.clone({ timestamp: packet.timestamp + offset }),
-              firstPacket && config ? { decoderConfig: config } : undefined,
-            );
-            firstPacket = false;
+            const ends = packet.timestamp + packet.duration;
+            if (loop > 0 && ends <= first + EPSILON) continue;
+            if (start === null && ends > first + EPSILON) start = packet.timestamp;
+            if (held) await add(held, held.timestamp + offset + shift);
+            held = packet;
+            length = packet.duration > 0 ? packet.duration : length;
           }
+          if (!held) continue;
+          if (loop === plan.loops - 1) {
+            await add(held, held.timestamp + offset + shift);
+            break;
+          }
+          const seam = audioSeam(
+            held.timestamp + offset + shift + length,
+            length,
+            (start ?? first) + offset + loopLength,
+          );
+          if (seam.keep) await add(held, held.timestamp + offset + shift);
+          shift = seam.shift;
         }
         audioPackets.close();
       };
