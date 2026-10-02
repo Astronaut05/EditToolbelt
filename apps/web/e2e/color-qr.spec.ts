@@ -102,23 +102,26 @@ test('QR: a Wi-Fi code downloads as a PNG that decodes to the login', async ({ p
 // loaded. A choice made then must still count once it has (React 19 drops the
 // change event): hold that script back, pick Wi-Fi, then let it load.
 test('QR: a choice made before the tool has loaded still counts', async ({ page }) => {
+  let held = () => {};
+  const holding = new Promise<void>((resolve) => {
+    held = resolve;
+  });
   let release = () => {};
-  const held = new Promise<void>((resolve) => {
+  const released = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let holding = false;
   await page.route('**/_next/static/**/*.js', async (route) => {
     const response = await route.fetch();
     const body = await response.text();
     if (body.includes('qr-ssid')) {
-      holding = true;
-      await held;
+      held();
+      await released;
     }
     await route.fulfill({ response, body });
   });
   await page.goto('/qr-code-generator', { waitUntil: 'domcontentloaded' });
+  await holding;
   await page.getByLabel('Content').selectOption('wifi');
-  expect(holding).toBe(true);
   release();
   await page.getByRole('textbox', { name: 'Network name' }).fill('Studio');
   await page.getByRole('textbox', { name: 'Password' }).fill('secret');
