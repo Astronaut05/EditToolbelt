@@ -1,6 +1,6 @@
 {
-  "id": "c65bb739-0510-475a-b8aa-4b6422190adc",
-  "prevId": "8cdd008f-040d-4767-8f4f-24fb05a1a7dc",
+  "id": "8c3f8158-ac2c-4aba-a907-b75b10ca6166",
+  "prevId": "52b6be45-bf3b-4231-8d48-7fdfe90d8e87",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -913,6 +913,43 @@
           "primaryKey": false,
           "notNull": false
         },
+        "gpu_rate_usd": {
+          "name": "gpu_rate_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gpu_cost_usd": {
+          "name": "gpu_cost_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gpu_call_at": {
+          "name": "gpu_call_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gpu_call_id": {
+          "name": "gpu_call_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gpu_output_keys": {
+          "name": "gpu_output_keys",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "gpu_put_expires_at": {
+          "name": "gpu_put_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "cpu_seconds": {
           "name": "cpu_seconds",
           "type": "numeric",
@@ -1076,6 +1113,54 @@
           ],
           "isUnique": false,
           "where": "\"jobs\".\"output_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_gpu_spend_idx": {
+          "name": "jobs_gpu_spend_idx",
+          "columns": [
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"jobs\".\"gpu_rate_usd\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_gpu_call_idx": {
+          "name": "jobs_gpu_call_idx",
+          "columns": [
+            {
+              "expression": "gpu_call_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"jobs\".\"gpu_call_at\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_gpu_keys_idx": {
+          "name": "jobs_gpu_keys_idx",
+          "columns": [
+            {
+              "expression": "gpu_put_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"jobs\".\"gpu_put_expires_at\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1480,133 +1565,6 @@
         "credit_transactions_purchase_ref": {
           "name": "credit_transactions_purchase_ref",
           "value": "\"credit_transactions\".\"kind\" not in ('purchase', 'refund_purchase') or \"credit_transactions\".\"purchase_id\" is not null"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.fiscal_receipts": {
-      "name": "fiscal_receipts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuidv7()"
-        },
-        "purchase_id": {
-          "name": "purchase_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payment_id": {
-          "name": "payment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "fiscal_receipt_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "next_attempt_at": {
-          "name": "next_attempt_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "fiscal_receipts_purchase_key": {
-          "name": "fiscal_receipts_purchase_key",
-          "columns": [
-            {
-              "expression": "purchase_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "fiscal_receipts_due_idx": {
-          "name": "fiscal_receipts_due_idx",
-          "columns": [
-            {
-              "expression": "next_attempt_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"fiscal_receipts\".\"status\" <> 'sent'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "fiscal_receipts_purchase_id_purchases_id_fk": {
-          "name": "fiscal_receipts_purchase_id_purchases_id_fk",
-          "tableFrom": "fiscal_receipts",
-          "tableTo": "purchases",
-          "columnsFrom": ["purchase_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "fiscal_receipts_attempts": {
-          "name": "fiscal_receipts_attempts",
-          "value": "\"fiscal_receipts\".\"attempts\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -2149,6 +2107,65 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.gpu_budget": {
+      "name": "gpu_budget",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "smallint",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "daily_usd": {
+          "name": "daily_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "1"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "gpu_budget_updated_by_users_id_fk": {
+          "name": "gpu_budget_updated_by_users_id_fk",
+          "tableFrom": "gpu_budget",
+          "tableTo": "users",
+          "columnsFrom": ["updated_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "gpu_budget_one_row": {
+          "name": "gpu_budget_one_row",
+          "value": "\"gpu_budget\".\"id\" = 1"
+        },
+        "gpu_budget_not_negative": {
+          "name": "gpu_budget_not_negative",
+          "value": "\"gpu_budget\".\"daily_usd\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.service_heartbeats": {
       "name": "service_heartbeats",
       "schema": "",
@@ -2366,6 +2383,13 @@
           "notNull": true,
           "default": "0"
         },
+        "gpu_cost_usd": {
+          "name": "gpu_cost_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
+        },
         "credits_charged": {
           "name": "credits_charged",
           "type": "integer",
@@ -2448,11 +2472,6 @@
         "refund_purchase",
         "admin_debit"
       ]
-    },
-    "public.fiscal_receipt_status": {
-      "name": "fiscal_receipt_status",
-      "schema": "public",
-      "values": ["pending", "sent", "failed"]
     },
     "public.purchase_status": {
       "name": "purchase_status",

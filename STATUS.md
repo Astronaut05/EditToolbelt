@@ -1,6 +1,6 @@
 # Status
 
-**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter, Normalize Loudness, Fade In / Fade Out, Audio Channel Tools, Rotate & Flip Video, Resize Video for Social, Extract Frames, Remove Silence, Add or Replace Audio in Video, Merge Audio and LUT Preview (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 part 1 is in review: payments built complete and switched off (Paddle, Click and Payme behind one interface, the purchase store, the switches, `/credits/buy`, Admin → Payments, the welcome grant); turning them on is `docs/runbooks/turn-on-payments.md`, after Astro's contracts. M5's GPU tools are in review too. M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter, Normalize Loudness, Fade In / Fade Out, Audio Channel Tools, Rotate & Flip Video, Resize Video for Social, Extract Frames, Remove Silence, Add or Replace Audio in Video, Merge Audio and LUT Preview (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 part 1 is in review: payments built complete and switched off (Paddle, Click and Payme behind one interface, the purchase store, the switches, `/credits/buy`, Admin → Payments, the welcome grant); turning them on is `docs/runbooks/turn-on-payments.md`, after Astro's contracts. M5's GPU tools are merged (#66): Upscale Image, Transcribe Audio and Auto Subtitles on Modal, with metering and a daily GPU budget, off until Modal runs them and an admin switches each on; Stem Splitter is parked for Astro (its weights' licence). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -81,6 +81,19 @@
 - Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#63).
 - CI runs the browser tests against the production image too, through a stand-in Cloudflare Access (152 pass on Chromium). The server build's search index is fresh within 30 s, as tool status is (#65).
 - Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
+- M5, GPU tools (#66; tested with a stand-in GPU, real runs wait for the Modal token):
+  - The Modal app's tool functions: `upscale_image` on a T4 (Real-ESRGAN, 2× or 4×, General with noise cleanup or Illustration, seamless tiles, up to 64 MP) and `transcribe` on an L4 (Whisper large-v3, 100 languages, word timing). Weights are pinned by SHA-256 and checked when Modal builds each image; CI checks the pins before every deploy. Files move only through presigned R2 URLs; nothing stays on Modal.
+  - The worker's ServerlessGpu: spawn, poll every 2 s with progress, cancel with the job; GPU jobs finish like CPU ones (input deleted at once, output after 60 min, failures refund). Transcripts become SRT, VTT, ASS (karaoke with word timing), TXT or JSON on the worker.
+  - Metering: every GPU call's seconds and cost on its job; Modal's T4 and L4 prices in `config/business.ts` (placeholders, read 2026-10-02). A daily GPU budget ($1 until changed in Admin → Dashboard → GPU) stops new GPU jobs when it's spent and alerts at 80 % and 100 %. Admin shows GPU cost against credits by tool.
+  - Upscale Image (P08), Transcribe Audio (A12) and Auto Subtitles (V17) have their pages, options, prices and FAQ; Auto Subtitles sends only a video's sound, taken out in the browser. Each stays `soon` until an admin sets it to beta.
+- Fix: a result's audio player loads only its header until it's played. Loading the whole file could freeze the page in Linux WebKit (GStreamer), which hung Merge Audio's join test 1 run in 4 or 5.
+- Test fix: Remove Silence's shorten test reads the ranges once the last setting's search has landed (it read the previous search's on the phone profile, 5 runs in 8).
+- Wave 3 GPU tools (#77; tested with a stand-in GPU, real runs wait for the Modal token):
+  - Object Eraser (P17): brush over an object (Mark, Unmark, size, undo) and MI-GAN fills it on a T4. The page draws the mask and sends it beside the photo; each area is filled on a crop around it and only the brushed pixels change. 3 credits.
+  - Upscale Video (V20): Real-ESRGAN on every frame on an L4, 2× or 4× up to 4K, General with noise cleanup or Animation, H.264 MP4 with the sound. 10 credits a minute, up to 10 min.
+  - Video Background Remover (V21): BiRefNet_lite on every frame on an L4, with a flicker filter; ProRes 4444 or WebM with transparency, or MP4 on green or a color. 8 credits a minute, up to 10 min and 4K.
+  - Licences: LaMa (P17) and RobustVideoMatting (V21) are not used, their weights have no stated licence; MI-GAN's weights are MIT from its authors, BiRefNet's MIT. Each tool stays `soon` until an admin sets it to beta.
+  - Up to date with the M5 review's fixes (`claude/m5-gpu` at 5e74484 merged in): GPU slots of their own, each call's Modal id and output key on its job (a dead worker's call is cancelled and billed, its key swept until the URL expires), the worst-case budget gate, the billing of cold and failed calls, and `GPU_FAILED` for anything unexpected in the functions. Object Eraser and Video Background Remover install `gpu/requirements-onnx.txt` (hashed, compiled from PyPI); Upscale Video reuses Upscale Image's image. A video job's worst case (95 min on an L4, about $1.52) is over the default $1 budget, so one runs alone; raise the budget for more.
 
 - M5, part 1 (in review): payments built and switched off, with the M5 review's fixes. **M5 ≈ 50 %** (payments done, off; GPU tools next).
   - Three locks, all off by default: `PAYMENTS_ENABLED`, the admin switch per provider in Admin → Payments (refused, with the reason, while its keys or fiscal codes are missing; audit-logged), and the provider's keys. While off: no "Buy credits" anywhere, and `/credits/buy` and checkout answer 404. A provider's webhooks answer while its keys are set, so refunds, chargebacks and payments already under way still land; only new payments are refused. Webhook errors alert at once.
@@ -88,7 +101,6 @@
   - The purchase store: complete and refund move the purchase and its ledger row in one transaction, idempotent; a refund may take a balance below zero (paid jobs then wait for a top-up). Webhook events are processed again after a failure.
   - The welcome grant: 30 credits once per verified inbox at sign-in; throwaway domains refused.
   - A job quoted as a free daily job is never charged credits unasked (`quote_funding`, 409, the site asks again).
-  - Click's fiscal receipts (branch `claude/click-fiscal`, on top of this): queued with each Click sale and sent to Click's Merchant API with retries until accepted; Admin → Payments shows each and can send it again; unsent after 6 tries or an hour alerts. Click still waits for the seller's TIN or PINFL, the MXIK and package codes, and `CLICK_MERCHANT_API_URL`.
 
 ## Next
 
@@ -97,7 +109,7 @@
 1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
 2. M6 sign-off once parts 1 to 4 merge.
 3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
-4. M5: payments are built and off (part 1, in review). Turning them on follows `docs/runbooks/turn-on-payments.md` once Astro has the Paddle, Click and Payme contracts and the fiscal codes. Then M5's GPU tools.
+4. M5: payments are built and off (part 1, in review). Turning them on follows `docs/runbooks/turn-on-payments.md` once Astro has the Paddle, Click and Payme contracts and the fiscal codes. M5's GPU tools (#66, #77): add the Modal token (GitHub and Railway), run Actions → Modal → Run workflow with "smoke", then switch each tool to beta in Admin → Tools and reprice from the measured GPU seconds (Video Background Remover likely needs about 20 credits a minute, `docs/05`). Then P07's hi-res server path (BiRefNet: pin the weights from CI), the free previews once A10's preview merges (P08's 512 px crop, P17's reduced size, V20's 3 s), Object Eraser in the browser (MI-GAN is 28 MB), and the light cue editor (with T03).
 
 ## Waiting for Astro's approval
 
@@ -106,12 +118,17 @@ Applies of the Railway project (Actions → Railway → "Apply the plan", enviro
 - **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Approve at Actions → Railway → run 36946470385 → Review deployments. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
 - **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and the token pair `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: deploying the GPU app and its T4 check, then each GPU tool's first real run.
 
+## Parked for Astro
+
+- **A09 Stem Splitter: which stem model.** Demucs htdemucs is the best open model, and its code is MIT, but its weights sit outside the repository (Meta's file server) with no licence stated, and it was trained on MUSDB18-HQ, a research dataset. Under `CLAUDE.md` rule 6 an unclear weights licence means not using it, so A09 stays `soon` and nothing downloads it. **Recommended pick:** ask the author (Alexandre Défossez, who maintains the fork at github.com/adefossez/demucs) to confirm in an issue that the released htdemucs weights are MIT for commercial use; with a yes, approve htdemucs (4 stems, about a day to wire on the same GPU app, L4). Without one, the fallback is Spleeter (Deezer): MIT code, with its weights published as the repository's own release assets (the same reading that approved Real-ESRGAN), but noticeably weaker separation, TensorFlow, and training data its README doesn't name.
+
 ## Blocked
 
 - HEIC opens only in Safari until open question 10 (HEVC patents) is answered; `/convert/heic-to-jpg` and `/convert/heic-to-png` wait for it. Everything else continues.
 - Remove Background, Quality mode and the model benchmark: huggingface.co is blocked from this build environment, so BiRefNet_lite has not been run here. CI downloads it and prints its SHA-256 to pin. The benchmark (IoU on 5 photos with reference masks, desktop and 2 phones) needs license-free photos with masks and a WebGPU device, so it's for the stress test. Light mode is tested end to end.
 - Housekeeping only: `docs/design-handover` can't be deleted from this session (HTTP 403); see `docs/DECISIONS.md`.
-- M4's `LocalGpu` backend (upscale, stems and transcription on the 1080 Ti): this build environment has no GPU and can't download models (huggingface.co is blocked). The queue, the processor interface and `gpu_seconds` are ready for it; the GPU image (pinned Pascal build), the models and the three tools are built where the GPU is: on Astro's PC, during the stress test, or with M5's backend.
+- M4's `LocalGpu` backend (the 1080 Ti): this build environment has no GPU. M5's tools run on Modal instead (`GPU_BACKEND=modal`); `LocalGpu` is a stub that says it isn't set up.
+- M5's and Wave 3's GPU tools have never run on a real GPU: this environment has no GPU and no Modal token, and can reach neither huggingface.co nor Modal. The processors, the backend and the budget are tested with a stand-in GPU against real Postgres; the functions need Actions → Modal → Run workflow → "smoke" once the token is in GitHub's secrets. Three of the Real-ESRGAN hashes were read from Hugging Face's listings of copies of the files, not the release itself; CI's pins check confirms or corrects them before any image is built.
 
 ## Parked for Astro
 
@@ -133,6 +150,8 @@ pnpm db:migrate                # apply migrations to DATABASE_URL (the stack's m
 docker compose up --watch      # dev stack: http://localhost:3000 (sign in at /sign-in; emails at http://localhost:8025; /admin after pnpm admin:promote)
 docker compose exec worker python -m etb_worker --task daily_digest   # send the digest now (lands in Mailpit, or Telegram if set up)
 ```
+
+GPU tools (Upscale Image, Transcribe Audio, Auto Subtitles, Object Eraser, Upscale Video, Video Background Remover): the worker needs `GPU_BACKEND=modal` and a Modal token (`MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`), and the Modal app deployed (`cd apps/worker && uv run modal deploy -m etb_worker.gpu.modal_app`; `uv run python -m etb_worker.gpu.check --smoke` calls each function once on a tiny input). Then in Admin → Tools set each one's status to beta. Admin → Dashboard → GPU shows today's GPU spend and sets the daily budget.
 
 Server Compress Video on the stack: in Admin → Tools → Compress Video, tick "Server path on" and save. Within 30 s, /compress-video offers "Use our servers instead" after you add a video. Signed in, you get 3 free server jobs a day. VFR to CFR and Burn Subtitles: in Admin → Tools, set each one's status to beta; its page works within 30 s. Admin → Jobs lists every server job.
 

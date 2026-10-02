@@ -57,9 +57,11 @@ Send to a private **Telegram bot** (outbound messages only; bot token in env) an
 - A Click fiscal receipt still unsent after 6 tries or an hour (once per receipt; the retries carry on).
 - Retention sweeper hasn't completed in 30 min; any object in the bucket is older than 2 h (the sweeper should already have removed it — lifecycle is only the ≤ 48 h backstop); an incomplete multipart upload is older than 2 h; or the lifecycle rules are missing.
 - Disk > 80 % on any host; DB connections > 80 % of max.
+- Today's GPU spend reaches 80 % and 100 % of the daily GPU budget (once a day each; at 100 % GPU jobs stop starting, `05` → GPU costs and the daily budget).
+- A GPU call whose worker died couldn't be cancelled on Modal (immediate; it is charged to its job's time limit meanwhile).
 - Tool margin < 2× for a week (daily digest, not a page).
 
-Plus a **daily digest** message at 09:00 Asia/Tashkent: yesterday's jobs, failures, revenue, new users, top tools, top failing tools.
+Plus a **daily digest** message at 09:00 Asia/Tashkent: yesterday's jobs, failures, revenue, GPU seconds and cost, new users, top tools, top failing tools.
 
 ## Health endpoints
 

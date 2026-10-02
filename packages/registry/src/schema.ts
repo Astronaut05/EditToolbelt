@@ -56,6 +56,10 @@ export type UiType = (typeof UI_TYPES)[number];
 export const SURFACES = ['web', 'mobile', 'panel', 'api'] as const;
 export type Surface = (typeof SURFACES)[number];
 
+/** The GPU a tool's server path runs on (config/business.ts prices it by the second). */
+export const GPUS = ['T4', 'L4'] as const;
+export type Gpu = (typeof GPUS)[number];
+
 const kebab = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'must be lowercase kebab-case');
 
 /** UI copy rule (docs/03 → Copy rules): no em or en dashes. */
@@ -148,6 +152,12 @@ export const toolDefSchema = z
     limits: limitsSchema.optional(),
     cost: creditRuleSchema,
     surfaces: z.array(z.enum(SURFACES)).min(1),
+    /**
+     * The GPU its server path runs on: every `server-gpu` tool, and a hybrid
+     * tool whose server path is a GPU function. The jobs API prices the job's
+     * GPU time with it (config/business.ts → gpuRateUsd).
+     */
+    gpu: z.enum(GPUS).optional(),
     desktopBest: z.boolean().optional(),
     /**
      * Needs cross-origin isolation (SharedArrayBuffer for multi-threaded
@@ -175,6 +185,13 @@ export const toolDefSchema = z
     const serverOnly = tool.runtime === 'server-cpu' || tool.runtime === 'server-gpu';
     if (serverOnly && tool.cost.kind === 'free') {
       ctx.addIssue({ code: 'custom', path: ['cost'], message: 'server tools cost credits' });
+    }
+    const working = tool.status === 'live' || tool.status === 'beta';
+    if (tool.runtime === 'server-gpu' && working && !tool.gpu) {
+      ctx.addIssue({ code: 'custom', path: ['gpu'], message: 'server-gpu tools name their GPU' });
+    }
+    if ((tool.runtime === 'client' || tool.runtime === 'server-cpu') && tool.gpu) {
+      ctx.addIssue({ code: 'custom', path: ['gpu'], message: 'only GPU server paths have a GPU' });
     }
     if (tool.runtime === 'client' && tool.cost.kind !== 'free') {
       ctx.addIssue({ code: 'custom', path: ['cost'], message: 'browser tools are free' });

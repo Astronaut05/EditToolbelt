@@ -5,6 +5,7 @@ import {
   creditNetUsd,
   disposableEmailDomains,
   fiscalReceipt,
+  gpuRateUsd,
   packNetUsdPerCredit,
   packs,
   sellerTaxId,
@@ -107,5 +108,15 @@ describe('sellerTaxId', () => {
         ok: false,
         problem: 'fiscalReceipt.pinfl must be 14 digits.',
       });
+  });
+});
+
+describe('gpuRateUsd', () => {
+  it('prices a GPU function by the second: its GPU, 2 cores and 8 GiB', () => {
+    // T4 $0.000164 + 2 × $0.0000131 + 8 × $0.00000222
+    expect(gpuRateUsd('T4')).toBeCloseTo(0.00020796, 8);
+    expect(gpuRateUsd('L4')).toBeCloseTo(0.00026596, 8);
+    // About 75 ¢ and 96 ¢ an hour.
+    expect(gpuRateUsd('L4') * 3600).toBeCloseTo(0.957, 2);
   });
 });

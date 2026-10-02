@@ -1,0 +1,10 @@
+# The Whisper GPU image's packages (gpu/modal_app.py), at the versions docs/13 approves.
+# requirements-whisper.txt is compiled from this with every hash; regenerate it from apps/worker:
+#   uv pip compile src/etb_worker/gpu/requirements-whisper.in --python-version 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --generate-hashes \
+#     -o src/etb_worker/gpu/requirements-whisper.txt
+torch==2.10.0
+torchvision==0.25.0
+numpy==2.3.5
+openai-whisper==20250625
+numba==0.68.0

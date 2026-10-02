@@ -128,13 +128,18 @@ Written by the store's `complete` in the transaction that credits the purchase. 
 | error_detail | text null | safe, no content |
 | attempts | smallint | |
 | worker_id | text null | |
-| gpu_seconds | numeric null | |
+| gpu_seconds | numeric null | the job's GPU calls, measured inside the function (cold model loads included) |
+| gpu_rate_usd | numeric null | USD a second of the tool's GPU function (GPU, CPU, memory), written by the jobs API from `config/business.ts`; null for CPU jobs |
+| gpu_cost_usd | numeric null | what the GPU calls cost: billed seconds × the rate, set whatever the outcome (`05` → GPU costs and the daily budget) |
+| gpu_call_at, gpu_call_id | timestamptz null, text null | the GPU call in flight: when the worker started it, and the backend's id for it (Modal's `FunctionCall` id) once spawned; both cleared when its cost is recorded. A dead worker's call is cancelled by this id (`01` → GPU backend) |
+| gpu_output_keys | text[] | every key a GPU call got a presigned PUT URL for; the sweeper deletes the ones that aren't the live output on every pass until `gpu_put_expires_at`, then empties it |
+| gpu_put_expires_at | timestamptz null | when the last of those URLs expires |
 | cpu_seconds | numeric null | |
 | heartbeat_at, queued_at, started_at, finished_at, files_deleted_at | timestamptz | |
 | idempotency_key | text null | unique per (user_id, key) |
 | idempotency_hash | text null | SHA-256 of the canonical request body that first used the key; another body under the same key → 422. Null on rows from before migration 0009 |
 
-Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper).
+Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper); `(started_at)` where `gpu_rate_usd is not null` (today's GPU spend, read on every GPU claim); `(gpu_call_at)` where it is not null (calls in flight, for the reaper); `(gpu_put_expires_at)` where it is not null (the sweeper's GPU keys).
 
 Job rows older than 90 days are aggregated into `tool_stats_daily` and deleted.
 
@@ -160,7 +165,10 @@ Unconsumed uploads are deleted with their objects after 1 hour.
 | id | admin_id | action | target_type | target_id | before jsonb | after jsonb | reason text | created_at |
 
 **tool_stats_daily**
-| day | tool_id | runtime | jobs_total | jobs_failed | p50_ms | p95_ms | gpu_seconds | credits_charged | pk (day, tool_id, runtime) |
+| day | tool_id | runtime | jobs_total | jobs_failed | p50_ms | p95_ms | gpu_seconds | gpu_cost_usd | credits_charged | pk (day, tool_id, runtime) |
+
+**gpu_budget** — one row (`id = 1`): the daily GPU budget an admin sets (`05` → GPU costs and the daily budget).
+| id smallint pk (= 1) | daily_usd numeric default 1 (≥ 0) | updated_by fk users null | updated_at |
 
 Client-side tool usage comes from cookieless analytics events (`09-seo-and-growth.md`), not from this table.
 
