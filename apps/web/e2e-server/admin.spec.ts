@@ -264,6 +264,7 @@ test('the signed-in pages pass axe, light and dark', async ({ page }) => {
     `/admin/users/${user.id}`,
     '/admin/audit',
     '/admin/system',
+    '/admin/payments',
   ];
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {

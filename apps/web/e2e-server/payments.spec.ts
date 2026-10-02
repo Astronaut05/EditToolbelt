@@ -5,8 +5,9 @@
  * with its key (scripts/server-env.ts), so the only lock left is the admin's
  * switch per provider: off by default, and off again after each test.
  */
+import AxeBuilder from '@axe-core/playwright';
 import { adminAuditLog, and, eq, paymentSettings, purchases, users } from '@etb/db';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import { PAYMENTS_STUB_KEY, SERVER_PORT } from '../scripts/server-env.ts';
 import { becomeAdmin, closeTestDb, newEmail, signIn, testDb } from './helpers';
@@ -28,6 +29,23 @@ test.afterAll(async () => {
   await allOff();
   await closeTestDb();
 });
+
+/** Serious or critical WCAG 2.2 AA problems on the page, in light and dark. */
+async function axe(page: Page): Promise<string[]> {
+  const found: string[] = [];
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    for (const violation of results.violations) {
+      if (violation.impact === 'serious' || violation.impact === 'critical') {
+        found.push(`${scheme} ${page.url()} ${violation.id}`);
+      }
+    }
+  }
+  return found;
+}
 
 const checkout = (request: APIRequestContext, body: unknown, headers = {}) =>
   request.post('/api/v1/credits/checkout', {
@@ -96,6 +114,7 @@ test('switched on, a checkout makes a pending purchase and the provider’s call
   await paddle.getByRole('button', { name: 'Switch Paddle on' }).click();
   await expect(page).toHaveURL(/[?&]saved=on/, { timeout: 30_000 });
   await expect(page.getByRole('main').getByRole('status')).toContainText('Switched on');
+  expect(await axe(page)).toEqual([]);
   const [entry] = await db
     .select()
     .from(adminAuditLog)
@@ -153,10 +172,12 @@ test('switched on, a checkout makes a pending purchase and the provider’s call
   await buyer.getByRole('link', { name: 'Buy credits' }).click();
   await expect(buyer.getByRole('heading', { name: 'Buy credits', level: 1 })).toBeVisible();
   await expect(buyer.getByText('$5.00')).toBeVisible();
+  expect(await axe(buyer)).toEqual([]);
   await buyer.getByRole('button', { name: /^Buy Starter/ }).click();
   await expect(buyer).toHaveURL(/\/credits\/return\?purchase=/);
   await expect(buyer.getByRole('heading', { name: 'Waiting for Paddle to confirm' })).toBeVisible();
   const purchaseId = new URL(buyer.url()).searchParams.get('purchase') ?? '';
+  expect(await axe(buyer)).toEqual([]);
   // Someone else can't see it.
   expect((await request.get(`/api/v1/credits/purchases/${purchaseId}`)).status()).toBe(401);
   expect(
@@ -186,6 +207,7 @@ test('switched on, a checkout makes a pending purchase and the provider’s call
   const history = buyer.getByRole('region', { name: 'Your purchases' });
   await expect(history.getByRole('cell', { name: 'Paid' })).toBeVisible();
   await expect(history.getByRole('cell', { name: '$5.00' })).toBeVisible();
+  expect(await axe(buyer)).toEqual([]);
 
   // Switched off again: the links go, and the paths close at once.
   await allOff();
