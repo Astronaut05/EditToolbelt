@@ -39,6 +39,7 @@ export const ENGINE_IDS = [
   'audio-dsp',
   'audio-ml-server',
   'media-probe',
+  'file-hash',
   'text',
 ] as const;
 export type EngineId = (typeof ENGINE_IDS)[number];

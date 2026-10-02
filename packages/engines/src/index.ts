@@ -125,6 +125,7 @@ export {
   type NamesPlan,
 } from './files/batch-rename';
 export { takenDate } from './files/taken';
+export { fileChecksumEngine, type FileChecksumOptions } from './files/checksum';
 export {
   arrowHead,
   drawMark,
