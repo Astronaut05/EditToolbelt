@@ -341,7 +341,8 @@ def test_a_24_bit_flac_stays_24_bit_and_de_essing_softens_the_s(
 def test_a_preview_is_wav_whatever_the_format(noisy: Path, tmp_path: Path) -> None:
     output = clean(noisy, tmp_path, {"format": "mp3", "preview": True})
     assert (output.ext, output.content_type) == ("wav", "audio/wav")
-    assert not any(note.startswith("MP3") for note in output.meta["notes"])
+    # What was done to the snippet; its length and the format are the page's business.
+    assert not any(note.startswith(("MP3", "Same length")) for note in output.meta["notes"])
 
 
 def test_the_delay_is_measured_once_per_rate(tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ import { CleanedReader, cleanedBlock, previewSnippet, probeNoise } from './noise
  * A 16-bit mono WAV: one second of "speech" (a 200 Hz tone switching on and
  * off every 0.3 s) over a hiss whose level steps from `floors[i]` dB each second.
  */
-function speechWav(floors: readonly number[], rate = 16_000): Blob {
+function speechWav(floors: readonly number[], rate = 16_000, hum = 0): Blob {
   const frames = floors.length * rate;
   const data = new DataView(new ArrayBuffer(44 + frames * 2));
   const text = (at: number, s: string) => {
@@ -35,7 +35,8 @@ function speechWav(floors: readonly number[], rate = 16_000): Blob {
     const hiss = 10 ** ((floors[second] ?? -60) / 20) * random() * 3.4;
     const talking = Math.floor(i / (0.3 * rate)) % 2 === 0;
     const voice = talking ? 0.2 * Math.sin((2 * Math.PI * 200 * i) / rate) : 0;
-    data.setInt16(44 + i * 2, Math.round((voice + hiss) * 32_000), true);
+    const buzz = hum * Math.sin((2 * Math.PI * 60 * i) / rate);
+    data.setInt16(44 + i * 2, Math.round((voice + hiss + buzz) * 32_000), true);
   }
   return new Blob([data.buffer], { type: 'audio/wav' });
 }
@@ -73,6 +74,7 @@ describe('probeNoise', () => {
       sampleRate: 16_000,
       channels: 1,
       canDecode: true,
+      hum: 'off',
       sendBytes: file.size,
     });
     expect(info.durationSec).toBeCloseTo(34, 3);
@@ -84,6 +86,10 @@ describe('probeNoise', () => {
 
   it('starts a short file’s preview at 0', async () => {
     expect((await probeNoise(speechWav([-40, -40, -40]))).previewFrom).toBe(0);
+  });
+
+  it('hears 60 Hz mains hum, to suggest de-hum', async () => {
+    expect((await probeNoise(speechWav([-50, -50, -50, -50], 16_000, 0.02))).hum).toBe('60');
   });
 });
 

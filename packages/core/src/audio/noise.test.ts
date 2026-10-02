@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { flacBytes, LEVEL_WINDOW_SEC, NOISE_PREVIEW_SECONDS, previewStart } from './noise';
+import {
+  flacBytes,
+  HumMeter,
+  humGuess,
+  LEVEL_WINDOW_SEC,
+  NOISE_PREVIEW_SECONDS,
+  previewStart,
+} from './noise';
 
 /** Levels for `seconds` of windows: speech bursts over a background at `floor` dB. */
 function stretch(seconds: number, floor: number, voice: number | null = -20): number[] {
@@ -44,5 +51,35 @@ describe('flacBytes', () => {
   it('allows 70 % of 16-bit PCM', () => {
     // An hour of stereo at 48 kHz: 691 MB as PCM.
     expect(flacBytes(3600, 48000, 2)).toBe(Math.ceil(3600 * 48000 * 4 * 0.7) + 8192);
+  });
+});
+
+function sine(rate: number, seconds: number, hz: number, amplitude: number): Float32Array {
+  return Float32Array.from(
+    { length: Math.round(rate * seconds) },
+    (_, i) => amplitude * Math.sin((2 * Math.PI * hz * i) / rate),
+  );
+}
+
+describe('HumMeter and humGuess', () => {
+  it('hears 50 Hz hum, a little off frequency, under a voice-like tone', () => {
+    const meter = new HumMeter(16_000);
+    const hum = sine(16_000, 4, 50.2, 0.03);
+    const voice = sine(16_000, 4, 140, 0.3);
+    meter.push(hum.map((v, i) => v + (voice[i] ?? 0)));
+    const levels = meter.result();
+    // A sine's power is A² / 2; 0.2 Hz off its bin costs about 0.6 dB.
+    expect(Math.abs((levels[50] ?? 0) - (20 * Math.log10(0.03) - 3))).toBeLessThan(1);
+    expect(humGuess(levels)).toBe('50');
+  });
+
+  it('tells 60 Hz from 50 Hz, and says off with no hum', () => {
+    const sixty = new HumMeter(8000);
+    sixty.push(sine(8000, 3, 60, 0.01));
+    expect(humGuess(sixty.result())).toBe('60');
+    const clean = new HumMeter(8000);
+    clean.push(sine(8000, 3, 140, 0.3));
+    expect(humGuess(clean.result())).toBe('off');
+    expect(humGuess(new HumMeter(8000).result())).toBe('off');
   });
 });

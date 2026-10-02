@@ -58,3 +58,83 @@ export function previewStart(
 export function flacBytes(durationSec: number, sampleRate: number, channels: number): number {
   return Math.ceil(durationSec * sampleRate * channels * 2 * 0.7) + 8192;
 }
+
+/** Frequencies the hum check measures: the two mains frequencies, and two either side for the floor. */
+const HUM_FREQS = [40, 50, 60, 70] as const;
+
+/**
+ * Mains hum, spotted while the page reads the file: the level of 40, 50, 60
+ * and 70 Hz in 1 s blocks (Goertzel; a 1 s block is 1 Hz wide, so a mains
+ * frequency a little off still lands in its bin), averaged over the blocks.
+ */
+export class HumMeter {
+  private readonly coeffs: number[];
+  private readonly block: number;
+  private state: { s1: number; s2: number }[];
+  private filled = 0;
+  private readonly sums: number[];
+  private blocks = 0;
+
+  constructor(private readonly rate: number) {
+    this.block = Math.max(1, Math.round(rate));
+    this.coeffs = HUM_FREQS.map((f) => 2 * Math.cos((2 * Math.PI * f) / rate));
+    this.state = HUM_FREQS.map(() => ({ s1: 0, s2: 0 }));
+    this.sums = HUM_FREQS.map(() => 0);
+  }
+
+  /** Adds mono samples. */
+  push(samples: Float32Array): void {
+    for (const sample of samples) {
+      for (let k = 0; k < this.coeffs.length; k += 1) {
+        const state = this.state[k];
+        const coeff = this.coeffs[k] ?? 0;
+        if (!state) continue;
+        const s0 = sample + coeff * state.s1 - state.s2;
+        state.s2 = state.s1;
+        state.s1 = s0;
+      }
+      this.filled += 1;
+      if (this.filled === this.block) this.close();
+    }
+  }
+
+  private close(): void {
+    this.state.forEach(({ s1, s2 }, k) => {
+      const coeff = this.coeffs[k] ?? 0;
+      // A sine of amplitude A gives (A · N / 2)²: scaled to the sine's power, A² / 2.
+      const power = (s1 * s1 + s2 * s2 - coeff * s1 * s2) / (this.block * this.block);
+      this.sums[k] = (this.sums[k] ?? 0) + 2 * power;
+    });
+    this.state = HUM_FREQS.map(() => ({ s1: 0, s2: 0 }));
+    this.filled = 0;
+    this.blocks += 1;
+  }
+
+  /** dB of each frequency's average power (a full-scale sine is −3 dB), by frequency. */
+  result(): Record<number, number> {
+    return Object.fromEntries(
+      HUM_FREQS.map((f, k) => [
+        f,
+        this.blocks ? 10 * Math.log10((this.sums[k] ?? 0) / this.blocks + 1e-20) : -Infinity,
+      ]),
+    );
+  }
+}
+
+/**
+ * Whether the hum check heard mains hum: 50 or 60 Hz at least 10 dB over 40
+ * and 70 Hz, 6 dB over the other mains frequency, and louder than −70 dB.
+ */
+export function humGuess(levels: Record<number, number>): 'off' | '50' | '60' {
+  const at = (f: number) => levels[f] ?? -Infinity;
+  const floor = Math.max(at(40), at(70));
+  for (const [mains, other] of [
+    [50, 60],
+    [60, 50],
+  ] as const) {
+    if (at(mains) > -70 && at(mains) - floor >= 10 && at(mains) - at(other) >= 6) {
+      return mains === 50 ? '50' : '60';
+    }
+  }
+  return 'off';
+}

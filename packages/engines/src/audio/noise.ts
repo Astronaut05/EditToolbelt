@@ -13,6 +13,8 @@
  */
 import {
   flacBytes,
+  HumMeter,
+  humGuess,
   LEVEL_WINDOW_SEC,
   NOISE_PREVIEW_SECONDS,
   previewStart as pickStart,
@@ -63,6 +65,8 @@ export interface NoiseProbe {
   canDecode: boolean;
   /** Where the preview starts, seconds. */
   previewFrom: number;
+  /** Mains hum heard in the first minutes: the de-hum to suggest. */
+  hum: 'off' | '50' | '60';
   /** About what a full run uploads. */
   sendBytes: number;
   /** "MP3 · 44.1 kHz · stereo · 3:12" */
@@ -92,9 +96,16 @@ async function serverType(input: Input, video: boolean): Promise<ServerType | nu
   return null;
 }
 
-/** dBFS RMS of the sound (all channels) in 50 ms windows, from the start, for `seconds`. */
-async function levels(track: InputAudioTrack, seconds: number): Promise<number[]> {
+/**
+ * dBFS RMS of the sound (all channels) in 50 ms windows, from the start, for
+ * `seconds`, and the mains hum heard in it.
+ */
+async function scan(
+  track: InputAudioTrack,
+  seconds: number,
+): Promise<{ levels: number[]; hum: 'off' | '50' | '60' }> {
   const out: number[] = [];
+  let meter: HumMeter | null = null;
   let sum = 0;
   let count = 0;
   let window = 0;
@@ -107,6 +118,13 @@ async function levels(track: InputAudioTrack, seconds: number): Promise<number[]
         sample.copyTo(plane, { planeIndex, format: 'f32-planar' });
         return plane;
       });
+      meter ??= new HumMeter(sample.sampleRate);
+      const mono = new Float32Array(frames);
+      for (const plane of planes) {
+        for (let i = 0; i < frames; i += 1)
+          mono[i] = (mono[i] ?? 0) + (plane[i] ?? 0) / planes.length;
+      }
+      meter.push(mono);
       for (let i = 0; i < frames; i += 1) {
         for (const plane of planes) sum += (plane[i] ?? 0) ** 2;
         count += planes.length;
@@ -120,7 +138,7 @@ async function levels(track: InputAudioTrack, seconds: number): Promise<number[]
       sample.close();
     }
   }
-  return out;
+  return { levels: out, hum: meter ? humGuess(meter.result()) : 'off' };
 }
 
 /** Reads a file for Noise Reduction: the sound, the picture, and where to preview. */
@@ -146,10 +164,9 @@ export async function probeNoise(file: Blob): Promise<NoiseProbe> {
         `This browser can’t decode the ${codecLabel(codec)} sound in this file, so it can’t send it. Try Chrome, Edge or Safari, or save the sound as WAV or MP3 first.`,
       );
     }
-    const previewFrom =
-      canDecode && durationSec > NOISE_PREVIEW_SECONDS
-        ? pickStart(await levels(track, Math.min(durationSec, SCAN_SECONDS)), LEVEL_WINDOW_SEC)
-        : 0;
+    const heard = canDecode
+      ? await scan(track, Math.min(durationSec, SCAN_SECONDS))
+      : { levels: [], hum: 'off' as const };
     return {
       durationSec,
       video,
@@ -158,7 +175,8 @@ export async function probeNoise(file: Blob): Promise<NoiseProbe> {
       channels,
       codec,
       canDecode,
-      previewFrom,
+      previewFrom: pickStart(heard.levels, LEVEL_WINDOW_SEC),
+      hum: heard.hum,
       sendBytes: server ? file.size : flacBytes(durationSec, sampleRate, channels),
       summary: [
         codecLabel(codec),

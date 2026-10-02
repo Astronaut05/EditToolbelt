@@ -462,8 +462,8 @@ def notes(
         lines.append("Gently de-essed: sharp s sounds softened")
     if gain < 0:
         lines.append(f"Turned down {-gain:.1f} dB so the peaks stay under −1 dBTP")  # noqa: RUF001
-    lines.append(f"Same length as the original: {clock(sound.frames / sound.rate)}")
     if not options.get("preview"):
+        lines.append(f"Same length as the original: {clock(sound.frames / sound.rate)}")
         lines += plan.notes
     return lines
 

@@ -140,7 +140,9 @@ test('a free 10 s preview plays A/B, then the whole file is cleaned on our serve
       .filter({ visible: true })
       .first(),
   ).toBeVisible();
-  await page.getByRole('radio', { name: '50 Hz' }).click();
+  // The page heard the fixture's 50 Hz hum and set De-hum for it.
+  await expect(page.getByText('Mains hum at 50 Hz in the first minutes').first()).toBeVisible();
+  await expect(page.getByRole('radio', { name: '50 Hz' })).toBeChecked();
 
   await preview.click();
   // The fixture is 6 s, so the snippet is all of it.

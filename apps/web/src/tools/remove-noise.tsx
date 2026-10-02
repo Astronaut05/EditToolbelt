@@ -85,15 +85,24 @@ const probed = new WeakMap<File, NoiseProbe>();
 async function probe(file: File): Promise<ProbeInfo> {
   const info = await (await loadMediaEngines()).probeNoise(file);
   probed.set(file, info);
-  return {
-    durationSec: info.durationSec,
-    summary: info.summary,
-    values: { previewFrom: String(Math.floor(info.previewFrom)) },
-    warnings: info.video
+  const warnings = [
+    ...(info.hum !== 'off'
+      ? [`Mains hum at ${info.hum} Hz in the first minutes, so De-hum is set to ${info.hum} Hz.`]
+      : []),
+    ...(info.video
       ? [
           'Only the sound goes to our servers, as lossless FLAC. It comes back into this video in your browser; the picture is never uploaded.',
         ]
-      : undefined,
+      : []),
+  ];
+  return {
+    durationSec: info.durationSec,
+    summary: info.summary,
+    values: {
+      previewFrom: String(Math.floor(info.previewFrom)),
+      ...(info.hum !== 'off' && { dehum: info.hum }),
+    },
+    warnings: warnings.length ? warnings : undefined,
   };
 }
 
