@@ -8,13 +8,22 @@ describe('handoff', () => {
   it('gives the file to the tool it was meant for, once', () => {
     handOff(file, 'resize-image', 1000);
     expect(takeHandoff('compress-image', 1000)).toBeNull();
-    expect(takeHandoff('resize-image', 2000)).toBe(file);
+    expect(takeHandoff('resize-image', 2000)).toEqual([file]);
     expect(takeHandoff('resize-image', 2000)).toBeNull();
   });
 
   it('drops a file that waited too long', () => {
     handOff(file, 'resize-image', 0);
     expect(takeHandoff('resize-image', 60_000)).toBeNull();
+  });
+
+  it('hands several files on at once (a share from another app)', () => {
+    const a = new File(['a'], 'a.jpg', { type: 'image/jpeg' });
+    const b = new File(['b'], 'b.jpg', { type: 'image/jpeg' });
+    handOff([a, b], 'compress-image', 0);
+    expect(takeHandoff('compress-image', 10)).toEqual([a, b]);
+    handOff([], 'compress-image', 0);
+    expect(takeHandoff('compress-image', 10)).toBeNull();
   });
 
   it('matches types, wildcards and extensions', () => {

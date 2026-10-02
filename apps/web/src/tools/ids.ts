@@ -9,11 +9,15 @@ import type { CategoryId } from '@etb/registry';
  */
 export const VIEW_IDS = {
   photo: [
+    'add-text-to-image',
+    'blur-image',
     'compress-image',
     'crop-image',
+    'draw-on-image',
     'exif-remover',
     'image-converter',
     'object-eraser',
+    'photo-editor',
     'remove-background',
     'resize-image',
     'rotate-image',

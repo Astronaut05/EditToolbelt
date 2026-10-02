@@ -65,6 +65,7 @@ export const PAGES = [
   { name: 'video tool', path: '/video-converter' },
   { name: 'legal', path: '/privacy' },
   { name: 'licenses', path: '/licenses' },
+  { name: 'share', path: '/share' },
   { name: 'not found', path: '/no-such-page' },
 ] as const;
 

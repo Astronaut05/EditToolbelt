@@ -1,4 +1,5 @@
 import { categories, categoryPath } from '@etb/registry';
+import type { ReactNode } from 'react';
 
 import { AppLink } from '../primitives/AppLink';
 import { MonoLabel } from '../primitives/MonoLabel';
@@ -44,7 +45,8 @@ function Column({ title, links }: { title: string; links: { href: string; label:
 }
 
 /** Same footer on every page (design README → Category hub). */
-export function Footer({ year }: { year: number }) {
+/** `extra` goes under the theme switch: the app's install button. */
+export function Footer({ year, extra }: { year: number; extra?: ReactNode }) {
   return (
     <footer className="mt-18 border-t border-border">
       <div className="grid gap-10 px-4 pt-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr] lg:px-10">
@@ -57,6 +59,7 @@ export function Footer({ year }: { year: number }) {
             <MonoLabel as="span">Theme</MonoLabel>
             <ThemeToggle />
           </div>
+          {extra}
         </div>
         <Column
           title="Tools"

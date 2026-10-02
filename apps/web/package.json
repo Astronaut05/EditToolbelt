@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/models.ts && next dev",
-    "build": "node scripts/models.ts && next build && node scripts/postbuild.ts",
+    "dev": "node scripts/models.ts && node scripts/text-fonts.ts && next dev",
+    "build": "node scripts/models.ts && node scripts/text-fonts.ts && next build && node scripts/postbuild.ts",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
@@ -16,7 +16,7 @@
     "models": "node scripts/models.ts",
     "e2e:server": "node scripts/e2e-server.ts",
     "e2e:prod": "playwright test -c playwright.prod.config.ts",
-    "build:server": "node scripts/models.ts --strict && ETB_TARGET=server next build",
+    "build:server": "node scripts/models.ts --strict && node scripts/text-fonts.ts && ETB_TARGET=server next build",
     "start:server": "ETB_TARGET=server next start"
   },
   "dependencies": {
@@ -39,7 +39,10 @@
   "devDependencies": {
     "@fontsource-variable/onest": "^5.3.1",
     "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/montserrat": "^5.3.0",
+    "@fontsource/noto-serif": "^5.3.0",
     "@fontsource/onest": "^5.3.1",
+    "@fontsource/oswald": "^5.3.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/nodemailer": "8.0.2",
     "@types/react": "^19.2.0",

@@ -10,7 +10,7 @@ import { ORT_BUILDS, ORT_VERSION, SEGMENT_MODELS, type SegmentModel } from './mo
 const MODELS_CACHE = 'etb-models';
 
 /** `base` without trailing slashes, then `/file`. A loop, not a regex: the base comes from config. */
-function join(base: string, file: string): string {
+export function join(base: string, file: string): string {
   let end = base.length;
   while (end > 0 && base[end - 1] === '/') end -= 1;
   return `${base.slice(0, end)}/${file}`;

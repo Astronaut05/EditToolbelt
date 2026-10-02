@@ -1,7 +1,7 @@
 'use client';
 
-import type { Engine, NamesPlan } from '@etb/engines';
-import { ChevronRight, Download } from 'lucide-react';
+import { activeAreas, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
+import { ChevronRight, Download, Monitor } from 'lucide-react';
 import {
   lazy,
   startTransition,
@@ -30,6 +30,7 @@ import { SegmentedControl } from '../primitives/SegmentedControl';
 import { StatePanel } from '../primitives/states';
 import type { BatchItem } from './BatchList';
 import { BeforeAfter, MediaTag } from './BeforeAfter';
+import type { FaceFinder } from './BlurLayer';
 import { CalculatorShell } from './CalculatorShell';
 import type { EditorMode } from './CanvasEditor';
 import { boxLabel } from './crop';
@@ -111,6 +112,8 @@ export interface ShellTool {
   howTo?: string[];
   /** Set when the tool's server path is on (the server build reads it from the database). */
   server?: ServerInfo;
+  /** Small screens get a note that it works best on a computer (docs/01 → Mobile). */
+  desktopBest?: boolean;
 }
 
 export interface ShellOption {
@@ -450,6 +453,10 @@ export interface ShellPreset {
     ratio?: (options: Record<string, string>) => number | null;
     /** The option that holds Refine brush strokes (JSON): P07's keep/erase brush on the result. */
     refine?: string;
+    /** P12: blur mode's "Find faces". */
+    findFaces?: FaceFinder;
+    /** P01: the modes in a rail on the left (a bar along the bottom on phones). */
+    layout?: 'bar' | 'rail';
   };
   /**
    * C02: the image becomes a colour picker. Picks are kept (as a JSON list of
@@ -896,6 +903,12 @@ export function ToolShell({
               flip: edit.flip,
               flipV: edit.flipV,
               angle: edit.angle,
+              ...(!isNeutral(edit.adjust) && { adjust: edit.adjust }),
+              ...(edit.redact && activeAreas(edit.redact).length > 0 && { redact: edit.redact }),
+              ...(edit.marks && edit.marks.length > 0 && { marks: edit.marks }),
+              ...(edit.texts &&
+                edit.texts.length > 0 &&
+                editor.natural && { texts: edit.texts, natural: editor.natural }),
             }),
             ...(preset.combine && { files: queue.map((q) => q.file) }),
             ...(tool.ui === 'timeline' && {
@@ -973,6 +986,7 @@ export function ToolShell({
       cropping,
       editing,
       editor.edit,
+      editor.natural,
       engine,
       engineOptions,
       options,
@@ -1301,11 +1315,11 @@ export function ToolShell({
   useEffect(() => {
     if (handedOver.current) return;
     handedOver.current = true;
-    const file = takeHandoff(tool.id);
+    const files = takeHandoff(tool.id);
     // Arrives like a drop: an event from outside the render, not derived state.
-    if (file)
+    if (files)
       queueMicrotask(() => {
-        intake([file]);
+        intake(files);
       });
   }, [intake, tool.id]);
 
@@ -1555,6 +1569,12 @@ export function ToolShell({
         short
       />
       <PrivacyBadge runtime={tool.runtime} noun={preset.noun} className="mt-4 hidden lg:flex" />
+      {tool.desktopBest && (
+        <p className="mt-2 flex items-center gap-2 px-4 text-14 text-text-muted lg:hidden">
+          <Monitor size={16} strokeWidth={1.75} aria-hidden="true" className="flex-none" />
+          Works best on a computer, and works here too.
+        </p>
+      )}
     </div>
   );
 
@@ -2338,7 +2358,11 @@ function Workspace({
   } | null;
 }) {
   if (state.kind !== 'running' && state.kind !== 'result' && state.kind !== 'ready') return null;
-  const frame = 'relative h-98 overflow-hidden lg:absolute lg:inset-0 lg:h-auto';
+  // P01's editor carries a mode bar and a tool bar on phones: it gets most of the screen.
+  const frame = cn(
+    'relative overflow-hidden lg:absolute lg:inset-0 lg:h-auto',
+    preset.editor?.layout === 'rail' ? 'h-[max(24.5rem,72dvh)]' : 'h-98',
+  );
 
   if (picker && state.input.url) {
     return (
@@ -2427,6 +2451,8 @@ function Workspace({
             ratio={ratio}
             initialMode={preset.editor?.mode}
             enabledModes={preset.editor?.modes}
+            findFaces={preset.editor?.findFaces}
+            layout={preset.editor?.layout}
           />
         </Suspense>
       </div>

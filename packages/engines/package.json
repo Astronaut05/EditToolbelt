@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./remove-background": "./src/image/rmbg/remove-background.ts",
+    "./find-faces": "./src/image/faces/find-faces.ts",
     "./media": "./src/video/media.ts",
     "./media-engines": "./src/media-engines.ts"
   },
