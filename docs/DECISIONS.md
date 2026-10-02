@@ -1188,6 +1188,29 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** `tools/audio.md` → A07, A13.
 **Reverse:** the maths is in `@etb/core` (`fades.ts`, `channels.ts`), with tests; the pages only pick options.
 
+## 2026-10-02 · The browser tests run against the production image, through Access
+
+**Decision:**
+- **The same browser tests (`apps/web/e2e/`) now also run against a running site:** `playwright.prod.config.ts`, with `E2E_BASE_URL`. Chromium only; the static build's job keeps covering Firefox, WebKit and the phone.
+- **Two places run them:**
+  - CI's "Production web image" job, against the image Railway runs, on every PR.
+  - The live site after a deploy (the Smoke workflow, once the service token exists).
+- **Access is checked for real both times.** `e2e-prod/global-setup.ts` gets one `CF_Authorization` cookie, and every page, worker and asset request carries it.
+  - **Live site:** the cookie comes from one request with CI's service token. Access answers a valid service token with that cookie.
+  - **CI:** a stand-in Access team on 127.0.0.1:9797 serves a signing key at `/cdn-cgi/access/certs` and signs the cookie itself. The image is started with that team domain and audience, and the setup first checks that a request without the cookie gets 403.
+- **Four tests skip themselves on a running site:**
+  - the three that use the local workshop;
+  - the one about the service worker, since the server build has none (see "The server build").
+- **The CSP test checks the server build's policy instead** (`src/lib/csp.ts`): a header with `'unsafe-inline'` on prerendered pages, and a nonce plus `private, no-store` on `/sign-in`.
+- **`/search-index.json` in the server build is now built per request** (`route.server.ts`), with `Cache-Control: public, max-age=30`, the same as `/api/v1/tools`. Next's ISR header gave it `s-maxage=30, stale-while-revalidate` for a year, which has two effects:
+  - a browser answered from its stale copy and fetched the new one behind it, so a tool an admin had just switched showed its old status for one more visit;
+  - the background fetch never finished in the browser's network log, so the home page never went idle and a keyboard test timed out.
+  - The static build's index is unchanged (`route.static.ts`).
+- **First run against a local server build:** 152 passed, 5 skipped. Before the fixes above, 3 failed: the search index, the static CSP expectation, and the service worker.
+
+**Why:** Astro's Phase 2 asks for Playwright smoke tests against production through Access after each deploy, and "every tool works live". Until now the tool tests ran only on the static export, never on the build production runs.
+**Reverse:** delete `playwright.prod.config.ts`, `e2e-prod/` and the CI step. `remote` is false without `E2E_BASE_URL`.
+
 ## 2026-10-01 · Rotate & Flip Video and Resize Video for Social (M8)
 
 **Decision:**
