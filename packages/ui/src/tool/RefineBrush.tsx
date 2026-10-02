@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { Button } from '../primitives/Button';
+import { drawStrokes } from './brush';
 import { IconButton } from './CanvasEditor';
 import { Slider } from '../primitives/fields';
 import { SegmentedControl } from '../primitives/SegmentedControl';
@@ -97,25 +98,10 @@ export function RefineBrush({
         keep: styles.getPropertyValue('--media-accent').trim() || 'white',
         erase: styles.getPropertyValue('--danger').trim() || 'red',
       };
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (const stroke of extra ? [...strokes, extra] : strokes) {
-        ctx.strokeStyle = colour[stroke.mode];
-        ctx.fillStyle = colour[stroke.mode];
-        ctx.globalAlpha = 0.45;
-        ctx.lineWidth = stroke.radius * 2;
-        const [first, ...rest] = stroke.points;
-        if (!first) continue;
-        ctx.beginPath();
-        ctx.moveTo(first[0], first[1]);
-        if (rest.length === 0) {
-          ctx.arc(first[0], first[1], stroke.radius, 0, Math.PI * 2);
-          ctx.fill();
-          continue;
-        }
-        for (const [x, y] of rest) ctx.lineTo(x, y);
-        ctx.stroke();
-      }
+      drawStrokes(ctx, extra ? [...strokes, extra] : strokes, {
+        keep: { colour: colour.keep, alpha: 0.45 },
+        erase: { colour: colour.erase, alpha: 0.45 },
+      });
     },
     [strokes, fit, width, height],
   );

@@ -14,8 +14,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { MAX_PART_BATCH, PART_BATCH, partLength, planParts, type PartPlan } from '@etb/core/upload';
-import { and, count, eq, gt, isNull, purchases, sql, uploads } from '@etb/db';
+import { and, count, eq, gt, inArray, isNull, purchases, sql, uploads } from '@etb/db';
 import { hasServerPath, isAvailable, limitsOf, tools } from '@etb/registry';
+import { SUBTITLE_MIME_TYPES } from '@etb/registry/options';
 
 import { log } from '../lib/log';
 import type { CurrentUser } from './account';
@@ -39,11 +40,7 @@ export const UPLOAD_TTL_MS = 60 * 60 * 1000;
 /** Unfinished uploads one account may have at once. */
 export const MAX_OPEN_UPLOADS = 5;
 /** Subtitle files that go beside a video (Burn Subtitles); small, so capped on their own. */
-export const SUBTITLE_TYPES: ReadonlySet<string> = new Set([
-  'application/x-subrip',
-  'text/vtt',
-  'text/x-ssa',
-]);
+export const SUBTITLE_TYPES: ReadonlySet<string> = new Set(SUBTITLE_MIME_TYPES);
 const MAX_SUBTITLE_BYTES = 5_000_000;
 
 export type Upload = typeof uploads.$inferSelect;
@@ -56,7 +53,13 @@ export async function tierOf(userId: string): Promise<Tier> {
   const [row] = await db()
     .select({ n: count() })
     .from(purchases)
-    .where(and(eq(purchases.userId, userId), eq(purchases.status, 'completed')));
+    .where(
+      and(
+        eq(purchases.userId, userId),
+        // Paid: a pack that went through and wasn't wholly taken back.
+        inArray(purchases.status, ['completed', 'partially_refunded']),
+      ),
+    );
   return (row?.n ?? 0) > 0 ? 'paid' : 'free';
 }
 

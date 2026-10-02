@@ -1,0 +1,19 @@
+# The ONNX Runtime GPU image's packages (gpu/modal_app.py: Object Eraser's MI-GAN and the
+# Video Background Remover's BiRefNet_lite), at the versions docs/13 approves.
+# ONNX Runtime 1.26.0 is the last built for CUDA 12; its `cuda` extra leaves out cuBLAS and
+# floats the versions, so the CUDA 12.8 and cuDNN wheels PyTorch 2.10 pins are named here.
+# requirements-onnx.txt is compiled from this with every hash; regenerate it from apps/worker:
+#   uv pip compile src/etb_worker/gpu/requirements-onnx.in --python-version 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --generate-hashes \
+#     -o src/etb_worker/gpu/requirements-onnx.txt
+onnxruntime-gpu==1.26.0
+nvidia-cuda-runtime-cu12==12.8.90
+nvidia-cuda-nvrtc-cu12==12.8.93
+nvidia-cublas-cu12==12.8.4.1
+nvidia-cudnn-cu12==9.10.2.21
+nvidia-cufft-cu12==11.3.3.83
+nvidia-curand-cu12==10.3.9.90
+# cuFFT's own dependency, at PyTorch 2.10's version rather than the newest 12.x.
+nvidia-nvjitlink-cu12==12.8.93
+numpy==2.3.5
+pillow==12.3.0

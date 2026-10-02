@@ -11,7 +11,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDb, type Db } from './client';
 import { applyCredit, InsufficientCreditsError, ledgerMismatches } from './credits';
-import { adminAuditLog, creditTransactions, sessions, users } from './schema';
+import {
+  adminAuditLog,
+  creditTransactions,
+  paymentSettings,
+  purchases,
+  sessions,
+  users,
+} from './schema';
 import { migrateForTests } from './testing';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -38,6 +45,26 @@ describe.skipIf(!url)('database', () => {
       .returning({ id: users.id });
     if (!user) throw new Error('no user');
     return user.id;
+  }
+
+  async function newPurchase(
+    userId: string,
+    values: Partial<typeof purchases.$inferInsert> = {},
+  ): Promise<string> {
+    const [row] = await db
+      .insert(purchases)
+      .values({
+        userId,
+        provider: 'paddle',
+        packId: 'starter',
+        credits: 200,
+        amountMinor: 500,
+        currency: 'USD',
+        ...values,
+      })
+      .returning({ id: purchases.id });
+    if (!row) throw new Error('no purchase');
+    return row.id;
   }
 
   /** The Postgres error code under whatever wrapper the driver adds. */
@@ -132,6 +159,119 @@ describe.skipIf(!url)('database', () => {
       reason: 'Support: failed export on 30 Sep',
     });
     expect(granted.balanceAfter).toBe(25);
+  });
+
+  it('lets only a refund that asks for it take a balance below zero', async () => {
+    const userId = await newUser();
+    const purchaseId = await newPurchase(userId);
+    await applyCredit(db, userId, 'purchase', 200, { purchaseId });
+    await applyCredit(db, userId, 'reserve', -150, { jobId: randomUUID() });
+    // Without the option, a refund is held to zero like anything else.
+    await expect(
+      applyCredit(db, userId, 'refund_purchase', -200, { purchaseId, reason: 're_1' }),
+    ).rejects.toBeInstanceOf(InsufficientCreditsError);
+    const refund = await applyCredit(
+      db,
+      userId,
+      'refund_purchase',
+      -200,
+      { purchaseId, reason: 're_1' },
+      { allowNegativeBalance: true },
+    );
+    expect(refund.balanceAfter).toBe(-150);
+    // Paid jobs wait for a top-up; rows that give credits back still land.
+    await expect(
+      applyCredit(db, userId, 'reserve', -1, { jobId: randomUUID() }),
+    ).rejects.toBeInstanceOf(InsufficientCreditsError);
+    const release = await applyCredit(db, userId, 'release', 150, { jobId: randomUUID() });
+    expect(release.balanceAfter).toBe(0);
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    expect(user?.creditBalance).toBe(0);
+    expect((await ledgerMismatches(db)).filter((m) => m.userId === userId)).toEqual([]);
+  });
+
+  it('refuses the negative option on any kind but refund_purchase', async () => {
+    const userId = await newUser();
+    await expect(
+      applyCredit(
+        db,
+        userId,
+        'admin_debit',
+        -5,
+        { adminId: userId, reason: 'test' },
+        { allowNegativeBalance: true },
+      ),
+    ).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it('keeps a negative balance_after to refund rows in the database too', async () => {
+    const userId = await newUser();
+    const purchaseId = await newPurchase(userId);
+    const insert = (kind: 'reserve' | 'refund_purchase' | 'release', amount: number) =>
+      db.insert(creditTransactions).values({
+        userId,
+        kind,
+        amount,
+        balanceAfter: -10,
+        jobId: kind === 'refund_purchase' ? null : randomUUID(),
+        purchaseId: kind === 'refund_purchase' ? purchaseId : null,
+        reason: kind === 'refund_purchase' ? `re_${randomUUID()}` : null,
+      });
+    expect(await pgCode(insert('reserve', -10))).toBe('23514');
+    await insert('refund_purchase', -10);
+    await insert('release', 5);
+    // Rows written by hand: put the cached balance in step, or the shared
+    // database fails every later ledger check (the worker's included).
+    await db.update(users).set({ creditBalance: -5 }).where(eq(users.id, userId));
+    expect((await ledgerMismatches(db)).filter((m) => m.userId === userId)).toEqual([]);
+  });
+
+  it('writes one purchase row per purchase and one row per refund id', async () => {
+    const userId = await newUser();
+    const purchaseId = await newPurchase(userId);
+    await applyCredit(db, userId, 'purchase', 200, { purchaseId });
+    expect(await pgCode(applyCredit(db, userId, 'purchase', 200, { purchaseId }))).toBe('23505');
+    const refund = () =>
+      applyCredit(
+        db,
+        userId,
+        'refund_purchase',
+        -50,
+        { purchaseId, reason: 're_same' },
+        { allowNegativeBalance: true },
+      );
+    await refund();
+    expect(await pgCode(refund())).toBe('23505');
+    // Purchase and refund rows always name their purchase.
+    expect(await pgCode(applyCredit(db, userId, 'purchase', 10))).toBe('23514');
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    expect(user?.creditBalance).toBe(150);
+  });
+
+  it('keeps provider transaction ids unique per provider, and lets them wait', async () => {
+    const userId = await newUser();
+    await newPurchase(userId);
+    await newPurchase(userId);
+    const txn = `txn_${randomUUID()}`;
+    await newPurchase(userId, { providerTxnId: txn });
+    await newPurchase(userId, { provider: 'payme', providerTxnId: txn });
+    expect(await pgCode(newPurchase(userId, { providerTxnId: txn }))).toBe('23505');
+    const id = await newPurchase(userId, { status: 'cancelled', provider: 'click' });
+    const [row] = await db.select().from(purchases).where(eq(purchases.id, id));
+    expect(row?.providerData).toEqual({});
+    expect(row?.status).toBe('cancelled');
+    expect(await pgCode(newPurchase(userId, { credits: 0 }))).toBe('23514');
+  });
+
+  it('keeps one payment switch per provider, off unless set', async () => {
+    const provider = `test-${randomUUID()}`;
+    await db.insert(paymentSettings).values({ provider });
+    const [row] = await db
+      .select()
+      .from(paymentSettings)
+      .where(eq(paymentSettings.provider, provider));
+    expect(row?.enabled).toBe(false);
+    expect(await pgCode(db.insert(paymentSettings).values({ provider }))).toBe('23505');
   });
 
   it('keeps no IP address or user agent on a session', async () => {

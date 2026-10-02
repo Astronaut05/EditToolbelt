@@ -16,7 +16,7 @@ Conventions: `id` is UUIDv7 (time-sortable) unless noted, with Postgres 18's nat
 | email_verified_at | timestamptz null | |
 | display_name | text null | optional |
 | role | enum `user`,`admin` | |
-| credit_balance | int not null default 0 | cached; always equals sum of ledger — see invariant |
+| credit_balance | int not null default 0 | cached; always equals sum of ledger — see invariant. Below zero only after a refunded pack (see Money) |
 | marketing_opt_in | bool default false | explicit opt-in only |
 | locale | text default 'en' | |
 | deleted_at | timestamptz null | soft-delete during 30-day grace, then the row is scrubbed into a tombstone (see Account deletion) |
@@ -62,28 +62,42 @@ Conventions: `id` is UUIDv7 (time-sortable) unless noted, with Postgres 18's nat
 | purchase_id | fk purchases null | |
 | admin_id | fk users null | who did an admin grant/debit |
 | reason | text null | required for admin kinds |
-| balance_after | int | running balance for auditing |
+| balance_after | int | running balance for auditing. Below zero only on a `refund_purchase` row, or on a later row that adds or keeps credits (check constraint) |
 
-Invariant: `users.credit_balance = SUM(credit_transactions.amount)` for that user. Every write goes through one function `applyCredit(tx, userId, kind, amount, refs)` which inserts the row and updates the cached balance in the same transaction with `SELECT … FOR UPDATE` on the user row. A nightly job verifies the invariant for all users and alerts on any mismatch.
+Invariant: `users.credit_balance = SUM(credit_transactions.amount)` for that user. Every write goes through one function `applyCredit(tx, userId, kind, amount, refs, options)` which inserts the row and updates the cached balance in the same transaction with `SELECT … FOR UPDATE` on the user row. A nightly job verifies the invariant for all users and alerts on any mismatch.
+
+A negative amount never takes the balance below zero, except a `refund_purchase` row that asks for it (`allowNegativeBalance`, refused for every other kind): a refunded pack's credits come off even when some were spent (`05` → Payments). A balance below zero then blocks paid jobs until it's topped up. One `purchase` row per purchase and one `refund_purchase` row per (purchase, refund id in `reason`), by partial unique indexes.
 
 **purchases**
 | column | type | notes |
 |---|---|---|
-| id | uuid pk | |
+| id | uuid pk | our order id; providers see it |
 | user_id | fk users | |
-| provider | text | `paddle` |
-| provider_txn_id | text unique | idempotency on webhooks |
+| provider | text | `paddle`, `click`, `payme` |
+| provider_txn_id | text null | the provider's transaction (Paddle `txn_…`, Click `click_trans_id`, Payme id), once it has one; unique per (provider, provider_txn_id) |
 | pack_id | text | from `config/business.ts` |
-| credits | int | |
-| amount_minor | int | what the customer paid, in currency minor units |
-| currency | char(3) | |
-| status | enum `pending`,`completed`,`refunded`,`partially_refunded`,`chargeback` | |
-| raw_event_id | fk webhook_events | |
+| credits | int | > 0 |
+| amount_minor | int | what the customer pays, in the currency's minor units (cents, tiyin); > 0 |
+| currency | char(3) | `USD` (Paddle) or `UZS` (Click, Payme) |
+| status | enum `pending`,`completed`,`cancelled`,`refunded`,`partially_refunded`,`chargeback` | |
+| provider_data | jsonb not null default `{}` | provider-specific state: Payme's times, state and reason; Click's prepare id; Paddle's refund ids |
+| raw_event_id | fk webhook_events null | |
+
+Indexes: `(user_id, created_at)`; `(provider, created_at)`; unique `(provider, provider_txn_id)`. Pending purchases are never cancelled for age (Payme may still pay an order up to 7 days old).
+
+**payment_settings** — the admin's switch per payment provider (`05` → Payments). No row means off.
+| provider pk | enabled bool default false | updated_at | updated_by fk users null | reason text null |
+
+Every change is also an `admin_audit_log` row.
 
 **webhook_events**
-| id | provider | event_id (unique) | type | payload jsonb | received_at | processed_at | error text null |
+| id | provider | event_id (unique) | type | payload jsonb | received_at | processed_at | error text null | answer text null |
 
-Store, then process. Processing is idempotent on `event_id`.
+Store, then process. Unique per (provider, event_id); processing is idempotent. An event stays fresh until it's processed without an error, so a provider's retry after a failure is processed again.
+
+- Paddle: one row per webhook (`event_id`). Click: one per Click transaction and action (`<click_trans_id>:<action>`). Payme: one per method and transaction (`<method>:<id>`; the order for CheckPerformTransaction, the period for GetStatement).
+- `error`: something a person must look at (a payment not credited, a store failure); it alerts at once (`07` → Alerts).
+- `answer`: Click and Payme only, what we answered (their code and note, or `result`). A refusal their protocol expects is an answer, not an error.
 
 ### Jobs
 
@@ -109,13 +123,18 @@ Store, then process. Processing is idempotent on `event_id`.
 | error_detail | text null | safe, no content |
 | attempts | smallint | |
 | worker_id | text null | |
-| gpu_seconds | numeric null | |
+| gpu_seconds | numeric null | the job's GPU calls, measured inside the function (cold model loads included) |
+| gpu_rate_usd | numeric null | USD a second of the tool's GPU function (GPU, CPU, memory), written by the jobs API from `config/business.ts`; null for CPU jobs |
+| gpu_cost_usd | numeric null | what the GPU calls cost: billed seconds × the rate, set whatever the outcome (`05` → GPU costs and the daily budget) |
+| gpu_call_at, gpu_call_id | timestamptz null, text null | the GPU call in flight: when the worker started it, and the backend's id for it (Modal's `FunctionCall` id) once spawned; both cleared when its cost is recorded. A dead worker's call is cancelled by this id (`01` → GPU backend) |
+| gpu_output_keys | text[] | every key a GPU call got a presigned PUT URL for; the sweeper deletes the ones that aren't the live output on every pass until `gpu_put_expires_at`, then empties it |
+| gpu_put_expires_at | timestamptz null | when the last of those URLs expires |
 | cpu_seconds | numeric null | |
 | heartbeat_at, queued_at, started_at, finished_at, files_deleted_at | timestamptz | |
 | idempotency_key | text null | unique per (user_id, key) |
 | idempotency_hash | text null | SHA-256 of the canonical request body that first used the key; another body under the same key → 422. Null on rows from before migration 0009 |
 
-Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper).
+Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper); `(started_at)` where `gpu_rate_usd is not null` (today's GPU spend, read on every GPU claim); `(gpu_call_at)` where it is not null (calls in flight, for the reaper); `(gpu_put_expires_at)` where it is not null (the sweeper's GPU keys).
 
 Job rows older than 90 days are aggregated into `tool_stats_daily` and deleted.
 
@@ -135,13 +154,16 @@ Unconsumed uploads are deleted with their objects after 1 hour.
 **welcome_grant_claims**
 | email_hmac pk | claimed_at |
 
-`email_hmac` = HMAC-SHA256(lowercased email, grant_secret) with a long-lived secret. Written when the welcome grant is given; survives account deletion so delete-and-re-sign-up can't farm grants. Purged after 12 months. Listed in the Privacy page (fraud prevention, legitimate interest).
+`email_hmac` = HMAC-SHA256(normalised email, grant_secret) with a long-lived secret (`WELCOME_GRANT_SECRET`, else derived from `BETTER_AUTH_SECRET`). Normalised: lowercase, `+tag` dropped, Gmail's dots dropped (`05` → Welcome grant). Written when the welcome grant is given; survives account deletion so delete-and-re-sign-up can't farm grants. Purged after 12 months. Listed in the Privacy page (fraud prevention, legitimate interest).
 
 **admin_audit_log** — every admin action.
 | id | admin_id | action | target_type | target_id | before jsonb | after jsonb | reason text | created_at |
 
 **tool_stats_daily**
-| day | tool_id | runtime | jobs_total | jobs_failed | p50_ms | p95_ms | gpu_seconds | credits_charged | pk (day, tool_id, runtime) |
+| day | tool_id | runtime | jobs_total | jobs_failed | p50_ms | p95_ms | gpu_seconds | gpu_cost_usd | credits_charged | pk (day, tool_id, runtime) |
+
+**gpu_budget** — one row (`id = 1`): the daily GPU budget an admin sets (`05` → GPU costs and the daily budget).
+| id smallint pk (= 1) | daily_usd numeric default 1 (≥ 0) | updated_by fk users null | updated_at |
 
 Client-side tool usage comes from cookieless analytics events (`09-seo-and-growth.md`), not from this table.
 

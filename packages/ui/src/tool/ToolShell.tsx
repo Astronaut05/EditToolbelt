@@ -18,7 +18,7 @@ import {
 import { cn } from '../cn';
 import { AppLink } from '../primitives/AppLink';
 import { Breadcrumb } from '../primitives/Breadcrumb';
-import { Button } from '../primitives/Button';
+import { Button, ButtonLink } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
 import { NumberedList } from '../primitives/NumberedList';
 import { OptionFact, OptionRow, OptionsPanel, OptionStack } from '../primitives/OptionsPanel';
@@ -45,6 +45,7 @@ import { durationBucket, formatBytes, outputName, plural, sizeBucket } from './f
 import { ProgressBar } from './ProgressBar';
 import type { FocusFrame } from './FocusPicker';
 import type { GraphInfo } from './LineGraph';
+import { MASK_MODES, parseStrokes, type MaskStroke } from './brush';
 import type { BrushStroke } from './RefineBrush';
 import { Readout, ReadoutRow, type Fact } from './Readout';
 import type { ServerAccount, ServerInfo, ServerQuote, ShellServer } from './server';
@@ -72,6 +73,7 @@ const FocusPicker = lazy(() => import('./FocusPicker').then((m) => ({ default: m
 const LineGraph = lazy(() => import('./LineGraph').then((m) => ({ default: m.LineGraph })));
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
 const RefineBrush = lazy(() => import('./RefineBrush').then((m) => ({ default: m.RefineBrush })));
+const MaskBrush = lazy(() => import('./MaskBrush').then((m) => ({ default: m.MaskBrush })));
 const Swatches = lazy(() => import('./Swatches').then((m) => ({ default: m.Swatches })));
 const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.TempoTools })));
 
@@ -465,6 +467,12 @@ export interface ShellPreset {
     frames: (options: Record<string, string>) => FocusFrame[];
     when?: (options: Record<string, string>) => boolean;
   };
+  /**
+   * P17: before the run, the image takes a mask brush (mark what to remove).
+   * The strokes are kept as JSON, in image px, in `option`; the page turns
+   * them into the mask it sends.
+   */
+  mask?: { option: string };
   /** A03: a tap tempo pad and a metronome under the settings, file or not. */
   tempo?: boolean;
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
@@ -605,6 +613,8 @@ export type ShellState =
       body: string;
       /** The file, when our servers can try it instead. */
       retry?: { input: InputInfo; file: File };
+      /** Where to buy credits, when more would fix it and they're on sale. */
+      buyHref?: string;
     };
 
 export interface ToolShellProps {
@@ -811,7 +821,8 @@ export function ToolShell({
   const ratio = ratioOf?.(options) ?? null;
   const editor = useEditor(ratio);
   const resetEditor = editor.reset;
-  const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare;
+  // A mask brush (P17) takes the canvas instead of the crop and turn editor.
+  const editing = tool.ui === 'canvas-editor' && !preset.editor?.compare && !preset.mask;
   const cropping = editing && (preset.editor?.modes?.includes('crop') ?? true);
   const [cropSheet, setCropSheet] = useState(false);
   // P07: the Refine brush over the result.
@@ -994,7 +1005,11 @@ export function ToolShell({
       setOnServer(true);
       setState({ kind: 'running', input, stage: 'Uploading', fraction: 0, elapsedSec: 0 });
       try {
-        const credits = server.estimate(media?.durationSec ?? input.durationSec);
+        const credits = server.estimate(
+          media?.durationSec ?? input.durationSec,
+          { width: media?.width ?? input.width, height: media?.height ?? input.height },
+          options,
+        );
         const free =
           credits === 0 || (account !== null && account !== undefined && account.freeJobsLeft > 0);
         const out = await server.run(file, options, {
@@ -1029,6 +1044,11 @@ export function ToolShell({
         });
         const url = URL.createObjectURL(out.blob);
         urls.current.push(url);
+        // Text results (subtitles, transcripts) show their start, as browser ones do.
+        const text =
+          preset.preview === 'text'
+            ? (await out.blob.text()).slice(0, TEXT_PREVIEW_CHARS)
+            : undefined;
         const seconds = (performance.now() - started) / 1000;
         track('tool_run_succeeded', {
           engine_path: 'server',
@@ -1051,6 +1071,7 @@ export function ToolShell({
             width: out.width ?? input.width,
             height: out.height ?? input.height,
             notes: out.notes,
+            text,
           },
         });
       } catch (error) {
@@ -1062,15 +1083,17 @@ export function ToolShell({
           /\.$/,
           '',
         );
+        const buyHref = known?.needsCredits ? account?.buyHref : null;
         setState({
           kind: 'error',
           label: "Couldn't process this file",
           title: known?.title ?? 'Our servers couldn’t do this',
           body: `${message}.${known?.creditsReturned ? ' Credits returned.' : ''}`,
+          ...(buyHref && { buyHref }),
         });
       }
     },
-    [account, media, options, server, serverPath, track],
+    [account, media, options, preset.preview, server, serverPath, track],
   );
 
   // The account decides the offer's terms: loaded when the offer shows.
@@ -1164,6 +1187,8 @@ export function ToolShell({
       if (refineId) setOptions((current) => ({ ...current, [refineId]: '' }));
       const focusId = preset.focus?.option;
       if (focusId) setOptions((current) => ({ ...current, [focusId]: '' }));
+      const maskId = preset.mask?.option;
+      if (maskId) setOptions((current) => ({ ...current, [maskId]: '' }));
       if (preset.maxFiles && files.length > preset.maxFiles) {
         setState({
           kind: 'error',
@@ -1561,7 +1586,14 @@ export function ToolShell({
   // The offer's numbers: the price for this file's length, and whether this account can start it.
   const serverCredits =
     server && state.kind === 'ready'
-      ? server.estimate(media?.durationSec ?? state.input.durationSec)
+      ? server.estimate(
+          media?.durationSec ?? state.input.durationSec,
+          {
+            width: media?.width ?? state.input.width,
+            height: media?.height ?? state.input.height,
+          },
+          options,
+        )
       : null;
   const serverOffer =
     server && serverReason !== null && state.kind === 'ready'
@@ -1708,20 +1740,27 @@ export function ToolShell({
     </p>
   );
 
-  // Back to the image to change the crop (editors) or the sizes and focal point (P13), then run again.
-  const back = state.kind === 'result' && (editing || preset.focus) && state.file && (
-    <p className="mt-3.5 px-4 text-14 lg:px-0">
-      <button
-        type="button"
-        className="link-accent"
-        onClick={() => {
-          if (state.file) setState({ kind: 'ready', input: state.input, files: [state.file] });
-        }}
-      >
-        {editing ? 'Back to the editor' : 'Back to the settings'}
-      </button>
-    </p>
-  );
+  // Back to the image to change the crop (editors), the sizes and focal point (P13) or the mask
+  // (P17), then run again.
+  const back = state.kind === 'result' &&
+    (editing || preset.focus || preset.mask) &&
+    state.file && (
+      <p className="mt-3.5 px-4 text-14 lg:px-0">
+        <button
+          type="button"
+          className="link-accent"
+          onClick={() => {
+            if (state.file) setState({ kind: 'ready', input: state.input, files: [state.file] });
+          }}
+        >
+          {editing
+            ? 'Back to the editor'
+            : preset.mask
+              ? 'Back to the brush'
+              : 'Back to the settings'}
+        </button>
+      </p>
+    );
 
   const next = result && tool.related.length > 0 && (
     <p className="mt-3.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 text-14 text-text-muted lg:px-0">
@@ -1808,6 +1847,17 @@ export function ToolShell({
             }
           : null
       }
+      mask={
+        preset.mask
+          ? {
+              strokes: parseStrokes(options[preset.mask.option], MASK_MODES),
+              onChange: (strokes) => {
+                if (preset.mask)
+                  changeOption(preset.mask.option, strokes.length ? JSON.stringify(strokes) : '');
+              },
+            }
+          : null
+      }
       refine={
         refining && refineOption
           ? {
@@ -1845,7 +1895,15 @@ export function ToolShell({
                 Use our servers
               </Button>
             )}
-            <Button variant={state.retry ? 'secondary' : 'primary'} onClick={cancel}>
+            {state.buyHref && (
+              <ButtonLink href={state.buyHref} variant="primary">
+                Buy credits
+              </ButtonLink>
+            )}
+            <Button
+              variant={state.retry || state.buyHref ? 'secondary' : 'primary'}
+              onClick={cancel}
+            >
               Try another file
             </Button>
           </>
@@ -2134,6 +2192,7 @@ function Workspace({
   peaks,
   picker,
   focus,
+  mask,
   refine,
 }: {
   state: ShellState;
@@ -2168,6 +2227,7 @@ function Workspace({
     frames: FocusFrame[];
     onChange: (value: string) => void;
   } | null;
+  mask: { strokes: MaskStroke[]; onChange: (strokes: MaskStroke[]) => void } | null;
   refine: {
     strokes: BrushStroke[];
     apply: (strokes: BrushStroke[]) => void;
@@ -2234,6 +2294,22 @@ function Workspace({
           multiRange={multiRange}
         />
       </Suspense>
+    );
+  }
+
+  if (mask && state.kind === 'ready' && state.input.url) {
+    return (
+      <div className={frame}>
+        <Suspense fallback={null}>
+          <MaskBrush
+            src={state.input.url}
+            width={media?.width}
+            height={media?.height}
+            strokes={mask.strokes}
+            onChange={mask.onChange}
+          />
+        </Suspense>
+      </div>
     );
   }
 
@@ -2380,18 +2456,20 @@ function Workspace({
       <div className={frame}>
         {output.url && output.blob && /^(video|audio)\//.test(output.blob.type) ? (
           <div className="absolute inset-0 flex items-center justify-center bg-media-scrim p-6 pb-24">
+            {/* The header and first frame only, until played: with the
+                default (auto), Linux WebKit (GStreamer) can freeze the page
+                loading the result (docs/DECISIONS.md, 2026-10-02, a result's
+                audio player, and a result's video player). */}
             {output.blob.type.startsWith('video/') ? (
               <video
                 src={output.url}
                 controls
                 playsInline
+                preload="metadata"
                 aria-label="Result"
                 className="max-h-full max-w-full"
               />
             ) : (
-              // The header only, until played: with the default (auto), Linux
-              // WebKit (GStreamer) can freeze the page loading the result
-              // (docs/DECISIONS.md, 2026-10-02, a result's audio player).
               <audio
                 src={output.url}
                 controls

@@ -55,6 +55,17 @@ export { OPEN_SEARCH_EVENT, SearchButton, SearchOverlay } from './layout/SearchO
 export { loadSearchIndex, SEARCH_INDEX_URL, useGo, useSearch } from './layout/useSearch';
 
 export { BatchList, type BatchItem } from './tool/BatchList';
+export {
+  addPoint,
+  drawStrokes,
+  MASK_MODES,
+  parseStrokes,
+  type MaskMode,
+  type MaskStroke,
+  type Stroke,
+  type StrokeStyle,
+  type StrokeTarget,
+} from './tool/brush';
 export { BeforeAfter, MediaTag } from './tool/BeforeAfter';
 export { CalculatorShell } from './tool/CalculatorShell';
 export { CanvasEditor, type CanvasEditorProps, type EditorMode } from './tool/CanvasEditor';

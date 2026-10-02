@@ -52,6 +52,9 @@ test('Fast sets the rotation flag on an MP4 and copies every frame', async ({ pa
   await drop(page, 'clip-h264-aac.mp4');
   await choose(page, isMobile, 'How', 'Fast, by flag');
   const file = await run(page, 'Rotate video');
+  // The result's player reads only the header until it's played. Loading the
+  // whole result could freeze WebKit's page (docs/DECISIONS.md, 2026-10-02).
+  await expect(page.locator('video[aria-label="Result"]')).toHaveAttribute('preload', 'metadata');
   expect(file.suggestedFilename()).toBe('clip-h264-aac_rotated.mp4');
   const info = await probe(file);
   expect(info.video?.rotation).toBe(90);

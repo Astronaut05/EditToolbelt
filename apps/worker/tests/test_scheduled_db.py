@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -22,6 +23,7 @@ from etb_worker.alerts import (
     raise_alert,
     stale_heartbeats,
     tool_failure_rates,
+    webhook_errors,
 )
 from etb_worker.clock import day_bounds
 from etb_worker.db import Conn, connect_url
@@ -128,6 +130,68 @@ def test_immediate_alerts_skip_the_cool_down(db: Conn, outbox: Outbox) -> None:
     assert raise_alert(db, alert, outbox.notifier)
     assert raise_alert(db, alert, outbox.notifier)
     assert len(outbox.sent) == 2
+
+
+def webhook_event(db: Conn, error: str | None, age: timedelta = timedelta(0)) -> str:
+    """A Paddle event processed ``age`` ago, with ``error``."""
+    row = db.execute(
+        "insert into webhook_events (provider, event_id, type, payload, processed_at, error)"
+        " values ('paddle', %s, 'transaction.paid', '{}'::jsonb, now() - %s, %s)"
+        " returning id::text as id",
+        (f"evt_{uuid.uuid4().hex}", age, error),
+    ).fetchone()
+    assert row is not None
+    return str(row["id"])
+
+
+def test_a_webhook_error_alerts_at_once_and_once_per_event(db: Conn, outbox: Outbox) -> None:
+    failed = webhook_event(db, "not credited: the transaction total is 400, not 500")
+    second = webhook_event(db, "no purchase has this transaction")
+    clean = webhook_event(db, None)
+    old = webhook_event(db, "paid after the purchase was cancelled", timedelta(days=4))
+    found = {alert.subject: alert for alert in webhook_errors(db)}
+    assert failed in found
+    assert second in found
+    assert clean not in found
+    assert old not in found
+    alert = found[failed]
+    assert alert.immediate
+    assert alert.rule == "webhook_error"
+    assert alert.message == (
+        "Payment webhook error: paddle transaction.paid: "
+        "not credited: the transaction total is 400, not 500. "
+        "See Admin, Payments, Webhook events."
+    )
+    # Two errors in a row both go out: no cool-down between events.
+    assert raise_alert(db, alert, outbox.notifier)
+    assert raise_alert(db, found[second], outbox.notifier)
+    assert len(outbox.sent) == 2
+    # Alerted once: a provider's retry that fails the same way doesn't alert again.
+    db.execute("update webhook_events set processed_at = now() where id = %s", (failed,))
+    subjects = {alert.subject for alert in webhook_errors(db)}
+    assert failed not in subjects
+    assert second not in subjects
+
+
+def test_the_scheduler_raises_webhook_errors(settings: Settings, db: Conn) -> None:
+    outbox = Outbox(settings)
+    scheduler = Scheduler(
+        settings,
+        outbox.notifier,
+        instance=f"test-{uuid.uuid4().hex[:8]}",
+        connect=lambda _: connect_url(URL),
+    )
+    event = webhook_event(db, "Error: database is down")
+    scheduler.check_alerts(db)
+    scheduler.check_alerts(db)
+    mine = [text for _, text in outbox.sent if "Error: database is down" in text]
+    assert len(mine) == 1
+    row = one(
+        db,
+        "select count(*)::int as n from alerts where rule = 'webhook_error' and subject = %s",
+        event,
+    )
+    assert row["n"] == 1
 
 
 def test_a_ledger_mismatch_is_recorded_and_alerts(db: Conn, outbox: Outbox) -> None:
@@ -266,7 +330,14 @@ def test_a_slow_queue_alerts(db: Conn) -> None:
     try:
         [alert] = queue_wait(db)
         assert alert.rule == "queue_wait"
-        assert alert.message.startswith("Queue wait p95 is 5.0 min")
+        # The p95 covers every job in the window, other tests' too, so it can
+        # sit below these three's 5 min; it must still be over the 2 min limit.
+        found = re.match(
+            r"Queue wait p95 is (\d+\.\d) min over the last 10 min \(\d+ jobs\)\.$",
+            alert.message,
+        )
+        assert found is not None
+        assert 2 < float(found.group(1)) <= 5
     finally:
         db.execute("delete from jobs where user_id = %s", (user,))
 

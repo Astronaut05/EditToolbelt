@@ -25,6 +25,7 @@ export type ApiCode =
   | 'INSUFFICIENT_CREDITS'
   | 'IDEMPOTENCY_KEY_REUSED'
   | 'STORAGE_UNAVAILABLE'
+  | 'PROVIDER_UNAVAILABLE'
   | 'INTERNAL';
 
 export class ApiError extends Error {

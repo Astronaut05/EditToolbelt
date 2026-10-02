@@ -38,7 +38,25 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   vtt: 'text/vtt',
   ass: 'text/x-ssa',
   ssa: 'text/x-ssa',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  weba: 'audio/webm',
 };
+
+/** The type the API is told for a file: by extension first, as browsers type some files oddly. */
+export function uploadType(file: File): string {
+  return TYPE_BY_EXTENSION[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? file.type;
+}
 
 /** The worker's stages, in words. */
 const STAGES: Record<string, string> = {
@@ -55,17 +73,51 @@ function aborted(): DOMException {
   return new DOMException('Cancelled', 'AbortError');
 }
 
+/** Answers that more credits would fix: the error then offers "Buy credits" (if on sale). */
+const SHORT = new Set(['INSUFFICIENT_CREDITS', 'QUOTA_EXCEEDED']);
+
+/** A problem answer as a ServerRunError in its own words; anything else as it is. */
+function runError(error: unknown): unknown {
+  if (!(error instanceof ApiError)) return error;
+  if (error.status === 401) {
+    return new ServerRunError('Sign in again to use our servers', 'You’re signed out');
+  }
+  return new ServerRunError(error.detail ?? error.title, error.title, false, SHORT.has(error.code));
+}
+
 /** A call to our API; a problem answer becomes a ServerRunError in its own words. */
 async function api<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (error) {
-    if (!(error instanceof ApiError)) throw error;
-    if (error.status === 401) {
-      throw new ServerRunError('Sign in again to use our servers', 'You’re signed out');
-    }
-    throw new ServerRunError(error.detail ?? error.title, error.title);
+    throw runError(error);
   }
+}
+
+/**
+ * The job was refused because its price or what pays changed since the quote
+ * (409 with the new `credits`): today's free jobs ran out, say. The site then
+ * shows the new quote and asks again, never charges unasked.
+ */
+function quoteChanged(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.code === 'CONFLICT' &&
+    'credits' in error.problem
+  );
+}
+
+/** A quote that can't start: the words to say why. */
+function cantStart(offer: ReadyQuote): ServerRunError {
+  return new ServerRunError(
+    offer.blocked_by === 'QUOTA_EXCEEDED'
+      ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`
+      : `This needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`,
+    'Not enough credits',
+    false,
+    true,
+  );
 }
 
 /** Uploads the file in parts, several at once, straight to storage. */
@@ -76,7 +128,7 @@ async function upload(
   stage = 'Uploading',
 ): Promise<string> {
   // By extension first: browsers type subtitle files inconsistently, if at all.
-  const type = TYPE_BY_EXTENSION[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? file.type;
+  const type = uploadType(file);
   try {
     return await api(() =>
       client.uploadFile(file, toolId, type, {
@@ -203,6 +255,46 @@ async function download(job: Job, ctx: ServerRunContext): Promise<Blob> {
   return new Blob(chunks, { type: result.content_type ?? 'application/octet-stream' });
 }
 
+/** What some tools add to the server path. */
+export interface ServerExtras {
+  /** The output megapixels a run makes, for tools priced per megapixel (Upscale Image). */
+  megapixels?: (width: number, height: number, options: Record<string, string>) => number;
+  /**
+   * Turns the dropped file into the one to upload, in the browser, after the
+   * person has said yes (Auto Subtitles: only the sound of a video).
+   */
+  prepare?: (file: File, ctx: ServerRunContext) => Promise<File>;
+  /**
+   * Files the page makes from the dropped one and the settings, each sent as
+   * an upload of its own with its id in `option` (Object Eraser: the mask,
+   * drawn from the brush strokes).
+   */
+  derived?: readonly {
+    option: string;
+    label: string;
+    make: (file: File, options: Record<string, string>) => Promise<File>;
+  }[];
+}
+
+/** Credits for a file before the server has checked it; null when that needs more than we know. */
+export function estimateCredits(
+  rule: ServerInfo['rule'],
+  durationSec: number | undefined,
+  picture: { width?: number; height?: number } | undefined,
+  options: Record<string, string>,
+  megapixels?: ServerExtras['megapixels'],
+): number | null {
+  if (rule.kind === 'perMegapixel') {
+    if (!picture?.width || !picture.height) return null;
+    const mp = megapixels
+      ? megapixels(picture.width, picture.height, options)
+      : (picture.width * picture.height) / 1e6;
+    return priceOf(rule, { megapixels: mp });
+  }
+  if (rule.kind === 'perMinute' && durationSec === undefined) return null;
+  return priceOf(rule, { durationMs: (durationSec ?? 0) * 1000 });
+}
+
 /**
  * The ToolShell's server path for one tool: `toServer` turns the shell's
  * options into the tool's API options (@etb/registry/options). `files` are
@@ -215,19 +307,23 @@ export function serverPath(
   toServer: (options: Record<string, string>) => Record<string, unknown>,
   here: string,
   files: readonly { option: string; label: string }[] = [],
+  adds: ServerExtras = {},
 ): ShellServer {
   return {
     price: info.price,
     maxBytes: info.maxBytes,
     signInHref: `/sign-in?next=${encodeURIComponent(here)}`,
-    estimate: (durationSec) =>
-      info.rule.kind === 'perMinute' && durationSec === undefined
-        ? null
-        : priceOf(info.rule, { durationMs: (durationSec ?? 0) * 1000 }),
+    estimate: (durationSec, picture, options = {}) =>
+      estimateCredits(info.rule, durationSec, picture, options, adds.megapixels),
     async account(): Promise<ServerAccount | null> {
       try {
         const me = await client.me();
-        return { tier: me.tier, balance: me.credit_balance, freeJobsLeft: me.free_jobs_left };
+        return {
+          tier: me.tier,
+          balance: me.credit_balance,
+          freeJobsLeft: me.free_jobs_left,
+          buyHref: me.buy_url,
+        };
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) return null;
         throw error;
@@ -239,7 +335,8 @@ export function serverPath(
           throw new ServerRunError(`Choose the ${extra.label} first`, 'Something’s missing');
         }
       }
-      const uploadId = await upload(file, toolId, ctx);
+      const sending = adds.prepare ? await adds.prepare(file, ctx) : file;
+      const uploadId = await upload(sending, toolId, ctx);
       const values = { ...shellOptions };
       const extras: string[] = [];
       let offer: ReadyQuote & ServerQuote;
@@ -253,16 +350,21 @@ export function serverPath(
           values[extra.option] = id;
           extras.push(id);
         }
+        for (const extra of adds.derived ?? []) {
+          ctx.progress({ stage: `Drawing the ${extra.label}` });
+          let made: File;
+          try {
+            made = await extra.make(file, shellOptions);
+          } catch {
+            throw new ServerRunError(`The ${extra.label} couldn’t be made in this browser`);
+          }
+          const id = await upload(made, toolId, ctx, `Uploading the ${extra.label}`);
+          values[extra.option] = id;
+          extras.push(id);
+        }
         options = toServer(values);
         offer = await quote(toolId, uploadId, options, ctx);
-        if (!offer.can_start) {
-          throw new ServerRunError(
-            offer.blocked_by === 'QUOTA_EXCEEDED'
-              ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`
-              : `This needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`,
-            'Not enough credits',
-          );
-        }
+        if (!offer.can_start) throw cantStart(offer);
         const asExpected =
           offer.funding !== 'credits' ||
           (!ctx.offered.free && ctx.offered.credits === offer.credits);
@@ -271,13 +373,31 @@ export function serverPath(
         for (const id of [uploadId, ...extras]) forget(`/api/v1/uploads/${id}`, 'DELETE');
         throw error;
       }
-      const started = await api(() =>
-        client.createJob(
-          { tool_id: toolId, upload_id: uploadId, options, quote_credits: offer.credits },
-          crypto.randomUUID(),
-          ctx.signal,
-        ),
-      );
+      let started: Job | null = null;
+      for (let attempt = 1; !started; attempt += 1) {
+        try {
+          started = await client.createJob(
+            {
+              tool_id: toolId,
+              upload_id: uploadId,
+              options,
+              quote_credits: offer.credits,
+              quote_funding: offer.funding,
+            },
+            crypto.randomUUID(),
+            ctx.signal,
+          );
+        } catch (error) {
+          if (!quoteChanged(error) || attempt > 2) throw runError(error);
+          // The price or what pays changed since the quote: show the new one, ask again.
+          offer = await quote(toolId, uploadId, options, ctx);
+          if (!offer.can_start) throw cantStart(offer);
+          if (!(await ctx.confirm(offer))) {
+            for (const id of [uploadId, ...extras]) forget(`/api/v1/uploads/${id}`, 'DELETE');
+            throw aborted();
+          }
+        }
+      }
       const job = await follow(started.id, ctx);
       if (job.status !== 'succeeded') {
         throw new ServerRunError(
