@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -165,3 +166,39 @@ def test_reads_still_images_for_upscaling_and_audio_for_transcription(
     assert 1400 <= record["duration_ms"] <= 1600
     with pytest.raises(ProbeRefused):
         summarize(probe_json(wav), "image/png")
+
+
+def recording(path: Path, seconds: int) -> Path:
+    """A WebM written as it is recorded, like a browser's MediaRecorder: no length in its header."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    made = subprocess.run(  # noqa: S603
+        [
+            *("ffmpeg", "-hide_banner", "-loglevel", "error"),
+            *("-f", "lavfi", "-i", f"testsrc2=size=160x120:rate=25:duration={seconds}"),
+            *("-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}"),
+            *("-c:v", "libvpx", "-b:v", "200k", "-c:a", "libopus", "-shortest"),
+            *("-f", "webm", "pipe:1"),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    path.write_bytes(made.stdout)
+    return path
+
+
+def test_a_recording_without_a_length_is_measured_from_its_packets(tmp_path: Path) -> None:
+    path = recording(tmp_path / "rec.webm", 7)
+    data = probe_json(path)
+    assert data["duration_from_packets"] is True
+    # Priced, limited and capped by its real length, not as a file of no length.
+    assert 6950 <= summarize(data, "video/webm")["duration_ms"] <= 7100
+
+
+def test_media_whose_length_cant_be_read_is_refused(tmp_path: Path) -> None:
+    whole = recording(tmp_path / "rec.webm", 2).read_bytes()
+    headers_only = tmp_path / "headers.webm"
+    headers_only.write_bytes(whole[: whole.index(b"\x1f\x43\xb6\x75")])  # up to the first Cluster
+    with pytest.raises(ProbeRefused) as refused:
+        probe_json(headers_only)
+    assert refused.value.code == "UNSUPPORTED_FORMAT"

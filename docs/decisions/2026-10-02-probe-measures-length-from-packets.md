@@ -1,0 +1,5 @@
+# 2026-10-02 · A file without a length in its header is measured from its packets
+
+**Decision:** when a sound or video file's header gives no length (a browser's MediaRecorder WebM writes none), the probe reads every packet's time and takes the span from the first to the end of the last (`packet_span` in `apps/worker/src/etb_worker/probe.py`, up to 5 minutes for a 4 GB upload). A file whose length can't be read even so is refused as `UNSUPPORTED_FORMAT`. Still images and subtitles are left as they are.
+**Why:** the probed length sets the price, the free tier's length limit and, since the decode cap, how far a job may read. A file without one probed as 0 ms: priced at the minimum, past every length limit, and read in full, because a cap of nothing is no cap. Honest screen recordings hit this as much as crafted files. Measured, they are priced and capped like any other file; refusing them would turn away a common kind of upload.
+**Reverse:** drop the `_timed` block in `probe_json`; files without a header length are then priced as 0 ms again (and the GPU tools refuse them with `NO_DURATION`).
