@@ -16,6 +16,7 @@ export default viewIndex<ViewIds<'audio'>>({
   'loudness-meter': dynamic(() => import('../loudness-meter')),
   'merge-audio': dynamic(() => import('../merge-audio')),
   'normalize-audio': dynamic(() => import('../normalize-audio')),
+  'remove-noise': dynamic(() => import('../remove-noise')),
   'remove-silence': dynamic(() => import('../remove-silence')),
   'reverse-audio': dynamic(() => import('../reverse-audio')),
   'split-audio': dynamic(() => import('../split-audio')),

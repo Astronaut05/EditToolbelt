@@ -13,6 +13,7 @@ import { requireAdmin } from '../../../../server/admin';
 import { db } from '../../../../server/db';
 import { field } from '../../../../server/form';
 import { PROVIDER_IDS, type ProviderId } from '../../../../server/payments/contract';
+import { sendReceiptAgain } from '../../../../server/payments/fiscal';
 import {
   CabinetRefundForm,
   recordCabinetRefund,
@@ -45,8 +46,8 @@ export async function setPaymentSwitch(formData: FormData): Promise<void> {
   redirect(back({ provider: provider.data, saved: enabled ? 'on' : 'off' }));
 }
 
-/** The form as the refund functions take it, or the first problem with it. */
-function refundInput<T extends z.ZodType>(schema: T, formData: FormData): z.infer<T> | string {
+/** The form as the server functions take it, or the first problem with it. */
+function formInput<T extends z.ZodType>(schema: T, formData: FormData): z.infer<T> | string {
   const parsed = schema.safeParse(Object.fromEntries(formData));
   return parsed.success ? parsed.data : (parsed.error.issues[0]?.message ?? 'Check the form.');
 }
@@ -58,7 +59,7 @@ function refundInput<T extends z.ZodType>(schema: T, formData: FormData): z.infe
  */
 export async function refundPurchase(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
-  const input = refundInput(RefundForm, formData);
+  const input = formInput(RefundForm, formData);
   if (typeof input === 'string') redirect(back({ error: input }));
   const result = await requestRefund(db(), {
     adminId: admin.id,
@@ -77,7 +78,7 @@ export async function refundPurchase(formData: FormData): Promise<void> {
  */
 export async function recordRefund(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
-  const input = refundInput(CabinetRefundForm, formData);
+  const input = formInput(CabinetRefundForm, formData);
   if (typeof input === 'string') redirect(back({ error: input }));
   const result = await recordCabinetRefund(db(), {
     adminId: admin.id,
@@ -88,4 +89,31 @@ export async function recordRefund(formData: FormData): Promise<void> {
   });
   if (!result.ok) redirect(back({ error: result.reason }));
   redirect(back({ saved: 'recorded' }));
+}
+
+/** "Send again": the form's purchase and the admin's reason. */
+const ResendForm = z.object({
+  purchaseId: z.uuid({ error: 'No such purchase.' }),
+  reason: z.string().trim().min(3, 'Give a reason of 3 to 500 characters.').max(500),
+});
+
+/**
+ * A Click purchase's fiscal receipt, tried again now (docs/05 → Payments):
+ * the retries carry on either way. Audit-logged with the outcome.
+ */
+export async function resendReceipt(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const input = formInput(ResendForm, formData);
+  if (typeof input === 'string') redirect(back({ error: input }));
+  const result = await sendReceiptAgain(db(), {
+    adminId: admin.id,
+    purchaseId: input.purchaseId,
+    reason: input.reason,
+  });
+  if (!result.ok) redirect(back({ error: result.reason }));
+  log.info(
+    { purchase_id: input.purchaseId, status: result.status, user_ref: admin.id },
+    'admin.fiscal_receipt_resend',
+  );
+  redirect(back({ saved: result.status === 'sent' ? 'receipt-sent' : 'receipt-failed' }));
 }

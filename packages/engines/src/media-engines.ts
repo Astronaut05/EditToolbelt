@@ -27,6 +27,7 @@ export { reverseAudioEngine } from './audio/reverse';
 export { audioToVideoEngine, type AudioToVideoOptions } from './video/audiogram';
 export { reverseVideoEngine } from './video/reverse-video';
 export { loopVideoEngine } from './video/loop-video';
+export { previewSnippet, probeNoise, putSoundBack, soundAsFlac } from './audio/noise';
 export { probeAudio } from './audio/probe';
 export { detectSilences, removeSilenceEngine } from './audio/silence';
 export { audioPeaks, trimAudioEngine } from './audio/trim';

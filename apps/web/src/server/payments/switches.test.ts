@@ -17,8 +17,8 @@ const PADDLE = fake('paddle', ['PADDLE_API_KEY', 'PADDLE_WEBHOOK_SECRET']);
 const CLICK = fake('click', ['CLICK_SECRET_KEY']);
 const PAYME = fake('payme', ['PAYME_KEY']);
 
-const FISCAL = { mxik: '10305001001000000', packageCode: '1545643' };
-const NO_FISCAL = { mxik: '', packageCode: ' ' };
+const FISCAL = { mxik: '10305001001000000', packageCode: '1545643', tin: '301234567', pinfl: '' };
+const NO_FISCAL = { mxik: '', packageCode: ' ', tin: '', pinfl: '' };
 
 function env(overrides: Partial<PaymentEnv> = {}): PaymentEnv {
   return {
@@ -68,11 +68,11 @@ describe('providerState', () => {
     for (const id of ['click', 'payme'] as const) {
       const state = providerState(id, env({ fiscal: NO_FISCAL }), on);
       expect(state.on).toBe(false);
-      expect(state.fiscal).toEqual([
+      expect(state.fiscal.slice(0, 2)).toEqual([
         { name: 'fiscalReceipt.mxik', set: false },
         { name: 'fiscalReceipt.packageCode', set: false },
       ]);
-      expect(state.blockers).toEqual([
+      expect(state.blockers.slice(0, 2)).toEqual([
         'fiscalReceipt.mxik is empty in config/business.ts.',
         'fiscalReceipt.packageCode is empty in config/business.ts.',
       ]);
@@ -93,18 +93,36 @@ describe('providerState', () => {
     expect(providerState('paddle', env({ providers: [CLICK] }), on).connected).toBe(false);
   });
 
-  it('keeps Click off while its fiscal receipt submission isn’t built', () => {
-    const real = env({ unfinished: UNFINISHED });
-    const click = providerState('click', real, on);
-    expect(click.on).toBe(false);
-    expect(click.blockers).toEqual([
-      'Sending Click’s fiscal receipt to the tax service isn’t built yet (Click’s ofd_data/submit_items, with the seller’s TIN or PINFL).',
+  it('keeps Click off without the seller’s TIN or PINFL, which its receipts name', () => {
+    const blocked = (fiscal: typeof FISCAL) => providerState('click', env({ fiscal }), on);
+    const none = blocked({ ...FISCAL, tin: '' });
+    expect(none.on).toBe(false);
+    expect(none.fiscal.at(-1)).toMatchObject({ name: 'fiscalReceipt.tin or .pinfl', set: false });
+    expect(none.blockers).toEqual([
+      'config/business.ts: fiscalReceipt.tin or fiscalReceipt.pinfl is empty.',
     ]);
     // Its webhook still answers for purchases already made (there are none while it's off).
-    expect(click.connected).toBe(true);
-    // Payme sends its receipt itself; Paddle needs none.
-    expect(providerState('payme', real, on).on).toBe(true);
-    expect(providerState('paddle', real, on).on).toBe(true);
+    expect(none.connected).toBe(true);
+    expect(blocked({ ...FISCAL, tin: '12345678' }).blockers).toEqual([
+      'config/business.ts: fiscalReceipt.tin must be 9 digits.',
+    ]);
+    expect(blocked({ ...FISCAL, tin: '', pinfl: '1234567890123' }).blockers).toEqual([
+      'config/business.ts: fiscalReceipt.pinfl must be 14 digits.',
+    ]);
+    expect(blocked({ ...FISCAL, pinfl: '31234567890123' }).blockers).toEqual([
+      'config/business.ts: Set fiscalReceipt.tin or fiscalReceipt.pinfl, not both.',
+    ]);
+    const pinfl = blocked({ ...FISCAL, tin: '', pinfl: '31234567890123' });
+    expect(pinfl.on).toBe(true);
+    expect(pinfl.fiscal.at(-1)).toEqual({ name: 'fiscalReceipt.tin or .pinfl', set: true });
+    // Payme sends its receipt itself, and Paddle needs none: neither asks for it.
+    expect(providerState('payme', env({ fiscal: { ...FISCAL, tin: '' } }), on).on).toBe(true);
+    expect(providerState('paddle', env({ fiscal: NO_FISCAL }), on).on).toBe(true);
+  });
+
+  it('has nothing unbuilt left: Click’s fiscal receipt is sent', () => {
+    expect(UNFINISHED).toEqual({});
+    expect(providerState('click', env({ unfinished: UNFINISHED }), on).on).toBe(true);
   });
 
   it('never shows a key’s value', () => {
