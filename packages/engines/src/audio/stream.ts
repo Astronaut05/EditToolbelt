@@ -19,6 +19,12 @@ export interface SourcePart {
 /**
  * A decoded block's frames `from`–`to` as planar floats, `channels` wide:
  * mono goes to both sides; past stereo, the front two.
+ *
+ * Each plane is copied whole, then cut. WebKit's AudioData.copyTo never
+ * returns when it converts interleaved f32 (what its decoders give) to
+ * planar from partway into a block (a frameOffset): the page hangs, then
+ * crashes. Blocks are a few thousand frames, so the whole copy costs
+ * nothing. See docs/DECISIONS.md, 2026-10-02.
  */
 export function planesOf(
   sample: AudioSample,
@@ -27,15 +33,11 @@ export function planesOf(
   to = sample.numberOfFrames,
 ): Float32Array[] {
   const count = to - from;
+  const all = sample.numberOfFrames;
   const read = (planeIndex: number) => {
-    const plane = new Float32Array(count);
-    sample.copyTo(plane, {
-      planeIndex,
-      format: 'f32-planar',
-      frameOffset: from,
-      frameCount: count,
-    });
-    return plane;
+    const plane = new Float32Array(all);
+    sample.copyTo(plane, { planeIndex, format: 'f32-planar' });
+    return from === 0 && count === all ? plane : plane.slice(from, to);
   };
   const own = Math.min(sample.numberOfChannels, channels);
   const planes = Array.from({ length: own }, (_, c) => read(c));
