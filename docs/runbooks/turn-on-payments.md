@@ -4,7 +4,7 @@ Payments are built and switched off (`docs/DECISIONS.md` → "Payments: three pr
 
 1. `PAYMENTS_ENABLED=true` on the web service (the global kill switch);
 2. the admin switch for the provider (Admin → Payments);
-3. the provider's keys, and for Click and Payme the fiscal receipt codes in `config/business.ts`.
+3. the provider's keys, and for Click and Payme the fiscal receipt codes in `config/business.ts` (for Click also the seller's TIN or PINFL).
 
 Do it in this order. Part A is paperwork outside the code and takes weeks; start it early. Part B takes an hour. Turn on one provider at a time, and make one test purchase with each before the next.
 
@@ -20,7 +20,8 @@ Do it in this order. Part A is paperwork outside the code and takes weeks; start
 5. **Fiscal receipts (OFD).** Click and Payme send a receipt to the tax service with every sale:
    - Find the MXIK (IKPU) code for the service ("credits for online services" or the nearest class) and its package code (o'lchov birligi) at tasnif.soliq.uz.
    - Put them in `config/business.ts` → `fiscalReceipt.mxik` and `fiscalReceipt.packageCode` (and `vatPercent` if the seller pays VAT) in a pull request. Click and Payme refuse to switch on while either is empty.
-   - Click's receipt also needs the seller's TIN or PINFL and isn't wired yet (`docs/DECISIONS.md` → "Click: Prepare and Complete"). Click's switch refuses to turn on until both are built: then remove Click's entry from `UNFINISHED` in `apps/web/src/server/payments/switches.ts` in the same pull request.
+   - Click's receipt is sent by us, after each sale, to Click's Merchant API (`docs/DECISIONS.md` → "Click's fiscal receipts: queued with the sale, sent with retries"). Each line names the seller: put the seller's **TIN** (a company, 9 digits) in `fiscalReceipt.tin`, or a sole trader's or self-employed person's **PINFL** (14 digits) in `fiscalReceipt.pinfl`, not both, in the same pull request. They aren't secrets: they're printed on every receipt. Click's switch refuses to turn on while it's missing or malformed.
+   - Ask Click, when signing, to confirm the receipt details we couldn't check against Click's own documentation: `Amount` as the plain quantity (1), the payment counted as `received_ecash`, `payment_id` = the `click_paydoc_id` of Complete, and what Click answers to a receipt it already has. Each is one line in `apps/web/src/server/payments/providers/click-merchant.ts`.
 
 ## B. The switches
 
@@ -31,7 +32,7 @@ In Railway → the project → Shared variables, add each provider's keys (the n
 | Provider | Variables |
 |---|---|
 | Paddle | `PADDLE_API_KEY` (an API key with transactions, customers and adjustments), `PADDLE_WEBHOOK_SECRET` (from step 3 below), `PADDLE_ENVIRONMENT` (`sandbox` first, then `production`), `PADDLE_CLIENT_TOKEN` (a client-side token) |
-| Click | `CLICK_SERVICE_ID`, `CLICK_MERCHANT_ID`, `CLICK_MERCHANT_USER_ID`, `CLICK_SECRET_KEY` |
+| Click | `CLICK_SERVICE_ID`, `CLICK_MERCHANT_ID`, `CLICK_MERCHANT_USER_ID`, `CLICK_SECRET_KEY`, and `CLICK_MERCHANT_API_URL` = `https://api.click.uz/v2/merchant/` (Click's Merchant API, where the fiscal receipts go; check it against what Click gives you). It's set here, not in the code, which never names a host. |
 | Payme | `PAYME_MERCHANT_ID`, `PAYME_KEY` (the test key first), `PAYME_TEST` (`true` first, `false` for real money) |
 
 Then reference them on the web service in `.railway/railway.ts`, in a pull request (CI shows the plan; the merge applies it):
@@ -46,6 +47,7 @@ Then reference them on the web service in `.railway/railway.ts`, in a pull reque
       PADDLE_CLIENT_TOKEN: shared('PADDLE_CLIENT_TOKEN'),
       // Click and Payme the same way, once their contracts are signed:
       // CLICK_SERVICE_ID, CLICK_MERCHANT_ID, CLICK_MERCHANT_USER_ID, CLICK_SECRET_KEY,
+      // CLICK_MERCHANT_API_URL,
       // PAYME_MERCHANT_ID, PAYME_KEY, PAYME_TEST
     },
 ```
@@ -86,6 +88,7 @@ With sandbox or test keys first, then again live with real money:
 2. Pay: Paddle's test card in the sandbox (4242 4242 4242 4242), Payme's test card, or a real card live.
 3. `/credits/return` says "Credits added"; `/account` shows the purchase as Paid and 200 more credits.
 4. Admin → Payments: the purchase is `completed`; its webhook events have no error.
+   - **Click:** its **Fiscal receipt** says `sent` within a minute. `failed` shows Click's error: fix what it names (a code in `config/business.ts` takes a pull request; a key or `CLICK_MERCHANT_API_URL` takes a Railway change), then **Send again** with a reason. Until Click accepts it the server retries by itself, 1, 2, 4 … minutes apart (at most 6 hours), and a receipt still unsent after 6 tries or an hour alerts once. Check the receipt in Click's cabinet too.
 5. Refund it: Paddle from Admin → Payments → Refund with the amount (try part of it first, say $2.50, then the rest); Payme from its cabinet; Click from its cabinet, then Admin → Payments → "Record refund" with the amount refunded there. A part takes that share of the credits (`partially_refunded`); the whole payment makes it `refunded` and the 200 credits come off (the balance may go below zero if some were spent; paid jobs then wait for a top-up). With Paddle, check the refunded amount in Paddle's dashboard matches what you typed.
 6. Live: switch the provider's keys to live (`PADDLE_ENVIRONMENT=production`, `PAYME_TEST=false`, live keys), deploy, and buy once more.
 

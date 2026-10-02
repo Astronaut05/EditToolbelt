@@ -23,7 +23,7 @@ This file is read every session. Everything else is read **only when the current
 | Speed budgets, loading, caching | `docs/10-performance.md` |
 | Uploads, file parsing, ffmpeg, auth, secrets | `docs/11-security.md` |
 | Adding any dependency or ML model | `docs/13-licenses.md` — **check before installing** |
-| Making a call the spec doesn't settle | `docs/DECISIONS.md` — log it (date, decision, why, how to reverse) |
+| Making a call the spec doesn't settle | `docs/decisions/` — log it as a new file (date, decision, why, how to reverse); older entries are in `docs/DECISIONS.md` |
 
 Tool specs are split by category: `tools/photo.md`, `tools/video.md`, `tools/audio.md`, `tools/color.md`, `tools/subtitles-and-time.md`, `tools/utility.md`. The master list with every tool's ID, wave and status is `tools/README.md`.
 
@@ -38,7 +38,7 @@ Tool specs are split by category: `tools/photo.md`, `tools/video.md`, `tools/aud
 7. **No tracking cookies.** Only strictly necessary cookies. Analytics are cookieless and contain no personal data.
 8. **Coming-soon tools stay visible.** Tools with status `soon` show on hub pages as greyed-out cards and have a `noindex` placeholder page. Admin can flip any tool's status without a deploy.
 9. **Accessible by default.** WCAG 2.2 AA: keyboard operable, visible focus, labels, contrast, reduced-motion respected.
-10. **Autonomous until the M2 local launch:** pick the default, log it in `docs/DECISIONS.md`, continue. Report only at the checkpoints below.
+10. **Autonomous until the M2 local launch:** pick the default, log it in `docs/decisions/`, continue. Report only at the checkpoints below.
     - Checkpoints (the only messages to Astro): **(1)** M1a skeleton clickable, **(2)** M1 done, **(3)** M2 local launch ready to stress-test. Each one: screenshots of the built pages next to the matching `docs/design/screens/` PNGs (light and dark, desktop and phone) and the exact commands to run it.
     - Truly blocked: write it in `STATUS.md` → Blocked, skip to the next item, mention it at the next checkpoint. No polling, no scheduled check-ins.
     - Still off-limits without Astro (they belong to Go public): spending money, domains and hosting, Paddle and payments, final legal texts, real secrets.
@@ -71,6 +71,6 @@ Tool specs are split by category: `tools/photo.md`, `tools/video.md`, `tools/aud
 - Fixtures live in `fixtures/` (small, license-free, generated where possible).
 - Git: everything through pull requests, one topic per PR, conventional commit titles. Every PR gets auto-merge (squash) and merges once the required checks pass; merged branches are deleted. A failing check is fixed on the same branch. Never push to `main`, never force-push `main`, never bypass the ruleset.
 - The repo is public: never commit secrets, real user files, or the TT Hoves font.
-- `STATUS.md` (repo root) is updated after every merged PR: milestone and % done, done / next / blocked, the commands to run it and the URL to open.
+- `STATUS.md` (repo root) is updated after merged PRs, by a status PR of its own after each batch (feature PRs don't touch it): milestone and % done, done / next / blocked, the commands to run it and the URL to open.
 - UI copy: English, plain, short. Numbers and units always visible (px, MB, LUFS, fps).
 - **Design source: Astro's `/design-taste-frontend` skill.** It runs in claude.ai chat, not in Claude Code. Its design round sets the visual direction (M1) and makes marketing graphics; its taste rules are copied into `docs/03-design-system.md` → "Taste rules", and that section is what you follow when building UI. EditToolbelt is not Uzcosmos work: never use the Uzcosmos logo or the TT Hoves font here.

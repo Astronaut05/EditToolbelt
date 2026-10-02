@@ -11,12 +11,17 @@ Standard library only, so the GPU images need nothing extra for it:
 - ``Call``: the call's clock and its answer. ``gpu_seconds`` is measured
   here, from the start of the call to its answer, so it includes loading the
   model when the container was cold.
+- ``int_cap`` / ``float_cap``: the most the call may decode (``max_frames``,
+  ``max_seconds``), which the worker works out from the probe the job was
+  priced on. A file's header can say less than the file holds; the decoders
+  stop at these, so the GPU never works on more than was paid for.
 
 Nothing here logs: URLs carry signatures and files are the person's.
 """
 
 from __future__ import annotations
 
+import math
 import shutil
 import time
 import urllib.request
@@ -36,6 +41,43 @@ class CallFailed(Exception):  # it names the outcome, like a job status
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(detail)
         self.code = code
+
+
+def _cap(options: dict[str, Any], name: str, *, integer: bool) -> float | None:
+    """``options[name]`` as a positive, finite number; None when it isn't there."""
+    value = options.get(name)
+    if value is None:
+        return None
+    kinds = int if integer else (int, float)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, kinds)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise CallFailed("BAD_INPUT", f"The call's {name} isn't a positive number.")
+    return value
+
+
+def int_cap(options: dict[str, Any], name: str, most: int) -> int:
+    """A whole-number cap the worker sent (``max_frames``), at most ``most``.
+
+    Missing (a worker from before the caps) means ``most``, never unlimited;
+    anything but a positive whole number is refused.
+    """
+    value = _cap(options, name, integer=True)
+    return most if value is None else min(int(value), most)
+
+
+def float_cap(options: dict[str, Any], name: str, most: float) -> float:
+    """A cap in seconds the worker sent (``max_seconds``), at most ``most``; as ``int_cap``."""
+    value = _cap(options, name, integer=False)
+    return most if value is None else min(float(value), most)
+
+
+def length_label(seconds: float) -> str:
+    """3.0 s, 12.5 min: a length as the result's notes give it."""
+    return f"{seconds / 60:.1f} min" if seconds >= 60 else f"{seconds:.1f} s"
 
 
 def fetch_input(url: str, dest: Path, max_bytes: int) -> int:

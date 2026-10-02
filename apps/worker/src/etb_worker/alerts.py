@@ -32,6 +32,11 @@ SWEEPER_STALE = timedelta(minutes=30)
 # Paddle retries a failed delivery for 3 days; an error older than that was seen.
 WEBHOOK_WINDOW = timedelta(days=3)
 WEBHOOK_ALERTS_PER_CHECK = 10
+# Click's fiscal receipts: the web server retries them 1, 2, 4 ... minutes apart.
+# One still unsent after this many tries, or this long, alerts (once).
+FISCAL_ALERT_TRIES = 6
+FISCAL_ALERT_AGE = timedelta(hours=1)
+FISCAL_ALERTS_PER_CHECK = 10
 
 
 @dataclass(frozen=True)
@@ -253,6 +258,45 @@ def webhook_errors(conn: Conn) -> list[Alert]:
     ]
 
 
+def fiscal_receipts_unsent(conn: Conn) -> list[Alert]:
+    """A Click fiscal receipt still unsent after 6 tries or an hour (docs/05 -> Payments).
+
+    The web server keeps retrying it until Click accepts it; this tells a
+    person once, like ``webhook_errors``: the receipt's row in ``alerts``
+    (rule ``fiscal_receipt_unsent``, subject the receipt's id) marks it
+    alerted. The message names the purchase and the last error, which holds
+    our words or Click's code and note, never the receipt's body.
+    """
+    rows = conn.execute(
+        """
+        select r.id::text as id, r.purchase_id::text as purchase_id, r.attempts, r.last_error
+        from fiscal_receipts r
+        where r.status <> 'sent'
+          and (r.attempts >= %s or r.created_at < now() - %s)
+          and not exists (
+            select 1 from alerts a
+            where a.rule = 'fiscal_receipt_unsent' and a.subject = r.id::text
+          )
+        order by r.created_at
+        limit %s
+        """,
+        (FISCAL_ALERT_TRIES, FISCAL_ALERT_AGE, FISCAL_ALERTS_PER_CHECK),
+    ).fetchall()
+    alerts = []
+    for row in rows:
+        error = f", last error: {row['last_error'][:200]}" if row["last_error"] else ""
+        alerts.append(
+            Alert(
+                "fiscal_receipt_unsent",
+                row["id"],
+                f"Click fiscal receipt not sent: purchase {row['purchase_id']}, "
+                f"{row['attempts']} tries{error}. Retries carry on; see Admin, Payments.",
+                immediate=True,
+            )
+        )
+    return alerts
+
+
 Rule = Callable[[Conn], list[Alert]]
 
 DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
@@ -262,4 +306,5 @@ DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
     ("queue_wait", queue_wait),
     ("sweeper_stale", sweeper_stale),
     ("webhook_error", webhook_errors),
+    ("fiscal_receipt_unsent", fiscal_receipts_unsent),
 )

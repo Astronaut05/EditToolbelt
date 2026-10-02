@@ -627,11 +627,14 @@
       "section": "Models",
       "ecosystem": "model",
       "packages": ["DeepFilterNet"],
-      "use": "noise reduction",
+      "use": "noise reduction (A10), once its weights have a licence; A10 runs on ffmpeg's afftdn until then",
       "license": "MIT OR Apache-2.0",
-      "weightsLicense": "MIT OR Apache-2.0",
+      "weightsLicense": "unclear: the README licenses 'all code'; nothing covers the models/ checkpoints, and issues #697 and #700 asking are unanswered",
       "scope": "server",
-      "status": "verify"
+      "status": "verify",
+      "condition": "not installed: no weights without an explicit commercial licence (docs/13 -> Models)",
+      "source": "https://github.com/Rikorose/DeepFilterNet#license",
+      "checked": "2026-10-02"
     },
     {
       "label": "LaMa",

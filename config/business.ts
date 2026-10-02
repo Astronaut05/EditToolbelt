@@ -126,6 +126,11 @@ export const freeAllowance = {
   welcomeGrantCredits: 30,
   /** Small server jobs per day for signed-in users who never paid. */
   signedInDailyServerJobs: 3,
+  /**
+   * Free previews a day (A10's 10 s snippet) for accounts that have paid. A
+   * never-paid account spends one of its daily jobs on each instead (docs/05).
+   */
+  paidDailyPreviews: 10,
 } as const;
 
 export const maxConcurrentServerJobs = {
@@ -248,15 +253,56 @@ export const paddlePriceIds: Record<'sandbox' | 'live', Record<PackId, string>> 
 // ---------------------------------------------------------------------------
 // Uzbek fiscal receipts (Click and Payme send the receipt to the tax service's
 // OFD). Each line needs the product's MXIK (IKPU) code and package code from
-// the tax catalogue. Empty until Astro has them (docs/runbooks/turn-on-payments.md);
-// a provider that needs them refuses to switch on while they're empty.
+// the tax catalogue; Click's lines also name the seller by TIN or PINFL. Empty
+// until Astro has them (docs/runbooks/turn-on-payments.md); a provider that
+// needs them refuses to switch on while they're empty. None of these is a
+// secret: they're printed on every receipt.
 // ---------------------------------------------------------------------------
 
-export const fiscalReceipt = {
+export interface FiscalReceiptConfig {
   /** MXIK / IKPU code of "credits for online services", from tasnif.soliq.uz. */
-  mxik: '',
+  readonly mxik: string;
   /** Package code (o'lchov birligi) for one pack, from the same catalogue. */
+  readonly packageCode: string;
+  /** VAT in percent, a whole number: 0 while the seller isn't a VAT payer. */
+  readonly vatPercent: number;
+  /** The seller's TIN (INN, 9 digits): a company. Set this or `pinfl`, not both. */
+  readonly tin: string;
+  /** The seller's PINFL (14 digits): a sole trader or self-employed person. */
+  readonly pinfl: string;
+}
+
+export const fiscalReceipt: FiscalReceiptConfig = {
+  mxik: '',
   packageCode: '',
-  /** VAT in percent: 0 while the seller isn't a VAT payer. */
   vatPercent: 0,
-} as const;
+  tin: '',
+  pinfl: '',
+};
+
+/** How Click's receipt lines name the seller (its `CommissionInfo`). */
+export type SellerTaxId = { TIN: string } | { PINFL: string };
+
+/**
+ * The seller's TIN or PINFL from `fiscal`, or what's wrong with them: both
+ * empty, both set, or not 9 (TIN) or 14 (PINFL) digits.
+ */
+export function sellerTaxId(
+  fiscal: Pick<FiscalReceiptConfig, 'tin' | 'pinfl'>,
+): { ok: true; id: SellerTaxId } | { ok: false; problem: string } {
+  const tin = fiscal.tin.trim();
+  const pinfl = fiscal.pinfl.trim();
+  if (tin && pinfl)
+    return { ok: false, problem: 'Set fiscalReceipt.tin or fiscalReceipt.pinfl, not both.' };
+  if (tin) {
+    return /^\d{9}$/.test(tin)
+      ? { ok: true, id: { TIN: tin } }
+      : { ok: false, problem: 'fiscalReceipt.tin must be 9 digits.' };
+  }
+  if (pinfl) {
+    return /^\d{14}$/.test(pinfl)
+      ? { ok: true, id: { PINFL: pinfl } }
+      : { ok: false, problem: 'fiscalReceipt.pinfl must be 14 digits.' };
+  }
+  return { ok: false, problem: 'fiscalReceipt.tin or fiscalReceipt.pinfl is empty.' };
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, type ReactNode, type RefObject } from 'react';
 
 import {
   cn,
@@ -18,6 +18,34 @@ import { shareUrl } from './url-state';
 
 export function Rows({ children }: { children: ReactNode }) {
   return <OptionsPanel>{children}</OptionsPanel>;
+}
+
+/**
+ * Takes in an edit made before React took the field over. Calculator pages are
+ * prerendered, so their fields work before the tool's script has loaded (a
+ * slow network, a quick hand). React 19 drops those changes and keeps its own
+ * value, so the field would show one thing and the tool use another: a Wi-Fi
+ * pick on the QR page kept the link fields (docs/DECISIONS.md, 2026-10-02,
+ * calculator fields take in early edits). On mount, a field that no longer
+ * holds the value React rendered reports what it holds, as if just edited. A
+ * field React rendered itself always holds it, so nothing happens then.
+ */
+function useEarlyEdit(
+  ref: RefObject<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>,
+  value: string,
+  onChange: (value: string) => void,
+) {
+  const takeIn = useEffectEvent(() => {
+    const field = ref.current;
+    if (!field || field.value === value) return;
+    // A select shows its first option when the value isn't one of its own: nothing was picked.
+    if (field instanceof HTMLSelectElement && ![...field.options].some((o) => o.value === value))
+      return;
+    onChange(field.value);
+  });
+  useEffect(() => {
+    takeIn();
+  }, []);
 }
 
 const input =
@@ -40,10 +68,13 @@ export function NumberField({
   width?: string;
   step?: string;
 }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEarlyEdit(ref, value, onChange);
   return (
     <OptionRow label={label} htmlFor={id}>
       <span className={cn('relative inline-flex items-center', width)}>
         <input
+          ref={ref}
           id={id}
           inputMode="decimal"
           step={step}
@@ -84,9 +115,12 @@ export function TextField({
   type?: 'text' | 'email' | 'tel' | 'url' | 'password';
   align?: 'left' | 'right';
 }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEarlyEdit(ref, value, onChange);
   return (
     <OptionRow label={label} htmlFor={id}>
       <input
+        ref={ref}
         id={id}
         type={type}
         value={value}
@@ -125,12 +159,15 @@ export function TextAreaField({
   rows?: number;
   placeholder?: string;
 }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEarlyEdit(ref, value, onChange);
   return (
     <div className="border-b border-border py-3">
       <label htmlFor={id} className="text-14 text-text-muted">
         {label}
       </label>
       <textarea
+        ref={ref}
         id={id}
         rows={rows}
         value={value}
@@ -157,9 +194,12 @@ export function SelectField({
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
 }) {
+  const ref = useRef<HTMLSelectElement>(null);
+  useEarlyEdit(ref, value, onChange);
   return (
     <OptionRow label={label} htmlFor={id}>
       <select
+        ref={ref}
         id={id}
         value={value}
         onChange={(event) => {

@@ -17,6 +17,12 @@ Python, and the worker's tests run this against the worker's own ffmpeg.
   decoded and the last is encoded. Memory stays at a few frames whatever
   the length, and nothing is written to disk but the input and the output.
 
+Both read only as much as the job was priced for: the input's first
+``max_seconds`` (sound included), and ``max_frames`` frames at most, which
+the worker works out from its probe. A file whose header says less than it
+holds is cut there and the result says so (``cut_note``), instead of the
+model running on every frame until the function's timeout.
+
 ffmpeg's messages are never read back: they can name what's in a file.
 """
 
@@ -34,7 +40,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import IO, Any, Literal
 
-from etb_worker.gpu.remote import CallFailed
+from etb_worker.gpu.remote import CallFailed, length_label
 
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
@@ -243,8 +249,27 @@ def rate(fps: Fraction) -> str:
     return f"{fps.numerator}/{fps.denominator}"
 
 
-def decode_args(source: Path, info: VideoInfo, pix_fmt: str = "rgb24") -> list[str]:
-    """Raw frames of the first picture, upright, at ``info.fps``, read with the right matrix."""
+def seconds_arg(seconds: float) -> str:
+    """A length as ffmpeg's ``-t`` takes it."""
+    return f"{seconds:.3f}"
+
+
+def decode_args(
+    source: Path,
+    info: VideoInfo,
+    pix_fmt: str = "rgb24",
+    *,
+    max_seconds: float,
+    max_frames: int,
+) -> list[str]:
+    """Raw frames of the first picture, upright, at ``info.fps``, read with the right matrix.
+
+    Only the input's first ``max_seconds`` are read, and one frame past
+    ``max_frames`` at most: ``FramePipe`` reads that one only to tell that the
+    file goes on, and hands on ``max_frames``.
+    """
+    if max_seconds <= 0 or max_frames <= 0:
+        raise ValueError("the caps must be positive")
     filters = [info.turn] if info.turn else []
     filters.append(
         f"scale=in_color_matrix={info.matrix}:in_range={'pc' if info.full_range else 'tv'}"
@@ -256,6 +281,8 @@ def decode_args(source: Path, info: VideoInfo, pix_fmt: str = "rgb24") -> list[s
         "-v",
         "error",
         "-noautorotate",
+        "-t",
+        seconds_arg(max_seconds),
         "-i",
         str(source),
         "-map",
@@ -269,12 +296,23 @@ def decode_args(source: Path, info: VideoInfo, pix_fmt: str = "rgb24") -> list[s
         "cfr",
         "-r",
         rate(info.fps),
+        "-frames:v",
+        str(max_frames + 1),
         "-f",
         "rawvideo",
         "-pix_fmt",
         pix_fmt,
         "pipe:1",
     ]
+
+
+def cut_note(frames: int, fps: Fraction) -> str:
+    """What the result says when the file ran past what was priced."""
+    seconds = frames / float(fps)
+    return (
+        f"The file runs longer than its header says, so only its first "
+        f"{length_label(seconds)} ({frames:,} frames) were made: the length it was priced for"
+    )
 
 
 #: Sound a container can carry as it is; anything else is re-encoded.
@@ -330,14 +368,18 @@ def encode_args(  # noqa: PLR0913 - one command line, keyword-only settings
     fps: Fraction,
     source: Path,
     audio: str | None,
+    max_seconds: float,
     sar: str = "",
     nvenc: bool = False,
 ) -> tuple[list[str], list[str]]:
     """The encoder's command line for raw frames on stdin, and its notes.
 
     H.264 reads RGB, ProRes 4444 and VP9 read RGBA (their alpha is the matte).
-    The sound comes from ``source``, copied when the container takes it.
+    The sound comes from ``source``, copied when the container takes it, and
+    only its first ``max_seconds``, as the frames.
     """
+    if max_seconds <= 0:
+        raise ValueError("max_seconds must be positive")
     alpha = encoding != "h264"
     container = {"h264": "mp4", "prores4444": "mov", "vp9alpha": "webm"}[encoding]
     out_fmt = {"h264": "yuv420p", "prores4444": "yuva444p10le", "vp9alpha": "yuva420p"}[encoding]
@@ -364,6 +406,8 @@ def encode_args(  # noqa: PLR0913 - one command line, keyword-only settings
         rate(fps),
         "-i",
         "pipe:0",
+        "-t",
+        seconds_arg(max_seconds),
         "-i",
         str(source),
         "-map",
@@ -431,23 +475,36 @@ class FramePipe:
     """A decoder's raw frames in, an encoder's raw frames out, each through a short queue.
 
     Use it as a context manager: an exception inside stops both processes.
-    ``frames()`` yields each decoded frame (``frame_bytes`` long); ``write()``
-    hands one to the encoder; ``finish()`` waits for the output and checks
-    both ends, returning how many frames were written.
+    ``frames()`` yields each decoded frame (``frame_bytes`` long), and
+    ``max_frames`` at most: a frame past them stops the decoder and sets
+    ``cut`` (the file went on past what was priced); ``write()`` hands one to
+    the encoder; ``finish()`` waits for the output and checks both ends,
+    returning how many frames were written.
     """
 
     def __init__(
-        self, decode: list[str], frame_bytes: int, encode: list[str], *, depth: int = 6
+        self,
+        decode: list[str],
+        frame_bytes: int,
+        encode: list[str],
+        *,
+        max_frames: int,
+        depth: int = 6,
     ) -> None:
         if frame_bytes <= 0:
             raise ValueError("frame_bytes must be positive")
+        if max_frames <= 0:
+            raise ValueError("max_frames must be positive")
         self._frame_bytes = frame_bytes
+        self._max_frames = max_frames
         self._stop = threading.Event()
         self._in: queue.Queue[bytes | None] = queue.Queue(depth)
         self._out: queue.Queue[bytes | None] = queue.Queue(depth)
         self._broken = False
         self.read = 0
         self.written = 0
+        #: The decoder had a frame past ``max_frames``: it was stopped there.
+        self.cut = False
         self._decoder = subprocess.Popen(  # noqa: S603 - our own command lines
             decode, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
@@ -499,6 +556,12 @@ class FramePipe:
                 frame = _read_exactly(stream, self._frame_bytes)
                 if frame is None:
                     break  # the end (a partial last frame is dropped)
+                if self.read >= self._max_frames:
+                    # The file goes on past what was priced: nothing more is decoded.
+                    self.cut = True
+                    with contextlib.suppress(OSError):
+                        self._decoder.kill()
+                    break
                 self.read += 1
                 if not self._put(self._in, frame):
                     break
@@ -547,7 +610,8 @@ class FramePipe:
         except subprocess.TimeoutExpired:
             self.kill()
             raise CallFailed("GPU_FAILED", "The video couldn't be written.") from None
-        if decoded != 0 or self.read == 0:
+        # A decoder stopped at the cap ends however it ends; it had given every frame we take.
+        if (decoded != 0 and not self.cut) or self.read == 0:
             raise CallFailed("DECODE_FAILED", "The video couldn't be decoded; it may be damaged.")
         if encoded != 0 or self._broken or self.written == 0:
             raise CallFailed("GPU_FAILED", "The video couldn't be written.")

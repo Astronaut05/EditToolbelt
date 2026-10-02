@@ -4,6 +4,7 @@ import {
   and,
   desc,
   eq,
+  fiscalReceipts,
   ilike,
   lt,
   purchaseStatus,
@@ -30,7 +31,7 @@ import { serverEnv } from '../../../../server/env';
 import { PROVIDER_IDS } from '../../../../server/payments/contract';
 import { paymentEnv, paymentStates, PROVIDER_NAMES } from '../../../../server/payments/switches';
 import { webhookUrl } from '../../../../server/payments/urls';
-import { recordRefund, refundPurchase, setPaymentSwitch } from './actions';
+import { recordRefund, refundPurchase, resendReceipt, setPaymentSwitch } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,41 @@ const SAVED: Record<string, string> = {
   refund:
     'Refund requested. The credits come off, in proportion, when the provider’s refund event arrives.',
   recorded: 'Refund recorded: the credits came off in proportion. It’s in the audit log.',
+  'receipt-sent': 'Click accepted the fiscal receipt. It’s in the audit log.',
+  'receipt-failed':
+    'Click didn’t take the fiscal receipt this time: the error is beside the purchase, and the retries carry on. It’s in the audit log.',
 };
+
+type Receipt = typeof fiscalReceipts.$inferSelect;
+
+/**
+ * A Click purchase's fiscal receipt (docs/05 → Payments): sent, pending or
+ * failed with the last error, and "Send again" while Click hasn't taken it.
+ */
+function ReceiptCell({ purchaseId, receipt }: { purchaseId: string; receipt: Receipt | null }) {
+  if (!receipt) return <span className="text-13.5 text-text-muted">none</span>;
+  if (receipt.status === 'sent' && receipt.sentAt) return <>sent {when(receipt.sentAt)}</>;
+  const tries = `${String(receipt.attempts)} ${receipt.attempts === 1 ? 'try' : 'tries'}`;
+  return (
+    <div className="flex w-72 flex-col gap-1">
+      <span className="font-strong">
+        {receipt.status === 'failed' ? `failed, ${tries}` : 'pending'}
+      </span>
+      {receipt.lastError && <span className="text-13.5">{receipt.lastError}</span>}
+      <span className="text-13.5 text-text-muted">Next try {when(receipt.nextAttemptAt)}</span>
+      <details>
+        <summary className="cursor-pointer underline underline-offset-4">Send again</summary>
+        <form action={resendReceipt} className="mt-2 flex flex-col gap-2">
+          <input type="hidden" name="purchaseId" value={purchaseId} />
+          <ReasonField id={`receipt-${purchaseId}`} />
+          <Button type="submit" size="sm" className="self-start">
+            Send the receipt now
+          </Button>
+        </form>
+      </details>
+    </div>
+  );
+}
 
 /** What the admin needs to size a refund of the unused part. */
 function RefundFacts({
@@ -121,9 +156,15 @@ export default async function AdminPayments({ searchParams }: Props) {
   const [states, rows, events] = await Promise.all([
     paymentStates(db(), env),
     db()
-      .select({ purchase: purchases, email: users.email, balance: users.creditBalance })
+      .select({
+        purchase: purchases,
+        email: users.email,
+        balance: users.creditBalance,
+        receipt: fiscalReceipts,
+      })
       .from(purchases)
       .leftJoin(users, eq(users.id, purchases.userId))
+      .leftJoin(fiscalReceipts, eq(fiscalReceipts.purchaseId, purchases.id))
       .where(and(...where))
       .orderBy(desc(purchases.id))
       .limit(PAGE),
@@ -290,10 +331,11 @@ export default async function AdminPayments({ searchParams }: Props) {
               'Paid',
               'Status',
               'Provider id',
+              'Fiscal receipt',
               '',
             ]}
           >
-            {rows.map(({ purchase, email, balance }) => {
+            {rows.map(({ purchase, email, balance, receipt }) => {
               const provider = onNow.get(purchase.provider as (typeof PROVIDER_IDS)[number]);
               const refundable =
                 purchase.status === 'completed' || purchase.status === 'partially_refunded';
@@ -314,6 +356,13 @@ export default async function AdminPayments({ searchParams }: Props) {
                   <td>{formatMoney(purchase.amountMinor, purchase.currency)}</td>
                   <td>{purchase.status}</td>
                   <td className="font-mono text-12">{purchase.providerTxnId ?? ''}</td>
+                  <td>
+                    {purchase.provider === 'click' &&
+                    purchase.status !== 'pending' &&
+                    purchase.status !== 'cancelled' ? (
+                      <ReceiptCell purchaseId={purchase.id} receipt={receipt} />
+                    ) : null}
+                  </td>
                   <td>
                     {refundable && provider?.provider?.refund && provider.connected ? (
                       <details>
@@ -390,6 +439,12 @@ export default async function AdminPayments({ searchParams }: Props) {
           refunds are made in Payme’s cabinet and arrive as its cancel call. Click has no refund
           call: refund in Click’s cabinet, then record the amount here. A refund can take a balance
           below zero; paid jobs then wait for a top-up.
+        </p>
+        <p className="text-14 text-text-muted">
+          Fiscal receipt: Click’s receipt for the tax service, which we send to Click’s Merchant API
+          after each sale and try again, 1, 2, 4 … minutes apart (at most 6 hours), until Click
+          accepts it. One still unsent after 6 tries or an hour alerts. Payme sends its own receipt;
+          Paddle needs none.
         </p>
       </Section>
 
