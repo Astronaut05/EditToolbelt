@@ -4,8 +4,9 @@
   concurrency cap, with ``FOR UPDATE SKIP LOCKED`` so workers never collide.
   CPU jobs and GPU jobs (those with a GPU rate) are claimed apart, by
   different slots, so a GPU call that waits on Modal for an hour never holds
-  a slot that probes uploads and runs ffmpeg. GPU claims stop while the
-  daily budget is spent (gpu/budget.py).
+  a slot that probes uploads and runs ffmpeg. GPU claims go one at a time
+  under an advisory lock, with the daily budget checked in the same
+  transaction (gpu/budget.py).
 - Heartbeat every 5 s while running; it also notices a cancel.
 - Reaper: a running job silent for 60 s goes back to the queue, at most
   twice; the third time it fails and its credits come back. A GPU call its
@@ -27,7 +28,7 @@ from psycopg.types.json import Jsonb
 
 from etb_worker.db import Conn
 from etb_worker.gpu import MAX_IDLE_TAIL_SEC
-from etb_worker.gpu.budget import gpu_open
+from etb_worker.gpu.budget import CLAIM_LOCK, gpu_open
 from etb_worker.ledger import capture, release
 from etb_worker.logs import get_logger
 
@@ -71,10 +72,14 @@ def claim(conn: Conn, worker_id: str) -> Job | None:
 def claim_gpu(conn: Conn, worker_id: str) -> Job | None:
     """Takes the next GPU job off the queue, or None (none queued, or no budget left).
 
-    While today's GPU budget is spent GPU jobs wait (gpu/budget.py); if they
-    wait 15 minutes they expire and their credits come back.
+    One claimer at a time, across every slot and worker: the advisory lock is
+    held to the end of the transaction, so the next claimer's budget check
+    sees this job running, at its worst case (gpu/budget.py). While the
+    budget is spent GPU jobs wait; if they wait 15 minutes they expire and
+    their credits come back.
     """
     with conn.transaction():
+        conn.execute("select pg_advisory_xact_lock(%s)", (CLAIM_LOCK,))
         if not gpu_open(conn):
             return None
         return conn.execute(_CLAIM, (True, worker_id)).fetchone()

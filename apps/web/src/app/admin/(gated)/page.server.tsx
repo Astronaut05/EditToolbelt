@@ -30,7 +30,7 @@ import {
 import { loadToolFlags } from '../../../lib/flags';
 import { db } from '../../../server/db';
 import { serverEnv } from '../../../server/env';
-import { gpuCostByTool, gpuToday, usd } from '../../../server/gpu';
+import { gpuCostByTool, gpuStarting, gpuToday, usd } from '../../../server/gpu';
 import { requestTime } from '../../../server/time';
 import { saveGpuBudget } from './actions';
 
@@ -226,7 +226,7 @@ export default async function AdminDashboard({ searchParams }: Props) {
                 `${usd(gpu.spentUsd)} of ${usd(gpu.budgetUsd)}${gpu.budgetUsd > 0 ? ` (${String(Math.round((gpu.spentUsd / gpu.budgetUsd) * 100))} %)` : ''}`,
               ],
               ['GPU jobs today', gpu.jobs],
-              ['GPU jobs starting', gpu.spentUsd < gpu.budgetUsd ? 'Yes' : 'No: budget reached'],
+              ['GPU jobs starting', gpuStarting(gpu)],
               [
                 'Prices a second',
                 `T4 $${String(gpuPricing.gpuUsdPerSecond.T4)}, L4 $${String(gpuPricing.gpuUsdPerSecond.L4)}, plus ${String(gpuPricing.functionCpuCores)} cores and ${String(gpuPricing.functionMemoryGib)} GiB (read ${gpuPricing.checkedOn}; confirm in Modal)`,
@@ -234,9 +234,10 @@ export default async function AdminDashboard({ searchParams }: Props) {
             ]}
           />
           <p className="text-14 text-text-muted">
-            The worker stops starting GPU jobs once today’s spend reaches the budget, and alerts at
-            80 % and 100 %. Waiting jobs expire after 15 min with their credits back. Costs include
-            each call’s idle window, so they err high.
+            A GPU job starts only while today’s spend, with every running GPU job counted at its
+            time limit, is under the budget. Alerts go out at 80 % and 100 % of the spend. Waiting
+            jobs expire after 15 min with their credits back. Costs include each call’s idle window,
+            so they err high.
           </p>
           <form action={saveGpuBudget} className="flex max-w-md flex-col gap-3">
             <label className="flex flex-col gap-1.5 text-14">

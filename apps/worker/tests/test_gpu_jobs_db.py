@@ -6,8 +6,8 @@ on the job, credits captured, input deleted at once); a failure refunds;
 a cancel cancels the call; and the daily budget stops GPU jobs from starting.
 Then what happens around a call: GPU and CPU slots claim apart, a stopping
 worker cancels its call and hands the job back, a dead worker's call is
-cancelled by its id and its time counted, and nothing a runaway call writes
-outlives the sweeper.
+cancelled by its id and its time counted, nothing a runaway call writes
+outlives the sweeper, and concurrent claims never overshoot the budget.
 """
 
 from __future__ import annotations
@@ -536,19 +536,24 @@ def test_a_running_call_counts_against_the_budget_before_it_ends(db: Conn) -> No
     storage = FakeStorage()
     user = new_user(db)
     job = new_job(db, storage, user, "upscale-image", IMAGE, {})
-    before = budget.state(db).spent_usd
+    before = budget.state(db)
+    # A re-run job: its first call already cost 0.01, its second has run 100 s so far.
     db.execute(
-        "update jobs set status = 'running', started_at = now() - interval '100 seconds'"
-        " where id = %s",
+        "update jobs set status = 'running', started_at = now() - interval '100 seconds',"
+        " gpu_cost_usd = 0.01, gpu_call_at = now() - interval '100 seconds' where id = %s",
         (job,),
     )
     try:
-        assert budget.state(db).spent_usd == pytest.approx(before + 100 * RATE, abs=1e-3)
+        now = budget.state(db)
+        assert now.spent_usd == pytest.approx(before.spent_usd + 0.01 + 100 * RATE, abs=1e-3)
+        # The gate counts it at its worst case: its whole time limit and an idle window.
+        worst = 0.01 + (900 + MAX_IDLE_TAIL_SEC) * RATE
+        assert now.committed_usd == pytest.approx(before.committed_usd + worst, abs=1e-3)
     finally:
         db.execute("update jobs set status = 'cancelled' where id = %s", (job,))
 
 
-# --- Around a call: slots, a stopping worker, a dead worker, the sweeper ---------
+# --- Around a call: slots, a stopping worker, a dead worker, the sweeper, the budget ---------
 
 
 def wait_for(check: Callable[[], bool], seconds: float = 10) -> None:
@@ -901,3 +906,46 @@ def test_nothing_a_runaway_call_writes_outlives_the_sweeper(db: Conn, settings: 
     assert storage.objects[live][0] == b"the result"
     db.execute("update jobs set output_key = null where id = %s", (job,))
     db.execute("delete from alerts where rule = 'gpu_call_not_cancelled'")
+
+
+def test_concurrent_gpu_claims_never_overshoot_the_budget(db: Conn) -> None:
+    """Finding: every slot could start a job just under the line. Now claims take turns."""
+    before = one(db, "select daily_usd from gpu_budget where id = 1")["daily_usd"]
+    storage = FakeStorage()
+    user = new_user(db)
+    jobs = [new_job(db, storage, user, "upscale-image", IMAGE, {}) for _ in range(6)]
+    db.execute("update jobs set priority = 70 where id = any(%s::uuid[])", (jobs,))
+    # Room for exactly one more job at its worst case (900 s and an idle window at RATE).
+    committed = budget.state(db).committed_usd
+    db.execute("update gpu_budget set daily_usd = %s where id = 1", (committed + 0.01,))
+    start = threading.Barrier(len(jobs))
+    claimed: list[str] = []
+    lock = threading.Lock()
+
+    def claimer(n: int) -> None:
+        with connect_url(URL) as conn:
+            start.wait()
+            job = jobqueue.claim_gpu(conn, f"race-{n}")
+        if job is not None:
+            with lock:
+                claimed.append(str(job["id"]))
+
+    threads = [threading.Thread(target=claimer, args=(n,)) for n in range(len(jobs))]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+        assert len(claimed) == 1
+        assert claimed[0] in jobs
+        assert not budget.gpu_open(db)
+        # The running job finishing (and its real, small cost) opens the gate again.
+        db.execute(
+            "update jobs set status = 'succeeded', finished_at = now(), gpu_cost_usd = 0.001"
+            " where id = %s",
+            (claimed[0],),
+        )
+        assert budget.gpu_open(db)
+    finally:
+        db.execute("update gpu_budget set daily_usd = %s where id = 1", (before,))
+        db.execute("delete from jobs where id = any(%s::uuid[])", (jobs,))

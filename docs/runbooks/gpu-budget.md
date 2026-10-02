@@ -2,7 +2,7 @@
 
 `gpu_budget` alerts at 80 % and at 100 % of the day's GPU budget, once a day each (`docs/05` → GPU costs and the daily budget). The day is UTC: it resets at 05:00 Tashkent.
 
-- **80 %** ("GPU spend is $0.82 of today's $1.00 budget"): a warning. GPU jobs still start.
+- **80 %** ("GPU spend is $0.82 of today's $1.00 budget"): a warning. GPU jobs still start, as long as the jobs already running couldn't take the spend past the budget even at their time limits (Admin → Dashboard → GPU → "GPU jobs starting" says so).
 - **100 %** ("GPU budget reached"): the worker has stopped starting GPU jobs. They wait in the queue; any that wait 15 minutes expire with their credits back, and the person sees "It waited too long in the queue". CPU tools are unaffected.
 
 ## When it fires

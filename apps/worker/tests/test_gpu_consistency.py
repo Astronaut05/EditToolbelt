@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from etb_worker.gpu import modal_app
+from etb_worker.gpu import MAX_IDLE_TAIL_SEC, modal_app
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOLS = {
@@ -48,3 +48,13 @@ def test_jobs_outlive_their_gpu_call() -> None:
         found = re.search(r"timeoutSec: (\d+) \* 60", source)
         assert found, tool
         assert int(found.group(1)) * 60 > modal_app.SPECS[function].timeout, tool
+
+
+def test_the_worst_case_idle_window_covers_every_function() -> None:
+    """Calls that didn't say, and the budget's worst case, bill this idle window (gpu/__init__)."""
+    for function, spec in modal_app.SPECS.items():
+        assert spec.scaledown <= MAX_IDLE_TAIL_SEC, function
+    business = (ROOT / "config/business.ts").read_text("utf-8")
+    found = re.search(r"worstCaseIdleSec: (\d+)", business)
+    assert found
+    assert int(found.group(1)) == MAX_IDLE_TAIL_SEC

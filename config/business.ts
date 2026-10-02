@@ -97,8 +97,16 @@ export function gpuRateUsd(gpu: GpuType): number {
 export const gpuBudget = {
   /** The daily GPU budget until an admin sets another (the `gpu_budget` row's default). */
   defaultDailyUsd: 1,
-  /** Alerts go out at these shares of it; GPU jobs stop starting at 1. */
+  /** Alerts go out at these shares of today's spend. */
   alertAt: [0.8, 1],
+  /**
+   * The longest idle window of any GPU function, in seconds. A GPU job may
+   * start only while today's spend, with every running GPU job counted at its
+   * worst case (its time limit plus this, at its rate), is under the budget.
+   * The worker's MAX_IDLE_TAIL_SEC (apps/worker/src/etb_worker/gpu); a test
+   * holds them together.
+   */
+  worstCaseIdleSec: 30,
 } as const;
 
 // ---------------------------------------------------------------------------

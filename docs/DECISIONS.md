@@ -1315,3 +1315,16 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** review of #66, finding 4; `CLAUDE.md` rule 4 (outputs within the hour; the sweeper is the guarantee).
 **Reverse:** drop `_sweep_gpu_keys` in `retention.py`; the lifecycle backstop (≤ 48 h) and the 2-hour alert remain.
+
+## 2026-10-02 · The GPU budget gate counts running jobs at their worst case, one claim at a time
+
+**Decision:**
+- **The gate:** a GPU job starts only while today's *committed* spend is under the budget: recorded costs, plus every running GPU job at its worst case, `(timeout_sec + 30 s) × rate` (its whole time limit, past which the worker cancels the call, and the longest idle window).
+- **Race-safe:** GPU claims take a transaction-scoped advisory lock and check the gate inside the claim's own transaction, so every slot on every worker takes its turn and sees the job claimed before it. Spend can pass the budget by at most one job's worst case, and only if every running job runs to its limit. A test races six claimers at a budget with room for one, and fails without the lock.
+- **Worst case, not an estimate from duration:** the brief allowed either if clearly better. An estimate isn't a bound (a Whisper call that loops on a hallucination runs long), and this is the cost guard. The price is concurrency at the default $1 a day: one transcription at a time (its worst case is about $1.13), or up to four upscales (about $0.25 each); a second waits and may expire after 15 min with its credits back. Raising the budget raises it. If waiting jobs expire too often, a per-job estimate (`processor.estimate` × a margin, capped at the limit) is the next step.
+- **Alerts and the admin keep reading the real spend** (recorded plus the call in flight's time so far), so a long job starting doesn't page anyone; Admin → Dashboard → GPU says whether jobs are starting and, if not, whether the budget is spent or a running job's worst case is in the way.
+- **Spend counts a re-run job's earlier calls and its current one** (recorded cost plus the call in flight), where before a job with any recorded cost stopped counting its running call (finding 9c).
+- **Partial index** `jobs_gpu_spend_idx` on `started_at` where `gpu_rate_usd is not null`, for the spend query every GPU claim runs.
+
+**Why:** review of #66, findings 8 and 9 (c); Astro's spending cap.
+**Reverse:** the gate is `BudgetState.open` in `gpu/budget.py` (committed vs spent), the lock `jobqueue.claim_gpu`; `config/business.ts` → `gpuBudget.worstCaseIdleSec` mirrors the worker's `MAX_IDLE_TAIL_SEC` (a test holds them together).
