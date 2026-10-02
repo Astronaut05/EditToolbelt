@@ -1,6 +1,7 @@
 # Status
 
 **Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter and Normalize Loudness (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 part 1 is in review: payments built complete and switched off (Paddle, Click and Payme behind one interface, the purchase store, the switches, `/credits/buy`, Admin → Payments, the welcome grant); turning them on is `docs/runbooks/turn-on-payments.md`, after Astro's contracts. M5's GPU tools follow. M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
+**Now:** the private live site at the real domain (Phase 1 with Astro: Cloudflare R2, Railway, Modal, email, Google, Access, Paddle sandbox, first deploy). **Milestone:** M8, the rest of Wave 2 · **started: Contrast Checker, Print Size & DPI Calculator, Split Image into Grid, Photo Metadata Viewer & Remover, Social Media Image Resizer, Loudness Meter, Normalize Loudness, Fade In / Fade Out and Audio Channel Tools (beta)**. M6, the public API, is in review: API keys, the panel's connect flow, the OpenAPI document and `/developers`, the typed client and a script that needs only a key. M5 (credits, payments, GPU tools) waits for Go public, which needs Astro (see `docs/DECISIONS.md`). M4 is done: uploads straight to storage, the job queue, the jobs API, and Compress Video, VFR to CFR and Burn Subtitles on our servers. M3 is done: accounts, the admin, tool status from the database, alerts and the digest. M1, M2 and M2b are done: all 26 Wave 1 tools live, 25 pair pages (5 held: HEIC ×2 for open question 10, AVI for the server path, PNG → ICO for Wave 3, GIF → MP4 as the tool page is that pair)
 
 ## Done
 
@@ -71,6 +72,8 @@
 - M8: Photo Metadata Viewer & Remover (beta). Drop photos to see camera, settings, date, people and GPS at once; remove everything, the location only, or all but the camera and settings. JPG, PNG and WebP keep their pixels byte for byte; the orientation and colour profile always stay (#55).
 - M8: Social Media Image Resizer (beta). 14 sizes on Instagram, YouTube, TikTok, X, LinkedIn, Facebook and Pinterest, all from one image in one go. Each crop keeps the focal point you click in frame; or the whole image fits on a blurred copy of itself or a color. YouTube and X upload limits are kept by lowering the quality just enough. Each size is dated and reviewed every quarter (#56).
 - M8: Loudness Meter and Normalize Loudness (beta). Integrated, short-term and momentary LUFS, loudness range and 4× oversampled true peak to ITU-R BS.1770-4 and EBU R128. The meter shows a graph and pass or fail for YouTube, Spotify, Apple Music, podcasts, EBU R128 and US TV. The normaliser hits −14, −16, −23, −24 or any target with a −1 dBTP ceiling, adding a true-peak limiter only when the gain needs it, and measures the file it made. Our own implementation, checked against the EBU's test signals and pyloudnorm (#57).
+- M8: Fade In / Fade Out and Audio Channel Tools (beta). Fades with linear, exponential, logarithmic or S-curves, exact to their formulas. Channel tools: stereo to mono (mixed or one side), one side on both to fix a lav in one ear, swap, invert, split into two files, mono to stereo. A stereo file is checked on arrival for a silent side, dual-mono or an inverted side, and the fix is picked (#58).
+- Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
 
 - M5, part 1 (in review; the providers themselves arrive in their own branch): payments built and switched off. **M5 ≈ 50 %** (payments done, off; GPU tools next).
   - Three locks, all off by default: `PAYMENTS_ENABLED`, the admin switch per provider in Admin → Payments (refused, with the reason, while its keys or fiscal codes are missing; audit-logged), and the provider's keys. While off: no "Buy credits" anywhere, and `/credits/buy`, checkout and every webhook path answer 404.
@@ -87,6 +90,12 @@
 2. M6 sign-off once parts 1 to 4 merge.
 3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
 4. M5: payments are built and off (part 1, in review). Turning them on follows `docs/runbooks/turn-on-payments.md` once Astro has the Paddle, Click and Payme contracts and the fiscal codes. Then M5's GPU tools.
+
+## Waiting for Astro's approval
+
+Applies of the Railway project (Actions → Railway → "Apply the plan", environment `railway`). Work goes on around them.
+
+- **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Approve at Actions → Railway → run 36946470385 → Review deployments. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
 
 ## Blocked
 

@@ -605,6 +605,8 @@ export function ToolShell({
   );
   const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
   const [activeRange, setActiveRange] = useState(0);
+  /** Settings changed since the file arrived: what the file suggests doesn't override them. */
+  const touched = useRef(new Set<string>());
   const range = useMemo(
     () => ranges[activeRange] ?? ranges[0] ?? { start: 0, end: 12 },
     [ranges, activeRange],
@@ -916,7 +918,10 @@ export function ToolShell({
         return;
       }
       setMedia(info);
-      const suggested = info.values;
+      // A choice made while the file was being read stands (A13: Split picked before the check ends).
+      const suggested = info.values
+        ? Object.fromEntries(Object.entries(info.values).filter(([id]) => !touched.current.has(id)))
+        : undefined;
       if (suggested) setOptions((current) => ({ ...current, ...suggested }));
       setRanges([preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }]);
       setActiveRange(0);
@@ -944,6 +949,7 @@ export function ToolShell({
     (files: File[]) => {
       const file = files[0];
       if (!file) return;
+      touched.current.clear();
       resetEditor();
       setRefining(false);
       // Refine strokes and a focal point belong to the last image.
@@ -1114,6 +1120,7 @@ export function ToolShell({
    * as a file arrives run again with it (P07: a new background reuses the mask).
    */
   const changeOption = (id: string, value: string) => {
+    touched.current.add(id);
     const next = { ...options, [id]: value };
     setOptions(next);
     if (ratioOf) editor.applyRatio(ratioOf(next));

@@ -34,6 +34,9 @@ export default defineRailway((ctx) => {
     S3_BUCKET: BUCKET,
     S3_ACCESS_KEY_ID: shared('S3_ACCESS_KEY_ID'),
     S3_SECRET_ACCESS_KEY: shared('S3_SECRET_ACCESS_KEY'),
+    // Sign-in links (web) and alerts (worker), sent from the site's own domain.
+    SMTP_URL: shared('SMTP_URL'),
+    MAIL_FROM: `EditToolbelt <no-reply@${site.host}>`,
   };
 
   const web = service('web', {
@@ -57,11 +60,9 @@ export default defineRailway((ctx) => {
     healthcheck: '/readyz',
     healthcheckTimeout: 300,
     regions: { [REGION]: 1 },
-    // Only the custom domains: no Railway hostname, so Access can't be bypassed.
-    domains: [
-      { domain: site.host, port: 8080 },
-      { domain: `www.${site.host}`, port: 8080 },
-    ],
+    // The custom domains (the site's host and www, port 8080) are added in
+    // Railway's dashboard: its configuration can't register them. No Railway
+    // hostname is generated, so Access can't be bypassed.
     deploy: { restartPolicyType: 'ON_FAILURE', restartPolicyMaxRetries: 10, drainingSeconds: 30 },
     env: {
       ...common,
@@ -69,6 +70,8 @@ export default defineRailway((ctx) => {
       SITE_URL: site.origin,
       MODELS_BASE_URL: '/models',
       BETTER_AUTH_SECRET: shared('BETTER_AUTH_SECRET'),
+      GOOGLE_CLIENT_ID: shared('GOOGLE_CLIENT_ID'),
+      GOOGLE_CLIENT_SECRET: shared('GOOGLE_CLIENT_SECRET'),
       CF_ACCESS_TEAM_DOMAIN: shared('CF_ACCESS_TEAM_DOMAIN'),
       CF_ACCESS_AUD: shared('CF_ACCESS_AUD'),
     },
@@ -89,6 +92,13 @@ export default defineRailway((ctx) => {
       // Two jobs at once. Each needs at most 10 GiB in and its output on the
       // container's own disk (100 GB on Railway's paid plans): no volume.
       WORKER_SLOTS: '2',
+      // Alerts: Telegram first, email to ALERT_EMAIL as the backup (docs/07).
+      ALERT_EMAIL: shared('ALERT_EMAIL'),
+      TELEGRAM_BOT_TOKEN: shared('TELEGRAM_BOT_TOKEN'),
+      TELEGRAM_CHAT_ID: shared('TELEGRAM_CHAT_ID'),
+      // GPU jobs on Modal (ServerlessGpu).
+      MODAL_TOKEN_ID: shared('MODAL_TOKEN_ID'),
+      MODAL_TOKEN_SECRET: shared('MODAL_TOKEN_SECRET'),
     },
   });
 

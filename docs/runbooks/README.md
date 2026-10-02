@@ -1,9 +1,10 @@
 # Runbooks
 
-What to do when something goes wrong (`docs/11` → Backups and recovery, Incident basics). Each page is short, in the order you'd do things, with the commands to run. Until Go public everything runs on Astro's PC with `docker compose`, so the commands are for the local stack; production hosting adds its own steps when it exists.
+What to do when something goes wrong (`docs/11` → Backups and recovery, Incident basics). Each page is short, in the order you'd do things, with the commands to run. The commands are for the local stack (`docker compose`); [production.md](production.md) says where each thing lives on the private live site and how to run the same commands there.
 
 | When | Read |
 |---|---|
+| Deploying, rolling back, or finding a production setting | [production.md](production.md) |
 | An alert arrives (Telegram or email) | [alerts.md](alerts.md) |
 | A tool misbehaves and must stop now | [disable-a-tool.md](disable-a-tool.md) |
 | A job is stuck, or someone asks about one | [stuck-job.md](stuck-job.md) |
