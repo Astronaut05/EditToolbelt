@@ -1,6 +1,13 @@
 'use client';
 
-import { useEffect, useEffectEvent, useRef, type ReactNode, type RefObject } from 'react';
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import {
   cn,
@@ -15,6 +22,21 @@ import {
 import { shareUrl } from './url-state';
 
 /** Shared bits for calculator tools: hairline input rows and mono results. */
+
+const noSubscribe = () => () => undefined;
+
+/**
+ * False in the server's HTML, true once the page's script runs. A button that
+ * only the script can run is disabled until then, so a tap that comes early
+ * waits instead of doing nothing (fields keep early edits; see NumberField).
+ */
+export function useReady(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
+}
 
 export function Rows({ children }: { children: ReactNode }) {
   return <OptionsPanel>{children}</OptionsPanel>;

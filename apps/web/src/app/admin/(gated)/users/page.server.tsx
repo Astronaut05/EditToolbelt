@@ -2,6 +2,7 @@ import { desc, ilike, sql, users } from '@etb/db';
 import { Button, Input } from '@etb/ui';
 
 import { AdminFrame, Table, when } from '../../../../components/admin/AdminFrame';
+import { requireAdmin } from '../../../../server/admin';
 import { db } from '../../../../server/db';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 /** docs/07 → Users: search by email; the newest 50 without a search. */
 export default async function AdminUsers({ searchParams }: Props) {
+  await requireAdmin();
   const raw = (await searchParams).q;
   const q = typeof raw === 'string' ? raw.trim().slice(0, 254) : '';
   // Escape LIKE's wildcards: the search is a plain "contains".

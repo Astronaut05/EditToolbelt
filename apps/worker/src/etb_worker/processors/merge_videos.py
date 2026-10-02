@@ -141,10 +141,18 @@ def _rate(value: object) -> float:
 
 
 def _rotation(stream: dict[str, Any]) -> int:
+    """As the probe reads it: a ``rotate`` tag that isn't a number is no rotation."""
     for side in stream.get("side_data_list") or []:
         if "rotation" in side:
-            return int(side["rotation"]) % 360
-    return int((stream.get("tags") or {}).get("rotate", 0)) % 360
+            return _degrees(side["rotation"])
+    return _degrees((stream.get("tags") or {}).get("rotate", 0))
+
+
+def _degrees(value: object) -> int:
+    try:
+        return int(float(str(value))) % 360
+    except (ValueError, OverflowError):
+        return 0
 
 
 @dataclass
@@ -643,10 +651,10 @@ class MergeVideos:
         with_sound = any(clip.audio for clip in clips)
         inputs: list[str] = []
         for clip in clips:
-            # Every input, not just the first, may open local files only. Every clip's
-            # decoder opens at the start: two threads each keep 20 of them, even at 4K,
-            # within the sandbox's address space on a machine with many cores.
-            inputs += ["-threads", "2", "-protocol_whitelist", "file,pipe"]
+            # Every clip's decoder opens at the start: two threads each keep 20 of them, even
+            # at 4K, within the sandbox's address space on a machine with many cores. (Each
+            # input gets the protocol whitelist from ffmpeg().)
+            inputs += ["-threads", "2"]
             # Each clip is read only as far as it was priced (JobContext.run caps the
             # first, the job's own input, too; the others only here).
             if clip.priced is not None:

@@ -68,6 +68,9 @@ export async function seriousViolations(page: Page): Promise<string[]> {
   );
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    // Off by default in axe as "experimental", though it's WCAG 1.3.1: every data
+    // cell of a table larger than 3 by 3 needs a header (Lighthouse runs it).
+    .options({ rules: { 'td-has-header': { enabled: true } } })
     .analyze();
   return results.violations
     .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')

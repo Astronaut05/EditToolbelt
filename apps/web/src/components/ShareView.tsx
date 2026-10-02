@@ -4,6 +4,8 @@ import { accepts, AppLink, formatBytes, handOff, MonoLabel } from '@etb/ui';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+import { isStale, SHARED } from '../lib/shared-files';
+
 export interface ShareTool {
   id: string;
   name: string;
@@ -12,9 +14,6 @@ export interface ShareTool {
   batch: boolean;
   category: string;
 }
-
-/** The service worker's cache for shared files (scripts/sw.ts). */
-const SHARED = 'etb-shared';
 
 type Shared =
   { kind: 'loading' } | { kind: 'none' } | { kind: 'files'; files: File[]; more: boolean };
@@ -28,10 +27,12 @@ async function takeShared(): Promise<File[]> {
     return index(a) - index(b);
   });
   const files: File[] = [];
+  const now = Date.now();
   for (const key of keys) {
     const response = await cache.match(key);
     await cache.delete(key);
-    if (!response) continue;
+    // A share older than an hour wasn't this one (src/lib/shared-files.ts).
+    if (!response || isStale(response, now)) continue;
     const name = decodeURIComponent(response.headers.get('X-File-Name') ?? 'shared-file');
     const blob = await response.blob();
     files.push(new File([blob], name, { type: blob.type }));

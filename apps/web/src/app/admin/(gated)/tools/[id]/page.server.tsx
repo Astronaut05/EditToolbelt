@@ -13,6 +13,7 @@ import {
   when,
 } from '../../../../../components/admin/AdminFrame';
 import { loadToolFlags } from '../../../../../lib/flags';
+import { requireAdmin } from '../../../../../server/admin';
 import { db } from '../../../../../server/db';
 import { hasView } from '../../../../../tools/ids';
 import { saveToolFlag } from '../../actions';
@@ -28,6 +29,7 @@ const field = 'h-11 rounded-control border border-border-field bg-bg px-3 text-1
 
 /** One tool's runtime overrides (docs/07 → Tools; docs/04 → tool_flags). */
 export default async function AdminTool({ params, searchParams }: Props) {
+  await requireAdmin();
   const { id } = await params;
   const tool = tools.find((candidate) => candidate.id === id);
   if (!tool) notFound();

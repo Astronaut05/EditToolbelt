@@ -9,7 +9,13 @@ from typing import Any
 import pytest
 
 from etb_worker import probe as probe_module
-from etb_worker.probe import ProbeRefused, probe_json, summarize, variable_frame_rate
+from etb_worker.probe import (
+    MAX_FRAME_TIMES,
+    ProbeRefused,
+    probe_json,
+    summarize,
+    variable_frame_rate,
+)
 from etb_worker.sandbox import ToolError, run
 
 VIDEO = {
@@ -325,3 +331,81 @@ def test_a_videos_cover_art_is_not_its_picture(tmp_path: Path) -> None:
     video = record["video"]
     assert (video["codec"], video["width"], video["height"], video["fps"]) == ("h264", 160, 120, 25)
     assert len(data["frame_times"]) == 75
+
+
+@pytest.mark.parametrize(
+    ("stream", "expected"),
+    [
+        ({"tags": {"rotate": "90"}}, 90),
+        ({"tags": {"rotate": "-90"}}, 270),
+        ({"tags": {"rotate": "180.0"}}, 180),
+        ({"side_data_list": [{"rotation": -90}]}, 270),
+        # The tag is whatever the uploader wrote.
+        ({"tags": {"rotate": "abc"}}, 0),
+        ({"tags": {"rotate": ""}}, 0),
+        ({"tags": {"rotate": "nan"}}, 0),
+        ({"tags": {"rotate": "1e400"}}, 0),
+        ({"side_data_list": [{"rotation": "abc"}]}, 0),
+    ],
+)
+def test_a_rotation_that_isnt_a_number_is_no_rotation(
+    stream: dict[str, Any], expected: int
+) -> None:
+    record = summarize(
+        {"format": {"format_name": "matroska,webm"}, "streams": [{**VIDEO, **stream}]},
+        "video/x-matroska",
+    )
+    assert record["video"]["rotation"] == expected
+
+
+def test_a_file_tagged_rotate_abc_is_probed_as_unrotated(tmp_path: Path) -> None:
+    # ffmpeg won't write a "rotate" tag in Matroska, so the file gets another of the same
+    # length and its name is patched, as a crafted upload would be.
+    made = tmp_path / "made.mkv"
+    ffmpeg(
+        *("-f", "lavfi", "-i", "testsrc=size=64x48:rate=25:duration=1"),
+        *("-c:v", "libx264", "-metadata:s:v:0", "XOTATE=abc", str(made)),
+    )
+    path = tmp_path / "input"
+    path.write_bytes(made.read_bytes().replace(b"XOTATE", b"rotate"))
+    data = probe_json(path)
+    assert data["streams"][0]["tags"]["rotate"] == "abc"
+    video = summarize(data, "video/x-matroska")["video"]
+    assert (video["width"], video["height"], video["rotation"]) == (64, 48, 0)
+
+
+def test_the_frame_times_stop_at_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file of tiny frames lists more packets in its first minute than the check reads:
+    the worker keeps only the first ``MAX_FRAME_TIMES`` and stops ffprobe there."""
+    path = tmp_path / "input"
+    ffmpeg(
+        *("-f", "lavfi", "-i", "color=black:size=16x16:rate=1000:duration=10"),
+        *("-c:v", "rawvideo", "-pix_fmt", "gray", "-f", "mov", str(path)),
+    )
+    listed: list[int] = []
+    stopped: list[bool] = []
+
+    def counting(args: list[str], **kwargs: Any) -> str:
+        on_line, lines = kwargs["on_line"], 0
+
+        def count(line: str) -> None:
+            nonlocal lines
+            lines += 1
+            on_line(line)
+
+        try:
+            return run(args, **{**kwargs, "on_line": count})
+        finally:
+            listed.append(lines)
+            stopped.append(kwargs.get("cancel") is not None and kwargs["cancel"].is_set())
+
+    monkeypatch.setattr(probe_module, "run", counting)
+    data = probe_json(path)
+    times = data["frame_times"]
+    # 10,000 packets; the first 7,200 kept, the same ones the check read before.
+    assert len(times) == MAX_FRAME_TIMES
+    assert times[:3] == pytest.approx([0.0, 0.001, 0.002])
+    assert times[-1] == pytest.approx(7.199)
+    assert listed[-1] > MAX_FRAME_TIMES
+    assert stopped[-1]
+    assert summarize(data, "video/quicktime")["video"]["vfr"] is False

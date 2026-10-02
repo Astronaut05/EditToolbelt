@@ -51,8 +51,7 @@ export const SELLER_ID_PROVIDERS: readonly ProviderId[] = ['click'];
  * What a provider's sales need that this release doesn't have yet. The
  * admin switch refuses to turn it on while its entry is here; remove the
  * entry with the code that builds it. Empty: Click's fiscal receipt, the
- * last entry, is built (docs/DECISIONS.md → "Click's fiscal receipts:
- * queued with the sale, sent with retries").
+ * last entry, is built (docs/decisions/2026-10-02-click-fiscal-receipts.md).
  */
 export const UNFINISHED: Partial<Record<ProviderId, string>> = {};
 

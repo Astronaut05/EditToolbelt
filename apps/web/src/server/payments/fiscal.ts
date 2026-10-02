@@ -1,6 +1,6 @@
 /**
- * Click's fiscal receipts, sent until Click accepts them (docs/DECISIONS.md →
- * "Click's fiscal receipts: queued with the sale, sent with retries").
+ * Click's fiscal receipts, sent until Click accepts them
+ * (docs/decisions/2026-10-02-click-fiscal-receipts.md).
  *
  * - Click's Complete queues the receipt (`fiscal_receipts`) in the same
  *   transaction that credits the purchase (payments/store.ts), so a credited

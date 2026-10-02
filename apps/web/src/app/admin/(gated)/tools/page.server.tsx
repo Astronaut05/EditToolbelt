@@ -3,12 +3,14 @@ import { statusOf, tools } from '@etb/registry';
 
 import { AdminFrame, Table } from '../../../../components/admin/AdminFrame';
 import { loadToolFlags } from '../../../../lib/flags';
+import { requireAdmin } from '../../../../server/admin';
 import { db } from '../../../../server/db';
 
 export const dynamic = 'force-dynamic';
 
 /** docs/07 → Tools: every registry tool, its default and effective status, and today's jobs. */
 export default async function AdminTools() {
+  await requireAdmin();
   await loadToolFlags();
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);

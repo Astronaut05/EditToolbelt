@@ -8,8 +8,11 @@ Every run:
 - has stdin closed. Its stdout is read line by line (ffmpeg's ``-progress``),
   and the tail of stderr is kept for error reports.
 
-ffmpeg itself is always started through ``ffmpeg()``, which adds
-``-protocol_whitelist file,pipe`` so no user file can make it open a URL.
+ffmpeg itself is always started through ``ffmpeg()``, which puts
+``-protocol_whitelist file,pipe`` before every input, so no user file can
+make it open a URL.
+The worker makes itself non-dumpable at start (``hide_from_tools``), so a
+tool running as the same user can't read its secrets through /proc.
 The container adds the rest in production: non-root, read-only root, a
 per-job temp dir as the only writable path.
 """
@@ -17,9 +20,11 @@ per-job temp dir as the only writable path.
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -44,6 +49,31 @@ class ToolError(Exception):
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(detail)
         self.code = code
+
+
+#: prctl(2): whether the process may be core-dumped, or traced and read through /proc by
+#: its own user.
+PR_SET_DUMPABLE = 4
+
+
+def hide_from_tools() -> bool:
+    """Makes the worker non-dumpable, once at start; False where that can't be done.
+
+    The tools run as the worker's own user, so a file that exploits a bug in ffmpeg could
+    otherwise read ``/proc/<worker>/environ`` (the database URL, storage keys, tokens) or
+    attach to the worker with ptrace. A non-dumpable process's /proc files belong to root,
+    and only root may trace it. The worker still reads its own /proc/self (fd, status), but
+    not its own environ: nothing in it does. Its tools are dumpable again once they exec,
+    which is fine: they hold no secrets. Linux only.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        off = ctypes.c_ulong(0)
+        return int(libc.prctl(PR_SET_DUMPABLE, off, off, off, off)) == 0
+    except (OSError, AttributeError):
+        return False
 
 
 def _clean_env(cwd: Path) -> dict[str, str]:
@@ -130,8 +160,25 @@ def run(
     return stderr
 
 
+#: The only protocols an ffmpeg input may open: its files, and pipes.
+WHITELIST = ("-protocol_whitelist", "file,pipe")
+
+
 def ffmpeg(*args: str) -> list[str]:
-    """An ffmpeg command line that never reads a URL or stdin, and reports progress on stdout."""
+    """An ffmpeg command line that never reads a URL or stdin, and reports progress on stdout.
+
+    An input option applies only to the next ``-i``, so every input gets the whitelist, not
+    just the first (Noise Reduction's encode reads the user's file as its second input).
+    """
+    guarded: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "-i" and i + 1 < len(args):
+            guarded += [*WHITELIST, "-i", args[i + 1]]
+            i += 2
+        else:
+            guarded.append(args[i])
+            i += 1
     return [
         "ffmpeg",
         "-hide_banner",
@@ -139,12 +186,10 @@ def ffmpeg(*args: str) -> list[str]:
         "-nostats",
         "-loglevel",
         "error",
-        "-protocol_whitelist",
-        "file,pipe",
         "-progress",
         "pipe:1",
         "-y",
-        *args,
+        *guarded,
     ]
 
 

@@ -16,11 +16,13 @@ import json
 import shutil
 import statistics
 import tempfile
+import threading
 from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+import psycopg
 from psycopg.types.json import Jsonb
 
 from etb_worker.db import Conn
@@ -60,6 +62,8 @@ CONTAINERS.update(SUBTITLES)
 MAX_PIXELS = 100_000_000  # a decoded frame, docs/11 -> decompression bombs
 #: Frame times read for the variable-frame-rate check: the first minute is enough.
 FRAME_TIMES_SPAN = "%+60"
+#: The most of them kept: a minute at 120 fps. They sit in the worker's own memory, outside
+#: the sandbox, and a file of tiny frames can list millions in a minute.
 MAX_FRAME_TIMES = 7200
 MAX_DURATION_MS = 24 * 60 * 60 * 1000
 PROBE_LIMITS = Limits(timeout_sec=60, memory_bytes=2 * 1024**3)
@@ -174,8 +178,17 @@ def _int_or_none(value: object) -> int | None:
 def _rotation(stream: dict[str, Any]) -> int:
     for side in stream.get("side_data_list") or []:
         if "rotation" in side:
-            return int(side["rotation"]) % 360
-    return int((stream.get("tags") or {}).get("rotate", 0)) % 360
+            return _degrees(side["rotation"])
+    return _degrees((stream.get("tags") or {}).get("rotate", 0))
+
+
+def _degrees(value: object) -> int:
+    """A rotation as 0-359 degrees. The ``rotate`` tag is whatever the uploader wrote, so
+    anything that isn't a finite number reads as no rotation."""
+    try:
+        return int(float(str(value))) % 360
+    except (ValueError, OverflowError):
+        return 0
 
 
 def probe_json(path: Path) -> dict[str, Any]:
@@ -290,8 +303,23 @@ def packet_span(path: Path) -> float | None:
 
 
 def frame_times(path: Path) -> list[float]:
-    """The first minute's video packet times, for the variable-frame-rate check."""
-    lines: list[str] = []
+    """The first minute's video packet times, for the variable-frame-rate check.
+
+    Only the first ``MAX_FRAME_TIMES`` count, so ffprobe is stopped once it has listed
+    them: the check reads the same packets as if it had listed them all.
+    """
+    times: list[float] = []
+    enough = threading.Event()
+
+    def on_line(line: str) -> None:
+        if len(times) >= MAX_FRAME_TIMES:
+            enough.set()
+            return
+        try:
+            times.append(float(line.strip().rstrip(",")))
+        except ValueError:
+            return  # N/A: a packet without a time
+
     try:
         run(
             ffprobe(
@@ -300,16 +328,13 @@ def frame_times(path: Path) -> list[float]:
             ),
             cwd=path.parent,
             limits=PROBE_LIMITS,
-            on_line=lines.append,
+            cancel=enough,
+            on_line=on_line,
         )
     except ToolError:
-        return []  # the header's hint stands in
-    times: list[float] = []
-    for line in lines[:MAX_FRAME_TIMES]:
-        try:
-            times.append(float(line.strip().rstrip(",")))
-        except ValueError:
-            continue
+        if not enough.is_set():
+            return []  # the header's hint stands in
+        # Stopped once it had listed enough (or it failed after that): those stand.
     return times
 
 
@@ -364,6 +389,23 @@ def probe_next(
                 (row["id"],),
             )
             log.warning("upload.missing", upload_id=str(row["id"]))
+        except psycopg.Error:
+            raise  # the database: the slot waits and tries again
+        except Exception as error:  # noqa: BLE001
+            # Anything else is a file the probe can't handle (a bug, or a value nothing
+            # expected): refused like a damaged one. Left unprobed, it would take every slot
+            # that picks it up. The log names only the type: its message can quote the file.
+            conn.execute(
+                "update uploads set probe_error = 'UNSUPPORTED_FORMAT', probed_at = now() "
+                "where id = %s",
+                (row["id"],),
+            )
+            log.error(  # noqa: TRY400
+                "upload.probe_failed",
+                upload_id=str(row["id"]),
+                error_code="UNSUPPORTED_FORMAT",
+                detail=type(error).__name__,
+            )
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
     return True

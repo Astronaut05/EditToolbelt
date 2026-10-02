@@ -9,11 +9,12 @@ has its job requeued, and broken files fail cleanly.
 
 from __future__ import annotations
 
+import functools
 import os
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,9 +25,9 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from psycopg.types.json import Jsonb
 
-from etb_worker import jobqueue
+from etb_worker import jobqueue, slots
 from etb_worker.db import Conn, connect_url
-from etb_worker.probe import probe_next
+from etb_worker.probe import probe_json, probe_next
 from etb_worker.processors import (
     PROCESSORS,
     Estimate,
@@ -278,6 +279,79 @@ def test_an_upload_whose_file_is_gone_is_refused_and_holds_up_nothing(
     there = one(db, "select probe, probe_error from uploads where id = %s", ids[1])
     assert there["probe_error"] is None
     assert there["probe"]["video"]["width"] == 160
+
+
+class Idle:
+    """A slot's runner with no jobs to run."""
+
+    def run_next(self) -> bool:
+        return False
+
+
+def test_a_file_the_probe_cant_handle_is_refused_and_the_slot_runs_on(
+    db: Conn,
+    storage: Storage,
+    media: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    log_lines: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """An error nothing expected (a bug, a value no one foresaw) refuses that upload like a
+    damaged file; left unprobed, it would stop every slot that picked it up."""
+    crafted = b"a file that trips the probe"
+    user = new_user(db)
+    keys = [f"in/{uuid.uuid4()}", put_input(storage, media["mp4"])]
+    storage._client.put_object(Bucket=storage.bucket, Key=keys[0], Body=crafted)  # test setup
+    ids = [
+        str(
+            one(
+                db,
+                """
+                insert into uploads (user_id, storage_key, bytes, mime_claimed, tool_id, part_size,
+                                     part_count, expires_at, completed_at)
+                values (%s, %s, 1, 'video/mp4', 'test-remux', 1, 1,
+                        now() + interval '1 hour', now() - make_interval(secs => %s))
+                returning id
+                """,
+                user,
+                key,
+                60 - n,
+            )["id"]
+        )
+        for n, key in enumerate(keys)
+    ]
+
+    def probe(path: Path) -> dict[str, Any]:
+        if path.read_bytes() == crafted:
+            raise KeyError("from-the-file")
+        return probe_json(path)
+
+    monkeypatch.setattr(slots, "probe_next", functools.partial(probe_next, probe=probe))
+    monkeypatch.setattr(slots, "POLL_SEC", 0.05)
+    stop, wake = threading.Event(), threading.Event()
+    slot = threading.Thread(
+        target=slots.run_slot, args=(Settings(), storage, Idle(), wake, stop), daemon=True
+    )
+    slot.start()
+    try:
+        deadline = time.monotonic() + 30
+        while one(db, "select probed_at from uploads where id = %s", ids[1])["probed_at"] is None:
+            assert time.monotonic() < deadline, "the next upload was never probed"
+            time.sleep(0.1)
+        assert slot.is_alive()
+    finally:
+        stop.set()
+        wake.set()
+        slot.join(timeout=10)
+    refused = one(db, "select probe, probe_error, probed_at from uploads where id = %s", ids[0])
+    assert refused["probe"] is None
+    assert refused["probe_error"] == "UNSUPPORTED_FORMAT"
+    assert refused["probed_at"] is not None
+    there = one(db, "select probe, probe_error from uploads where id = %s", ids[1])
+    assert there["probe_error"] is None
+    assert there["probe"]["video"]["width"] == 160
+    failed = [line for line in log_lines() if line["event"] == "upload.probe_failed"]
+    assert [line["detail"] for line in failed if line["upload_id"] == ids[0]] == ["KeyError"]
+    assert "from-the-file" not in str(log_lines())
 
 
 def test_a_job_runs_end_to_end_and_its_input_is_gone_at_once(

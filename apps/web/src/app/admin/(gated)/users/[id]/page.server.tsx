@@ -27,6 +27,7 @@ import {
 } from '../../../../../components/admin/AdminFrame';
 import { formatMoney, packName } from '../../../../../lib/money';
 import { providerName } from '../../../../../lib/pay-with';
+import { requireAdmin } from '../../../../../server/admin';
 import { db } from '../../../../../server/db';
 import { requestTime } from '../../../../../server/time';
 import { changeCredits, deleteUser, revokeKeys, setDisabled } from '../../actions';
@@ -50,6 +51,7 @@ const ERRORS: Record<string, string> = {
 
 /** docs/07 → Users: one account, its money and keys, and the actions on it. */
 export default async function AdminUser({ params, searchParams }: Props) {
+  await requireAdmin();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const d = db();

@@ -26,6 +26,7 @@ import {
   when,
 } from '../../../../components/admin/AdminFrame';
 import { formatMoney, packName } from '../../../../lib/money';
+import { requireAdmin } from '../../../../server/admin';
 import { db } from '../../../../server/db';
 import { serverEnv } from '../../../../server/env';
 import { PROVIDER_IDS } from '../../../../server/payments/contract';
@@ -131,6 +132,7 @@ const yes = (value: boolean, good = 'yes', bad = 'no') => (
  * only, never values; webhook payloads never shown.
  */
 export default async function AdminPayments({ searchParams }: Props) {
+  await requireAdmin();
   const query = await searchParams;
   const env = paymentEnv();
   const site = serverEnv().SITE_URL;
