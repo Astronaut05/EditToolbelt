@@ -51,6 +51,10 @@ export default async function ConnectPage({ searchParams }: Props) {
     wait = connectLockout(me.user.id, address);
   }
   const full = request ? (await listKeys(me.user.id)).length >= MAX_KEYS : false;
+  // DEBUG (claude/debug-connect-lockout only).
+  console.log(
+    `[connect.page] address=${address} user=${me.user.id.slice(-8)} typed=${typed.slice(0, 9)} wait=${String(wait)} found=${String(Boolean(request))} missed=${String(missed)}`,
+  );
 
   return (
     <SiteFrame signedIn>

@@ -16,6 +16,18 @@ test.afterAll(async () => {
   await closeTestDb();
 });
 
+// DEBUG (claude/debug-connect-lockout only): where a failed test's page was, and what it said.
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  const text = await page
+    .locator('body')
+    .innerText({ timeout: 2000 })
+    .catch(() => '(no body)');
+  console.log(
+    `[failed ${testInfo.project.name} #${String(testInfo.repeatEachIndex)}] ${testInfo.title} at ${page.url()}: ${text.replace(/\s+/g, ' ').slice(0, 400)}`,
+  );
+});
+
 interface Started {
   device_code: string;
   user_code: string;
@@ -123,17 +135,35 @@ test('an expired or made-up code goes nowhere', async ({ page, request }) => {
 });
 
 test('ten wrong codes lock the account out, the right one too', async ({ page, request }) => {
+  // DEBUG (claude/debug-connect-lockout only): step timings, the address, and
+  // what the page shows when there is no Decline button.
+  const t0 = Date.now();
+  const tag = `[lockout ${test.info().project.name} #${String(test.info().repeatEachIndex)}]`;
+  const mark = (step: string) => {
+    console.log(`${tag} +${String(Date.now() - t0)} ms ${step}`);
+  };
   // An address of its own, so the lockout touches no other test.
+  const address =
+    process.env.DEBUG_PIN_ADDRESS || `203.0.113.${String(Math.floor(Math.random() * 250) + 1)}`;
+  mark(`address ${address}`);
   await page.setExtraHTTPHeaders({
-    'cf-connecting-ip': `203.0.113.${String(Math.floor(Math.random() * 250) + 1)}`,
+    'cf-connecting-ip': address,
   });
   await signIn(page, newEmail());
+  mark('signed in');
   const wrong = /That code is wrong or has expired/;
   // Every kind of miss gets the same answer: malformed, made up, and declined then reused.
   const declined = await start(request);
+  mark('code started');
   await page.goto(`/connect?code=${declined.user_code}`);
+  mark(`connect page open: ${page.url()}`);
+  if (!(await page.getByRole('button', { name: 'Decline' }).isVisible())) {
+    const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ').slice(0, 400);
+    mark(`NO DECLINE BUTTON; the page says: ${text}`);
+  }
   await page.getByRole('button', { name: 'Decline' }).click();
   await expect(page.getByRole('status')).toHaveText(/Declined/);
+  mark('declined');
   const misses = ['BCDF', 'XXXX-XXXX', declined.user_code];
   for (const last of 'BCDFGHJ') misses.push(`ZZZZ-ZZZ${last}`);
   for (const [i, code] of misses.entries()) {
@@ -142,8 +172,10 @@ test('ten wrong codes lock the account out, the right one too', async ({ page, r
       i < 9 ? wrong : /Too many wrong codes/,
     );
   }
+  mark('10 misses');
   const started = await start(request);
   await page.goto(`/connect?code=${started.user_code}`);
+  mark('locked page open');
   await expect(page.getByRole('main').getByRole('alert')).toHaveText(
     /Too many wrong codes. Try again in \d+ min/,
   );

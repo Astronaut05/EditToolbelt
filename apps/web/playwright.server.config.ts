@@ -39,5 +39,7 @@ export default defineConfig({
     url: `http://localhost:${String(SERVER_PORT)}/healthz`,
     env: { ...serverTestEnv() },
     reuseExistingServer: !process.env.CI,
+    // DEBUG (claude/debug-connect-lockout only): the server's own output.
+    stdout: 'pipe',
   },
 });

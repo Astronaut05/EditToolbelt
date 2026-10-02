@@ -27,6 +27,10 @@ async function answer(formData: FormData, approve: boolean): Promise<void> {
   if (connectLockout(me.user.id, address) > 0) redirect('/connect?locked=1');
   const code = normalizeUserCode(field(formData, 'code'));
   const outcome = code ? await decide(me.user.id, code, approve) : 'gone';
+  // DEBUG (claude/debug-connect-lockout only).
+  console.log(
+    `[connect.action] address=${address} user=${me.user.id.slice(-8)} approve=${String(approve)} outcome=${outcome}`,
+  );
   if (outcome === 'gone' || !code) {
     connectMiss(me.user.id, address);
     redirect('/connect?gone=1');
