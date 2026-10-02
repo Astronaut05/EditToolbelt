@@ -65,14 +65,49 @@ const burnSubtitles = z.strictObject({
   width: z.enum(['full', 'narrow']).default('full'),
 });
 
+/** The denoise levels of the Real-ESRGAN tools (P08, V20): none keeps the grain. */
+const denoise = z.enum(['none', 'low', 'medium', 'high']).default('medium');
+
 /** P08: Real-ESRGAN, 2× or 4×, a general or an illustration model, PNG, JPG or WebP. */
 const upscaleImage = z.strictObject({
   scale: z.enum(['2', '4']).default('4'),
   /** general: photos and most images; anime: illustrations, drawings, anime. */
   model: z.enum(['general', 'anime']).default('general'),
   /** How much grain and JPEG noise to clean up (the general model only). */
-  denoise: z.enum(['none', 'low', 'medium', 'high']).default('medium'),
+  denoise,
   format: z.enum(['png', 'jpg', 'webp']).default('png'),
+});
+
+/**
+ * P17: the mask (an upload of its own) and the result's format. The mask is a
+ * PNG, white where to erase and black elsewhere, the image's size or the same
+ * shape scaled; the result is the image at its full size.
+ */
+const objectEraser = z.strictObject({
+  /** The mask's upload id (POST /uploads with image/png). */
+  mask: z.uuid(),
+  /** PNG keeps every pixel outside the mask exactly as it was. */
+  format: z.enum(['png', 'jpg', 'webp']).default('png'),
+});
+
+/** V20: Real-ESRGAN on every frame, 2× or 4×, up to 4K, as H.264 MP4 with the sound. */
+const upscaleVideo = z.strictObject({
+  scale: z.enum(['2', '4']).default('2'),
+  /** general: real footage; anime: animation and drawn video. */
+  model: z.enum(['general', 'anime']).default('general'),
+  /** How much grain and compression noise to clean up (the general model only). */
+  denoise,
+});
+
+/** V21: the subject on transparency, on chroma-key green, or on a colour. */
+const videoBackgroundRemover = z.strictObject({
+  /** prores: ProRes 4444 MOV with alpha; webm: VP9 with alpha; green and color: H.264 MP4. */
+  output: z.enum(['prores', 'webm', 'green', 'color']).default('prores'),
+  /** The background for `color`. */
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default('#ffffff'),
 });
 
 /** Whisper's language codes, or auto to detect it. */
@@ -105,11 +140,29 @@ export const serverOptions = {
   'upscale-image': upscaleImage,
   'transcribe-audio': transcribeAudio,
   'auto-subtitles': autoSubtitles,
+  'object-eraser': objectEraser,
+  'upscale-video': upscaleVideo,
+  'video-background-remover': videoBackgroundRemover,
 } satisfies Record<string, z.ZodType>;
 
 /** Options that name another upload, by tool: the job takes those files too, in this order. */
 export const uploadOptions: Partial<Record<keyof typeof serverOptions, readonly string[]>> = {
   'burn-subtitles': ['subtitles'],
+  'object-eraser': ['mask'],
+};
+
+/** Subtitle files, as the uploads API types them (by extension: browsers rarely do). */
+export const SUBTITLE_MIME_TYPES = ['application/x-subrip', 'text/vtt', 'text/x-ssa'] as const;
+
+/**
+ * What each of those uploads must be: the types it may have, and what to call
+ * it when it isn't one of them.
+ */
+export const uploadKinds: Partial<
+  Record<keyof typeof serverOptions, Record<string, { types: readonly string[]; is: string }>>
+> = {
+  'burn-subtitles': { subtitles: { types: SUBTITLE_MIME_TYPES, is: 'an SRT, VTT or ASS file' } },
+  'object-eraser': { mask: { types: ['image/png'], is: 'a PNG' } },
 };
 
 export type ServerToolId = keyof typeof serverOptions;

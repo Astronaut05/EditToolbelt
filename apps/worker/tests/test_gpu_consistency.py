@@ -18,6 +18,9 @@ TOOLS = {
     "upscale-image": ("photo", "upscale_image"),
     "transcribe-audio": ("audio", "transcribe"),
     "auto-subtitles": ("video", "transcribe"),
+    "object-eraser": ("photo", "erase_object"),
+    "upscale-video": ("video", "upscale_video"),
+    "video-background-remover": ("video", "remove_video_background"),
 }
 
 
@@ -48,3 +51,20 @@ def test_jobs_outlive_their_gpu_call() -> None:
         found = re.search(r"timeoutSec: (\d+) \* 60", source)
         assert found, tool
         assert int(found.group(1)) * 60 > modal_app.SPECS[function].timeout, tool
+
+
+def test_every_gpu_function_has_a_tool_or_is_shared() -> None:
+    assert {function for _category, function in TOOLS.values()} == set(modal_app.SPECS)
+
+
+def test_the_video_limits_agree() -> None:
+    """The frame cap is the same in the function, the worker and the web."""
+    from etb_worker.processors import upscale_video, video_background  # noqa: PLC0415
+
+    rules = (ROOT / "apps/web/src/lib/gpu-limits.ts").read_text("utf-8")
+    assert f"MAX_VIDEO_FRAMES = {modal_app.MAX_VIDEO_FRAMES:_}" in rules
+    assert upscale_video.MAX_FRAMES == modal_app.MAX_VIDEO_FRAMES
+    assert f"MAX_PRORES_BYTES = {video_background.MAX_PRORES_BYTES:_}" in rules
+    assert f"PRORES_BITS_PER_PIXEL = {video_background.PRORES_BITS_PER_PIXEL}" in rules
+    assert f"MAX_LONG_SIDE = {upscale_video.MAX_LONG_SIDE}" in rules
+    assert f"MAX_SHORT_SIDE = {upscale_video.MAX_SHORT_SIDE}" in rules

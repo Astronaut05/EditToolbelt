@@ -1,6 +1,6 @@
 'use client';
 
-import { Undo2 } from 'lucide-react';
+import { Eraser, Undo2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -11,55 +11,82 @@ import {
   type PointerEvent,
 } from 'react';
 
-import { Button } from '../primitives/Button';
-import { drawStrokes } from './brush';
-import { IconButton } from './CanvasEditor';
 import { Slider } from '../primitives/fields';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { MediaTag } from './BeforeAfter';
-
-/** A brush stroke in image px (the engines' Stroke). */
-export interface BrushStroke {
-  mode: 'keep' | 'erase';
-  radius: number;
-  points: [number, number][];
-}
+import { addPoint, drawStrokes, type MaskMode, type MaskStroke } from './brush';
+import { IconButton } from './CanvasEditor';
 
 const MODES = [
-  { value: 'keep', label: 'Keep' },
-  { value: 'erase', label: 'Erase' },
-];
+  { value: 'mark', label: 'Mark' },
+  { value: 'unmark', label: 'Unmark' },
+] as const;
+
+/** Space around the image inside the frame, px. */
+const GUTTER = 24;
 
 /**
- * The Refine brush of CanvasEditor (tools/photo.md → P07): paint over the
- * result to keep parts the model dropped or erase parts it kept. The original
- * shows faintly under the cut-out so dropped parts can be found. Strokes are
- * in image px and applied by the engine to the full-size mask.
+ * The mask brush over an image (tools/photo.md → P17): paint over what to
+ * remove, a little past its edges; Unmark takes parts back. The marked area
+ * shows as a tint; each change goes to the page at once (strokes in image px,
+ * the same strokes the page draws into the mask it sends). Brush size is in
+ * screen px, so it feels the same at any zoom.
  */
-export function RefineBrush({
-  result,
-  original,
+export function MaskBrush({
+  src,
   width,
   height,
-  strokes: initial,
-  onApply,
-  onCancel,
+  strokes,
+  onChange,
 }: {
-  result: string;
-  original: string;
+  src: string;
+  /** The image's size as shown (EXIF orientation applied), when the page has read it. */
+  width?: number;
+  height?: number;
+  strokes: MaskStroke[];
+  onChange: (strokes: MaskStroke[]) => void;
+}) {
+  // Without a size from the page, the picture's own (browsers apply EXIF orientation).
+  const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
+  useEffect(() => {
+    if (width && height) return;
+    const picture = new Image();
+    picture.onload = () => {
+      setNatural({ width: picture.naturalWidth, height: picture.naturalHeight });
+    };
+    picture.src = src;
+  }, [src, width, height]);
+  const size = width && height ? { width, height } : natural;
+  return size ? (
+    <BrushCanvas
+      src={src}
+      width={size.width}
+      height={size.height}
+      strokes={strokes}
+      onChange={onChange}
+    />
+  ) : null;
+}
+
+function BrushCanvas({
+  src,
+  width,
+  height,
+  strokes,
+  onChange,
+}: {
+  src: string;
   width: number;
   height: number;
-  strokes: BrushStroke[];
-  onApply: (strokes: BrushStroke[]) => void;
-  onCancel: () => void;
+  strokes: MaskStroke[];
+  onChange: (strokes: MaskStroke[]) => void;
 }) {
-  const [strokes, setStrokes] = useState(initial);
-  const [mode, setMode] = useState<BrushStroke['mode']>('erase');
-  const [size, setSize] = useState(40);
+  const [mode, setMode] = useState<MaskMode>('mark');
+  const [size, setSize] = useState(48);
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const live = useRef<BrushStroke | null>(null);
+  const live = useRef<MaskStroke | null>(null);
   const hintId = useId();
 
   useLayoutEffect(() => {
@@ -76,16 +103,15 @@ export function RefineBrush({
     };
   }, []);
 
-  const gutter = 24;
   const fit =
-    frame.width > 0
-      ? Math.min((frame.width - 2 * gutter) / width, (frame.height - 2 * gutter) / height)
+    frame.width > 0 && width > 0 && height > 0
+      ? Math.min((frame.width - 2 * GUTTER) / width, (frame.height - 2 * GUTTER) / height)
       : 0;
   const shown = { width: width * fit, height: height * fit };
 
-  /** Paints the strokes as tints: lime where kept, red where erased. */
+  /** The marked area, opaque on the canvas; the canvas itself is half see-through. */
   const paint = useCallback(
-    (extra: BrushStroke | null = null) => {
+    (extra: MaskStroke | null = null) => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (!canvas || !ctx || fit <= 0) return;
@@ -93,14 +119,10 @@ export function RefineBrush({
       canvas.width = Math.round(width * fit * ratio);
       canvas.height = Math.round(height * fit * ratio);
       ctx.setTransform(ratio * fit, 0, 0, ratio * fit, 0, 0);
-      const styles = getComputedStyle(canvas);
-      const colour = {
-        keep: styles.getPropertyValue('--media-accent').trim() || 'white',
-        erase: styles.getPropertyValue('--danger').trim() || 'red',
-      };
+      const colour = getComputedStyle(canvas).getPropertyValue('--danger').trim() || 'red';
       drawStrokes(ctx, extra ? [...strokes, extra] : strokes, {
-        keep: { colour: colour.keep, alpha: 0.45 },
-        erase: { colour: colour.erase, alpha: 0.45 },
+        mark: { colour },
+        unmark: { colour, composite: 'destination-out' },
       });
     },
     [strokes, fit, width, height],
@@ -132,21 +154,22 @@ export function RefineBrush({
     paint(live.current);
   };
   const onPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
-    if (!live.current) return;
-    live.current.points.push(toImage(event));
-    paint(live.current);
+    const stroke = live.current;
+    if (!stroke) return;
+    if (addPoint(stroke, toImage(event))) paint(stroke);
   };
   const onPointerEnd = () => {
     const stroke = live.current;
     live.current = null;
-    if (stroke) setStrokes((current) => [...current, stroke]);
+    if (stroke) onChange([...strokes, stroke]);
   };
 
+  const marked = strokes.filter((stroke) => stroke.mode === 'mark').length;
   return (
     <div className="absolute inset-0 flex flex-col bg-surface">
       <div
         role="toolbar"
-        aria-label="Refine brush"
+        aria-label="Mask brush"
         className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border bg-bg px-4 py-2.5"
       >
         <SegmentedControl
@@ -154,15 +177,15 @@ export function RefineBrush({
           options={MODES}
           value={mode}
           onChange={(value) => {
-            setMode(value === 'keep' ? 'keep' : 'erase');
+            setMode(value === 'unmark' ? 'unmark' : 'mark');
           }}
         />
         <label className="flex items-center gap-2.5 text-14 text-text-muted">
           Size
           <Slider
             min={8}
-            max={120}
-            step={2}
+            max={160}
+            step={4}
             value={size}
             onChange={(event) => {
               setSize(Number(event.target.value));
@@ -171,34 +194,31 @@ export function RefineBrush({
           />
           <span className="w-12 font-mono text-12.5 text-text">{size} px</span>
         </label>
-        <IconButton
-          label="Undo stroke"
-          disabled={strokes.length === 0}
-          onClick={() => {
-            setStrokes((current) => current.slice(0, -1));
-          }}
-        >
-          <Undo2 size={16} strokeWidth={1.75} aria-hidden="true" />
-        </IconButton>
-        <span className="ml-auto flex gap-2">
-          <Button size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
+        <span className="ml-auto flex">
+          <IconButton
+            label="Undo stroke"
+            disabled={strokes.length === 0}
             onClick={() => {
-              onApply(strokes);
+              onChange(strokes.slice(0, -1));
             }}
           >
-            Apply
-          </Button>
+            <Undo2 size={16} strokeWidth={1.75} aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            label="Clear the mask"
+            disabled={strokes.length === 0}
+            onClick={() => {
+              onChange([]);
+            }}
+          >
+            <Eraser size={16} strokeWidth={1.75} aria-hidden="true" />
+          </IconButton>
         </span>
       </div>
       <div ref={frameRef} className="relative min-h-0 flex-1 overflow-hidden">
         {fit > 0 && (
           <div
-            className="checkerboard absolute"
+            className="absolute"
             style={{
               left: (frame.width - shown.width) / 2,
               top: (frame.height - shown.height) / 2,
@@ -207,27 +227,29 @@ export function RefineBrush({
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element -- local object URL */}
-            <img src={original} alt="" className="absolute inset-0 size-full opacity-30" />
-            {/* eslint-disable-next-line @next/next/no-img-element -- local object URL */}
-            <img src={result} alt="" className="absolute inset-0 size-full" />
+            <img src={src} alt="" className="absolute inset-0 size-full" />
             <canvas
               ref={canvasRef}
-              aria-label={`Refine brush: drag to ${mode} parts of the image`}
+              aria-label={`Mask brush: drag to ${mode} what to remove`}
               aria-describedby={hintId}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerEnd}
               onPointerCancel={onPointerEnd}
-              className="absolute inset-0 size-full cursor-crosshair touch-none"
+              className="absolute inset-0 size-full cursor-crosshair touch-none opacity-55"
             />
           </div>
         )}
         <span id={hintId} className="sr-only">
-          Keep paints the subject back in, Erase removes more background. Select Apply to update the
-          result.
+          Mark paints over what to remove; Unmark takes parts of the marked area back. Brush a
+          little past the object&apos;s edges and over its shadow.
         </span>
         <MediaTag className="left-3.5">
-          {strokes.length === 1 ? '1 stroke' : `${String(strokes.length)} strokes`}
+          {marked === 0
+            ? 'Brush over what to remove'
+            : strokes.length === 1
+              ? '1 stroke'
+              : `${String(strokes.length)} strokes`}
         </MediaTag>
       </div>
     </div>
