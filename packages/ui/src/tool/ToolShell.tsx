@@ -2309,6 +2309,8 @@ function Workspace({
                 src={output.url}
                 controls
                 playsInline
+                // DEBUG: the matrix's preload (empty: the browser's default).
+                preload={process.env.NEXT_PUBLIC_DEBUG_VIDEO_PRELOAD || undefined}
                 aria-label="Result"
                 className="max-h-full max-w-full"
               />
