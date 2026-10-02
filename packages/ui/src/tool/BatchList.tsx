@@ -1,4 +1,4 @@
-import { Download } from 'lucide-react';
+import { CircleAlert, Download } from 'lucide-react';
 
 import { cn } from '../cn';
 import { formatBytes } from './format';
@@ -15,6 +15,10 @@ export interface BatchItem {
   error?: string;
   /** What changed in this file, e.g. "3 style overrides removed". */
   note?: string;
+  /** U02: the file's new name, what's wrong with it, and whether that stops the rename. */
+  to?: string;
+  problem?: string;
+  blocks?: boolean;
 }
 
 const STATUS: Record<BatchItem['status'], string> = {
@@ -34,6 +38,7 @@ export function BatchList({
   onDownload?: (id: string) => void;
   className?: string;
 }) {
+  const renaming = items.some((item) => item.to !== undefined);
   return (
     <div className={cn('overflow-x-auto', className)}>
       <table className="w-full border-collapse text-left text-14">
@@ -43,13 +48,18 @@ export function BatchList({
             <th scope="col" className="py-2.5 pr-4 font-medium">
               File
             </th>
-            <th scope="col" className="py-2.5 pr-4 text-right font-medium">
+            {renaming && (
+              <th scope="col" className="py-2.5 pr-4 font-medium">
+                New name
+              </th>
+            )}
+            <th scope="col" className="hidden py-2.5 pr-4 text-right font-medium sm:table-cell">
               Size
             </th>
             <th scope="col" className="py-2.5 pr-4 font-medium">
               Status
             </th>
-            <th scope="col" className="py-2.5 pr-4 text-right font-medium">
+            <th scope="col" className="hidden py-2.5 pr-4 text-right font-medium sm:table-cell">
               Result
             </th>
             <th scope="col" className="py-2.5 font-medium">
@@ -60,8 +70,37 @@ export function BatchList({
         <tbody>
           {items.map((item) => (
             <tr key={item.id} className="h-13 border-b border-border">
-              <td className="max-w-60 truncate pr-4">{item.name}</td>
-              <td className="pr-4 text-right font-mono text-12.5 text-text-muted">
+              <td className="py-2 pr-4">
+                <span className="block break-all sm:max-w-60 sm:truncate sm:break-normal">
+                  {item.name}
+                </span>
+              </td>
+              {renaming && (
+                <td className="py-2 pr-4">
+                  <span className="block font-medium break-all sm:max-w-72 sm:truncate sm:break-normal">
+                    {item.to}
+                  </span>
+                  {item.problem && (
+                    <span
+                      className={cn(
+                        'mt-0.5 flex items-start gap-1.5 text-13',
+                        item.blocks ? 'text-danger' : 'text-text-muted',
+                      )}
+                    >
+                      {item.blocks && (
+                        <CircleAlert
+                          aria-hidden="true"
+                          size={14}
+                          strokeWidth={2}
+                          className="mt-0.5 flex-none"
+                        />
+                      )}
+                      {item.blocks ? `Can’t use: ${item.problem}` : item.problem}
+                    </span>
+                  )}
+                </td>
+              )}
+              <td className="hidden pr-4 text-right font-mono text-12.5 text-text-muted sm:table-cell">
                 {formatBytes(item.size)}
               </td>
               <td className="pr-4">
@@ -85,7 +124,7 @@ export function BatchList({
                 {item.error && <span className="block text-13 text-text-muted">{item.error}</span>}
                 {item.note && <span className="block text-13 text-text-muted">{item.note}</span>}
               </td>
-              <td className="pr-4 text-right font-mono text-12.5">
+              <td className="hidden pr-4 text-right font-mono text-12.5 sm:table-cell">
                 {item.resultSize !== undefined ? formatBytes(item.resultSize) : ''}
               </td>
               <td className="w-11 text-right">

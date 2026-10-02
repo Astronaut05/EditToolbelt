@@ -28,6 +28,8 @@ export interface RunContext {
    */
   progress(fraction: number, stage?: string, detail?: { amount?: string; step?: string }): void;
   signal: AbortSignal;
+  /** A batch run: this file's place among all of them, for an output that depends on the rest (U02's counter). */
+  batch?: { index: number; files: readonly File[] };
 }
 
 export interface EngineOutput {
@@ -36,6 +38,8 @@ export interface EngineOutput {
   ext: string;
   /** The download name's suffix when it depends on the run (P13: "instagram-square-1080x1080"). */
   nameSuffix?: string;
+  /** The whole download name, when the engine decides it (U02: the file's new name). */
+  name?: string;
   width?: number;
   height?: number;
   durationSec?: number;
