@@ -87,6 +87,7 @@
   - The purchase store: complete and refund move the purchase and its ledger row in one transaction, idempotent; a refund may take a balance below zero (paid jobs then wait for a top-up). Webhook events are processed again after a failure.
   - The welcome grant: 30 credits once per verified inbox at sign-in; throwaway domains refused.
   - A job quoted as a free daily job is never charged credits unasked (`quote_funding`, 409, the site asks again).
+  - Click's fiscal receipts (branch `claude/click-fiscal`, on top of this): queued with each Click sale and sent to Click's Merchant API with retries until accepted; Admin → Payments shows each and can send it again; unsent after 6 tries or an hour alerts. Click still waits for the seller's TIN or PINFL, the MXIK and package codes, and `CLICK_MERCHANT_API_URL`.
 
 ## Next
 

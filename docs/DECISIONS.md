@@ -1257,7 +1257,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
   - Click's own `error < 0` cancels the purchase and answers -9; anything after a cancel answers -9.
 - **Codes:** -1 bad signature (constant-time compare), -2 amount not exactly the purchase's (in tiyin), -3 action other than 0 or 1, -4 paid, -5 no such Click purchase, -6 Complete without its Prepare, -7 store failure, -8 missing or malformed fields or another `service_id`, -9 cancelled. Always HTTP 200.
 - **No `refund()`:** the Shop API has no refund call. A refund made in Click's merchant cabinet is recorded by hand.
-- **Not built yet: Click's fiscal receipt.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL, which `config/business.ts` doesn't have. Add both before turning Click on. _Enforced since the M5 review: see "Click stays off until its fiscal receipts are sent (M5 review)" below._
+- **Click's fiscal receipt: built since.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL. _Built: see "Click's fiscal receipts: queued with the sale, sent with retries (M5)" below. Click still needs the TIN or PINFL in `config/business.ts` before it can be switched on._
 
 **Why:** Click's published Shop API; `docs/05` → Payments.
 **Reverse:** each choice is one branch of `prepare` or `complete` in `providers/click.ts`.
@@ -1510,6 +1510,7 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** the M5 review: with the MXIK and package codes filled in, Click could be switched on and sell without the fiscal receipt Uzbek law asks for.
 **Reverse:** delete Click's entry from `UNFINISHED`.
+_Done: the receipt is built and Click's entry is gone from `UNFINISHED`. Click's switch now refuses while the seller's TIN or PINFL is missing or malformed, beside the MXIK and package codes (see "Click's fiscal receipts: queued with the sale, sent with retries (M5)")._
 
 ## 2026-10-02 · Payment webhooks: hardening from the M5 review
 
@@ -1545,3 +1546,23 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a test that crashes the browser it checks says nothing about the tool, and the crop bug would have shipped to Safari.
 **Reverse:** the helpers are test-only; `cropper()` in `reframe.ts` can go back to Mediabunny's `crop` once WebKit honours the source rectangle for VideoFrames.
+
+## 2026-10-02 · Click's fiscal receipts: queued with the sale, sent with retries (M5)
+
+**Decision:**
+- **Queued in the transaction that credits the sale.** Click's Complete passes its `click_paydoc_id` to the store's `complete`, which writes a `fiscal_receipts` row (migration `0011_click_fiscal`) beside the purchase and its ledger row. A credited Click sale always has a receipt to send, and the answer to Click never waits for the tax receipt, or fails because of it.
+- **Sent by the web server, not the worker.** The worker has no outbound network except storage and the GPU backend (`docs/11`), and Click's keys live on the web service. `instrumentation.ts` starts a sender in the server build (never during `next build`) that runs every 30 seconds, and straight after each Click call.
+- **One receipt per transaction, its row locked while Click answers** (`for update skip locked`, a 15-second timeout), so two senders, or a sender and the admin, never send one receipt at once. A crash mid-send rolls the try back and the receipt is due again at once.
+- **Retries until Click accepts:** after 1, 2, 4 … minutes, at most 6 hours apart, for ever. Every failure is a retry: Click's refusals, HTTP errors, no answer, and missing codes in `config/business.ts`, so a fix to the config reaches receipts still waiting.
+- **Built when sent, never stored:** the body comes from the purchase and `config/business.ts` at each try. The row keeps only Click's payment id, the status (`pending`, `sent`, `failed`), the tries, the next try and the last error. The body and the seller's TIN or PINFL are never logged or stored, and Click's error note stays on the row, out of the logs.
+- **The body**, from Click's documentation as published by others (docs.click.uz itself can't be reached from the build container): `service_id`, `payment_id` (`click_paydoc_id`), `received_ecash` = the whole amount, `received_cash` and `received_card` 0, and one item: `Name` "EditToolbelt credits: 200", `SPIC` (MXIK), `PackageCode`, `GoodPrice` and `Price` the amount in tiyin, `Amount` 1, `VAT` the VAT inside the price (price × p / (100 + p), rounded to the tiyin), `VATPercent`, `CommissionInfo` `{ TIN }` or `{ PINFL }`. `Auth: merchant_user_id:sha1(timestamp + secret_key):timestamp`, Unix seconds. Click's answer `error_code` 0 is accepted.
+- **No host in the code:** `CLICK_MERCHANT_API_URL` (in the env schema, https once deployed, empty in `.env.example`); its value is in the turn-on runbook. It joins Click's `requiredEnv`, so the switch and the webhook path both need it.
+- **The seller** is `fiscalReceipt.tin` (9 digits) or `fiscalReceipt.pinfl` (14 digits) in `config/business.ts`, one of them; not secrets, they're printed on receipts. A config test fails on a malformed one.
+- **The switch:** Click's `UNFINISHED` entry is gone; Click refuses to switch on while the TIN or PINFL is missing, malformed or both set, beside the MXIK and package codes. Payme sends its own receipt and doesn't need it.
+- **Alerts:** the worker's `fiscal_receipt_unsent` rule pages once per receipt still unsent after 6 tries or an hour; the retries carry on.
+- **Admin → Payments** shows each Click sale's receipt (sent, pending, or failed with its tries and last error) and "Send again", which tries it now with a reason, into the audit log (`purchase.fiscal_receipt_resend`).
+
+**Not verified (Click's hosts and documentation can't be reached from here):** the field names, units and endpoint come from copies of Click's documentation (a published OpenAPI file and other integrations) and match each other; the Auth digest matches a documented worked example. Still to confirm with Click when its contract is signed: whether `Amount` is the plain quantity (1) or thousandths (1000) as the tax service's own format has it, whether a Click card payment counts as `received_ecash` or `received_card`, whether `GoodPrice` is wanted, whether `payment_id` is `click_paydoc_id` (Click's payment id) rather than `click_trans_id`, and what Click answers to a receipt it already has (a retry after a lost answer would show as a failed receipt and alert). The turn-on runbook's test purchase checks the receipt arrived.
+
+**Why:** Uzbek law wants a fiscal receipt for every sale, and Click doesn't send one for us; payments stay off, so turning Click on needs only Astro's values.
+**Reverse:** add Click's entry back to `UNFINISHED` in `payments/switches.ts` (Click then can't switch on). To send from somewhere else, drop `startFiscalSender` from `instrumentation.ts` and call `sendDueReceipts` from there; to change the body, `receiptBody` in `providers/click-merchant.ts`.
