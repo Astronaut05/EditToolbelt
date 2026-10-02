@@ -106,7 +106,9 @@ def data_url(content: bytes, content_type: str) -> str:
     return f"data:{content_type};base64,{base64.b64encode(content).decode()}"
 
 
-#: Each tool function, with its tiny inputs and options, and what its answer must say.
+#: Each tool function, with its tiny inputs and options, and what its answer must say. The
+#: sound and video ones get the caps the worker would send for them (processors/remote.py):
+#: 2 s of tone; 1 s of video at 12 fps, 12 frames and a second's more.
 SMOKE: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "upscale_image": (
         {
@@ -118,7 +120,7 @@ SMOKE: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "transcribe": (
         {
             "input_url": data_url(tiny_wav(), "audio/wav"),
-            "options": {"language": "en", "task": "transcribe"},
+            "options": {"language": "en", "task": "transcribe", "max_seconds": 3.04},
         },
         {},
     ),
@@ -133,14 +135,20 @@ SMOKE: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "upscale_video": (
         {
             "input_url": data_url(tiny_y4m(), "video/x-yuv4mpeg"),
-            "options": {"scale": 2, "model": "general", "denoise": 0.5},
+            "options": {
+                "scale": 2,
+                "model": "general",
+                "denoise": 0.5,
+                "max_frames": 24,
+                "max_seconds": 2.02,
+            },
         },
         {"width": 128, "height": 96, "frames": 12},
     ),
     "remove_video_background": (
         {
             "input_url": data_url(tiny_y4m(), "video/x-yuv4mpeg"),
-            "options": {"output": "webm"},
+            "options": {"output": "webm", "max_frames": 24, "max_seconds": 2.02},
         },
         {"width": 64, "height": 48, "frames": 12},
     ),

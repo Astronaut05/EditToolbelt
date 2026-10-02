@@ -569,6 +569,8 @@ const PROCESSOR_CODES: ReadonlySet<string> = new Set([
   'NO_SPEECH',
   'BAD_MASK',
   'EMPTY_MASK',
+  // A video or sound file whose header gives no length: it can't be priced (credits back).
+  'NO_DURATION',
 ]);
 
 function errorText(job: Job): string {

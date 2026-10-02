@@ -127,7 +127,13 @@ def test_a_video_upscale_records_its_gpu_time(db: Conn) -> None:
     run.run(claim_this(db, run, job))
     row = one(db, "select * from jobs where id = %s", job)
     assert row["status"] == "succeeded", row["error_detail"]
-    assert gpu.calls[0].kwargs["options"] == {"scale": 2, "model": "general", "denoise": 0.5}
+    assert gpu.calls[0].kwargs["options"] == {
+        "scale": 2,
+        "model": "general",
+        "denoise": 0.5,
+        "max_frames": 630,
+        "max_seconds": 21.4,
+    }
     assert row["output_meta"]["ext"] == "mp4"
     assert float(row["gpu_seconds"]) == 12.0
     assert ledger(db, job) == ["reserve", "capture"]
