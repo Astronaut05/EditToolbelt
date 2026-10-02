@@ -26,6 +26,8 @@ from typing import Any
 
 _CHUNK = 1024 * 1024
 _TIMEOUT_SEC = 120
+#: One PUT stores at most 5 GiB (S3 and R2): a bigger result fails instead of half-uploading.
+MAX_PUT_BYTES = 4_900_000_000
 
 
 class CallFailed(Exception):  # it names the outcome, like a job status
@@ -53,6 +55,8 @@ def fetch_input(url: str, dest: Path, max_bytes: int) -> int:
 def put_output(url: str | None, path: Path, content_type: str) -> int:
     """PUTs ``path`` to ``url`` (signed for ``content_type``); returns its size."""
     size = path.stat().st_size
+    if size > MAX_PUT_BYTES:
+        raise CallFailed("TOO_LARGE", "The result is over 4.9 GB, more than we can store.")
     if url is None:
         return size
     if not url.startswith(("https://", "http://")):
