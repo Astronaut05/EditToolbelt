@@ -594,7 +594,7 @@
       "section": "Models",
       "ecosystem": "model",
       "packages": ["htdemucs"],
-      "use": "stem separation (A09); not used: weights licence unclear (hosted outside the MIT repository, trained on MUSDB18-HQ), parked for Astro",
+      "use": "stem separation (A09); not used: the weights' own licence is unclear (hosted outside the MIT repository, none stated), parked until the author confirms it; its training data (MUSDB18-HQ, research use) is a known risk only",
       "license": "MIT",
       "weightsLicense": "unknown",
       "scope": "server",

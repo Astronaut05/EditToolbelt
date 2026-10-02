@@ -1202,6 +1202,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 ## 2026-10-02 · GPU models: Whisper and Real-ESRGAN approved, Demucs parked (M5)
 
+_Why Demucs is parked: superseded by "Model licences: the weights' own licence decides" below (its weights' licence alone, not its training data)._
+
 **Decision:**
 - **Whisper large-v3** for A12 and V17. OpenAI's README says "Whisper's code and model weights are released under the MIT License". We run OpenAI's own `openai-whisper` (20250625, MIT) with the `large-v3` checkpoint from OpenAI's URL, whose path is the file's SHA-256: the package pins it, and so does `pins.json`.
   - **Not faster-whisper**, though it's about 4× faster. Its weights are SYSTRAN's CTranslate2 conversions on huggingface.co (model cards: MIT), which this build environment can't reach to read or pin. The L4's cost per minute of speech is small either way (`05`). Switching later is one function and one pin.
@@ -1215,6 +1217,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Reverse:** a model's row in `docs/13` and `licenses.json`, its files in `apps/worker/src/etb_worker/gpu/pins.json`, its function in `modal_app.py`.
 
 ## 2026-10-02 · The GPU functions on Modal (M5)
+
+_Containers and images: superseded by "GPU functions answer every failure; Whisper gets a container per job" and "The GPU images are pinned: base by digest, packages by hash" below._
 
 **Decision:**
 - **One function per tool** in the app `edittoolbelt-gpu`: `upscale_image` (P08) and `transcribe` (A12 and V17 share it).
@@ -1233,6 +1237,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 ## 2026-10-02 · ServerlessGpu in the worker (M5)
 
+_Slots and a dead worker's call: superseded by "GPU jobs run in slots of their own" and "A GPU call's id is on its job" below._
+
 **Decision:**
 - **`GPU_BACKEND`**: `modal`, `local` (a stub that answers "not set up"), or unset (GPU tools off). With GPU tools off, a claimed GPU job fails at once with `GPU_UNAVAILABLE` and its credits back, rather than waiting 15 min to expire.
 - **`modal` without a token starts the worker with its GPU tools off** (logged as `gpu.off`), instead of refusing to start: the CPU tools must not stop for the GPU's sake. Half a token still refuses, like Telegram's pair. Production sets `GPU_BACKEND=modal` in `.railway/railway.ts`.
@@ -1247,6 +1253,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Reverse:** unset `GPU_BACKEND`. The backend is `etb_worker/gpu/backend.py`; the shared step is `processors/remote.py`.
 
 ## 2026-10-02 · GPU metering and the daily GPU budget (M5)
+
+_What a call is billed, and the gate: superseded by "What a GPU call is billed" and "The GPU budget gate counts running jobs at their worst case" below._
 
 **Decision:**
 - **The jobs API writes each GPU job's rate** (`jobs.gpu_rate_usd`): the GPU's price a second plus 2 cores and 8 GiB, from `config/business.ts` (Modal's prices read 2026-10-02, placeholders to confirm). The worker needs no copy of the prices, as it needs none of the registry.
@@ -1364,3 +1372,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** review of #66, finding 10; `docs/11` → Supply chain (lockfiles, images by digest).
 **Reverse:** `image = modal.Image.debian_slim(python_version="3.12")` and `pip_install(...)` with the `.in` files' versions in `gpu/modal_app.py`; drop the CI step.
+
+## 2026-10-02 · Model licences: the weights' own licence decides; training data is a recorded risk
+
+**Decision:**
+- **The rule:** a model's own weights licence decides. It must be an explicitly commercial-use licence stated by whoever publishes the weights (`CLAUDE.md` rule 6: no non-commercial weights; unclear means no). Training-data provenance does not decide: each model's training data is recorded in its `docs/13` row as a known risk, not a blocker.
+- **Real-ESRGAN stays approved**: its weights are the author's release assets under the repository's BSD-3-Clause; its training data (DF2K, OST: academic datasets) is recorded.
+- **Demucs stays parked, now only on its weights' licence**: they're hosted outside the MIT repository and no licence is stated for them. A09 can go ahead once the author (Alexandre Défossez, or Meta) confirms the licence; MUSDB18-HQ is recorded as its training data, not a reason.
+- **Rows updated** with training data for the models we use or approved: Whisper, Real-ESRGAN, U²-Net, BiRefNet, and Demucs. Candidates get theirs when they're checked.
+
+**Why:** review of #66, finding 14 (Demucs was rejected partly for research-only training data while Real-ESRGAN, trained on academic datasets too, was approved; one rule was needed). The rule as Astro's brief gave it.
+**Reverse:** make training data a criterion in `docs/13` → Models; then Real-ESRGAN, U²-Net and BiRefNet need another look.
