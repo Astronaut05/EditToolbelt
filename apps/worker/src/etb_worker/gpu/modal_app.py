@@ -29,10 +29,16 @@ One function per tool, on the cheapest GPU that does the job:
   through ONNX Runtime in fp32, which the L4 runs on TF32 tensor cores; a T4
   has none, so it would be several times slower for 0.74x the price.
 
-The weights are downloaded while Modal builds each image and checked
-against the SHA-256 in pins.json (weights.py); a mismatch fails the build.
-Every function asks for the same CPU and memory, which config/business.ts
-prices together with the GPU.
+The images are pinned (docs/11 -> Supply chain): the base image by digest,
+every Python package by version and hash (requirements-*.txt, compiled from
+the .in files beside them), and the weights by the SHA-256 in pins.json,
+checked while Modal builds each image (weights.py); a mismatch fails the
+build. Every function asks for the same CPU and memory, which
+config/business.ts prices together with the GPU.
+
+A function never lets an exception out: Modal would log its traceback, and
+urllib's errors can quote the presigned URL. Anything unexpected comes back
+as ``GPU_FAILED`` with a fixed sentence and only the exception's type.
 """
 
 from __future__ import annotations
@@ -73,7 +79,9 @@ SPECS: dict[str, Spec] = {
     # Loading the networks takes about a second, so idling longer buys little.
     "upscale_image": Spec("T4", 15 * 60, 10, 2, 100 * 1024**2),
     # Loading large-v3 takes 15 to 25 s: a 30 s window catches the next file of a batch.
-    "transcribe": Spec("L4", 65 * 60, 30, 2, 2 * 1024**3),
+    # A12 and V17 share it: as many containers as both tools' maxConcurrent, so no call of
+    # ours ever queues on Modal behind another (the worker's clock would count the wait).
+    "transcribe": Spec("L4", 65 * 60, 30, 4, 2 * 1024**3),
     # MI-GAN loads in about a second; a 50 MP photo decodes and encodes in well under a minute.
     "erase_object": Spec("T4", 5 * 60, 10, 2, 100 * 1024**2),
     # Up to 18,000 frames (10 min at 30 fps) at up to 4K: the slowest case is about an hour.
@@ -87,23 +95,20 @@ MAX_VIDEO_FRAMES = 18_000
 
 app = modal.App(APP_NAME)
 
-image = modal.Image.debian_slim(python_version="3.12")
-
-# The last PyTorch whose PyPI wheels use CUDA 12.8 (docs/13 -> GPU images).
-_TORCH = ("torch==2.10.0", "torchvision==0.25.0", "numpy==2.3.5")
-# The last ONNX Runtime built for CUDA 12, with the CUDA 12.8 and cuDNN libraries torch 2.10
-# pins, by name (its own `cuda` extra leaves out cuBLAS and floats the versions).
-_ONNX = (
-    "onnxruntime-gpu==1.26.0",
-    "nvidia-cuda-runtime-cu12==12.8.90",
-    "nvidia-cuda-nvrtc-cu12==12.8.93",
-    "nvidia-cublas-cu12==12.8.4.1",
-    "nvidia-cudnn-cu12==9.10.2.21",
-    "nvidia-cufft-cu12==11.3.3.83",
-    "nvidia-curand-cu12==10.3.9.90",
-    "numpy==2.3.5",
-    "pillow==12.3.0",
+#: What Modal's debian_slim builds on (the official Python image), pinned by digest as the
+#: worker's Dockerfile pins its own: Docker Hub's index digest, read 2026-10-02 (amd64 inside).
+BASE_IMAGE = (
+    "python:3.12.14-slim-bookworm"
+    "@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e"
 )
+image = modal.Image.from_registry(BASE_IMAGE)
+
+
+def _requirements(base: modal.Image, name: str) -> modal.Image:
+    """Installs requirements-<name>.txt: every package at its version, checked by hash."""
+    return base.pip_install_from_requirements(
+        str(HERE / f"requirements-{name}.txt"), extra_options="--require-hashes"
+    )
 
 
 def _with_weights(base: modal.Image, group: str) -> modal.Image:
@@ -116,20 +121,30 @@ def _with_weights(base: modal.Image, group: str) -> modal.Image:
 
 
 # Modal adds this module's package (etb_worker) to every container by itself.
-upscale_env = _with_weights(
-    image.pip_install(*_TORCH, "spandrel==0.4.2", "pillow==12.3.0"), "upscale"
-)
+# PyTorch 2.10 is the last whose PyPI wheels use CUDA 12.8 (docs/13 -> GPU images).
+upscale_env = _with_weights(_requirements(image, "upscale"), "upscale")
+# ffmpeg decodes the audio; gcc builds Triton's launcher for Whisper's word-timing kernels
+# (debian_slim had it). Both from Debian bookworm, verified by apt's signatures (docs/13).
 whisper_env = _with_weights(
-    image.apt_install("ffmpeg").pip_install(*_TORCH, "openai-whisper==20250625", "numba==0.68.0"),
-    "whisper",
+    _requirements(image.apt_install("ffmpeg", "gcc", "libc6-dev"), "whisper"), "whisper"
 )
-# V20 reuses P08's image and weights, with ffmpeg for the frames.
+# V20 reuses P08's image and weights (hashed packages included), with ffmpeg for the frames.
 upscale_video_env = upscale_env.apt_install("ffmpeg")
-inpaint_env = _with_weights(image.pip_install(*_ONNX), "inpaint")
-matte_env = _with_weights(image.apt_install("ffmpeg").pip_install(*_ONNX), "matte")
+# ONNX Runtime 1.26.0, the last built for CUDA 12, with the CUDA 12.8 and cuDNN wheels
+# PyTorch 2.10 pins, named in requirements-onnx.in (its `cuda` extra leaves out cuBLAS).
+inpaint_env = _with_weights(_requirements(image, "onnx"), "inpaint")
+# ffmpeg decodes and encodes V21's frames (Debian bookworm, verified by apt's signatures).
+matte_env = _with_weights(_requirements(image.apt_install("ffmpeg"), "onnx"), "matte")
 
 #: Models stay loaded for the container's life; a call that loads one reports itself cold.
 _LOADED: dict[str, Any] = {}
+
+
+def _unexpected(call: Call, error: Exception) -> dict[str, Any]:
+    """A failure nobody worded: a fixed sentence and the exception's type, never its text."""
+    return call.failed(
+        CallFailed("GPU_FAILED", f"The GPU function failed ({type(error).__name__}).")
+    )
 
 
 def _options(spec: Spec) -> dict[str, Any]:
@@ -335,6 +350,8 @@ def upscale_image(
         return call.ok(meta, notes)
     except CallFailed as error:
         return call.failed(error)
+    except Exception as error:  # noqa: BLE001 - see the module's docstring
+        return _unexpected(call, error)
     finally:
         clear(work)
 
@@ -412,6 +429,8 @@ def transcribe(input_url: str, output_url: str | None, options: dict[str, Any]) 
         )
     except CallFailed as error:
         return call.failed(error)
+    except Exception as error:  # noqa: BLE001 - see the module's docstring
+        return _unexpected(call, error)
     finally:
         clear(work)
 
@@ -555,6 +574,8 @@ def erase_object(
         return call.ok(meta, notes)
     except CallFailed as error:
         return call.failed(error)
+    except Exception as error:  # noqa: BLE001 - see the module's docstring
+        return _unexpected(call, error)
     finally:
         clear(work)
 
@@ -677,6 +698,8 @@ def upscale_video(
         return call.ok(meta, notes)
     except CallFailed as error:
         return call.failed(error)
+    except Exception as error:  # noqa: BLE001 - see the module's docstring
+        return _unexpected(call, error)
     finally:
         clear(work)
 
@@ -839,5 +862,7 @@ def remove_video_background(
         return call.ok(meta, notes)
     except CallFailed as error:
         return call.failed(error)
+    except Exception as error:  # noqa: BLE001 - see the module's docstring
+        return _unexpected(call, error)
     finally:
         clear(work)

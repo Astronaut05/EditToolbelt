@@ -4,6 +4,10 @@ Runs when TEST_DATABASE_URL is set (migrated); no storage or GPU needed.
 Each processor: presign -> call -> finish (output stored, GPU time and cost
 on the job, credits captured, input deleted at once); a failure refunds;
 a cancel cancels the call; and the daily budget stops GPU jobs from starting.
+Then what happens around a call: GPU and CPU slots claim apart, a stopping
+worker cancels its call and hands the job back, a dead worker's call is
+cancelled by its id and its time counted, nothing a runaway call writes
+outlives the sweeper, and concurrent claims never overshoot the budget.
 """
 
 from __future__ import annotations
@@ -23,9 +27,19 @@ from psycopg.types.json import Jsonb
 
 from etb_worker import jobqueue
 from etb_worker.db import Conn, connect_url
-from etb_worker.gpu import budget
-from etb_worker.gpu.backend import GpuBackend, GpuCall, GpuCancelled, GpuError, GpuResult
+from etb_worker.gpu import MAX_IDLE_TAIL_SEC, budget
+from etb_worker.gpu.backend import (
+    GpuBackend,
+    GpuCall,
+    GpuCancelled,
+    GpuError,
+    GpuResult,
+    ModalGpu,
+)
 from etb_worker.notify import Notifier
+from etb_worker.probe import probe_next
+from etb_worker.processors import Estimate, JobContext, Output
+from etb_worker.retention import sweep
 from etb_worker.runner import JobRunner
 from etb_worker.scheduler import Scheduler
 from etb_worker.settings import Settings
@@ -43,6 +57,7 @@ class FakeStorage:
     def __init__(self) -> None:
         self.objects: dict[str, tuple[bytes, str]] = {}
         self.presigned: list[tuple[str, str, str]] = []
+        self.deleted: list[str] = []
 
     def presign_get(self, key: str, expires_sec: int) -> str:
         assert expires_sec > 0
@@ -69,6 +84,7 @@ class FakeStorage:
         return key
 
     def delete(self, key: str) -> None:
+        self.deleted.append(key)
         self.objects.pop(key, None)
 
 
@@ -84,13 +100,20 @@ class FakeGpu:
 
     name = "fake"
 
-    def __init__(self, storage: FakeStorage, behaviour: Behaviour) -> None:
+    def __init__(self, storage: FakeStorage, behaviour: Behaviour, *, cancels: bool = True) -> None:
         self.storage, self.behaviour = storage, behaviour
         self.calls: list[GpuCall] = []
+        self.cancelled: list[str] = []
+        self.cancels = cancels
 
     def run(self, call: GpuCall) -> GpuResult:
         self.calls.append(call)
+        call.on_spawn(f"fc-fake-{len(self.calls)}")
         return self.behaviour(call, self.storage)
+
+    def cancel(self, call_id: str) -> bool:
+        self.cancelled.append(call_id)
+        return self.cancels
 
 
 def result(**meta: Any) -> GpuResult:
@@ -113,6 +136,18 @@ def writes(content: bytes, **meta: Any) -> Behaviour:
 def db() -> Iterator[Conn]:
     with connect_url(URL) as conn:
         yield conn
+
+
+@pytest.fixture(autouse=True)
+def roomy_budget(db: Conn) -> Iterator[None]:
+    """Today's spend by earlier tests (or runs, on a reused database) mustn't close the gate.
+
+    The tests about the budget set their own, relative to what's committed already.
+    """
+    before = one(db, "select daily_usd from gpu_budget where id = 1")["daily_usd"]
+    db.execute("update gpu_budget set daily_usd = 1000 where id = 1")
+    yield
+    db.execute("update gpu_budget set daily_usd = %s where id = 1", (before,))
 
 
 def one(db: Conn, query: str, *params: Any) -> dict[str, Any]:
@@ -199,12 +234,13 @@ def runner(storage: FakeStorage, gpu: GpuBackend | None) -> JobRunner:
         worker_id=f"test-gpu-{uuid.uuid4().hex[:6]}",
         heartbeat_sec=0.1,
         gpu=gpu,
+        pool="gpu",
     )
 
 
 def claim_this(db: Conn, run: JobRunner, job: str) -> jobqueue.Job:
     db.execute("update jobs set priority = 20 where id = %s", (job,))
-    claimed = jobqueue.claim(db, run.worker_id)
+    claimed = jobqueue.claim_gpu(db, run.worker_id)
     assert claimed is not None
     assert str(claimed["id"]) == job
     return claimed
@@ -331,8 +367,9 @@ def test_a_gpu_failure_fails_the_job_and_gives_the_credits_back(db: Conn) -> Non
         int(one(db, "select credit_balance from users where id = %s", user)["credit_balance"]) == 10
     )
     # What it cost is still on the job (the budget counts it); nothing it wrote is left.
+    # It didn't say what it used, so its time is billed with the longest idle window.
     assert float(row["gpu_seconds"]) == 30.0
-    assert float(row["gpu_cost_usd"]) == pytest.approx(30.0 * RATE)
+    assert float(row["gpu_cost_usd"]) == pytest.approx((30.0 + MAX_IDLE_TAIL_SEC) * RATE)
     assert storage.objects == {}
 
 
@@ -411,6 +448,10 @@ def test_a_key_left_by_a_dead_attempt_is_deleted_before_the_next(db: Conn) -> No
     assert row["status"] == "succeeded"
     assert stale not in storage.objects
     assert row["output_key"] != stale
+    # The call's key is remembered for the sweeper, and the call is no longer in flight.
+    assert row["gpu_output_keys"] == [row["output_key"]]
+    assert row["gpu_put_expires_at"] is not None
+    assert (row["gpu_call_at"], row["gpu_call_id"]) == (None, None)
 
 
 class Outbox:
@@ -460,10 +501,11 @@ def test_the_daily_budget_stops_gpu_jobs_and_alerts_once_at_80_and_100(
         assert len(sent) == 1
         assert "85 %" in sent[0]
 
-        # At the budget: the GPU job waits, the CPU job behind it runs.
+        # At the budget: the GPU job waits, the CPU job beside it runs.
         db.execute("update gpu_budget set daily_usd = %s where id = 1", (spent,))
         assert not budget.gpu_open(db)
-        claimed = jobqueue.claim(db, "test-budget", gpu=budget.gpu_open(db))
+        assert jobqueue.claim_gpu(db, "test-budget") is None
+        claimed = jobqueue.claim(db, "test-budget")
         assert claimed is not None
         assert str(claimed["id"]) == cpu_job
         db.execute("update jobs set status = 'queued', worker_id = null where id = %s", (cpu_job,))
@@ -479,7 +521,7 @@ def test_the_daily_budget_stops_gpu_jobs_and_alerts_once_at_80_and_100(
         # Raised in admin: it opens again at once.
         db.execute("update gpu_budget set daily_usd = %s where id = 1", (spent * 2,))
         assert budget.gpu_open(db)
-        claimed = jobqueue.claim(db, "test-budget", gpu=budget.gpu_open(db))
+        claimed = jobqueue.claim_gpu(db, "test-budget")
         assert claimed is not None
         assert str(claimed["id"]) == gpu_job
     finally:
@@ -495,13 +537,416 @@ def test_a_running_call_counts_against_the_budget_before_it_ends(db: Conn) -> No
     storage = FakeStorage()
     user = new_user(db)
     job = new_job(db, storage, user, "upscale-image", IMAGE, {})
-    before = budget.state(db).spent_usd
+    before = budget.state(db)
+    # A re-run job: its first call already cost 0.01, its second has run 100 s so far.
     db.execute(
-        "update jobs set status = 'running', started_at = now() - interval '100 seconds'"
-        " where id = %s",
+        "update jobs set status = 'running', started_at = now() - interval '100 seconds',"
+        " gpu_cost_usd = 0.01, gpu_call_at = now() - interval '100 seconds' where id = %s",
         (job,),
     )
     try:
-        assert budget.state(db).spent_usd == pytest.approx(before + 100 * RATE, abs=1e-3)
+        now = budget.state(db)
+        assert now.spent_usd == pytest.approx(before.spent_usd + 0.01 + 100 * RATE, abs=1e-3)
+        # The gate counts it at its worst case: its whole time limit and an idle window.
+        worst = 0.01 + (900 + MAX_IDLE_TAIL_SEC) * RATE
+        assert now.committed_usd == pytest.approx(before.committed_usd + worst, abs=1e-3)
     finally:
         db.execute("update jobs set status = 'cancelled' where id = %s", (job,))
+
+
+# --- Around a call: slots, a stopping worker, a dead worker, the sweeper, the budget ---------
+
+
+def wait_for(check: Callable[[], bool], seconds: float = 10) -> None:
+    deadline = time.monotonic() + seconds
+    while not check():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.05)
+
+
+class CopyTool:
+    """A CPU tool for the slot test: copies its input."""
+
+    remote = False
+
+    def __init__(self) -> None:
+        self.tool_id = f"test-cpu-{uuid.uuid4().hex[:6]}"
+
+    def estimate(self, meta: dict[str, Any], options: dict[str, Any]) -> Estimate:
+        return Estimate(seconds=1)
+
+    def run(self, ctx: JobContext) -> Output:
+        out = ctx.workdir / "out.bin"
+        out.write_bytes(ctx.input_path.read_bytes())
+        return Output(path=out, content_type="application/octet-stream", ext="bin")
+
+
+def test_a_running_gpu_job_holds_up_neither_probing_nor_cpu_jobs(db: Conn) -> None:
+    """Finding: GPU calls held the only slots. Now each pool claims only its own jobs."""
+    storage = FakeStorage()
+    user = new_user(db)
+    release = threading.Event()
+
+    def holds(call: GpuCall, store: FakeStorage) -> GpuResult:
+        # An hour-long transcription, as far as the rest of the worker can tell.
+        while not release.wait(0.05):
+            call.on_wait(1.0)
+        store.objects[key_of(call.kwargs["output_url"])] = (b"done", "x")
+        return result()
+
+    gpu_job = new_job(db, storage, user, "upscale-image", IMAGE, {})
+    waiting_gpu_job = new_job(db, storage, user, "upscale-image", IMAGE, {})
+    tool = CopyTool()
+    cpu_job = new_job(db, storage, user, tool.tool_id, {}, {}, content=b"cpu input")
+    db.execute("update jobs set gpu_rate_usd = null where id = %s", (cpu_job,))
+    db.execute("update jobs set priority = 40 where id in (%s, %s)", (gpu_job, cpu_job))
+    # A GPU job ahead of everything: a CPU slot must still leave it alone.
+    db.execute("update jobs set priority = 50 where id = %s", (waiting_gpu_job,))
+    upload_key = f"in/{uuid.uuid4()}"
+    storage.objects[upload_key] = (b"just uploaded", "x")
+    db.execute(
+        """
+        insert into uploads (user_id, storage_key, bytes, mime_claimed, tool_id, part_size,
+                             part_count, expires_at, completed_at)
+        values (%s, %s, 13, 'audio/wav', 'transcribe-audio', 13, 1,
+                now() + interval '1 hour', now() - interval '1 day')
+        """,
+        (user, upload_key),
+    )
+    gpu_slot = runner(storage, FakeGpu(storage, holds))
+    cpu_slot = JobRunner(
+        cast(Storage, storage),
+        lambda: connect_url(URL),
+        processors={tool.tool_id: tool},
+        worker_id=f"test-cpu-{uuid.uuid4().hex[:6]}",
+        heartbeat_sec=0.1,
+    )
+    db.execute("update jobs set priority = 0 where id = %s", (waiting_gpu_job,))
+    gpu_thread = threading.Thread(target=gpu_slot.run_next)
+    gpu_thread.start()
+    try:
+        wait_for(
+            lambda: one(db, "select status from jobs where id = %s", gpu_job)["status"] == "running"
+        )
+        db.execute("update jobs set priority = 50 where id = %s", (waiting_gpu_job,))
+
+        # While the GPU call runs: the upload is probed, and the CPU job runs to the end.
+        wanted = {
+            "format": {"format_name": "wav", "duration": "1.0"},
+            "streams": [{"codec_type": "audio", "codec_name": "pcm_s16le"}],
+        }
+        while probe_next(db, cast(Storage, storage), probe=lambda _path: wanted):
+            pass
+        probed = one(db, "select probed_at, probe from uploads where storage_key = %s", upload_key)
+        assert probed["probed_at"] is not None
+        assert probed["probe"]["container"] == "wav"
+        assert cpu_slot.run_next()
+        cpu_row = one(db, "select status, worker_id from jobs where id = %s", cpu_job)
+        assert cpu_row["status"] == "succeeded"
+        assert cpu_row["worker_id"] == cpu_slot.worker_id
+        # The CPU slot never took the GPU job waiting ahead of it.
+        assert one(db, "select status from jobs where id = %s", waiting_gpu_job)["status"] == (
+            "queued"
+        )
+    finally:
+        release.set()
+        gpu_thread.join(timeout=10)
+    assert not gpu_thread.is_alive()
+    assert one(db, "select status from jobs where id = %s", gpu_job)["status"] == "succeeded"
+    db.execute("update jobs set status = 'cancelled' where id = %s", (waiting_gpu_job,))
+
+
+def test_a_gpu_slot_never_takes_a_cpu_job(db: Conn) -> None:
+    storage = FakeStorage()
+    user = new_user(db)
+    tool = CopyTool()
+    cpu_job = new_job(db, storage, user, tool.tool_id, {}, {})
+    db.execute("update jobs set gpu_rate_usd = null, priority = 60 where id = %s", (cpu_job,))
+    assert budget.gpu_open(db)
+    try:
+        taken = jobqueue.claim_gpu(db, "test-gpu-only")
+        if taken is not None:  # another test's leftover GPU job, never ours
+            db.execute("update jobs set status = 'cancelled' where id = %s", (taken["id"],))
+        assert taken is None or str(taken["id"]) != cpu_job
+        assert one(db, "select status from jobs where id = %s", cpu_job)["status"] == "queued"
+    finally:
+        db.execute("update jobs set status = 'cancelled' where id = %s", (cpu_job,))
+
+
+class ModalStandIn:
+    """Modal's Function and FunctionCall: the call runs until it's cancelled."""
+
+    object_id = "fc-stand-in"
+
+    def __init__(self) -> None:
+        self.spawned: list[dict[str, Any]] = []
+        self.cancelled = threading.Event()
+
+    def spawn(self, **kwargs: Any) -> ModalStandIn:
+        self.spawned.append(kwargs)
+        return self
+
+    def get(self, timeout: float) -> Any:
+        time.sleep(timeout)
+        raise TimeoutError
+
+    def cancel(self) -> None:
+        self.cancelled.set()
+
+
+def test_a_stopping_worker_cancels_its_call_records_it_and_hands_the_job_back(db: Conn) -> None:
+    storage = FakeStorage()
+    modal = ModalStandIn()
+    gpu = ModalGpu(lookup=lambda _app, _fn: modal, poll_sec=0.05)
+    user = new_user(db, credits=5)
+    job = new_job(db, storage, user, "upscale-image", IMAGE, {}, quote=2)
+    input_key = one(db, "select input_key from jobs where id = %s", job)["input_key"]
+    run = runner(storage, gpu)
+    worker = threading.Thread(target=run.run, args=(claim_this(db, run, job),))
+    worker.start()
+    # The call's id is on the job while it runs, so a reaper could cancel it.
+    wait_for(
+        lambda: (
+            one(db, "select gpu_call_id from jobs where id = %s", job)["gpu_call_id"]
+            == "fc-stand-in"
+        )
+    )
+    time.sleep(0.3)
+    run.stop_current()  # SIGTERM: main() does this for every slot
+    worker.join(timeout=10)
+    assert not worker.is_alive()
+    assert modal.cancelled.is_set()
+
+    row = one(db, "select * from jobs where id = %s", job)
+    assert (row["status"], row["worker_id"], row["attempts"]) == ("queued", None, 1)
+    assert (row["gpu_call_at"], row["gpu_call_id"]) == (None, None)
+    used = float(row["gpu_seconds"])
+    assert used > 0.2
+    assert float(row["gpu_cost_usd"]) == pytest.approx((used + MAX_IDLE_TAIL_SEC) * RATE, rel=0.01)
+    # Handed back, not finished: the input stays for the next attempt, the credits stay reserved.
+    assert input_key in storage.objects
+    assert ledger(db, job) == ["reserve"]
+    # The key the call could write to is deleted, and remembered for the sweeper.
+    assert row["output_key"] in storage.deleted
+    assert row["gpu_output_keys"] == [row["output_key"]]
+    db.execute("update jobs set status = 'cancelled' where id = %s", (job,))
+
+
+def dead_worker_call(db: Conn, job: str, *, seconds_ago: int, attempts: int = 1) -> str:
+    """The job as a worker that died mid-call leaves it: running, silent, its call in flight."""
+    key = f"out/{uuid.uuid4()}"
+    db.execute(
+        """
+        update jobs set status = 'running', worker_id = 'dead-worker', attempts = %s,
+               started_at = now() - make_interval(secs => %s),
+               heartbeat_at = now() - interval '2 minutes',
+               gpu_call_at = now() - make_interval(secs => %s), gpu_call_id = 'fc-orphan',
+               output_key = %s, gpu_output_keys = array[%s],
+               gpu_put_expires_at = now() + interval '80 minutes'
+        where id = %s
+        """,
+        (attempts, seconds_ago, seconds_ago, key, key, job),
+    )
+    return key
+
+
+def test_a_dead_workers_call_is_cancelled_by_its_id_and_its_time_counted(
+    db: Conn, settings: Settings
+) -> None:
+    storage = FakeStorage()
+    user = new_user(db, credits=5)
+    job = new_job(db, storage, user, "upscale-image", IMAGE, {}, quote=2)
+    dead_worker_call(db, job, seconds_ago=100)
+    gpu = FakeGpu(storage, writes(b"unused"))
+    scheduler = Scheduler(
+        settings, Outbox(settings).notifier, connect=lambda _s: connect_url(URL), gpu=gpu
+    )
+    scheduler.maintain(db)
+
+    assert "fc-orphan" in gpu.cancelled
+    row = one(db, "select * from jobs where id = %s", job)
+    assert (row["status"], row["worker_id"]) == ("queued", None)
+    assert (row["gpu_call_at"], row["gpu_call_id"]) == (None, None)
+    assert float(row["gpu_seconds"]) == pytest.approx(100, abs=2)
+    assert float(row["gpu_cost_usd"]) == pytest.approx((100 + MAX_IDLE_TAIL_SEC) * RATE, abs=1e-3)
+    # The dead worker, had it only been slow, can't count the same call twice.
+    assert not jobqueue.record_gpu(db, job, "dead-worker", 50, 60)
+    assert float(one(db, "select gpu_cost_usd from jobs where id = %s", job)["gpu_cost_usd"]) == (
+        pytest.approx((100 + MAX_IDLE_TAIL_SEC) * RATE, abs=1e-3)
+    )
+    db.execute("update jobs set status = 'cancelled' where id = %s", (job,))
+
+
+def test_a_call_that_cant_be_cancelled_counts_to_its_limit_and_alerts(
+    db: Conn, settings: Settings
+) -> None:
+    storage = FakeStorage()
+    user = new_user(db, credits=5)
+    job = new_job(db, storage, user, "transcribe-audio", AUDIO, {}, quote=2)
+    dead_worker_call(db, job, seconds_ago=100, attempts=3)
+    db.execute("delete from alerts where rule = 'gpu_call_not_cancelled'")
+    outbox = Outbox(settings)
+    gpu = FakeGpu(storage, writes(b"unused"), cancels=False)
+    scheduler = Scheduler(settings, outbox.notifier, connect=lambda _s: connect_url(URL), gpu=gpu)
+    scheduler.maintain(db)
+
+    row = one(db, "select * from jobs where id = %s", job)
+    # The third time its worker was lost: failed for good, credits back.
+    assert (row["status"], row["error_code"]) == ("failed", "WORKER_LOST")
+    assert ledger(db, job) == ["reserve", "release"]
+    # It may run on until the job's limit (900 s here): that's what the budget counts.
+    assert float(row["gpu_cost_usd"]) == pytest.approx((900 + MAX_IDLE_TAIL_SEC) * RATE, abs=1e-3)
+    sent = [text for text in outbox.sent if "fc-orphan" in text]
+    assert len(sent) == 1
+    assert "couldn't be cancelled" in sent[0]
+    db.execute("delete from alerts where rule = 'gpu_call_not_cancelled'")
+
+
+def test_a_dead_workers_call_on_a_job_cancelled_meanwhile_is_cancelled_too(
+    db: Conn, settings: Settings
+) -> None:
+    storage = FakeStorage()
+    user = new_user(db)
+    job = new_job(db, storage, user, "transcribe-audio", AUDIO, {})
+    dead_worker_call(db, job, seconds_ago=40)
+    # Its owner cancels it while its worker is dead: no worker will settle the call.
+    db.execute("update jobs set status = 'cancelled', finished_at = now() where id = %s", (job,))
+    gpu = FakeGpu(storage, writes(b"unused"))
+    Scheduler(
+        settings, Outbox(settings).notifier, connect=lambda _s: connect_url(URL), gpu=gpu
+    ).maintain(db)
+    assert "fc-orphan" in gpu.cancelled
+    row = one(db, "select * from jobs where id = %s", job)
+    assert (row["status"], row["gpu_call_at"], row["gpu_call_id"]) == ("cancelled", None, None)
+    assert float(row["gpu_cost_usd"]) == pytest.approx((40 + MAX_IDLE_TAIL_SEC) * RATE, abs=1e-3)
+
+
+def test_a_call_left_in_flight_is_settled_and_cancelled_before_the_next_attempt(
+    db: Conn,
+) -> None:
+    storage = FakeStorage()
+    user = new_user(db)
+    job = new_job(db, storage, user, "upscale-image", IMAGE, {})
+    stale_key = dead_worker_call(db, job, seconds_ago=50)
+    # Requeued without being settled (as an admin's retry would): the next attempt does it.
+    db.execute(
+        "update jobs set status = 'queued', worker_id = null, heartbeat_at = null where id = %s",
+        (job,),
+    )
+    gpu = FakeGpu(storage, writes(b"PNG"))
+    run = runner(storage, gpu)
+    run.run(claim_this(db, run, job))
+    assert gpu.cancelled == ["fc-orphan"]
+    row = one(db, "select * from jobs where id = %s", job)
+    assert row["status"] == "succeeded"
+    # 50 s of the old call (plus an idle window) and the new call's 22 billed seconds.
+    expected = (50 + MAX_IDLE_TAIL_SEC + 22) * RATE
+    assert float(row["gpu_cost_usd"]) == pytest.approx(expected, abs=1e-3)
+    assert row["gpu_output_keys"] == [stale_key, row["output_key"]]
+
+
+class Swept:
+    """FakeStorage as the sweeper sees it (nothing to list)."""
+
+    def __init__(self, store: FakeStorage) -> None:
+        self.store = store
+
+    def delete(self, key: str) -> None:
+        self.store.delete(key)
+
+    def abort_upload(self, key: str, upload_id: str) -> None:
+        return None
+
+    def open_uploads(self) -> list[Any]:
+        return []
+
+    def objects(self) -> list[Any]:
+        return []
+
+
+def test_nothing_a_runaway_call_writes_outlives_the_sweeper(db: Conn, settings: Settings) -> None:
+    """Finding: a dead worker's call wrote its output after the key was forgotten."""
+    storage = FakeStorage()
+    swept = cast(Storage, Swept(storage))
+    user = new_user(db)
+    job = new_job(db, storage, user, "upscale-image", IMAGE, {})
+    orphan_key = dead_worker_call(db, job, seconds_ago=30)
+    # The reaper hands the job back; the call couldn't be cancelled (Modal didn't answer).
+    scheduler = Scheduler(
+        settings,
+        Outbox(settings).notifier,
+        connect=lambda _s: connect_url(URL),
+        gpu=FakeGpu(storage, writes(b""), cancels=False),
+    )
+    scheduler.maintain(db)
+    # The next attempt finishes the job.
+    run = runner(storage, FakeGpu(storage, writes(b"the result")))
+    run.run(claim_this(db, run, job))
+    row = one(db, "select * from jobs where id = %s", job)
+    assert row["status"] == "succeeded"
+    live = row["output_key"]
+    assert row["gpu_output_keys"] == [orphan_key, live]
+
+    # Later, the runaway call writes its whole result to the key it was given.
+    storage.objects[orphan_key] = (b"the person's transcript", "x")
+    sweep(db, swept)
+    assert orphan_key not in storage.objects
+    assert storage.objects[live][0] == b"the result"  # the real output keeps its hour
+    # And again, until its URL has expired: each pass deletes it.
+    storage.objects[orphan_key] = (b"a retry of the PUT", "x")
+    sweep(db, swept)
+    assert orphan_key not in storage.objects
+
+    # Once every URL has expired nothing can write any more: the keys are forgotten.
+    db.execute(
+        "update jobs set gpu_put_expires_at = now() - interval '1 minute' where id = %s", (job,)
+    )
+    sweep(db, swept)
+    row = one(db, "select * from jobs where id = %s", job)
+    assert (row["gpu_output_keys"], row["gpu_put_expires_at"]) == ([], None)
+    assert storage.objects[live][0] == b"the result"
+    db.execute("update jobs set output_key = null where id = %s", (job,))
+    db.execute("delete from alerts where rule = 'gpu_call_not_cancelled'")
+
+
+def test_concurrent_gpu_claims_never_overshoot_the_budget(db: Conn) -> None:
+    """Finding: every slot could start a job just under the line. Now claims take turns."""
+    before = one(db, "select daily_usd from gpu_budget where id = 1")["daily_usd"]
+    storage = FakeStorage()
+    user = new_user(db)
+    jobs = [new_job(db, storage, user, "upscale-image", IMAGE, {}) for _ in range(6)]
+    db.execute("update jobs set priority = 70 where id = any(%s::uuid[])", (jobs,))
+    # Room for exactly one more job at its worst case (900 s and an idle window at RATE).
+    committed = budget.state(db).committed_usd
+    db.execute("update gpu_budget set daily_usd = %s where id = 1", (committed + 0.01,))
+    start = threading.Barrier(len(jobs))
+    claimed: list[str] = []
+    lock = threading.Lock()
+
+    def claimer(n: int) -> None:
+        with connect_url(URL) as conn:
+            start.wait()
+            job = jobqueue.claim_gpu(conn, f"race-{n}")
+        if job is not None:
+            with lock:
+                claimed.append(str(job["id"]))
+
+    threads = [threading.Thread(target=claimer, args=(n,)) for n in range(len(jobs))]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+        assert len(claimed) == 1
+        assert claimed[0] in jobs
+        assert not budget.gpu_open(db)
+        # The running job finishing (and its real, small cost) opens the gate again.
+        db.execute(
+            "update jobs set status = 'succeeded', finished_at = now(), gpu_cost_usd = 0.001"
+            " where id = %s",
+            (claimed[0],),
+        )
+        assert budget.gpu_open(db)
+    finally:
+        db.execute("update gpu_budget set daily_usd = %s where id = 1", (before,))
+        db.execute("delete from jobs where id = any(%s::uuid[])", (jobs,))

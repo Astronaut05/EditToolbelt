@@ -600,7 +600,7 @@
       "section": "Models",
       "ecosystem": "model",
       "packages": ["htdemucs"],
-      "use": "stem separation (A09); not used: weights licence unclear (hosted outside the MIT repository, trained on MUSDB18-HQ), parked for Astro",
+      "use": "stem separation (A09); not used: the weights' own licence is unclear (hosted outside the MIT repository, none stated), parked until the author confirms it; its training data (MUSDB18-HQ, research use) is a known risk only",
       "license": "MIT",
       "weightsLicense": "unknown",
       "scope": "server",
@@ -638,7 +638,7 @@
       "section": "Models",
       "ecosystem": "model",
       "packages": ["LaMa", "big-lama"],
-      "use": "object eraser (inpainting); not used: no primary source states the big-lama weights' licence (hosted outside the Apache-2.0 repository, trained on Places); P17 uses MI-GAN",
+      "use": "object eraser (inpainting); not used: no primary source states the big-lama weights' own licence (hosted outside the Apache-2.0 repository); its training data (Places) is a known risk only; P17 uses MI-GAN",
       "license": "Apache-2.0",
       "weightsLicense": "unknown",
       "scope": "server",
@@ -818,7 +818,7 @@
       "section": "GPU images (Modal, server only)",
       "ecosystem": "pypi",
       "packages": ["onnxruntime-gpu"],
-      "use": "runs MI-GAN (P17) and BiRefNet (V21) on the GPU, inside the Modal images only; its own dependencies (flatbuffers, protobuf, packaging) are permissive",
+      "use": "runs MI-GAN (P17) and BiRefNet (V21) on the GPU, inside the Modal images only (gpu/requirements-onnx.txt, hashed); its own dependencies are permissive: flatbuffers (Apache-2.0), protobuf (BSD-3-Clause), packaging (Apache-2.0 OR BSD-2-Clause)",
       "license": "MIT",
       "scope": "server",
       "status": "approved",
@@ -919,6 +919,18 @@
       "scope": "server",
       "status": "conditional",
       "condition": "server only; Debian's build, never nonfree",
+      "checked": "2026-10-02"
+    },
+    {
+      "label": "gcc and libc6-dev (Debian's packages, in the Whisper image)",
+      "section": "GPU images (Modal, server only)",
+      "ecosystem": "system",
+      "packages": ["gcc", "libc6-dev"],
+      "use": "Triton compiles the launcher of Whisper's word-timing kernels with them, inside the Modal image only",
+      "license": "GPL-3.0-or-later WITH GCC-exception-3.1 AND LGPL-2.1-or-later",
+      "scope": "server",
+      "status": "conditional",
+      "condition": "server only, inside the Modal image; nothing we distribute is compiled with them",
       "checked": "2026-10-02"
     },
     {
@@ -1306,13 +1318,13 @@
       "section": "Container images",
       "ecosystem": "docker",
       "packages": ["python"],
-      "use": "base image for the worker",
+      "use": "base image for the worker; as 3.12.14-slim-bookworm, base of the Modal GPU images (gpu/modal_app.py)",
       "license": "PSF-2.0",
       "scope": "server",
       "status": "approved",
-      "version": "3.12-slim-trixie (pinned by digest)",
+      "version": "3.12-slim-trixie and 3.12.14-slim-bookworm (both pinned by digest)",
       "source": "https://docs.python.org/3/license.html",
-      "checked": "2026-09-29"
+      "checked": "2026-10-02"
     }
   ],
   "banned": [

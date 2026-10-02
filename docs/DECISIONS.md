@@ -1188,6 +1188,122 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** `tools/audio.md` → A07, A13.
 **Reverse:** the maths is in `@etb/core` (`fades.ts`, `channels.ts`), with tests; the pages only pick options.
 
+## 2026-10-01 · Rotate & Flip Video and Resize Video for Social (M8)
+
+**Decision:**
+- **Rotate & Flip defaults to turning every frame** (re-encoded at high quality), as the spec asks for 90°: it plays upright in every player.
+  - Fast writes the container's rotation and flip flag instead: instant, every packet copied, and the notes say a few web players ignore it.
+  - WebM has no such flag, so Fast on WebM turns the frames and says so.
+  - Flips apply to the turned picture. Upside down is a mirror plus half a turn, which is how Mediabunny is asked for it.
+- **Resize Video for Social:**
+  - Presets: Reels, TikTok and Shorts 1080 × 1920; Instagram portrait 1080 × 1350; square 1080 × 1080; YouTube 1920 × 1080. Or a custom size in px, rounded to even numbers for H.264.
+  - Fill crops the largest window of the shape, placed by two framing sliders (0-100% across and down; 50% is the middle). This is P13's crop maths, done by Mediabunny's crop and resize. Framing stays fixed for the whole video; following the subject is a later idea.
+  - Fit on blur and Fit on color draw each frame on a canvas: the colour, or the frame filling the size, scaled down to a 40th and back up in three steps. That blur needs no canvas `filter` (Safari's is recent) and looks the same everywhere.
+  - The video is re-encoded at high quality in its own container; the sound is copied.
+- **Tests use the VP9 fixtures** for anything re-encoded: Playwright's Chromium has no H.264 encoder. The MP4 fixture shows Fast's lossless copy.
+
+**Why:** `tools/video.md` → V09, V11.
+**Reverse:** both engines are thin over Mediabunny's conversion (`video/rotate.ts`, `video/reframe.ts`).
+
+## 2026-10-01 · Extract Frames / Thumbnail (M8)
+
+**Decision:**
+- **One frame is the frame on screen at the timeline's In point.** The timeline snaps the In point to a frame and steps frame by frame, so the time picked is a frame's own. The engine decodes that exact frame (never a neighbour) and names the file by when it starts (`clip_00-00-05.400.png`).
+- **Every N seconds, N evenly spaced, and the contact sheet work inside the selection** between In and Out:
+  - Every N seconds starts at In and stops before Out.
+  - N frames take the middle of N equal parts, so the first and last aren't the edges.
+  - At most 500 frames a run.
+  - The end is the video track's own length, as the sound can run a few milliseconds longer.
+- **Several frames download as a stored ZIP,** each encoded as it is decoded (no hundred full-size canvases in memory) and named by time.
+- **The contact sheet:**
+  - 3 × 3, 4 × 4, 5 × 5 or 4 × 6 thumbnails, 320 px wide unless the video is narrower, with 8 px gaps on #111111.
+  - Each thumbnail carries its time in the system monospace font: a canvas draws only fonts it already has.
+- **PNG by default** (every pixel); JPG and WebP at quality 0.92. The width is Original, 1920, 1280 or 640 px, never wider than the video.
+
+**Why:** `tools/video.md` → V10.
+**Reverse:** `packages/engines/src/video/frames.ts`; `frameTimes` and `stamp` are pure, with tests.
+
+## 2026-10-01 · Remove Silence (M8)
+
+**Decision:**
+- **Silence is read from the level every 10 ms:** the loudest channel's RMS in dBFS. A silence is a run below the threshold lasting at least the minimum length (0.5 s by default).
+- **Auto threshold:** the noise floor is the level the quietest tenth of the recording sits at; the threshold is 10 dB above it, kept between −60 and −30 dBFS. It fits room tone, a quiet studio and digital silence alike; a set dBFS is there for the rest.
+- **What is cut:**
+  - Remove keeps 0.1 s of quiet beside the sound on each side (a breath, a word's tail), changeable from 0 to 1 s.
+  - Shorten leaves a pause of a set length (0.3 s by default), half each side.
+  - A silence at the very start or end is cut to the edge.
+- **The silences are the timeline's ranges.** They are found as the file loads and again 0.3 s after a setting changes, without decoding again (the levels are kept per file). Each can be moved, removed or added like any range, which is the spec's "toggle each".
+- **The cut is Trim Audio's remove,** with its 10 ms crossfade at each join, so the file is exactly as much shorter as the cuts add up to.
+- **The cut list is CSV:** number, start and end as hh:mm:ss.mmm, length, start and end in seconds. Premiere XML is Wave 3, as the spec says.
+- **The tool shell gained `preset.detect`:** ranges found in the file, found again when one of its options changes, with the run held while searching or when none are found.
+
+**Why:** `tools/audio.md` → A11.
+**Reverse:** `packages/core/src/audio/silence.ts` is pure, with tests; the engine is `packages/engines/src/audio/silence.ts`.
+
+## 2026-10-01 · Add or Replace Audio in Video (M8)
+
+**Decision:**
+- **The picture is copied packet for packet,** never re-encoded; only the sound is new. That keeps it fast, lossless and possible on any video the browser can read, even one it can't decode.
+- **The new sound:**
+  - AAC in MP4 and MOV, Opus in WebM and MKV, at 48 kHz.
+  - 192 kbps stereo, or 128 kbps when both sources are mono.
+  - A browser that can't encode AAC (Playwright's Chromium among them) is told so for MP4 and MOV, rather than given an Opus track some players skip.
+- **Replace or Mix:**
+  - Replace: the music alone, at 0 dB by default.
+  - Mix: the music under the video's own sound, at −15 dB under 0 dB by default (a common start for music under speech).
+  - Levels from 0 to −24 dB. A mix that goes over 0 dBFS is clipped there, and the notes say so.
+- **Fitting the music to the video:**
+  - Music starts at a point in it (`Start the music at`).
+  - It is cut at the video's end. If it's shorter, it loops from its start (default), with a 10 ms dip at each repeat so there's no click, or plays once.
+  - A sound so short it would repeat over 1000 times is refused, with a hint to play it once.
+  - Fade in (none by default) from the video's start, and fade out (2 s by default) to where the music stops.
+- **Different sample rates:** both sources are brought to 48 kHz by `Resampler` in `@etb/core`. It is a streamed Kaiser-windowed sinc (β = 8, 16 zero crossings), cut off at 95% of the lower rate's Nyquist. It keeps a steady level exactly and rejects aliasing by more than 60 dB, at about 0.9 s per minute of stereo. Merge Audio will use it too.
+- **Mono and surround:** the output is stereo when either source is. Mono goes to both sides; past stereo, the front left and right are used.
+
+**Why:** `tools/video.md` → V14 ("duck under speech" is a Wave 3 idea, left out as the spec says).
+**Reverse:** `packages/engines/src/video/replace-audio.ts`; `musicParts`, `musicGain` and `Resampler` are pure, with tests.
+
+## 2026-10-01 · Merge Audio (M8)
+
+**Decision:**
+- **Several files into one is a shell mode (`preset.combine`),** not a batch:
+  - The files are listed in order (`FileOrder`), each with what it holds and its length.
+  - Arrow buttons move a file up or down; focus stays on it, so the keyboard can reorder a whole list. There's also Remove, and Add files.
+  - The run waits for 2 files, or while one can't be read. Up to 20.
+  - Merge Videos (V12) will use the same mode.
+- **One join for all joins:** back to back, a crossfade, or a gap, each 0.5 to 5 s. A different gap or crossfade per join is left for later: one setting covers the common cases and keeps the phone layout to two rows.
+- **Crossfades are equal-power** (cosine out, sine in), so the level holds through the join. Each one shortens the result by its length. A crossfade can be at most half the shortest file, so no more than two files ever overlap.
+- **Mix:**
+  - All tracks at the same level, from the start; the result is as long as the longest.
+  - A first pass measures the mix. If its peak would go over −1 dBFS, the whole mix is lowered just enough, and the notes say by how much.
+  - A level per track is left for later. The spec's "no clipping in mix (auto-gain)" is what this does.
+- **Normalize** is off by default, or −14, −16 or −23 LUFS with a −1 dBTP ceiling. It uses Normalize Loudness's own measure and plan (a true-peak limiter when the gain needs one); the notes give the result's measured loudness.
+- **One rate:**
+  - Files that share a sample rate keep it, so WAV and FLAC joins stay bit-exact outside the crossfades.
+  - Otherwise every file is brought to 48 kHz by the core `Resampler`. Opus always gets 48 kHz.
+  - The result is stereo if any file is.
+- **Format:** Keep (the first file's), MP3, WAV or FLAC. Lossy formats are written at 192 kbps stereo or 128 kbps mono.
+- **Housekeeping:** the "keep the format" table, which three engines each had a copy of, is now one export (`KEEP_FORMAT`). Decoding to a stream at a rate (`audio/stream.ts`) is shared with Add or Replace Audio.
+
+**Why:** `tools/audio.md` → A04.
+**Reverse:** the placement maths is `packages/core/src/audio/merge.ts` (pure, with tests); the engine is `packages/engines/src/audio/merge.ts`; the list is `packages/ui/src/tool/FileOrder.tsx`.
+
+## 2026-10-01 · LUT Preview (M8)
+
+**Decision:**
+- **The LUT is applied on the CPU, in the image worker, not in WebGL** (the spec's suggestion):
+  - Each channel's 256 levels are placed on the grid once, so the loop is plain arithmetic: a 24 MP frame takes under a second.
+  - It gives the same result in every browser and on every GPU, the same as in the unit tests. A WebGL 3D texture would vary with each driver's filtering and precision, and the "±1/255 of the reference" test would then depend on the machine.
+  - The spec's "if feasible" tetrahedral interpolation is what's used: the method grading apps use, exact on the grey axis.
+- **What's read:** Adobe/Resolve `.cube`: 3D (2³ to 256³) or 1D (up to 65,536 points), `TITLE`, `DOMAIN_MIN`/`DOMAIN_MAX`, `LUT_*_INPUT_RANGE`, comments. Anything else is refused with what's wrong and the line number (`Line 3: expected three numbers`), before the image is touched. Files over 32 MB are refused.
+- **Intensity** blends the graded colour with the original, 0-100% in 5% steps. Alpha is kept.
+- **A changed setting redoes the result** (the shell's new `preset.rerun`), 250 ms after the slider stops, so before and after can be compared straight away. Unlike `autoRun`, nothing runs before a LUT is chosen.
+- **Output:** the still's own format or JPG, PNG, WebP or AVIF; the metadata choice as in the other photo tools. One still at a time, so the result is the before-and-after compare.
+- **Colour:** the LUT is applied to the decoded sRGB values as they are. The FAQ says a LUT for log footage expects a log frame.
+
+**Why:** `tools/color.md` → C05.
+**Reverse:** `packages/core/src/color/lut.ts` (pure, with tests, also at `@etb/core/lut` so the worker loads only that); the engine is `packages/engines/src/image/lut-preview.ts`.
+
 ## 2026-10-02 · Smoke-testing production after each deploy
 
 **Decision:**
@@ -1202,6 +1318,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 ## 2026-10-02 · GPU models: Whisper and Real-ESRGAN approved, Demucs parked (M5)
 
+_Why Demucs is parked: superseded by "Model licences: the weights' own licence decides" below (its weights' licence alone, not its training data)._
+
 **Decision:**
 - **Whisper large-v3** for A12 and V17. OpenAI's README says "Whisper's code and model weights are released under the MIT License". We run OpenAI's own `openai-whisper` (20250625, MIT) with the `large-v3` checkpoint from OpenAI's URL, whose path is the file's SHA-256: the package pins it, and so does `pins.json`.
   - **Not faster-whisper**, though it's about 4× faster. Its weights are SYSTRAN's CTranslate2 conversions on huggingface.co (model cards: MIT), which this build environment can't reach to read or pin. The L4's cost per minute of speech is small either way (`05`). Switching later is one function and one pin.
@@ -1215,6 +1333,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Reverse:** a model's row in `docs/13` and `licenses.json`, its files in `apps/worker/src/etb_worker/gpu/pins.json`, its function in `modal_app.py`.
 
 ## 2026-10-02 · The GPU functions on Modal (M5)
+
+_Containers and images: superseded by "GPU functions answer every failure; Whisper gets a container per job" and "The GPU images are pinned: base by digest, packages by hash" below._
 
 **Decision:**
 - **One function per tool** in the app `edittoolbelt-gpu`: `upscale_image` (P08) and `transcribe` (A12 and V17 share it).
@@ -1233,6 +1353,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 ## 2026-10-02 · ServerlessGpu in the worker (M5)
 
+_Slots and a dead worker's call: superseded by "GPU jobs run in slots of their own" and "A GPU call's id is on its job" below._
+
 **Decision:**
 - **`GPU_BACKEND`**: `modal`, `local` (a stub that answers "not set up"), or unset (GPU tools off). With GPU tools off, a claimed GPU job fails at once with `GPU_UNAVAILABLE` and its credits back, rather than waiting 15 min to expire.
 - **`modal` without a token starts the worker with its GPU tools off** (logged as `gpu.off`), instead of refusing to start: the CPU tools must not stop for the GPU's sake. Half a token still refuses, like Telegram's pair. Production sets `GPU_BACKEND=modal` in `.railway/railway.ts`.
@@ -1247,6 +1369,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Reverse:** unset `GPU_BACKEND`. The backend is `etb_worker/gpu/backend.py`; the shared step is `processors/remote.py`.
 
 ## 2026-10-02 · GPU metering and the daily GPU budget (M5)
+
+_What a call is billed, and the gate: superseded by "What a GPU call is billed" and "The GPU budget gate counts running jobs at their worst case" below._
 
 **Decision:**
 - **The jobs API writes each GPU job's rate** (`jobs.gpu_rate_usd`): the GPU's price a second plus 2 cores and 8 GiB, from `config/business.ts` (Modal's prices read 2026-10-02, placeholders to confirm). The worker needs no copy of the prices, as it needs none of the registry.
@@ -1279,6 +1403,112 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** `tools/photo.md` → P08, `tools/audio.md` → A12, `tools/video.md` → V17; the 2026-10-01 entry on server-only tools; Astro's M5 brief ("tools whose GPU path can't be verified stay beta and are switched on by an admin, like VFR to CFR was").
 **Reverse:** set a tool's status in Admin → Tools, or its default in `packages/registry/src/tools/`.
+
+## 2026-10-02 · Tests read video results back with WebCodecs
+
+**Decision:**
+- **Browser tests decode a result's frames with WebCodecs in the page** (`framePixels` and `frameBands` in `apps/web/e2e/fixtures.ts`). They take the packets and decoder config from Node (`videoFrameSource` in `@etb/engines`). They no longer play the file in a `<video>` element.
+- **Why the old way failed:** Playwright's Linux WebKit plays media through GStreamer, unlike Safari. It crashed or errored on every result played back that way, while the tools themselves worked. Frames are drawn as they're decoded and closed at once.
+- **What it uncovered:** once WebKit's results could be read, Resize Video's Fill crop turned out wrong there. WebKit ignores the source rectangle when drawing a VideoFrame, so every crop was the whole picture squeezed into the size. Each frame is now drawn whole on a canvas and the window cut from that canvas.
+
+**Why:** a test that crashes the browser it checks says nothing about the tool, and the crop bug would have shipped to Safari.
+**Reverse:** the helpers are test-only; `cropper()` in `reframe.ts` can go back to Mediabunny's `crop` once WebKit honours the source rectangle for VideoFrames.
+
+## 2026-10-02 · GPU jobs run in slots of their own (`WORKER_GPU_SLOTS`)
+
+**Decision:**
+- **Two kinds of slot.** CPU slots (`WORKER_SLOTS`, default 1) probe uploads and claim only CPU jobs (`gpu_rate_usd is null`). GPU slots (`WORKER_GPU_SLOTS`, default 2, 0 to 16) claim only GPU jobs and never probe. A GPU call waits on Modal for up to 70 minutes doing nothing locally, so it must never hold a slot that probes uploads or runs ffmpeg: before, two transcriptions held both production slots, every server tool's quote stayed at "probing", and queued CPU jobs expired.
+- **Default 2:** what production ran before (two slots for everything), and each GPU slot costs only a thread and a poll every 2 s. The daily budget and each tool's `maxConcurrent` cap GPU work further, across all workers. Production sets it in `.railway/railway.ts`.
+- **0 is allowed:** a worker that takes no GPU jobs (another worker would). GPU jobs it never claims wait, and expire after 15 min with their credits back.
+- **A GPU slot without a backend** (`GPU_BACKEND` unset) still claims GPU jobs and fails them at once with their credits back, as before.
+
+**Why:** review of #66, finding 1; `CLAUDE.md` rule 1 (the speed promise) depends on probing and the CPU tools never waiting behind a GPU.
+**Reverse:** `WORKER_GPU_SLOTS=0` stops a worker taking GPU jobs; the claims are `jobqueue.claim` and `jobqueue.claim_gpu`, the loops `slots.run_slot` and `slots.run_gpu_slot`.
+
+## 2026-10-02 · A GPU call's id is on its job: a dead worker's call is cancelled and counted
+
+**Decision:**
+- **The call in flight is on its job** (`jobs.gpu_call_at`, `jobs.gpu_call_id`; migration `gpu_calls`). `gpu_call_at` is set before the presigned URLs leave the worker, the id (Modal's `FunctionCall` id) as soon as the call is spawned, and both are cleared in the same statement that records the call's cost, so a call is counted once.
+- **Reap:** a job whose worker went quiet with a call on it has the call settled in the reaper's transaction (its wall-clock time since `gpu_call_at`, plus the longest idle window, as GPU time and cost), then cancelled by id (`modal.FunctionCall.from_id(id).cancel()`), then the job is requeued (or failed, the third time) as before. The scheduler holds the GPU backend for this. A call left on a job that's no longer running, whose worker is quiet too (its owner cancelled it while the worker was dead), is settled and cancelled the same way.
+- **Re-claim:** a job claimed with a call still on it (nobody settled it, e.g. an admin's retry) gets the same before its next attempt starts.
+- **Worker stop:** unchanged in shape (the call is cancelled through its handle, its time recorded, the job handed back), now with the call cleared from the job; a test drives it through `ModalGpu` against a stand-in for Modal.
+- **A slow worker the reaper took for dead** can't count its call again: recording requires the job to still be its own and the call still on it.
+- **A call that can't be cancelled** (Modal unreachable, or a scheduler without a Modal token) is charged to the rest of its job's time limit at once, so the budget counts its worst case, and an immediate alert (`gpu_call_not_cancelled`, runbook in `alerts.md`) names the call so it can be stopped in Modal's dashboard. Overcharging the budget for a day is the safe side; an uncounted hour-long L4 call (about $1) was not.
+- Modal answering "not found" for an id counts as cancelled: the call ended long ago.
+
+**Why:** review of #66, finding 5 (the call ran on uncancelled, and its cost never reached the budget; with three attempts, three could run at once).
+**Reverse:** the columns are harmless when unused; the logic is `jobqueue.settle_call` / `cancel_stale_call` and `Scheduler._cancel_call`.
+
+## 2026-10-02 · Every GPU output key is swept until its URL expires
+
+**Decision:**
+- **Every key a GPU call gets a PUT URL for is remembered** (`jobs.gpu_output_keys`, append-only while URLs can write, with `gpu_put_expires_at`, the latest expiry: the job's limit plus 15 min).
+- **On every pass (5 min) the sweeper deletes each of those keys that isn't the job's live output** (the output of a running or succeeded job, which keeps its usual 60 minutes). Once the last URL has expired nothing can write to them, so after one last delete they're forgotten.
+- **Why every pass, not once after expiry** (the review's first suggestion): a URL lives up to 85 minutes for a transcription, so an orphaned call could write the person's transcript at minute 1 and it would stay until minute 85, past the hour. Deleting on every pass keeps anything an orphan writes to at most 5 minutes; deleting a key that isn't there costs one request. With finding 5's cancel, orphans should be rare; this holds even when the cancel fails.
+- **Not done:** deleting every unreferenced `out/` object older than the presign window (the review's other option). Listing and matching the whole bucket each pass is heavier, and a bug there would delete live outputs; the keys are known, so they're deleted by name.
+
+**Why:** review of #66, finding 4; `CLAUDE.md` rule 4 (outputs within the hour; the sweeper is the guarantee).
+**Reverse:** drop `_sweep_gpu_keys` in `retention.py`; the lifecycle backstop (≤ 48 h) and the 2-hour alert remain.
+
+## 2026-10-02 · The GPU budget gate counts running jobs at their worst case, one claim at a time
+
+**Decision:**
+- **The gate:** a GPU job starts only while today's *committed* spend is under the budget: recorded costs, plus every running GPU job at its worst case, `(timeout_sec + 30 s) × rate` (its whole time limit, past which the worker cancels the call, and the longest idle window).
+- **Race-safe:** GPU claims take a transaction-scoped advisory lock and check the gate inside the claim's own transaction, so every slot on every worker takes its turn and sees the job claimed before it. Spend can pass the budget by at most one job's worst case, and only if every running job runs to its limit. A test races six claimers at a budget with room for one, and fails without the lock.
+- **Worst case, not an estimate from duration:** the brief allowed either if clearly better. An estimate isn't a bound (a Whisper call that loops on a hallucination runs long), and this is the cost guard. The price is concurrency at the default $1 a day: one transcription at a time (its worst case is about $1.13), or up to four upscales (about $0.25 each); a second waits and may expire after 15 min with its credits back. Raising the budget raises it. If waiting jobs expire too often, a per-job estimate (`processor.estimate` × a margin, capped at the limit) is the next step.
+- **Alerts and the admin keep reading the real spend** (recorded plus the call in flight's time so far), so a long job starting doesn't page anyone; Admin → Dashboard → GPU says whether jobs are starting and, if not, whether the budget is spent or a running job's worst case is in the way.
+- **Spend counts a re-run job's earlier calls and its current one** (recorded cost plus the call in flight), where before a job with any recorded cost stopped counting its running call (finding 9c).
+- **Partial index** `jobs_gpu_spend_idx` on `started_at` where `gpu_rate_usd is not null`, for the spend query every GPU claim runs.
+- **A blank budget in Admin is refused** ("Type a daily budget in dollars…; to stop GPU jobs, type 0"), never saved as $0.
+
+**Why:** review of #66, findings 8, 9 (c) and 14 (the empty field); Astro's spending cap.
+**Reverse:** the gate is `BudgetState.open` in `gpu/budget.py` (committed vs spent), the lock `jobqueue.claim_gpu`; `config/business.ts` → `gpuBudget.worstCaseIdleSec` mirrors the worker's `MAX_IDLE_TAIL_SEC` (a test holds them together).
+
+## 2026-10-02 · What a GPU call is billed: cold, failed and unreported calls
+
+**Decision:**
+- **A warm call that worked:** GPU seconds measured inside the function + its idle window, as before.
+- **A cold call, or one the function reports as failed:** the larger of that and the wall-clock time since the spawn. Modal bills the container's boot and imports, which only the worker's clock sees; a failed call's container idles for its window like any other. (The wall clock also holds Modal's dispatch, so it errs high.)
+- **A call that didn't say** (cancelled, timed out, raised, no answer, or its worker died): wall-clock time + the longest idle window of any function (30 s, `MAX_IDLE_TAIL_SEC`), where before it was wall time alone.
+- **A spawn that failed** bills nothing: no call exists.
+
+**Why:** review of #66, finding 9 (a, b); `docs/05`: the idle window counts "whatever happened".
+**Reverse:** `parse_answer` and `GpuError.billed_seconds` in `gpu/backend.py`.
+
+## 2026-10-02 · GPU functions answer every failure; Whisper gets a container per job
+
+**Decision:**
+- **Every GPU function catches `Exception`** and answers `GPU_FAILED` with a fixed sentence and only the exception's type ("The GPU function failed (URLError)."), never its text: urllib's errors can quote the presigned URL, and an uncaught exception's traceback lands in Modal's logs. The worker shows the person its own fixed sentence for `GPU_FAILED`, as before. Tests run the functions locally (`.local()`, no Modal).
+- **`transcribe` gets `max_containers` 4**, the sum of A12's and V17's `maxConcurrent` (2 + 2), where it had 2. The other option, making the worker's clock exclude time queued on Modal, needs to know when a call starts running, which Modal doesn't report while we poll. With a container for every job our claims allow, none of our calls queues behind another; only a cold start waiting for an L4 does, which the 5 minutes between the function's and the job's limits cover. The budget gate still decides how many run. A test holds every function's containers at or above its tools' `maxConcurrent` total.
+
+**Why:** review of #66, finding 14 (first two points).
+**Reverse:** `_unexpected` and `SPECS` in `gpu/modal_app.py`.
+
+## 2026-10-02 · The GPU images are pinned: base by digest, packages by hash
+
+**Decision:**
+- **Base image:** `python:3.12.14-slim-bookworm@sha256:392307d2…` (Docker Hub's index digest, read 2026-10-02 from the registry and Docker Hub's API, which agree), through `modal.Image.from_registry`. It's what Modal's `debian_slim` builds on (the official Python image on bookworm), so the images change as little as possible; 3.12.14 (last pushed 2026-09-19) rather than 3.12.15, whose tag was pushed hours before (our package managers wait a day too).
+- **Python packages:** `gpu/requirements-upscale.txt` and `gpu/requirements-whisper.txt`, compiled by `uv pip compile --generate-hashes` (from `apps/worker`, so `exclude-newer = "1 day"` applies) from the `.in` files beside them, which keep the versions `docs/13` approved. Modal installs them with `pip_install_from_requirements(..., extra_options="--require-hashes")`, so a package that changes, or one that isn't listed, fails the build.
+- **pip-audit reads them in CI** (Dependency audit). It flags two PyTorch 2.10 advisories, both local-only and out of our reach, so they're ignored by id with the reason beside them: CVE-2026-4538 (PYSEC-2026-139) is in loading `.pt2` archives, and we load only our own SHA-256-pinned `.pth` weights; CVE-2025-3000 (PYSEC-2025-194) is in `torch.jit.script`, which nothing calls. Its fix is PyTorch 2.13, whose wheels need CUDA 13 drivers.
+- **gcc and libc6-dev are now listed** in the Whisper image (`docs/13`, `licenses.json`): `debian_slim` installed gcc, and Triton compiles the launcher of Whisper's word-timing kernels with it (without one, Whisper falls back to slower kernels).
+- **Gaps, logged:**
+  - Debian packages (ffmpeg, gcc, libc6-dev) are installed from bookworm and checked by apt's signatures, but their versions aren't pinned: `snapshot.debian.org` and `deb.debian.org` aren't reachable from here to pick and test a snapshot. Next step: point apt at a snapshot date, or take ffmpeg from a hashed wheel (`imageio-ffmpeg`).
+  - `openai-whisper` publishes only an sdist. Its hash is checked; the setuptools pip fetches to build it isn't (pip doesn't hash-check build dependencies).
+  - Nothing here could build the images: the first deploy after this merges (CI's Modal workflow) is the real test of the digest form and the hashed install.
+
+**Why:** review of #66, finding 10; `docs/11` → Supply chain (lockfiles, images by digest).
+**Reverse:** `image = modal.Image.debian_slim(python_version="3.12")` and `pip_install(...)` with the `.in` files' versions in `gpu/modal_app.py`; drop the CI step.
+
+## 2026-10-02 · Model licences: the weights' own licence decides; training data is a recorded risk
+
+**Decision:**
+- **The rule:** a model's own weights licence decides. It must be an explicitly commercial-use licence stated by whoever publishes the weights (`CLAUDE.md` rule 6: no non-commercial weights; unclear means no). Training-data provenance does not decide: each model's training data is recorded in its `docs/13` row as a known risk, not a blocker.
+- **Real-ESRGAN stays approved**: its weights are the author's release assets under the repository's BSD-3-Clause; its training data (DF2K, OST: academic datasets) is recorded.
+- **Demucs stays parked, now only on its weights' licence**: they're hosted outside the MIT repository and no licence is stated for them. A09 can go ahead once the author (Alexandre Défossez, or Meta) confirms the licence; MUSDB18-HQ is recorded as its training data, not a reason.
+- **Rows updated** with training data for the models we use or approved: Whisper, Real-ESRGAN, U²-Net, BiRefNet, and Demucs. Candidates get theirs when they're checked.
+
+**Why:** review of #66, finding 14 (Demucs was rejected partly for research-only training data while Real-ESRGAN, trained on academic datasets too, was approved; one rule was needed). The rule as Astro's brief gave it.
+**Reverse:** make training data a criterion in `docs/13` → Models; then Real-ESRGAN, U²-Net and BiRefNet need another look.
 
 ## 2026-10-02 · Wave 3 GPU models: MI-GAN and BiRefNet_lite; LaMa and RobustVideoMatting not used
 

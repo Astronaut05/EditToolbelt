@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
+from etb_worker.gpu import MAX_IDLE_TAIL_SEC
 from etb_worker.gpu.backend import GpuCall, GpuCancelled, GpuError, GpuResult
 from etb_worker.processors import (
     PROCESSORS,
@@ -68,6 +69,7 @@ class Gpu:
 
     def run(self, call: GpuCall) -> GpuResult:
         self.calls.append(call)
+        call.on_spawn(f"fc-{len(self.calls)}")
         call.on_wait(1.0)
         self.bucket.objects[key_of(call.kwargs["output_url"])] = self.content
         if self.fail:
@@ -80,6 +82,9 @@ class Gpu:
             billed_seconds=15.0,
             wall_seconds=6.0,
         )
+
+    def cancel(self, call_id: str) -> bool:
+        return True
 
 
 def context(
@@ -204,7 +209,8 @@ def test_a_gpu_failure_leaves_nothing_behind() -> None:
         "The mask marks nothing to erase.",
     )
     assert bucket.objects == {}
-    assert used == [GpuUsage(2, 2)]
+    # A failure the function reported is billed with an idle window (gpu/backend.py).
+    assert used == [GpuUsage(2, 2 + MAX_IDLE_TAIL_SEC)]
 
 
 # --- V20 Upscale Video ------------------------------------------------------------
@@ -325,7 +331,7 @@ def test_cancelling_cancels_the_call_and_deletes_its_output() -> None:
         video_background.PROCESSOR.run(ctx)
     assert caught.value.code == "CANCELLED"
     assert bucket.objects == {}
-    assert used == [GpuUsage(3.0, 3.0)]
+    assert used == [GpuUsage(3.0, 3.0 + MAX_IDLE_TAIL_SEC)]
 
 
 def test_bigger_than_4k_in_is_refused() -> None:

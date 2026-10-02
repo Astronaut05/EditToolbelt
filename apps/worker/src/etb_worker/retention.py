@@ -2,6 +2,11 @@
 
 Every 5 minutes, one worker:
 - deletes outputs 60 minutes after their job finished;
+- deletes every key a GPU call was given a PUT URL for, other than its
+  job's live output, on every pass until that URL has expired. A call whose
+  worker died may still write to one long after its job moved on; this way
+  nothing it writes stays more than one pass (5 minutes), and the job's
+  real output keeps its own 60 minutes;
 - aborts multipart uploads nobody completed within the hour, ours and any
   storage still lists;
 - deletes completed uploads no job used before they expired;
@@ -33,7 +38,13 @@ def sweep(
 ) -> tuple[dict[str, int], list[Alert]]:
     """One pass; returns the counts and any alerts to raise."""
     now = now or datetime.now(UTC)
-    counts = {"outputs": 0, "uploads_aborted": 0, "uploads_deleted": 0, "orphans_aborted": 0}
+    counts = {
+        "outputs": 0,
+        "gpu_keys": 0,
+        "uploads_aborted": 0,
+        "uploads_deleted": 0,
+        "orphans_aborted": 0,
+    }
     log = get_logger()
 
     outputs = conn.execute(
@@ -50,6 +61,8 @@ def sweep(
             (job["id"],),
         )
         counts["outputs"] += 1
+
+    counts["gpu_keys"] = _sweep_gpu_keys(conn, storage)
 
     stale = conn.execute(
         """
@@ -112,6 +125,40 @@ def sweep(
     if any(counts.values()):
         log.info("retention.swept", **counts)
     return counts, alerts
+
+
+def _sweep_gpu_keys(conn: Conn, storage: Storage) -> int:
+    """Deletes GPU output keys nothing should be in; returns how many deletes it sent.
+
+    The live output (the output of a running or succeeded job) is left to the
+    60-minute rule above. Once the last URL has expired nothing can write to
+    the keys any more: after one last delete they're forgotten.
+    """
+    deletes = 0
+    jobs = conn.execute(
+        """
+        select id, status, output_key, gpu_output_keys, gpu_put_expires_at,
+               gpu_put_expires_at < now() as expired
+        from jobs
+        where gpu_put_expires_at is not null
+        """
+    ).fetchall()
+    for job in jobs:
+        live = job["output_key"] if job["status"] in ("running", "succeeded") else None
+        for key in job["gpu_output_keys"]:
+            if key != live:
+                storage.delete(key)
+                deletes += 1
+        if job["expired"]:
+            # Guarded: a new attempt may have just added a key and moved the expiry on.
+            conn.execute(
+                """
+                update jobs set gpu_output_keys = '{}', gpu_put_expires_at = null
+                where id = %s and gpu_put_expires_at = %s
+                """,
+                (job["id"], job["gpu_put_expires_at"]),
+            )
+    return deletes
 
 
 def lifecycle_check(conn: Conn, storage: Storage) -> list[Alert]:

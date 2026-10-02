@@ -19,6 +19,7 @@ export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';
 export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './image/image-geometry';
 export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
 export { socialResizeEngine, type SocialResizeOptions } from './image/social-resize';
+export { lutPreviewEngine, type LutPreviewOptions } from './image/lut-preview';
 export { fitPlacement, focusCrop, focusOf, type Focus, type SocialFit } from './image/social';
 export { imageMetadataEngine, type MetadataOptions } from './image/metadata';
 export {
@@ -40,6 +41,7 @@ export {
 export { VIDEO_LIMITS } from './video/limits';
 export { trimEngine, type TrimOptions } from './video/trim';
 export { muteGain, muteVideoEngine, silence, type MuteOptions } from './video/mute';
+export type { ReplaceAudioOptions } from './video/replace-audio';
 export {
   videoInfoEngine,
   videoReport,
@@ -108,8 +110,10 @@ export {
 export {
   planConversion,
   videoConverterEngine,
+  videoFrameSource,
   videoPackets,
   type ConversionPlan,
+  type FrameSource,
   type VideoConverterOptions,
 } from './video/convert-video';
 export { bpmKeyEngine, Downmix, type BpmKeyOptions } from './audio/bpm-key';

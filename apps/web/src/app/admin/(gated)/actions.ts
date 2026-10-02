@@ -37,6 +37,7 @@ import { audit, requireAdmin } from '../../../server/admin';
 import { db } from '../../../server/db';
 import { invalidateToolFlags } from '../../../server/flags';
 import { field } from '../../../server/form';
+import { dailyBudgetUsd } from '../../../server/gpu';
 import { stopJob } from '../../../server/jobs';
 import { hasView } from '../../../tools/ids';
 
@@ -367,7 +368,7 @@ export async function retryJob(formData: FormData): Promise<void> {
 }
 
 const Budget = z.strictObject({
-  dailyUsd: z.coerce.number().min(0).max(1000),
+  dailyUsd: dailyBudgetUsd,
   reason: Reason,
 });
 
@@ -382,7 +383,10 @@ export async function saveGpuBudget(formData: FormData): Promise<void> {
     dailyUsd: field(formData, 'dailyUsd'),
     reason: field(formData, 'reason'),
   });
-  if (!parsed.success) redirect('/admin?error=budget#gpu');
+  if (!parsed.success) {
+    const blank = field(formData, 'dailyUsd').trim() === '';
+    redirect(`/admin?error=${blank ? 'budget_blank' : 'budget'}#gpu`);
+  }
   const { dailyUsd, reason } = parsed.data;
   await db().transaction(async (tx) => {
     const [before] = await tx.select().from(gpuBudget).where(eq(gpuBudget.id, 1));

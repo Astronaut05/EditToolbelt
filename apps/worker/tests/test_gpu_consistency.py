@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from etb_worker.gpu import modal_app
+from etb_worker.gpu import MAX_IDLE_TAIL_SEC, modal_app
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOLS = {
@@ -68,3 +68,31 @@ def test_the_video_limits_agree() -> None:
     assert f"PRORES_BITS_PER_PIXEL = {video_background.PRORES_BITS_PER_PIXEL}" in rules
     assert f"MAX_LONG_SIDE = {upscale_video.MAX_LONG_SIDE}" in rules
     assert f"MAX_SHORT_SIDE = {upscale_video.MAX_SHORT_SIDE}" in rules
+
+
+def test_no_call_of_ours_queues_on_modal() -> None:
+    """A function has a container for every job its tools may run at once (maxConcurrent).
+
+    The worker's clock for a call starts at the spawn: time spent queueing on
+    Modal behind our own calls would count against the job's limit.
+    """
+    for function, spec in modal_app.SPECS.items():
+        concurrent = 0
+        for tool, (category, uses) in TOOLS.items():
+            if uses != function:
+                continue
+            source = (ROOT / f"packages/registry/src/tools/{category}/{tool}.ts").read_text("utf-8")
+            found = re.search(r"maxConcurrent: (\d+)", source)
+            assert found, f"{tool} has no maxConcurrent"
+            concurrent += int(found.group(1))
+        assert spec.max_containers >= concurrent, function
+
+
+def test_the_worst_case_idle_window_covers_every_function() -> None:
+    """Calls that didn't say, and the budget's worst case, bill this idle window (gpu/__init__)."""
+    for function, spec in modal_app.SPECS.items():
+        assert spec.scaledown <= MAX_IDLE_TAIL_SEC, function
+    business = (ROOT / "config/business.ts").read_text("utf-8")
+    found = re.search(r"worstCaseIdleSec: (\d+)", business)
+    assert found
+    assert int(found.group(1)) == MAX_IDLE_TAIL_SEC

@@ -8,9 +8,11 @@ their job. Only a worker that dies mid-job leaves the input, so the reaper
 can hand the job to another worker.
 
 GPU jobs (remote processors) skip the download and upload: the GPU function
-reads the input and writes the output through presigned URLs. Their GPU
-time goes on the job as each call ends, and claims of GPU jobs stop while
-today's GPU budget is spent (gpu/budget.py).
+reads the input and writes the output through presigned URLs. They run in
+their own slots (``pool="gpu"``, WORKER_GPU_SLOTS), which claim only GPU
+jobs, so a call waiting on Modal never holds up probing or the CPU tools;
+CPU slots claim only CPU jobs. A GPU call's time goes on the job as it ends,
+and GPU claims stop while today's GPU budget is spent (gpu/budget.py).
 """
 
 from __future__ import annotations
@@ -22,13 +24,12 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 
 from etb_worker import jobqueue
 from etb_worker.db import Conn
-from etb_worker.gpu import budget
 from etb_worker.gpu.backend import GpuBackend
 from etb_worker.logs import get_logger
 from etb_worker.processors import (
@@ -88,7 +89,7 @@ class _Heartbeat(threading.Thread):
 
 
 class JobRunner:
-    """One job slot: claims and runs jobs one at a time."""
+    """One job slot: claims and runs jobs of its pool, CPU or GPU, one at a time."""
 
     def __init__(  # noqa: PLR0913 - keyword-only after the two it always needs
         self,
@@ -99,21 +100,27 @@ class JobRunner:
         worker_id: str | None = None,
         heartbeat_sec: float = jobqueue.HEARTBEAT_SEC,
         gpu: GpuBackend | None = None,
+        pool: Literal["cpu", "gpu"] = "cpu",
     ) -> None:
         self.storage = storage
         self.connect = connect
         self.processors = PROCESSORS if processors is None else processors
         #: GPU_BACKEND's backend; None: GPU jobs fail at once with their credits back.
         self.gpu = gpu
+        #: Which jobs this slot claims: CPU jobs, or GPU jobs (under the daily budget).
+        self.pool = pool
         self.worker_id = worker_id or f"{socket.gethostname()}:{threading.get_ident()}"
         self.heartbeat_sec = heartbeat_sec
         self.stopping = threading.Event()
         self._current: threading.Event | None = None
 
     def run_next(self) -> bool:
-        """Claims and runs one job; False when the queue is empty."""
+        """Claims and runs one job of this slot's pool; False when there's none to start."""
         with self.connect() as conn:
-            job = jobqueue.claim(conn, self.worker_id, gpu=budget.gpu_open(conn))
+            if self.pool == "gpu":
+                job = jobqueue.claim_gpu(conn, self.worker_id)
+            else:
+                job = jobqueue.claim(conn, self.worker_id)
         if job is None:
             return False
         self.run(job)
@@ -137,6 +144,7 @@ class JobRunner:
         beat.start()
         requeued = False
         try:
+            self._settle_stale_call(job)
             self._drop_stale_output(job)
             output_key, output_meta = self._process(job, workdir, cancel, progress)
             with self.connect() as conn:
@@ -201,7 +209,8 @@ class JobRunner:
             storage=self.storage if remote else None,
             gpu=self.gpu if remote else None,
             record_gpu=lambda usage: self._record_gpu(job_id, usage),
-            reserve_output=lambda key: self._reserve_output(job_id, key),
+            start_call=lambda key, expires: self._start_call(job_id, key, expires),
+            call_spawned=lambda call_id: self._call_spawned(job_id, call_id),
             extra_input_keys=[str(key) for key in job.get("extra_input_keys") or []]
             if remote
             else [],
@@ -235,16 +244,40 @@ class JobRunner:
         log = get_logger(job_id=job_id)
         try:
             with self.connect() as conn:
-                jobqueue.record_gpu(conn, job_id, usage.gpu_seconds, usage.billed_seconds)
+                recorded = jobqueue.record_gpu(
+                    conn, job_id, self.worker_id, usage.gpu_seconds, usage.billed_seconds
+                )
         except psycopg.Error:
-            # The budget would undercount: say so loudly.
+            # Left in flight on the job: the reaper (or the next attempt) settles it later.
             log.exception("job.gpu_not_recorded", gpu_seconds=round(usage.gpu_seconds, 1))
+            return
+        if not recorded:
+            log.info("job.gpu_settled_elsewhere", gpu_seconds=round(usage.gpu_seconds, 1))
             return
         log.info("job.gpu_used", gpu_seconds=round(usage.gpu_seconds, 1))
 
-    def _reserve_output(self, job_id: str, key: str) -> None:
+    def _start_call(self, job_id: str, key: str, expires_sec: int) -> bool:
         with self.connect() as conn:
-            jobqueue.reserve_output(conn, job_id, self.worker_id, key)
+            return jobqueue.start_gpu_call(conn, job_id, self.worker_id, key, expires_sec)
+
+    def _call_spawned(self, job_id: str, call_id: str) -> None:
+        try:
+            with self.connect() as conn:
+                jobqueue.gpu_call_spawned(conn, job_id, self.worker_id, call_id)
+        except psycopg.Error:
+            # If this worker now dies, its call runs on to its timeout: say so loudly.
+            get_logger(job_id=job_id).exception("job.gpu_call_id_not_recorded")
+
+    def _settle_stale_call(self, job: jobqueue.Job) -> None:
+        """A call an earlier attempt left in flight and nobody settled: record it, cancel it."""
+        if job.get("gpu_call_at") is None:
+            return
+        with self.connect() as conn:
+            with conn.transaction():
+                stale = jobqueue.settle_call(conn, str(job["id"]))
+            if stale is not None:
+                cancel = self.gpu.cancel if self.gpu is not None else None
+                jobqueue.cancel_stale_call(conn, cancel, stale)
 
     def _drop_stale_output(self, job: jobqueue.Job) -> None:
         """A key an earlier attempt's GPU call wrote to (that worker died): delete it first."""

@@ -2,28 +2,40 @@
  * The GPU's spend and budget for the admin (docs/05 → GPU costs and the
  * daily budget). The worker enforces the budget (apps/worker/src/etb_worker
  * /gpu/budget.py); this reads the same numbers the same way: today is the UTC
- * day, a call's cost is on its job once it ends, and a call still running
- * counts from its job's start at the job's rate.
+ * day; spent is each job's recorded cost plus its call in flight so far, at
+ * its rate; committed counts every running GPU job at its worst case instead
+ * (its time limit plus the longest idle window), and GPU jobs start only
+ * while committed is under the budget.
  */
 import { creditNetUsd, gpuBudget as budgetConfig } from '@etb/config/business';
 import { sql } from '@etb/db';
+import { z } from 'zod';
 
 import { db } from './db';
 
 export interface GpuToday {
   spentUsd: number;
+  committedUsd: number;
   budgetUsd: number;
   jobs: number;
 }
 
 export async function gpuToday(): Promise<GpuToday> {
-  const result = await db().execute<{ spent: string; budget: string | null; jobs: string }>(sql`
+  const result = await db().execute<{
+    spent: string;
+    committed: string;
+    budget: string | null;
+    jobs: string;
+  }>(sql`
     select
-      coalesce(sum(case
-        when gpu_cost_usd is not null then gpu_cost_usd
-        when status = 'running' and started_at is not null
-          then extract(epoch from now() - started_at) * gpu_rate_usd
+      coalesce(sum(coalesce(gpu_cost_usd, 0) + case
+        when status = 'running' and gpu_call_at is not null
+          then greatest(extract(epoch from now() - gpu_call_at), 0) * gpu_rate_usd
         else 0 end), 0) as spent,
+      coalesce(sum(coalesce(gpu_cost_usd, 0) + case
+        when status = 'running'
+          then (timeout_sec + ${budgetConfig.worstCaseIdleSec}) * gpu_rate_usd
+        else 0 end), 0) as committed,
       (select daily_usd from gpu_budget where id = 1) as budget,
       count(*) as jobs
     from jobs
@@ -32,6 +44,7 @@ export async function gpuToday(): Promise<GpuToday> {
   const row = result.rows[0];
   return {
     spentUsd: Number(row?.spent ?? 0),
+    committedUsd: Number(row?.committed ?? 0),
     budgetUsd:
       row?.budget === null || row?.budget === undefined
         ? budgetConfig.defaultDailyUsd
@@ -39,6 +52,24 @@ export async function gpuToday(): Promise<GpuToday> {
     jobs: Number(row?.jobs ?? 0),
   };
 }
+
+/** Whether GPU jobs start now, as the admin reads it. */
+export function gpuStarting(today: GpuToday): string {
+  if (today.committedUsd < today.budgetUsd) return 'Yes';
+  if (today.spentUsd >= today.budgetUsd) return 'No: budget reached';
+  return 'Not until a running GPU job ends: at their time limits they could reach the budget';
+}
+
+/**
+ * The admin's daily budget field: dollars, from 0 to 1,000. A blank field is
+ * refused, never read as $0 (which would stop every GPU job).
+ */
+export const dailyBudgetUsd = z
+  .string()
+  .trim()
+  .min(1)
+  .transform(Number)
+  .pipe(z.number().min(0).max(1000));
 
 export interface ToolCost {
   toolId: string;

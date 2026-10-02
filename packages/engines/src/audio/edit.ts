@@ -20,7 +20,12 @@ import { AudioSample, AudioSampleSink, Quality, type AudioCodec } from 'mediabun
 
 import type { Engine, EngineOutput } from '../types';
 import { encodeAudio } from '../video/encode-audio';
-import { AUDIO_TARGETS, ensureEncoder, type AudioFormat } from '../video/extract-audio';
+import {
+  AUDIO_TARGETS,
+  type AudioFormat,
+  ensureEncoder,
+  KEEP_FORMAT,
+} from '../video/extract-audio';
 import { codecLabel, MediaInputError, openInput } from '../video/media';
 import { AUDIO_LIMITS, MEDIA_META } from '../media-meta';
 import { safeStem } from '../names';
@@ -29,17 +34,6 @@ import { safeStem } from '../names';
 function stemOf(name: string): string {
   return safeStem(name, 'audio');
 }
-
-/** The output for a source codec when the format is kept. */
-const KEEP: Partial<Record<AudioCodec, AudioFormat>> = {
-  mp3: 'mp3',
-  aac: 'm4a',
-  opus: 'ogg',
-  flac: 'flac',
-  'pcm-s16': 'wav',
-  'pcm-s24': 'wav',
-  'pcm-f32': 'wav',
-};
 
 function planesOf(sample: AudioSample): Float32Array[] {
   return Array.from({ length: sample.numberOfChannels }, (_, planeIndex) => {
@@ -108,7 +102,7 @@ async function source(file: Blob): Promise<Source> {
 
 /** The format and codec to write: the source's own unless another is picked. */
 function outputOf(format: string | undefined, sourceCodec: AudioCodec | null) {
-  const keep = sourceCodec ? KEEP[sourceCodec] : undefined;
+  const keep = sourceCodec ? KEEP_FORMAT[sourceCodec] : undefined;
   const chosen: AudioFormat =
     format && format in AUDIO_TARGETS ? (format as AudioFormat) : (keep ?? 'wav');
   const target = AUDIO_TARGETS[chosen];
