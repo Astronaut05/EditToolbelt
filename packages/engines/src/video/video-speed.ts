@@ -181,7 +181,11 @@ export const videoSpeedEngine: Engine<VideoSpeedOptions> = {
         reencode && videoCodec
           ? new VideoSampleSource({ codec: videoCodec, quality: new Quality('high') })
           : null;
-      if (packetSource) output.addVideoTrack(packetSource, { ...metadata, frameRate: fps * speed });
+      // Mediabunny puts every timestamp on a track's frame rate, so a clip
+      // without a steady one (a phone's variable frame rate) gets none and
+      // keeps its own frame times, each scaled by the speed.
+      const steady = metrics?.underlyingFrameRate ? { frameRate: fps * speed } : {};
+      if (packetSource) output.addVideoTrack(packetSource, { ...metadata, ...steady });
       if (sampleSource) output.addVideoTrack(sampleSource, { frameRate: fps });
       const audioSource = audioCodec
         ? new AudioSampleSource({ codec: audioCodec, quality: new Quality({ bitrate: 160_000 }) })

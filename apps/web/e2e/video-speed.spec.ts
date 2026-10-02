@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { probeMedia, videoPackets } from '@etb/engines';
+import { probeMedia, videoFrameSource, videoPackets } from '@etb/engines';
 import type { Page } from '@playwright/test';
 
 import { choose, cspViolations, expect, pick, test } from './fixtures';
@@ -15,16 +15,12 @@ const fixture = (name: string) =>
   fileURLToPath(new URL(`../../../fixtures/video/${name}`, import.meta.url));
 const WEBM = fixture('clip-vp9-opus.webm');
 const MKV = fixture('clip-vp9-opus.mkv');
+const VFR = fixture('clip-vfr-odd.mkv');
 
-async function drop(page: Page, path: string) {
+async function drop(page: Page, path: string, size = /256 × 144/) {
   await page.goto('/video-speed');
   await page.locator('input[type=file][data-hydrated]').first().setInputFiles(path);
-  await expect(
-    page
-      .getByText(/256 × 144/)
-      .filter({ visible: true })
-      .first(),
-  ).toBeVisible();
+  await expect(page.getByText(size).filter({ visible: true }).first()).toBeVisible();
 }
 
 async function run(page: Page) {
@@ -118,4 +114,24 @@ test('keeping the frame rate rounds an odd size to even, as H.264 encoders need'
   // 2 s at 2×: 1 s of frames at 30 fps.
   expect((await videoPackets(new Blob([out.bytes]))).length).toBe(30);
   await expect(page.getByText(/at 256 × 144 px: encoders take even sizes/).first()).toBeAttached();
+});
+
+// Matroska rounds every time to a track's frame rate, so a variable frame
+// rate only survives when the track is given none.
+test('keeping every frame keeps a variable frame rate, each gap halved at 2×', async ({ page }) => {
+  await drop(page, VFR, /255 × 143/);
+  const out = await run(page);
+  const times = async (bytes: Buffer) =>
+    ((await videoFrameSource(new Blob([new Uint8Array(bytes)]), 0, 1e6))?.packets ?? [])
+      .map((p) => p.timestamp)
+      .sort((a, b) => a - b);
+  const gaps = (t: number[]) => t.slice(1).map((x, i) => x - (t[i] ?? 0));
+  const before = gaps(await times(readFileSync(VFR)));
+  const after = gaps(await times(out.bytes));
+  expect(after).toHaveLength(before.length);
+  // The source's gaps run 55 % to 145 % of a frame; a constant rate would even them out.
+  expect(Math.max(...before) - Math.min(...before)).toBeGreaterThan(0.01);
+  after.forEach((gap, i) => {
+    expect(Math.abs(gap - (before[i] ?? 0) / 2)).toBeLessThan(0.0015);
+  });
 });

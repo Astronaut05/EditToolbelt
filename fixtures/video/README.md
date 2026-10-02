@@ -46,3 +46,14 @@ ffmpeg -f lavfi -i "testsrc2=size=256x144:rate=30:duration=2" \
   -c:v libvpx-vp9 -pix_fmt yuv420p -crf 60 -b:v 0 -g 60 -row-mt 1 -deadline good -cpu-used 4 \
   -c:a libopus -b:a 32k -map_metadata -1 -fflags +bitexact clip-vp9-odd.webm
 ```
+
+For Change Video Speed, Reverse Video and Loop Video, `clip-vfr-odd.mkv`: 2 s of the same test pattern and tone at 255 × 143 px, an odd size as screen recordings can have, with its 60 frames on an irregular clock (each gap 55 % to 145 % of a frame at 30 fps, in whole ms), VP9 + Opus in Matroska. Made with FFmpeg 6.1:
+
+```sh
+ffmpeg -f lavfi -i "testsrc2=size=256x144:rate=30:duration=2" \
+  -f lavfi -i "sine=frequency=440:beep_factor=4:sample_rate=48000:duration=2" -ac 2 \
+  -vf "scale=255:143,format=yuv420p,settb=1/1000,setpts=(N+0.3*sin(N*1.7))/(30*TB)" \
+  -fps_mode passthrough -enc_time_base 1/1000 \
+  -c:v libvpx-vp9 -crf 60 -b:v 0 -g 60 -row-mt 1 -deadline good -cpu-used 4 \
+  -c:a libopus -b:a 32k -map_metadata -1 -fflags +bitexact clip-vfr-odd.mkv
+```
