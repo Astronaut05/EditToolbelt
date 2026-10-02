@@ -1646,3 +1646,103 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** M8 review, findings 4, 13 and 14, and the overlap marked plausible under finding 2 (confirmed: the copy kept packets up to the cut and every packet's own length). H.264 and HEVC encoders refuse odd sizes: Safari stopped, Chrome fell back to AV1 in MP4.
 **Reverse:** `even`, `encoderSize` and `steadyRate` in `packages/engines/src/video/clip-frames.ts`, `audioSeam` in `loop-video.ts`, `parseSpeed` in `packages/core/src/calc/shutter.ts`. The test clip is `fixtures/video/clip-vfr-odd.mkv`.
+
+## 2026-10-01 · LUT Converter (Wave 3)
+
+**Decision:**
+- **`.3dl` is Autodesk's**, as Flame, Lustre and Nuke read it. It starts with an input mesh line (the grid as 10-bit codes), then integer RGB with blue changing fastest. Reading:
+  - The output depth is taken from the largest value: 10, 12 or 16 bit.
+  - Lustre's `3DMESH`/`Mesh` header lines are skipped, and a file without a mesh line is read by its count.
+  - A 3-point mesh looks like an RGB line, so it's told by the count of lines after it, or by its codes rising from 0.
+- **Writing `.3dl`:** a 10-bit mesh and 12-bit values, the common choice. Values outside 0–1, which a `.cube` can hold, are clipped and counted in a note.
+- **Resizing (17, 33 or 65)** reads the original with the tetrahedral lookup LUT Preview applies, so the new grid grades the same between the old points. A `.cube` with an input domain other than 0–1 is resampled to 0–1 for `.3dl`, which has no domain.
+- **1D ↔ 3D only where exact:**
+  - 1D to 3D: the curves at every grid point, 33 points unless a grid is picked.
+  - 3D to 1D: only when each channel's output depends on its own input alone, within 0.001. A look that mixes channels is refused, with the reason.
+- The default target is `.3dl` ("cube to 3dl" is what people search for), and a `.3dl` can be resized and saved as `.3dl`.
+
+**Why:** `tools/color.md` → C06.
+**Reverse:** `packages/core/src/color/lut-convert.ts` and `packages/engines/src/lut-convert.ts`.
+
+## 2026-10-01 · Images to PDF (Wave 3)
+
+**Decision:**
+- **Our own PDF writer, not pdf-lib.** The spec named pdf-lib (MIT), which hasn't had a release since 2021, and images on pages is all this needs. `packages/core/src/image/pdf.ts` writes a plain PDF 1.4 in under 300 lines, and `docs/13` says pdf-lib isn't used.
+- **JPEGs go in byte for byte** (DCTDecode), so nothing is re-compressed. That covers 8-bit baseline or progressive JPEGs, grey or colour. A phone photo saved on its side with an EXIF orientation is placed upright by the matrix that draws it, still without re-encoding.
+- **Everything else is decoded by the browser** (upright, as shown) and stored losslessly as deflated RGB, with fflate, already in the register. Transparency becomes a soft mask. That covers PNG, WebP, GIF, AVIF, CMYK and 12-bit JPEGs, and HEIC where the browser opens it.
+- **Pages:** A4 (the default) or US Letter, or each page the image's own size at 96 px to the inch. Orientation follows each image unless portrait or landscape is set. Margins are none, 10 mm (the default) or 20 mm. Each image is scaled to fit inside the margins, centred, keeping its shape.
+- **Order:** the shell's file list, reorderable, 1 to 100 images. The PDF is named after the first image in that order.
+- **Shell:** a single result now takes the engine's own download name when it gives one (`EngineOutput.name`, so far only used by batches). A combined list's line under each file can leave out a duration, since images have none.
+
+**Why:** `tools/photo.md` → P18.
+**Reverse:** `packages/core/src/image/pdf.ts` and `packages/engines/src/image/images-to-pdf.ts`; to use pdf-lib instead, swap `writePdf` and add it to the register.
+
+## 2026-10-01 · Collage Maker (Wave 3)
+
+**Decision:**
+- **Five layouts, each for 2 to 9 photos:**
+  - Grid: rows as square as they get, the fuller rows last (5 photos are 2 then 3).
+  - Big left and Big top: the first photo in the order set takes two thirds, the rest share the last third.
+  - Columns and Rows.
+- **Exact pixels.** A layout is a tree of rows and columns. The boxes are shared out in whole pixels that add up to the canvas, so every gap, between the photos and around the edge, is the spacing to the pixel.
+- **Each photo fills its box**, cropped evenly from the sides or the top and bottom, never stretched. Phone photos are drawn upright by their EXIF.
+- **Output sizes are twice the social sizes**, so a platform's own downscale stays sharp:
+  - Square 2160 × 2160, Portrait 4:5 2160 × 2700, Story 9:16 2160 × 3840, Landscape 16:9 3840 × 2160.
+  - A4 at 300 dpi, 2480 × 3508.
+  - Spacing (0–120 px, default 24) and corner radius (0–120 px) are pixels at that size.
+- **Encoding:** the photos are drawn on a canvas, which goes losslessly to the image worker and is saved by the same encoders as the other image tools. JPG (the default) and WebP at quality 90, or PNG. No metadata is written.
+
+**Why:** `tools/photo.md` → P16.
+**Reverse:** `packages/core/src/image/collage.ts` (layouts) and `packages/engines/src/image/collage.ts` (drawing, sizes).
+
+## 2026-10-01 · Image to SVG (Wave 3)
+
+**Decision:**
+- **Our own tracer, not vtracer.** The spec named a WASM build of vtracer (MIT), but the register never settled on a package for it, and building one ourselves would add a Rust toolchain to CI. `packages/core/src/image/vectorize.ts` traces in a few hundred lines of TypeScript, in a worker, about a second for a 2 MP image. `docs/13` says vtracer isn't used.
+- **How it traces:**
+  - Colours: k-means in Oklab (the Colour Palette tool's clustering), the best of four seedings. Black and white splits at Otsu's threshold.
+  - Before that, anti-aliased edges are made hard: a pixel between two very different colours on opposite sides of it takes the nearer one. Soft rims don't become rings of their own colour; thin lines keep theirs.
+  - Detail: regions smaller than 64, 16 or 4 px (Low, Medium, High) join the neighbour nearest in colour.
+  - Borders between regions are traced once, as chains between the points where three regions meet. Pixel steps become lines through their middles; turns gentler than 60° (Smooth) or 40° (Sharp) become curves; square corners between straight runs stay square. Pixels keeps every pixel edge.
+  - Layers stack, the most common colour at the bottom, each also covering the layers above it. Neighbouring shapes never show a hairline gap, and every pixel still ends up its own colour. Black and white leaves the white out.
+- **Size:** images are traced at up to 2000 px on the long side and drawn at their own size (the viewBox scales).
+- **The file** holds only `<svg>` and `<path fill>` elements: no scripts, images, links or styles.
+- **Changing a setting** traces again at once, so the before/after view compares straight away.
+
+**Why:** `tools/photo.md` → P19; rule 6 asks for a license we can check.
+**Reverse:** to use vtracer instead, swap `vectorize` in `packages/engines/src/image/vector/vector.worker.ts` and add it to the register.
+
+## 2026-10-01 · Audio to Video (Wave 3)
+
+**Decision:**
+- **What it draws:** spectrum bars (40, log-spaced from 50 Hz to 16 kHz, levels from −70 to −10 dBFS, rising at once and falling back by 0.82 a frame) or a waveform line (40 ms of sound around each frame, scaled so the loudest moment reaches 90% of the height). Mono mix, Hann-windowed 2048-point FFT, our own code in `packages/core/src/media/audiogram.ts`.
+- **Frame:** 9:16 (1080 × 1920, the default), 1:1 (1080 × 1080) or 16:9 (1920 × 1080), 30 fps. The title on top, the sound in the middle, captions below, in the bundled Onest bold. A picture fills the frame (cropped, not stretched) under a 45% darkening, so the bars and words stay readable. Without a picture, text is white, or near-black on a light background.
+- **Captions** come from a subtitle file (SRT, VTT, ASS or SBV) timed to the whole recording, such as Transcribe Audio's (A12, a GPU tool for later). Only the words are drawn; styling tags are dropped. Up to 3 lines, on a dark box.
+- **Length:** the timeline picks the part, the first minute to start with, up to 10 minutes (18 000 frames) a video.
+- **Encoding:** H.264 and AAC in MP4 where the browser writes both (Chrome, Edge, Safari), otherwise VP9 (or VP8) and Opus in WebM, with a note. WebM can also be picked. The sound is resampled to 48 kHz, stereo or mono as it was.
+- **The audio is read twice**, once for the picture and once for the sound, so a long file never sits in memory.
+
+**Why:** `tools/audio.md` → A16.
+**Reverse:** `packages/core/src/media/audiogram.ts` and `packages/engines/src/video/audiogram.ts`.
+
+## 2026-10-01 · Subtitle Editor (Wave 3)
+
+**Decision:**
+- **The checks and their limits:** 42 characters a line, 2 lines, 17 characters a second (line breaks and tags not counted), 5/6 s to 7 s on screen, 83 ms between cues (2 frames at 24 fps), no overlaps, no empty cues. Cues that touch (0 ms apart) pass. The line length, reading speed and gap are settings, for house style guides.
+- **Fixes change as little as they can:**
+  - Long lines: rewrapped into the fewest, most even lines.
+  - Fast or short cues: lengthened into the free time after them, then before them, keeping the gap.
+  - Gaps and overlaps: the first cue ends a gap before the next; if that would make it too short, the next starts later.
+  - Long cues end at 7 s; empty cues go.
+  - A cue with no room stays as it is, still marked. Every fix is one step to undo.
+- **Editing:**
+  - Split at the playhead: a two-line cue splits between its lines, one line by its words in proportion to the time; the first part ends a gap before the second.
+  - Merge joins the texts on two lines.
+  - Find and replace is literal (no regular expressions), with match case and whole words.
+  - Typing in one cue is one undo step until another edit; up to 200 steps.
+- **In the shell:** a `subtitles` preset makes the workspace the editor. The probe reads the file into a `cues` option (JSON) and picks its format for "Save as"; the engine writes that option out. After the first save every edit saves again, so the download always matches the screen. The video or audio is a file option, played in the page; on a video, the cue showing is drawn over it.
+- **Phones** get the "works best on a computer" note (`desktopBest`), and the editor still works there.
+
+**Why:** `tools/subtitles-and-time.md` → T03.
+**Reverse:** `packages/core/src/subtitles/edit.ts` (rules), `packages/ui/src/tool/SubtitleEditor.tsx` (editor).
+

@@ -20,6 +20,7 @@ export * as contrast from './color/contrast';
 export * as gradient from './color/gradient';
 export { CSS_NAMED_COLORS } from './color/names';
 export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
+export { format3dl, formatCube, GRID_SIZES, parse3dl, resample, to1d } from './color/lut-convert';
 export {
   ANCHORS,
   markBox,
@@ -30,6 +31,7 @@ export {
 } from './image/watermark';
 export {
   extractPalette,
+  quantize,
   paletteAse,
   paletteCss,
   paletteJson,
@@ -62,6 +64,7 @@ export {
 export { Splicer, type SpliceOptions } from './media/splice';
 export { joinGain, reversePieces, type ReversePiece } from './media/reverse';
 export { equalParts, MAX_PARTS, pieceParts, silenceParts, TooManyParts } from './media/split';
+export * as audiogram from './media/audiogram';
 export {
   PLATFORM_NAMES,
   PLATFORMS,
@@ -142,3 +145,6 @@ export {
   type RenameFile,
   type RenameRules,
 } from './rename';
+export * as pdf from './image/pdf';
+export * as collage from './image/collage';
+export * as vector from './image/vectorize';

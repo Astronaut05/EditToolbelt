@@ -6,3 +6,4 @@ export * from './retime';
 export * from './time';
 export * from './types';
 export * from './write';
+export * from './edit';

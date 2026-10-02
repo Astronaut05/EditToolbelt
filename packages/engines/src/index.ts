@@ -6,7 +6,15 @@
  */
 export type { Capabilities, Engine, EngineOutput, InputMeta, RunContext } from './types';
 export { dummyEngine, EngineAbortError, type DummyOptions } from './dummy';
-export { subtitleEngine, type SubtitleEngineOptions } from './subtitles';
+export {
+  cuesFromJson,
+  readSubtitleFile,
+  subtitleEditEngine,
+  subtitleEngine,
+  type SubtitleEditOptions,
+  type SubtitleEngineOptions,
+} from './subtitles';
+export { lutConvertEngine, type LutConvertOptions } from './lut-convert';
 export {
   checkImage,
   IMAGE_LIMITS,
@@ -17,7 +25,10 @@ export {
 export { FORMAT_LABELS as IMAGE_FORMAT_LABELS, sniffImage, type ImageFormat } from './image/sniff';
 export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';
 export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './image/image-geometry';
+export { collageEngine, COLLAGE_SIZES, type CollageOptions } from './image/collage';
 export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
+export { imagesToPdfEngine, type ImagesToPdfOptions } from './image/images-to-pdf';
+export { imageToSvgEngine, type ImageToSvgOptions } from './image/vector/image-to-svg';
 export { socialResizeEngine, type SocialResizeOptions } from './image/social-resize';
 export { lutPreviewEngine, type LutPreviewOptions } from './image/lut-preview';
 export { watermarkEngine, type WatermarkOptions } from './image/watermark';
@@ -43,6 +54,7 @@ export { VIDEO_LIMITS } from './video/limits';
 export { trimEngine, type TrimOptions } from './video/trim';
 export { muteGain, muteVideoEngine, silence, type MuteOptions } from './video/mute';
 export type { ReplaceAudioOptions } from './video/replace-audio';
+export type { AudioToVideoOptions } from './video/audiogram';
 export {
   videoInfoEngine,
   videoReport,

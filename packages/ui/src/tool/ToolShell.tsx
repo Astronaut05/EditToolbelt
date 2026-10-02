@@ -1,6 +1,7 @@
 'use client';
 
-import { activeAreas, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
+import type { CheckRules, Cue } from '@etb/core/subtitles';
+import { activeAreas, cuesFromJson, isNeutral, type Engine, type NamesPlan } from '@etb/engines';
 import { ChevronRight, Download, Monitor, Undo2 } from 'lucide-react';
 import {
   lazy,
@@ -73,6 +74,9 @@ const CanvasEditor = lazy(() =>
   import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
 );
 const ColorPicker = lazy(() => import('./ColorPicker').then((m) => ({ default: m.ColorPicker })));
+const SubtitleEditor = lazy(() =>
+  import('./SubtitleEditor').then((m) => ({ default: m.SubtitleEditor })),
+);
 const FocusPicker = lazy(() => import('./FocusPicker').then((m) => ({ default: m.FocusPicker })));
 const LineGraph = lazy(() => import('./LineGraph').then((m) => ({ default: m.LineGraph })));
 const CropFields = lazy(() => import('./CropFields').then((m) => ({ default: m.CropFields })));
@@ -533,7 +537,8 @@ export interface ShellPreset {
   combine?: {
     min: number;
     max: number;
-    describe?: (file: File) => Promise<{ durationSec: number; summary: string }>;
+    /** A line under each file; a duration adds a total (media), images have none (P18). */
+    describe?: (file: File) => Promise<{ durationSec?: number; summary: string }>;
   };
   /**
    * A11: the timeline's ranges are found in the file (the silences to cut),
@@ -549,6 +554,17 @@ export interface ShellPreset {
   };
   /** A server tool: why it runs on our servers, for the offer ("Precise frame timing needs ffmpeg"). */
   serverReason?: string;
+  /**
+   * T03: the workspace is the subtitle editor. The cues live in the `cues`
+   * option as JSON (the probe fills it from the file, the engine writes it
+   * out); `media` is the file option holding the video or audio to play
+   * along; `rules` are the checks' limits from the settings.
+   */
+  subtitles?: {
+    cues: string;
+    media: string;
+    rules: (options: Record<string, string>) => CheckRules;
+  };
   /**
    * U02: the files keep their bytes and get new names. `plan` names every
    * file from the settings; the list shows each new name and what's wrong
@@ -638,6 +654,8 @@ export interface OutputInfo {
   ext: string;
   /** The download name's suffix, when the engine set one for this run. */
   suffix?: string;
+  /** The whole download name, when the engine decided it (P18: after the first image in order). */
+  name?: string;
   url?: string;
   blob?: Blob;
   seconds: number;
@@ -748,6 +766,9 @@ export function ToolShell({
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
+  /** T03: the cues the subtitle editor shows, parsed once per change. */
+  const cuesJson = preset.subtitles ? options[preset.subtitles.cues] : undefined;
+  const subtitleCues = useMemo(() => cuesFromJson(cuesJson), [cuesJson]);
   const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
 
   const [activeRange, setActiveRange] = useState(0);
@@ -963,6 +984,7 @@ export function ToolShell({
             // The engine knows the real format ("Keep format" depends on the input).
             ext: out.ext || preset.outputExt(values),
             suffix: out.nameSuffix,
+            ...(out.name && { name: out.name }),
             url,
             blob: out.blob,
             seconds,
@@ -1543,11 +1565,9 @@ export function ToolShell({
     if (state.kind !== 'result' || !state.output.url) return;
     const a = document.createElement('a');
     a.href = state.output.url;
-    a.download = outputName(
-      state.input.name,
-      state.output.suffix ?? preset.outputSuffix,
-      state.output.ext,
-    );
+    a.download =
+      state.output.name ??
+      outputName(state.input.name, state.output.suffix ?? preset.outputSuffix, state.output.ext);
     a.click();
     track('tool_download');
   }, [preset.outputSuffix, state, track]);
@@ -1882,11 +1902,13 @@ export function ToolShell({
             onEvent?.('tool_handoff', { from_tool: tool.id, to_tool: link.href.slice(1) });
             // The result goes along when the next tool takes its type (docs/02 → Result panel).
             const blob = state.output.blob;
-            const name = outputName(
-              state.input.name,
-              state.output.suffix ?? preset.outputSuffix,
-              state.output.ext,
-            );
+            const name =
+              state.output.name ??
+              outputName(
+                state.input.name,
+                state.output.suffix ?? preset.outputSuffix,
+                state.output.ext,
+              );
             if (blob && link.id && accepts(link.accepts, { type: blob.type, name })) {
               handOff(new File([blob], name, { type: blob.type }), link.id);
             }
@@ -1944,6 +1966,18 @@ export function ToolShell({
       media={media}
       thumbs={thumbs}
       peaks={peaks}
+      subtitles={
+        preset.subtitles
+          ? {
+              cues: subtitleCues,
+              media: fileOptionFile(options[preset.subtitles.media] ?? ''),
+              rules: preset.subtitles.rules(options),
+              onChange: (next) => {
+                if (preset.subtitles) changeOption(preset.subtitles.cues, JSON.stringify(next));
+              },
+            }
+          : null
+      }
       picker={
         preset.picker
           ? {
@@ -2369,6 +2403,7 @@ function Workspace({
   thumbs,
   peaks,
   picker,
+  subtitles,
   focus,
   refine,
 }: {
@@ -2401,6 +2436,12 @@ function Workspace({
     history: string | undefined;
     onPick: (hexes: string[]) => void;
   } | null;
+  subtitles: {
+    cues: Cue[];
+    media: File | undefined;
+    rules: CheckRules;
+    onChange: (cues: Cue[]) => void;
+  } | null;
   focus: {
     value: string | undefined;
     frames: FocusFrame[];
@@ -2423,6 +2464,14 @@ function Workspace({
     return (
       <Suspense fallback={null}>
         <ColorPicker src={state.input.url} {...picker} />
+      </Suspense>
+    );
+  }
+
+  if (subtitles) {
+    return (
+      <Suspense fallback={null}>
+        <SubtitleEditor {...subtitles} />
       </Suspense>
     );
   }
@@ -2576,7 +2625,8 @@ function Workspace({
   ];
 
   if (preset.preview === 'text' && output.text !== undefined) {
-    const name = outputName(input.name, output.suffix ?? preset.outputSuffix, output.ext);
+    const name =
+      output.name ?? outputName(input.name, output.suffix ?? preset.outputSuffix, output.ext);
     return (
       <>
         <div className={cn(frame, 'flex flex-col bg-surface')}>
@@ -2656,7 +2706,9 @@ function Workspace({
           <InputPreview
             input={{
               ...input,
-              name: outputName(input.name, output.suffix ?? preset.outputSuffix, output.ext),
+              name:
+                output.name ??
+                outputName(input.name, output.suffix ?? preset.outputSuffix, output.ext),
               size: output.size,
             }}
             noun={preset.noun}
