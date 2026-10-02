@@ -91,9 +91,13 @@ Indexes: `(user_id, created_at)`; `(provider, created_at)`; unique `(provider, p
 Every change is also an `admin_audit_log` row.
 
 **webhook_events**
-| id | provider | event_id (unique) | type | payload jsonb | received_at | processed_at | error text null |
+| id | provider | event_id (unique) | type | payload jsonb | received_at | processed_at | error text null | answer text null |
 
 Store, then process. Unique per (provider, event_id); processing is idempotent. An event stays fresh until it's processed without an error, so a provider's retry after a failure is processed again.
+
+- Paddle: one row per webhook (`event_id`). Click: one per Click transaction and action (`<click_trans_id>:<action>`). Payme: one per method and transaction (`<method>:<id>`; the order for CheckPerformTransaction, the period for GetStatement).
+- `error`: something a person must look at (a payment not credited, a store failure); it alerts at once (`07` → Alerts).
+- `answer`: Click and Payme only, what we answered (their code and note, or `result`). A refusal their protocol expects is an answer, not an error.
 
 ### Jobs
 

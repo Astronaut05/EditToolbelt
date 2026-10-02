@@ -1106,7 +1106,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - **The web service checks Cloudflare Access's token on every request** (`src/server/access.ts`), as well as Access itself:
   - In production, a request without a valid token for this application gets 403.
   - Without the Access settings, every request gets 503: the site fails closed.
-  - Exempt: `/healthz` and `/readyz` (Railway's health check; they reveal nothing), and `/api/webhooks/*` (signed by the payment providers, 404 while payments are off).
+  - Exempt: `/healthz` and `/readyz` (Railway's health check; they reveal nothing), and `/api/webhooks/*` (signed by the payment providers, 404 while payments are off). _Since the M5 review: 404 while a provider's keys are missing; see "A switched-off provider still answers for purchases already made (M5 review)" below._
 - **`www` redirects to the apex** in the app (308), so Cloudflare needs no redirect rule.
 - **The web image builds with placeholder secrets.** Only the values inlined into pages are build arguments: SITE_URL, the storage endpoint and analytics. The real secrets are read when the server starts.
 - **The worker gets no volume.** Railway gives a paid plan's container 100 GB of its own disk. The largest upload is 10 GiB and the worker runs 2 jobs at once, which fits with room for outputs.
@@ -1165,7 +1165,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
   - the keys themselves.
 - **While a provider is off:**
   - nothing offers it, and with all three off there are no buy buttons anywhere;
-  - its webhook path answers 404;
+  - its webhook path answers 404 _(since the M5 review only while its keys are missing; see "A switched-off provider still answers for purchases already made (M5 review)" below)_;
   - balances, free daily jobs and the welcome grant work as before.
 - **Webhook paths that need a Cloudflare Access bypass** when payments are turned on (and only then), each answering only its provider's signed or authenticated calls:
   - `/api/webhooks/paddle`
@@ -1196,12 +1196,12 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 ## 2026-10-02 · Payment switches, checkout, and where "Buy credits" shows (M5)
 
 **Decision:**
-- **The switches are read on every request** (three rows, no cache): switching a provider off closes its checkout and webhook path at once.
+- **The switches are read on every request** (three rows, no cache): switching a provider off closes its checkout and webhook path at once. _Webhooks: changed by "A switched-off provider still answers for purchases already made (M5 review)" below._
 - **Buy links come from one place:** `GET /me` → `buy_url` (the website's `/credits/buy` while any provider is on, else null), and 402 answers carry it too. The account page reads the switches itself; the tool pages' server offer and errors read `buy_url`, so ISR-cached tool pages need nothing. The panel will use the same field.
 - **`/credits/buy`'s CSP gets Paddle's origins from the proxy, which can't reach the database** (it's compiled for the edge runtime): it adds them while `PAYMENTS_ENABLED` is true and `PADDLE_CLIENT_TOKEN` is set. The page itself answers 404 unless a provider is on, and loads Paddle.js only for a Paddle checkout.
 - **Paddle's default payment link is `/credits/buy`:** with `?_ptxn=`, the page reopens the overlay for that transaction if it's the signed-in buyer's own pending purchase, then drops `_ptxn` from the URL.
 - **A checkout the provider can't start** cancels the pending purchase and answers 502 `PROVIDER_UNAVAILABLE` ("Nothing was charged").
-- **Refunds from the admin:** Paddle through its API (credits come off when Paddle approves); Payme from its cabinet (its CancelTransaction takes the credits back); Click has no refund call, so "Record refund" runs the store's refund by hand, once per purchase, audit-logged. The "reprocess" button `docs/07` planned isn't built: a failed event is processed again on the provider's retry or Paddle's replay.
+- **Refunds from the admin:** Paddle through its API (credits come off when Paddle approves); Payme from its cabinet (its CancelTransaction takes the credits back); Click has no refund call, so "Record refund" runs the store's refund by hand, once per purchase, audit-logged. The "reprocess" button `docs/07` planned isn't built: a failed event is processed again on the provider's retry or Paddle's replay. _Admin refunds: superseded by "Refunds from the admin take an amount (M5 review)" below._
 - **A test-only stub provider** (`PAYMENTS_STUB=paddle|click|payme`, refused unless `APP_ENV=test`, webhook key `PAYMENTS_STUB_KEY`) stands in for one provider in the server e2e, so the switches, checkout, store and ledger are tested end to end without a provider's network.
 
 **Why:** `docs/05` → Payments; Astro's "no buy buttons while payments are off"; Next's proxy runs on the edge runtime here.
@@ -1240,7 +1240,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - **Refunds and chargebacks take credits back only when `approved`** (`adjustment.created` or `.updated`); pending, rejected and reversed adjustments move nothing.
   - A partial refund takes credits in proportion to the money (rounded, at least 1), from the paid total kept at completion (`paidTotal`).
   - `chargeback_reverse` is flagged on the event for a human.
-  - `refund()` asks Paddle for a full refund (`type: full`); the credits go when the approval webhook arrives.
+  - `refund()` asks Paddle for a full refund (`type: full`); the credits go when the approval webhook arrives. _Full or partial since the M5 review: see "Refunds from the admin take an amount (M5 review)" below._
 - **Answers:** `Paddle-Signature` checked first, `ts` within 5 minutes either way, any `h1` may match (secret rotation). 401 bad signature, 400 malformed, 200 for duplicates and for events we don't act on. A rule problem (unknown transaction, cancelled purchase) is answered 200 and kept as the event's error; a store failure is answered 500, error kept.
 
 **Why:** `docs/05` → Payments (overlay on `/credits/buy`, a route without COEP); Paddle Billing API v1 as published.
@@ -1252,12 +1252,12 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - **Checkout** sends the buyer to `my.click.uz/services/pay` with `service_id`, `merchant_id`, `merchant_user_id`, the amount in sums with 2 decimals, our purchase id as `transaction_param`, and `return_url` = `SITE_URL/credits/return?purchase=<id>`.
 - **Prepare** answers a random 31-bit `merchant_prepare_id`, kept with `clickTransId` in providerData.
   - **The latest Prepare wins:** a buyer who tries again gets a new Click transaction. An abandoned attempt's Complete is answered -6 (or -4 once the order is paid), so Click reverses it.
-- **Complete** attaches `click_trans_id` as the provider transaction and completes the purchase; the confirm id is the prepare id.
+- **Complete** attaches `click_trans_id` as the provider transaction and completes the purchase; the confirm id is the prepare id. _In one store call since the M5 review: see "Payment webhooks: hardening from the M5 review" below._
   - A repeated Complete for the same `click_trans_id` answers 0 again. Click reverses a payment whose Complete isn't answered 0, so -4 there would refund a buyer we credited.
   - Click's own `error < 0` cancels the purchase and answers -9; anything after a cancel answers -9.
 - **Codes:** -1 bad signature (constant-time compare), -2 amount not exactly the purchase's (in tiyin), -3 action other than 0 or 1, -4 paid, -5 no such Click purchase, -6 Complete without its Prepare, -7 store failure, -8 missing or malformed fields or another `service_id`, -9 cancelled. Always HTTP 200.
 - **No `refund()`:** the Shop API has no refund call. A refund made in Click's merchant cabinet is recorded by hand.
-- **Not built yet: Click's fiscal receipt.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL, which `config/business.ts` doesn't have. Add both before turning Click on.
+- **Not built yet: Click's fiscal receipt.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL, which `config/business.ts` doesn't have. Add both before turning Click on. _Enforced since the M5 review: see "Click stays off until its fiscal receipts are sent (M5 review)" below._
 
 **Why:** Click's published Shop API; `docs/05` → Payments.
 **Reverse:** each choice is one branch of `prepare` or `complete` in `providers/click.ts`.
@@ -1273,7 +1273,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - **GetStatement** filters on Payme's `time` within [from, to]. It reads purchases created up to 8 days before `from`, which finds them all because an order older than 7 days can't start a Payme transaction.
 - **CheckPerformTransaction** returns the fiscal receipt `detail`: one item with title, price, count 1, MXIK `code`, `package_code` and `vat_percent` from `fiscalReceipt`.
 - `ChangePassword` and `SetFiscalData` answer -32601: the key lives in env (change it in the cabinet and the env together), and receipt data stays in Payme's cabinet.
-- **Protocol errors:** -32504 wrong Basic auth (constant-time, checked before anything else), -32700 parse, -32600 invalid params, -32601 unknown method, -32300 not POST, -32400 store failure (no detail). Every message in ru, uz and en; always HTTP 200.
+- **Protocol errors:** -32504 wrong Basic auth (constant-time, checked before anything else; _since the M5 review before the body is read, so its answer's id is null_), -32700 parse, -32600 invalid params, -32601 unknown method, -32300 not POST, -32400 store failure (no detail). Every message in ru, uz and en; always HTTP 200.
 
 **Why:** Payme's published Merchant API; `docs/05` → Payments.
 **Reverse:** to refuse refunds after perform, answer -31007 for state 2 in `cancelTransaction`. The 7-day order age is `PAYME_ORDER_MAX_AGE_MS` in `providers/payme.ts`.
@@ -1349,3 +1349,73 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** Astro's Phase 2 rule: every merge deploys, CI smoke-tests production through Access after each deploy, and fixing production comes first.
 **Reverse:** delete `.github/workflows/smoke.yml`; `EXPECT_VERSION` is ignored when unset.
+
+## 2026-10-02 · Webhook errors alert at once, and what counts as one (M5 review)
+
+**Decision:**
+- **`webhook_events.error` means "a person must look at this"**, for all three providers: a payment not credited (unknown transaction, cancelled purchase, a price, total or currency mismatch), a refund or chargeback for a purchase in the wrong state, a store failure. Paddle already used it that way.
+- **What Click and Payme were told goes in a new column, `answer`** (their code and note, or `result`). Their protocols expect refusals (an abandoned attempt's Complete, a declined card, Payme's sandbox checks), so a refusal is an answer, not an error. Counting every non-zero answer as an error would page on every declined card and every Payme sandbox run.
+- **The worker's `webhook_error` rule** raises an immediate alert (no cool-down) for each event with an error processed in the last 3 days (Paddle retries for 3 days), once per event: its row in `alerts` (subject = the event's id) marks it alerted, so `webhook_events` needs no extra column and a retry that fails the same way doesn't page again. At most 10 a check; the rest follow on the next.
+- **The message** names the provider, the event type and our error text, never the payload.
+
+**Why:** `docs/07` → Alerts ("webhook processing error … immediate"); the M5 review: a buyer could pay, get no credits, and nobody was told.
+**Reverse:** drop `webhook_errors` from `DATABASE_RULES` in `apps/worker/src/etb_worker/alerts.py`. To alert on every refusal too, mark Click's and Payme's non-zero answers as errors in `providers/click.ts` and `providers/payme.ts`.
+
+## 2026-10-02 · Every Click and Payme call is kept in `webhook_events` (M5 review)
+
+**Decision:**
+- **Click:** every call whose signature checks, as `<click_trans_id>:<action>`, type `prepare` or `complete`, its form fields as sent.
+- **Payme:** every call whose Basic auth checks and whose body is JSON, as `<method>:<Payme's transaction id>`; CheckPerformTransaction by its order (`<method>:<order_id>`), GetStatement by its period (`<method>:<from>-<to>`). A method we don't have keeps no params: ChangePassword's carry a new merchant key.
+- **One row per key, like Paddle's event ids.** A repeat is processed and answered again (the protocols wait for an answer) and the row keeps the latest answer; a failed one is fresh again, as for Paddle.
+- **A call that can't be stored isn't processed:** Click gets -7, Payme -32400, as Paddle gets a 500. Both then retry or reverse; nothing is credited unrecorded.
+- **The new column is migration `0010_webhook_answer`** (generated, one `ADD COLUMN`). It must be renumbered after `claude/m5-gpu`'s 0009 if that merges first.
+
+**Why:** `docs/05` → Buying step 3 and `docs/11` → Payments ("raw payload stored"); the M5 review: Admin → Payments → Webhook events stayed empty for Click and Payme, with nothing to check when money is disputed.
+**Reverse:** drop the `recordEvent` and `markEventProcessed` calls in `handleWebhook` of `providers/click.ts` and `providers/payme.ts`; the column can stay.
+
+## 2026-10-02 · A switched-off provider still answers for purchases already made (M5 review)
+
+**Decision:**
+- **A webhook path answers while its provider is in this release with every key set**, whatever `PAYMENTS_ENABLED` and the admin switch say (`webhookProvider` in `payments/switches.ts`). Without its keys it is a 404, with no database read, as before.
+- **Switched off, only what would start a new payment is refused** (`ctx.open` false):
+  - Click: a Prepare for a new Click transaction, answered -5 ("not found", as the 404 said before). A repeated Prepare, and the Complete of a transaction prepared before the switch, still go through.
+  - Payme: CheckPerformTransaction and a new CreateTransaction, answered -31050. Perform, Cancel, Check, a repeated Create and GetStatement still work.
+  - Paddle: nothing to refuse. Every event names a transaction our checkout made, so a payment for a checkout opened just before the switch is credited, and approved refunds and chargebacks take their credits back.
+- **New checkouts stay closed at once**, as before (`enabledProvider`), and "Buy credits" goes.
+- **Admin → Payments → Refund works while Paddle is switched off**, as long as its keys are set: its refund webhook still arrives. The page says what each webhook takes: open, purchases already made only, or closed.
+- **To stop a provider's webhook too** (a problem in the webhook itself), remove its keys. The runbooks say so.
+
+**Why:** the M5 review: switching off answered 404 to refunds, chargebacks and late payments, so a chargeback's credits were never taken back and a buyer who paid just after the switch got nothing. The kill switch is for sales, not for money already moving.
+**Reverse:** route webhooks through `enabledProvider` again in `app/api/webhooks/[provider]/route.server.ts`; `ctx.open` then is always true.
+
+## 2026-10-02 · Click stays off until its fiscal receipts are sent (M5 review)
+
+**Decision:** `UNFINISHED` in `apps/web/src/server/payments/switches.ts` lists what a provider's sales need that this release doesn't have, and the admin switch refuses to turn that provider on, with the entry as its reason. Click's entry: "Sending Click’s fiscal receipt to the tax service isn’t built yet (Click’s ofd_data/submit_items, with the seller’s TIN or PINFL)." It goes in the pull request that builds the receipt. Payme sends its receipt from CheckPerformTransaction's `detail`; Paddle is the merchant of record.
+
+**Why:** the M5 review: with the MXIK and package codes filled in, Click could be switched on and sell without the fiscal receipt Uzbek law asks for.
+**Reverse:** delete Click's entry from `UNFINISHED`.
+
+## 2026-10-02 · Payment webhooks: hardening from the M5 review
+
+**Decision:**
+- **Bodies are read as a stream with a running 1 MiB cap,** cancelled as soon as they pass it, so a chunked body is never buffered whole. The test stub reads its body the same way.
+- **Payme checks Basic auth before reading the body** (`docs/11` → Payments). The -32504 answer then carries `id: null`, as JSON-RPC 2.0 answers a request whose id it couldn't read. Payme's documentation couldn't be read from the build container; step B.4 of the turn-on runbook (Payme's sandbox checks) confirms it, and the reverse is one line.
+- **Paddle credits only the purchase's amount and currency:** besides the item, quantity and price checkout set, `currency_code` must be the purchase's and `details.totals.grand_total` exactly its `amount_minor`. A discount typed into the overlay, a catalog price that adds tax on top or charges another currency is kept as the event's error (it alerts) and not credited. If Astro ever sets country price overrides in Paddle, this check has to learn them first.
+- **Payme answers from what the store kept:** Perform and Cancel answer the record the store returns, so a repeat or a concurrent call gets the stored `perform_time` and `cancel_time`. A Perform racing a Cancel settles as if one came after the other: the Perform that loses gets -31008; a Cancel that loses to a Perform cancels the performed transaction (state -2, credits back).
+- **Click sets its transaction id in the same store call that credits it** (`store.complete(id, data, providerTxnId)`), replacing a pending purchase's earlier, reversed attempt. A failed Complete leaves nothing behind, and a re-sent Complete of the attempt that paid answers 0. -4 only when another Click payment completed the order.
+- **Postgres-backed tests** cover these races (`providers/races.test.ts`), beside the in-memory protocol tests.
+
+**Why:** the M5 review, findings 11 and 12.
+**Reverse:** each is one function: `readBody` in `providers/shared.ts`; the order in Payme's `handleWebhook`; `paymentMismatch` in `providers/paddle.ts`; `performTransaction` and `cancelTransaction` in `providers/payme.ts`; `complete` in `providers/click.ts`.
+
+## 2026-10-02 · Refunds from the admin take an amount (M5 review)
+
+**Decision:**
+- **The admin gives the money refunded,** in the purchase's currency ("12.86", "47 250"); the form shows the price, the credits and the buyer's balance now, so the unused portion is easy to work out (`docs/05` → Refunds).
+- **Credits come off in proportion to the money**, rounded, at least 1, never more than are left of the purchase (`creditsForRefund`, the same rule as Paddle's partial-refund webhooks). The balance may go below zero if credits were spent since, as with any refund.
+- **Paddle:** the whole payment of a purchase nothing came back from yet is a `full` adjustment; anything else a `partial` one of the transaction's line item (kept at completion, or read back from Paddle) with that amount, which a partially refunded purchase can have too. The credits still go only when Paddle approves, in proportion to what Paddle says it refunded. `amount` is taken to be what the buyer gets back, tax included; the test purchase in the turn-on runbook checks it in Paddle's dashboard, and the credits follow Paddle's own totals either way.
+- **Click:** "Record refund" records each cabinet refund once per form (an id drawn with the page, so a double submit records once), and the money recorded so far can't pass what was paid; the purchase row is locked while that's checked.
+- **The logic lives in `apps/web/src/server/payments/refunds.ts`**, with Zod for the forms and no Next imports, so its tests run on a real database; the server actions only check the admin and redirect.
+
+**Why:** the M5 review: Click's "Record refund" always took every credit left and Paddle's refund was always full, so a partial cabinet refund drove a balance below zero against the "unused portion" policy.
+**Reverse:** pass the purchase's whole amount from the forms (`refundPurchase`, `recordRefund` in `app/admin/(gated)/payments/actions.ts`).

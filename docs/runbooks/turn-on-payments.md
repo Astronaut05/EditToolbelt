@@ -14,13 +14,13 @@ Do it in this order. Part A is paperwork outside the code and takes weeks; start
 2. **Paddle** (worldwide, USD; Paddle is the merchant of record and handles tax):
    - Finish Paddle's business verification and get the live account approved. Paddle reviews the live website, so the site must be public with final Terms, Privacy and Refunds pages (`docs/08`).
    - In both the sandbox and the live dashboard, approve the site's domain for checkout and set **Checkout settings → Default payment link** to `SITE_URL/credits/buy`. Paddle refuses to create transactions until it's set.
-   - Optional: create one product with three prices (Starter $5, Creator $15, Studio $40, quantity 1 to 1) and put their ids in `config/business.ts` → `paddlePriceIds` (`sandbox` and `live`). Without them checkout uses a one-off price of the same amount.
+   - Optional: create one product with three prices (Starter $5, Creator $15, Studio $40, tax included, quantity 1 to 1, no country price overrides) and put their ids in `config/business.ts` → `paddlePriceIds` (`sandbox` and `live`). Without them checkout uses a one-off price of the same amount. A payment is credited only when its total and currency are exactly the purchase's, so a price that adds tax on top, or charges another currency, is kept as an error (it alerts) instead of credited.
 3. **Click** (Uzbekistan, Uzcard and Humo, in sum): sign the merchant contract for an online shop ("Shop API"); Click gives the service id, merchant id, merchant user id and secret key.
 4. **Payme** (Uzbekistan, in sum): sign the merchant contract for the Merchant API; Payme gives the merchant id (cashbox id), a test key and a live key. In Payme's cabinet the account field must be named `order_id`.
 5. **Fiscal receipts (OFD).** Click and Payme send a receipt to the tax service with every sale:
    - Find the MXIK (IKPU) code for the service ("credits for online services" or the nearest class) and its package code (o'lchov birligi) at tasnif.soliq.uz.
    - Put them in `config/business.ts` → `fiscalReceipt.mxik` and `fiscalReceipt.packageCode` (and `vatPercent` if the seller pays VAT) in a pull request. Click and Payme refuse to switch on while either is empty.
-   - Click's receipt also needs the seller's TIN or PINFL and isn't wired yet (`docs/DECISIONS.md` → "Click: Prepare and Complete"): add both before turning Click on.
+   - Click's receipt also needs the seller's TIN or PINFL and isn't wired yet (`docs/DECISIONS.md` → "Click: Prepare and Complete"). Click's switch refuses to turn on until both are built: then remove Click's entry from `UNFINISHED` in `apps/web/src/server/payments/switches.ts` in the same pull request.
 
 ## B. The switches
 
@@ -54,7 +54,7 @@ Reference only the providers whose variables exist. Optional but wise at the sam
 
 ### 2. The kill switch
 
-`PAYMENTS_ENABLED: 'true'` is in the same pull request. After the deploy, Admin → Payments → Kill switch says `true`. Nothing is sold yet: every provider's admin switch is still off, so `/credits/buy` and every webhook path still answer 404.
+`PAYMENTS_ENABLED: 'true'` is in the same pull request. After the deploy, Admin → Payments → Kill switch says `true`. Nothing is sold yet: every provider's admin switch is still off, so `/credits/buy` still answers 404. A webhook path answers once its provider's keys are set, switched on or not, but refuses any new payment until the switch is on.
 
 ### 3. Cloudflare Access: let the providers in
 
@@ -64,7 +64,7 @@ While the site is behind Access, the providers' servers can't reach their webhoo
 - `SITE_HOST/api/webhooks/click`
 - `SITE_HOST/api/webhooks/payme`
 
-Exactly these paths, nothing wider: each one checks its provider's own signature or password, and answers 404 while its provider is off. The web service already skips its own Access check for `/api/webhooks/` (`apps/web/src/server/access.ts`). Once the site goes public and Access comes off, these apps can go too.
+Exactly these paths, nothing wider: each one checks its provider's own signature or password, and answers 404 while its provider's keys are missing. The web service already skips its own Access check for `/api/webhooks/` (`apps/web/src/server/access.ts`). Once the site goes public and Access comes off, these apps can go too.
 
 ### 4. Register the webhook URLs with each provider
 
@@ -86,11 +86,13 @@ With sandbox or test keys first, then again live with real money:
 2. Pay: Paddle's test card in the sandbox (4242 4242 4242 4242), Payme's test card, or a real card live.
 3. `/credits/return` says "Credits added"; `/account` shows the purchase as Paid and 200 more credits.
 4. Admin → Payments: the purchase is `completed`; its webhook events have no error.
-5. Refund it: Paddle from Admin → Payments → Refund; Payme from its cabinet; Click from its cabinet, then Admin → Payments → "Record refund". The purchase becomes `refunded` and the 200 credits come off (the balance may go below zero if some were spent; paid jobs then wait for a top-up).
+5. Refund it: Paddle from Admin → Payments → Refund with the amount (try part of it first, say $2.50, then the rest); Payme from its cabinet; Click from its cabinet, then Admin → Payments → "Record refund" with the amount refunded there. A part takes that share of the credits (`partially_refunded`); the whole payment makes it `refunded` and the 200 credits come off (the balance may go below zero if some were spent; paid jobs then wait for a top-up). With Paddle, check the refunded amount in Paddle's dashboard matches what you typed.
 6. Live: switch the provider's keys to live (`PADDLE_ENVIRONMENT=production`, `PAYME_TEST=false`, live keys), deploy, and buy once more.
 
 ## Turning it off
 
-- **Everything at once:** set `PAYMENTS_ENABLED` to `false` (or remove it) on the web service. Checkouts and webhooks answer 404 at once; balances, free daily jobs and the welcome grant carry on.
+- **Every sale at once:** set `PAYMENTS_ENABLED` to `false` (or remove it) on the web service. Checkouts answer 404 at once and no new payment starts; balances, free daily jobs and the welcome grant carry on.
 - **One provider:** Admin → Payments → Switch off, with a reason.
+- Either way, while a provider's keys are set its webhook path still answers calls about purchases already made: approved refunds and chargebacks take their credits back, and a buyer who opened a checkout just before still gets the credits they pay for.
+- **Its webhook too** (a problem in the webhook itself): remove the provider's keys from the web service as well. Its path then answers 404 and the provider retries for a while (Paddle for 3 days); replay what failed afterwards.
 - Providers retry webhooks they couldn't deliver; after turning back on, replay any that failed ([webhook-outage.md](webhook-outage.md)).
