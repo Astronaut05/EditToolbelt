@@ -95,10 +95,6 @@
 
 0. Phase 1 (with Astro): the production setup, step by step, each checked from CI (`.github/workflows/ops.yml`). Then Phase 2 runs on its own: M5 (payments built and off), M5's GPU tools on Modal, the rest of M8 and Wave 3, a final pass.
 
-1. Checkpoints 1, 2 and 3, and the M3 and M4 sign-offs: sent.
-2. M6 sign-off once parts 1 to 4 merge.
-3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
-4. M5 (credits, payments, GPU tools) after Go public.
 1. Checkpoints 1, 2 and 3, and the M3, M4 and M6 sign-offs: sent.
 2. M8: every browser tool of Wave 2 is built, and so are the mobile parts (share target, install button, desktop notes). Left: Noise Reduction (blocked, below) and the GPU tools (with M5). Then the M8 sign-off. M7 (the Premiere panel) follows M5's GPU tools.
 3. M5 (credits, payments, GPU tools) after Go public.
