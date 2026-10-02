@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from etb_worker.processors import cap_input
 from etb_worker.sandbox import Limits, ToolError, ffmpeg, run
 
 QUICK = Limits(timeout_sec=10)
@@ -91,6 +92,36 @@ def test_ffmpeg_never_reads_urls_or_stdin() -> None:
     assert args[args.index("-protocol_whitelist") + 1] == "file,pipe"
     assert "-nostdin" in args
     assert args[-3:] == ["-i", "input", "out.mp4"]
+
+
+def assert_every_input_reads_local_files_only(args: list[str]) -> None:
+    """Each ``-i`` has the whitelist among its own options: since the input before it."""
+    allowed = False
+    for at, arg in enumerate(args):
+        if arg == "-protocol_whitelist":
+            allowed = args[at + 1] == "file,pipe"
+        elif arg == "-i":
+            assert allowed, f"input {args[at + 1]} may open URLs"
+            allowed = False  # an input option applies to the next input only
+
+
+def test_every_input_reads_local_files_only() -> None:
+    # Noise Reduction's encode: the cleaned sound, then the user's file for its tags.
+    args = ffmpeg(
+        *("-f", "f32le", "-ar", "48000", "-ac", "2", "-i", "cleaned.f32"),
+        *("-i", "input", "-map", "0:a:0", "-map_metadata", "1", "out.wav"),
+    )
+    assert args.count("-protocol_whitelist") == 2
+    assert_every_input_reads_local_files_only(args)
+    # The job's decode cap (JobContext.run) goes among the same input's options.
+    capped = cap_input(args, "input", 9.0)
+    second = capped.index("cleaned.f32") + 1
+    assert capped[second : second + 6] == [
+        *("-protocol_whitelist", "file,pipe", "-t", "9.000", "-i", "input"),
+    ]
+    assert_every_input_reads_local_files_only(capped)
+    with pytest.raises(AssertionError):
+        assert_every_input_reads_local_files_only(["ffmpeg", "-i", "input"])
 
 
 #: A worker in its own process: can a tool it runs read its environment, before and after

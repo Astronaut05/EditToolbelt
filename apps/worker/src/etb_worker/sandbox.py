@@ -8,8 +8,9 @@ Every run:
 - has stdin closed. Its stdout is read line by line (ffmpeg's ``-progress``),
   and the tail of stderr is kept for error reports.
 
-ffmpeg itself is always started through ``ffmpeg()``, which adds
-``-protocol_whitelist file,pipe`` so no user file can make it open a URL.
+ffmpeg itself is always started through ``ffmpeg()``, which puts
+``-protocol_whitelist file,pipe`` before every input, so no user file can
+make it open a URL.
 The worker makes itself non-dumpable at start (``hide_from_tools``), so a
 tool running as the same user can't read its secrets through /proc.
 The container adds the rest in production: non-root, read-only root, a
@@ -159,8 +160,25 @@ def run(
     return stderr
 
 
+#: The only protocols an ffmpeg input may open: its files, and pipes.
+WHITELIST = ("-protocol_whitelist", "file,pipe")
+
+
 def ffmpeg(*args: str) -> list[str]:
-    """An ffmpeg command line that never reads a URL or stdin, and reports progress on stdout."""
+    """An ffmpeg command line that never reads a URL or stdin, and reports progress on stdout.
+
+    An input option applies only to the next ``-i``, so every input gets the whitelist, not
+    just the first (Noise Reduction's encode reads the user's file as its second input).
+    """
+    guarded: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "-i" and i + 1 < len(args):
+            guarded += [*WHITELIST, "-i", args[i + 1]]
+            i += 2
+        else:
+            guarded.append(args[i])
+            i += 1
     return [
         "ffmpeg",
         "-hide_banner",
@@ -168,12 +186,10 @@ def ffmpeg(*args: str) -> list[str]:
         "-nostats",
         "-loglevel",
         "error",
-        "-protocol_whitelist",
-        "file,pipe",
         "-progress",
         "pipe:1",
         "-y",
-        *args,
+        *guarded,
     ]
 
 
