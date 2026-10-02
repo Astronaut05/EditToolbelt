@@ -83,6 +83,19 @@ const TempoTools = lazy(() => import('./TempoTools').then((m) => ({ default: m.T
 
 /** Tailwind's `lg` breakpoint: two columns from here up. */
 const WIDE = '(min-width: 64rem)';
+/**
+ * A03's tap tempo and metronome, as one element made once. The server's HTML
+ * has them, and on a phone the shell renders again right after hydration (one
+ * column, not two). A new element would reach their Suspense boundary before
+ * its code has loaded, and React would drop the server's HTML until it had,
+ * moving everything under it (a layout shift of 0.93 on a phone). The same
+ * element is skipped by that render.
+ */
+const TEMPO_TOOLS = (
+  <Suspense fallback={null}>
+    <TempoTools className="mt-10 px-4 pb-6 lg:px-0" />
+  </Suspense>
+);
 function subscribeWide(onChange: () => void) {
   const query = matchMedia(WIDE);
   query.addEventListener('change', onChange);
@@ -2203,11 +2216,7 @@ export function ToolShell({
   // file in, the settings column is empty and comes first, so they move under
   // the result instead. Only after a file arrives, so the server's HTML (no
   // file) is the same on every screen.
-  const tempoTools = (
-    <Suspense fallback={null}>
-      <TempoTools className="mt-10 px-4 pb-6 lg:px-0" />
-    </Suspense>
-  );
+  const tempoTools = TEMPO_TOOLS;
 
   return (
     <div className="lg:grid lg:min-h-[calc(100dvh-var(--header-h))] lg:grid-cols-[var(--tool-left-col)_1fr]">
