@@ -1440,7 +1440,8 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
   - A ZIP of the files under their new names, stored without compression: the bytes are the files' own.
   - In desktop Chromium, "Open a folder" lists its files (not subfolders or hidden files) and, after a confirm, renames them where they are with `FileSystemHandle.move()`. Each file goes to a temporary name first, then its new one, so names that swap or chain never meet; if a move fails, the ones done go back. Undo works while the page is open. Shown only where `showDirectoryPicker` and `move()` exist.
 - **The shell gains `preset.names`** (the plan behind the list, and the folder flow), a batch run tells the engine its file's place among the rest (`ctx.batch`), and an engine can set the whole output name (`out.name`). The file list gets a "New name" column, and on phones it drops the size columns and wraps names, so it fits the screen.
-- **Up to 1,000 files at once**, any type, up to 4 GB each (the ZIP holds them in memory; a folder doesn't).
+- **Up to 1,000 files at once**, any type.
+- **The ZIP holds up to 2 GB in all,** and that's the registry's browser limit. It's built in memory (the files, then the archive), and fflate writes no ZIP64, so past 4 GB its sizes and offsets would overflow. Dropped files over 2 GB in all hold the rename, and the page says to rename them where they are in Chrome or Edge on a computer, or to choose fewer. A folder renamed in place has no size limit: no file is read.
 
 **Why:** `tools/utility.md` → U02.
 **Reverse:** the rules are `packages/core/src/rename.ts`; the dates `packages/engines/src/files/taken.ts`; the folder rename `packages/ui/src/tool/in-place.ts`.

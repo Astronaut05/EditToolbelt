@@ -20,6 +20,27 @@ export interface Renamed {
 
 export class RenameInPlaceError extends Error {}
 
+/**
+ * Why files this big can't be renamed into a ZIP, if they can't. The ZIP is
+ * built in memory without ZIP64 (fflate), so it holds up to `maxBytes` in
+ * all; a folder renamed in place has no limit, as no file is read.
+ */
+export function zipLimit(
+  totalBytes: number,
+  maxBytes: number,
+  inPlace: boolean,
+): string | undefined {
+  if (totalBytes <= maxBytes) return undefined;
+  // To a tenth of a GB; the total rounded up, so it never reads as within the limit.
+  const gb = (bytes: number, round: (n: number) => number) =>
+    `${String(round((bytes / 1024 ** 3) * 10) / 10)} GB`;
+  return `These files come to ${gb(totalBytes, Math.ceil)}, and a ZIP made in the browser holds up to ${gb(maxBytes, Math.round)}. ${
+    inPlace
+      ? 'Start over and open their folder to rename them where they are, or choose fewer files.'
+      : 'Rename them where they are in Chrome or Edge on a computer, or choose fewer files.'
+  }`;
+}
+
 /** Whether this browser can rename files in a folder it opened. */
 export function canRenameInPlace(): boolean {
   if (typeof window === 'undefined' || !('showDirectoryPicker' in window)) return false;
