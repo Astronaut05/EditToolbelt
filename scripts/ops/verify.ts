@@ -389,6 +389,44 @@ async function checkAccess(env: Env, site: string): Promise<string> {
 
 // ── The live site, from outside and through Access ───────────────────────────
 
+/**
+ * After a merge, Railway builds and deploys the commit once its checks pass.
+ * Waits until `/healthz` reports that commit, polling every `everyMs`, for at
+ * most `waitMs`; returns the last version seen (null when it never answered).
+ */
+export async function waitForVersion(
+  health: () => Promise<Response>,
+  expected: string,
+  {
+    waitMs,
+    everyMs = 20_000,
+    sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    clock = Date.now,
+  }: {
+    waitMs: number;
+    everyMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    clock?: () => number;
+  },
+): Promise<{ ok: boolean; seen: string | null }> {
+  const deadline = clock() + waitMs;
+  let seen: string | null = null;
+  for (;;) {
+    try {
+      const response = await health();
+      if (response.ok) {
+        const { version } = (await response.json()) as { version?: unknown };
+        seen = typeof version === 'string' ? version : null;
+        if (seen === expected) return { ok: true, seen };
+      }
+    } catch {
+      // Mid-deploy the edge may answer with an error page or drop the connection: try again.
+    }
+    if (clock() + everyMs > deadline) return { ok: false, seen };
+    await sleep(everyMs);
+  }
+}
+
 async function checkSite(env: Env, site: string): Promise<string> {
   const outside = await fetch(`${site}/`, { redirect: 'manual' });
   const location = outside.headers.get('location') ?? '';
@@ -404,6 +442,17 @@ async function checkSite(env: Env, site: string): Promise<string> {
     'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
   };
   const get = (path: string) => fetch(`${site}${path}`, { headers: token, redirect: 'manual' });
+  // After a deploy (.github/workflows/smoke.yml): first wait for the new commit.
+  if (env.EXPECT_VERSION) {
+    const minutes = Number(env.EXPECT_WAIT_MINUTES || '30');
+    const { ok, seen } = await waitForVersion(() => get('/healthz'), env.EXPECT_VERSION, {
+      waitMs: minutes * 60_000,
+    });
+    expect(
+      ok,
+      `after ${String(minutes)} minutes the site still runs ${seen ? seen.slice(0, 12) : 'nothing that answers'}, not ${env.EXPECT_VERSION.slice(0, 12)}`,
+    );
+  }
   const health = await get('/healthz');
   expect(health.ok, `/healthz answered HTTP ${String(health.status)} through Access`);
   const { version } = (await health.json()) as { version?: string };
