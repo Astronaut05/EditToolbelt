@@ -12,3 +12,5 @@
 
 **Why:** `docs/12` → M8 (mobile), `docs/01` → Mobile, `docs/03` → Mobile.
 **Reverse:** the share target is `apps/web/src/app/manifest.ts`, `scripts/sw.ts` (`receiveShare`) and `src/app/share/`; the install button is `src/components/InstallButton.tsx`; the note is in `ToolShell`'s header.
+
+Updated by [2026-10-02-server-build-service-worker.md](2026-10-02-server-build-service-worker.md): the server build has a worker for the share target too.
