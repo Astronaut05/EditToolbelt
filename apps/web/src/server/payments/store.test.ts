@@ -66,6 +66,9 @@ describe.skipIf(!TEST_DATABASE_URL)('PurchaseStore', () => {
     // Whatever a provider passes as an order id: never an error.
     expect(await store.get('not-a-uuid')).toBeNull();
     expect(await store.get("1' or 1=1 --")).toBeNull();
+    // Payme's sandbox sends order ids like this.
+    expect(await store.get('123')).toBeNull();
+    expect(await store.get('')).toBeNull();
 
     const txn = String(Date.now());
     await store.attach(id, txn, { prepareId: 7 });
@@ -160,11 +163,24 @@ describe.skipIf(!TEST_DATABASE_URL)('PurchaseStore', () => {
     const part = await store.refund(id, { refundId: 'p1', credits: 200 });
     expect(part.status).toBe('partially_refunded');
     expect(await balanceOf(db, userId)).toBe(500);
-    expect(await code(store.refund(id, { refundId: 'p2', credits: 501 }))).toBe('BAD_REFUND');
     expect(await code(store.refund(id, { refundId: 'p2', credits: 0 }))).toBe('BAD_REFUND');
     expect(await code(store.refund(id, { refundId: ' ' }))).toBe('BAD_REFUND');
-    const rest = await store.refund(id, { refundId: 'p2' });
+    const more = await store.refund(id, { refundId: 'p2', credits: 100 });
+    expect(more.status).toBe('partially_refunded');
+    // Without credits: whatever is left.
+    const rest = await store.refund(id, { refundId: 'p3' });
     expect(rest.status).toBe('refunded');
+    expect(await balanceOf(db, userId)).toBe(0);
+    expect((await rowsFor(id)).map((r) => r.amount)).toEqual([700, -200, -100, -400]);
+  });
+
+  it('never refunds more than is left, whatever a provider asks', async () => {
+    const userId = await newUser(db);
+    const id = await newPurchase(db, userId);
+    await store.complete(id);
+    await store.refund(id, { refundId: 'a', credits: 600 });
+    const capped = await store.refund(id, { refundId: 'b', credits: 300 });
+    expect(capped.status).toBe('refunded');
     expect(await balanceOf(db, userId)).toBe(0);
   });
 
@@ -203,10 +219,33 @@ describe.skipIf(!TEST_DATABASE_URL)('PurchaseStore', () => {
     expect(row?.provider).toBe('payme');
   });
 
+  it('processes a provider’s retry again until the event went through without an error', async () => {
+    const eventId = `evt_${randomUUID()}`;
+    const first = await store.recordEvent('paddle', eventId, 'transaction.paid', { n: 1 });
+    expect(first.fresh).toBe(true);
+    // Never marked (the process died): the retry is fresh.
+    expect(await store.recordEvent('paddle', eventId, 'transaction.paid', { n: 2 })).toEqual({
+      id: first.id,
+      fresh: true,
+    });
+    // Failed (a 500 to the provider): the retry is fresh again.
+    await store.markEventProcessed(first.id, 'database was down');
+    expect((await store.recordEvent('paddle', eventId, 'transaction.paid', {})).fresh).toBe(true);
+    const [retried] = await db.select().from(webhookEvents).where(eq(webhookEvents.id, first.id));
+    expect(retried).toMatchObject({ processedAt: null, error: null, payload: { n: 1 } });
+    // Processed: from now on a duplicate.
+    await store.markEventProcessed(first.id);
+    expect(await store.recordEvent('paddle', eventId, 'transaction.paid', {})).toEqual({
+      id: first.id,
+      fresh: false,
+    });
+  });
+
   it('stores each webhook once and marks it processed', async () => {
     const eventId = `evt_${randomUUID()}`;
     const first = await store.recordEvent('paddle', eventId, 'transaction.completed', { a: 1 });
     expect(first.fresh).toBe(true);
+    await store.markEventProcessed(first.id);
     const again = await store.recordEvent('paddle', eventId, 'transaction.completed', { a: 2 });
     expect(again).toEqual({ id: first.id, fresh: false });
     // The same id from another provider is another event.

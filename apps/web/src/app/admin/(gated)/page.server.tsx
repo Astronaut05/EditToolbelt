@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   jobs,
+  purchases,
   serviceHeartbeats,
   sessions,
   sql,
@@ -19,6 +20,7 @@ import { statusOf, tools } from '@etb/registry';
 
 import { AdminFrame, Facts, Section, Table, when } from '../../../components/admin/AdminFrame';
 import { loadToolFlags } from '../../../lib/flags';
+import { formatMoney } from '../../../lib/money';
 import { db } from '../../../server/db';
 import { serverEnv } from '../../../server/env';
 import { requestTime } from '../../../server/time';
@@ -37,7 +39,33 @@ const ms = (value: number | null | undefined) =>
       ? `${(value / 1000).toFixed(1)} s`
       : `${(value / 60_000).toFixed(1)} min`;
 
-/** docs/07 → Dashboard: accounts, tools, server jobs and services; money arrives in M5. */
+/** Paid purchases since `from`, by currency: how many, the credits and the money (docs/07 → Dashboard). */
+async function salesSince(from: Date) {
+  const rows = await db()
+    .select({
+      currency: purchases.currency,
+      n: count(),
+      credits: sum(purchases.credits),
+      amount: sum(purchases.amountMinor),
+    })
+    .from(purchases)
+    .where(
+      and(
+        gte(purchases.createdAt, from),
+        inArray(purchases.status, ['completed', 'partially_refunded']),
+      ),
+    )
+    .groupBy(purchases.currency);
+  if (rows.length === 0) return 'none';
+  return rows
+    .map(
+      (row) =>
+        `${String(row.n)} · ${Number(row.credits ?? 0).toLocaleString('en-US')} credits · ${formatMoney(Number(row.amount ?? 0), row.currency)}`,
+    )
+    .join('; ');
+}
+
+/** docs/07 → Dashboard: accounts, tools, server jobs, services and sales. */
 export default async function AdminDashboard() {
   await loadToolFlags();
   const d = db();
@@ -189,8 +217,21 @@ export default async function AdminDashboard() {
             ))}
           </Table>
         )}
+        <p className="text-14 text-text-muted">GPU cost shows once GPU tools run (M5).</p>
+      </Section>
+      <Section title="Sales">
+        <Facts
+          items={[
+            ['Last 24 h', await salesSince(since(24))],
+            ['Last 7 days', await salesSince(since(24 * 7))],
+          ]}
+        />
         <p className="text-14 text-text-muted">
-          GPU cost shows once GPU tools run (M5); credits sold and revenue arrive with payments.
+          Paid packs not refunded, before the providers’ fees.{' '}
+          <a href="/admin/payments" className="underline underline-offset-4">
+            Payments
+          </a>{' '}
+          has every purchase.
         </p>
       </Section>
       <Section title="Server jobs by day">

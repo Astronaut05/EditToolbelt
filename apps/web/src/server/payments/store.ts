@@ -9,7 +9,10 @@
  * - Both are idempotent: a repeat comes back unchanged and writes nothing.
  *   The database backs this up: one `purchase` row per purchase and one
  *   `refund_purchase` row per refund id (its `reason`).
- * - A refund may take the balance below zero (docs/05 → Payments).
+ * - A refund may take the balance below zero (docs/05 → Payments). Without
+ *   `credits` it takes back what's left; with them, never more than that.
+ * - A webhook event counts as fresh until it's processed without an error,
+ *   so a provider's retry after a failure is processed again.
  */
 import type { PackId } from '@etb/config/business';
 import {
@@ -234,13 +237,8 @@ export function createPurchaseStore(db: Db): PurchaseStore {
         if (seen) return toRecord(row);
         const before = await refundedSoFar(tx, row.id);
         const left = row.credits - before;
-        const credits = opts.credits ?? left;
-        if (credits > left) {
-          throw new PurchaseError(
-            'BAD_REFUND',
-            `Only ${String(left)} of this purchase's ${String(row.credits)} credits are left to refund`,
-          );
-        }
+        // Never more than is left: a provider's rounding can't take extra credits.
+        const credits = Math.min(opts.credits ?? left, left);
         if (credits > 0) {
           await applyCredit(
             tx,
@@ -287,10 +285,17 @@ export function createPurchaseStore(db: Db): PurchaseStore {
     },
 
     async recordEvent(provider, eventId, type, payload) {
+      // A new event, or one we never finished (no processed_at, or it failed with
+      // an error), is fresh: the provider's retry must be processed again. Only an
+      // event processed without error is a duplicate. Processing is idempotent.
       const [fresh] = await db
         .insert(webhookEvents)
         .values({ provider, eventId, type, payload: payload ?? {} })
-        .onConflictDoNothing({ target: [webhookEvents.provider, webhookEvents.eventId] })
+        .onConflictDoUpdate({
+          target: [webhookEvents.provider, webhookEvents.eventId],
+          set: { receivedAt: new Date(), processedAt: null, error: null },
+          setWhere: sql`${webhookEvents.processedAt} is null or ${webhookEvents.error} is not null`,
+        })
         .returning({ id: webhookEvents.id });
       if (fresh) return { id: fresh.id, fresh: true };
       const [seen] = await db

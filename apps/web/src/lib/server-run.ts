@@ -55,6 +55,9 @@ function aborted(): DOMException {
   return new DOMException('Cancelled', 'AbortError');
 }
 
+/** Answers that more credits would fix: the error then offers "Buy credits" (if on sale). */
+const SHORT = new Set(['INSUFFICIENT_CREDITS', 'QUOTA_EXCEEDED']);
+
 /** A call to our API; a problem answer becomes a ServerRunError in its own words. */
 async function api<T>(call: () => Promise<T>): Promise<T> {
   try {
@@ -64,7 +67,12 @@ async function api<T>(call: () => Promise<T>): Promise<T> {
     if (error.status === 401) {
       throw new ServerRunError('Sign in again to use our servers', 'You’re signed out');
     }
-    throw new ServerRunError(error.detail ?? error.title, error.title);
+    throw new ServerRunError(
+      error.detail ?? error.title,
+      error.title,
+      false,
+      SHORT.has(error.code),
+    );
   }
 }
 
@@ -225,7 +233,12 @@ export function serverPath(
     async account(): Promise<ServerAccount | null> {
       try {
         const me = await client.me();
-        return { tier: me.tier, balance: me.credit_balance, freeJobsLeft: me.free_jobs_left };
+        return {
+          tier: me.tier,
+          balance: me.credit_balance,
+          freeJobsLeft: me.free_jobs_left,
+          buyHref: me.buy_url,
+        };
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) return null;
         throw error;
@@ -259,6 +272,8 @@ export function serverPath(
               ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`
               : `This needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`,
             'Not enough credits',
+            false,
+            true,
           );
         }
         const asExpected =

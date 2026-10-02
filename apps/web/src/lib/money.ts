@@ -25,6 +25,11 @@ export const PACK_NAMES: Record<PackId, string> = {
   studio: 'Studio',
 };
 
+/** A pack's name from a stored id; an id no longer in config shows as itself. */
+export function packName(id: string): string {
+  return (PACK_NAMES as Partial<Record<string, string>>)[id] ?? id;
+}
+
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const sums = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 

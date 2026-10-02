@@ -11,7 +11,8 @@
  *   fresh nonce (Next reads it from the request's CSP header and puts it on
  *   its scripts) plus the theme script's hash; prerendered pages get the
  *   'unsafe-inline' fallback (src/lib/csp.ts). Never cached: /account,
- *   /sign-in, /admin, /connect.
+ *   /sign-in, /admin, /connect, /credits. /credits/buy alone may load
+ *   Paddle.js, and only while Paddle is set up and payments are on.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -19,10 +20,24 @@ import { themeScript } from '@etb/ui/theme';
 
 import { buildCsp, originOf } from './lib/csp';
 import { headersForPath } from './lib/headers';
+import { PADDLE_CSP } from './lib/paddle-js';
 import { accessConfig, accessExempt, teamKeys, verifyAccessToken } from './server/access';
 
 /** Rendered per request, for one signed-in person: nonce CSP, no caching. */
-const PERSONAL = ['/account', '/sign-in', '/admin', '/connect'];
+const PERSONAL = ['/account', '/sign-in', '/admin', '/connect', '/credits'];
+
+/** The one page that may load Paddle.js, for its overlay checkout (docs/11 → Web app). */
+const CHECKOUT_PAGE = '/credits/buy';
+
+/**
+ * Whether Paddle can take money: payments on and Paddle's client token set.
+ * Only then does /credits/buy's CSP let Paddle.js in. The admin switch lives
+ * in the database, which the proxy doesn't reach; the page itself answers 404
+ * unless a provider is on, and loads Paddle.js only for a Paddle checkout.
+ */
+const paddleOn =
+  /^(true|1|yes|on)$/i.test(process.env.PAYMENTS_ENABLED?.trim() ?? '') &&
+  Boolean(process.env.PADDLE_CLIENT_TOKEN?.trim());
 
 /** Not pages: no CSP of their own (API answers, hashed assets, models, icons, the service worker). */
 const NOT_PAGES = ['/_next/', '/api/', '/models/', '/icons/'];
@@ -113,10 +128,16 @@ export default async function proxy(request: NextRequest) {
   }
   const personal = PERSONAL.some((path) => pathname === path || pathname.startsWith(`${path}/`));
   const nonce = personal ? btoa(crypto.randomUUID()) : undefined;
+  const paddle = pathname === CHECKOUT_PAGE && paddleOn;
   const csp = buildCsp({
     ...(nonce ? { nonce, hashes: [await themeScriptHash()] } : { inline: true, wasm: true }),
+    ...(paddle && {
+      scripts: PADDLE_CSP.scripts,
+      styles: PADDLE_CSP.styles,
+      frames: PADDLE_CSP.frames,
+    }),
     dev: process.env.NODE_ENV === 'development',
-    connect,
+    connect: paddle ? [...connect, ...PADDLE_CSP.connect] : connect,
     header: true,
   });
   const forwarded = new Headers(request.headers);

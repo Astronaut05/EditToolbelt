@@ -7,7 +7,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { createDb, type Db } from '@etb/db';
+import { createDb, eq, users, type Db } from '@etb/db';
 import { expect, type Page } from '@playwright/test';
 
 import { OUTBOX } from '../scripts/server-env.ts';
@@ -89,4 +89,27 @@ export function totp(key: string, at = Date.now()): string {
   const offset = (mac[mac.length - 1] ?? 0) & 0x0f;
   const code = (mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
   return String(code).padStart(6, '0');
+}
+
+/** Signs in a new account, makes it an admin and sets up TOTP; returns its id and the key. */
+export async function becomeAdmin(page: Page): Promise<{ id: string; key: string }> {
+  const email = newEmail();
+  await signIn(page, email);
+  const [admin] = await testDb()
+    .update(users)
+    .set({ role: 'admin' })
+    .where(eq(users.email, email))
+    .returning({ id: users.id });
+  if (!admin) throw new Error('no user');
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/admin\/two-factor$/);
+  await page.getByRole('button', { name: 'Set up two-factor' }).click();
+  await expect(page.getByRole('img', { name: 'QR code for your authenticator app' })).toBeVisible();
+  const key = (await page.getByText(/^Key:/).innerText()).replace('Key:', '').trim();
+  await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(10);
+  await page.getByLabel('3. Enter the code the app shows').fill(totp(key));
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
+  await expect(page.getByRole('banner').getByRole('link', { name: 'Account' })).toBeVisible();
+  return { id: admin.id, key };
 }

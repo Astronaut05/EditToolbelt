@@ -31,6 +31,9 @@ describe('serverTerms', () => {
     const broke = { ...spent, balance: 1 };
     const terms = serverTerms(server, broke, GB, 4);
     expect(terms.ok).toBe(false);
+    expect(terms.needsCredits).toBe(true);
+    expect(serverTerms(server, spent, GB, 4).needsCredits).toBeUndefined();
+    expect(serverTerms(server, { ...spent, balance: 0 }, GB, null).needsCredits).toBe(true);
     expect(terms.line).toMatch(/No free server jobs left today.*come back tomorrow/);
     // A price the server works out from the file it checks.
     expect(serverTerms(server, spent, GB, null).line).toMatch(/confirmed before it starts/);
@@ -39,6 +42,8 @@ describe('serverTerms', () => {
   it('holds files over the tier’s limit, and says what a paid account takes', () => {
     const terms = serverTerms(server, free, 3 * GB, 5);
     expect(terms.ok).toBe(false);
+    // Credits don't fix a file that's too big for the tool.
+    expect(terms.needsCredits).toBeUndefined();
     expect(terms.line).toBe(
       'Our servers take up to 2.1 GB on a free account, and 10.7 GB once you’ve bought credits.',
     );
