@@ -1188,6 +1188,122 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 **Why:** `tools/audio.md` → A07, A13.
 **Reverse:** the maths is in `@etb/core` (`fades.ts`, `channels.ts`), with tests; the pages only pick options.
 
+## 2026-10-01 · Rotate & Flip Video and Resize Video for Social (M8)
+
+**Decision:**
+- **Rotate & Flip defaults to turning every frame** (re-encoded at high quality), as the spec asks for 90°: it plays upright in every player.
+  - Fast writes the container's rotation and flip flag instead: instant, every packet copied, and the notes say a few web players ignore it.
+  - WebM has no such flag, so Fast on WebM turns the frames and says so.
+  - Flips apply to the turned picture. Upside down is a mirror plus half a turn, which is how Mediabunny is asked for it.
+- **Resize Video for Social:**
+  - Presets: Reels, TikTok and Shorts 1080 × 1920; Instagram portrait 1080 × 1350; square 1080 × 1080; YouTube 1920 × 1080. Or a custom size in px, rounded to even numbers for H.264.
+  - Fill crops the largest window of the shape, placed by two framing sliders (0-100% across and down; 50% is the middle). This is P13's crop maths, done by Mediabunny's crop and resize. Framing stays fixed for the whole video; following the subject is a later idea.
+  - Fit on blur and Fit on color draw each frame on a canvas: the colour, or the frame filling the size, scaled down to a 40th and back up in three steps. That blur needs no canvas `filter` (Safari's is recent) and looks the same everywhere.
+  - The video is re-encoded at high quality in its own container; the sound is copied.
+- **Tests use the VP9 fixtures** for anything re-encoded: Playwright's Chromium has no H.264 encoder. The MP4 fixture shows Fast's lossless copy.
+
+**Why:** `tools/video.md` → V09, V11.
+**Reverse:** both engines are thin over Mediabunny's conversion (`video/rotate.ts`, `video/reframe.ts`).
+
+## 2026-10-01 · Extract Frames / Thumbnail (M8)
+
+**Decision:**
+- **One frame is the frame on screen at the timeline's In point.** The timeline snaps the In point to a frame and steps frame by frame, so the time picked is a frame's own. The engine decodes that exact frame (never a neighbour) and names the file by when it starts (`clip_00-00-05.400.png`).
+- **Every N seconds, N evenly spaced, and the contact sheet work inside the selection** between In and Out:
+  - Every N seconds starts at In and stops before Out.
+  - N frames take the middle of N equal parts, so the first and last aren't the edges.
+  - At most 500 frames a run.
+  - The end is the video track's own length, as the sound can run a few milliseconds longer.
+- **Several frames download as a stored ZIP,** each encoded as it is decoded (no hundred full-size canvases in memory) and named by time.
+- **The contact sheet:**
+  - 3 × 3, 4 × 4, 5 × 5 or 4 × 6 thumbnails, 320 px wide unless the video is narrower, with 8 px gaps on #111111.
+  - Each thumbnail carries its time in the system monospace font: a canvas draws only fonts it already has.
+- **PNG by default** (every pixel); JPG and WebP at quality 0.92. The width is Original, 1920, 1280 or 640 px, never wider than the video.
+
+**Why:** `tools/video.md` → V10.
+**Reverse:** `packages/engines/src/video/frames.ts`; `frameTimes` and `stamp` are pure, with tests.
+
+## 2026-10-01 · Remove Silence (M8)
+
+**Decision:**
+- **Silence is read from the level every 10 ms:** the loudest channel's RMS in dBFS. A silence is a run below the threshold lasting at least the minimum length (0.5 s by default).
+- **Auto threshold:** the noise floor is the level the quietest tenth of the recording sits at; the threshold is 10 dB above it, kept between −60 and −30 dBFS. It fits room tone, a quiet studio and digital silence alike; a set dBFS is there for the rest.
+- **What is cut:**
+  - Remove keeps 0.1 s of quiet beside the sound on each side (a breath, a word's tail), changeable from 0 to 1 s.
+  - Shorten leaves a pause of a set length (0.3 s by default), half each side.
+  - A silence at the very start or end is cut to the edge.
+- **The silences are the timeline's ranges.** They are found as the file loads and again 0.3 s after a setting changes, without decoding again (the levels are kept per file). Each can be moved, removed or added like any range, which is the spec's "toggle each".
+- **The cut is Trim Audio's remove,** with its 10 ms crossfade at each join, so the file is exactly as much shorter as the cuts add up to.
+- **The cut list is CSV:** number, start and end as hh:mm:ss.mmm, length, start and end in seconds. Premiere XML is Wave 3, as the spec says.
+- **The tool shell gained `preset.detect`:** ranges found in the file, found again when one of its options changes, with the run held while searching or when none are found.
+
+**Why:** `tools/audio.md` → A11.
+**Reverse:** `packages/core/src/audio/silence.ts` is pure, with tests; the engine is `packages/engines/src/audio/silence.ts`.
+
+## 2026-10-01 · Add or Replace Audio in Video (M8)
+
+**Decision:**
+- **The picture is copied packet for packet,** never re-encoded; only the sound is new. That keeps it fast, lossless and possible on any video the browser can read, even one it can't decode.
+- **The new sound:**
+  - AAC in MP4 and MOV, Opus in WebM and MKV, at 48 kHz.
+  - 192 kbps stereo, or 128 kbps when both sources are mono.
+  - A browser that can't encode AAC (Playwright's Chromium among them) is told so for MP4 and MOV, rather than given an Opus track some players skip.
+- **Replace or Mix:**
+  - Replace: the music alone, at 0 dB by default.
+  - Mix: the music under the video's own sound, at −15 dB under 0 dB by default (a common start for music under speech).
+  - Levels from 0 to −24 dB. A mix that goes over 0 dBFS is clipped there, and the notes say so.
+- **Fitting the music to the video:**
+  - Music starts at a point in it (`Start the music at`).
+  - It is cut at the video's end. If it's shorter, it loops from its start (default), with a 10 ms dip at each repeat so there's no click, or plays once.
+  - A sound so short it would repeat over 1000 times is refused, with a hint to play it once.
+  - Fade in (none by default) from the video's start, and fade out (2 s by default) to where the music stops.
+- **Different sample rates:** both sources are brought to 48 kHz by `Resampler` in `@etb/core`. It is a streamed Kaiser-windowed sinc (β = 8, 16 zero crossings), cut off at 95% of the lower rate's Nyquist. It keeps a steady level exactly and rejects aliasing by more than 60 dB, at about 0.9 s per minute of stereo. Merge Audio will use it too.
+- **Mono and surround:** the output is stereo when either source is. Mono goes to both sides; past stereo, the front left and right are used.
+
+**Why:** `tools/video.md` → V14 ("duck under speech" is a Wave 3 idea, left out as the spec says).
+**Reverse:** `packages/engines/src/video/replace-audio.ts`; `musicParts`, `musicGain` and `Resampler` are pure, with tests.
+
+## 2026-10-01 · Merge Audio (M8)
+
+**Decision:**
+- **Several files into one is a shell mode (`preset.combine`),** not a batch:
+  - The files are listed in order (`FileOrder`), each with what it holds and its length.
+  - Arrow buttons move a file up or down; focus stays on it, so the keyboard can reorder a whole list. There's also Remove, and Add files.
+  - The run waits for 2 files, or while one can't be read. Up to 20.
+  - Merge Videos (V12) will use the same mode.
+- **One join for all joins:** back to back, a crossfade, or a gap, each 0.5 to 5 s. A different gap or crossfade per join is left for later: one setting covers the common cases and keeps the phone layout to two rows.
+- **Crossfades are equal-power** (cosine out, sine in), so the level holds through the join. Each one shortens the result by its length. A crossfade can be at most half the shortest file, so no more than two files ever overlap.
+- **Mix:**
+  - All tracks at the same level, from the start; the result is as long as the longest.
+  - A first pass measures the mix. If its peak would go over −1 dBFS, the whole mix is lowered just enough, and the notes say by how much.
+  - A level per track is left for later. The spec's "no clipping in mix (auto-gain)" is what this does.
+- **Normalize** is off by default, or −14, −16 or −23 LUFS with a −1 dBTP ceiling. It uses Normalize Loudness's own measure and plan (a true-peak limiter when the gain needs one); the notes give the result's measured loudness.
+- **One rate:**
+  - Files that share a sample rate keep it, so WAV and FLAC joins stay bit-exact outside the crossfades.
+  - Otherwise every file is brought to 48 kHz by the core `Resampler`. Opus always gets 48 kHz.
+  - The result is stereo if any file is.
+- **Format:** Keep (the first file's), MP3, WAV or FLAC. Lossy formats are written at 192 kbps stereo or 128 kbps mono.
+- **Housekeeping:** the "keep the format" table, which three engines each had a copy of, is now one export (`KEEP_FORMAT`). Decoding to a stream at a rate (`audio/stream.ts`) is shared with Add or Replace Audio.
+
+**Why:** `tools/audio.md` → A04.
+**Reverse:** the placement maths is `packages/core/src/audio/merge.ts` (pure, with tests); the engine is `packages/engines/src/audio/merge.ts`; the list is `packages/ui/src/tool/FileOrder.tsx`.
+
+## 2026-10-01 · LUT Preview (M8)
+
+**Decision:**
+- **The LUT is applied on the CPU, in the image worker, not in WebGL** (the spec's suggestion):
+  - Each channel's 256 levels are placed on the grid once, so the loop is plain arithmetic: a 24 MP frame takes under a second.
+  - It gives the same result in every browser and on every GPU, the same as in the unit tests. A WebGL 3D texture would vary with each driver's filtering and precision, and the "±1/255 of the reference" test would then depend on the machine.
+  - The spec's "if feasible" tetrahedral interpolation is what's used: the method grading apps use, exact on the grey axis.
+- **What's read:** Adobe/Resolve `.cube`: 3D (2³ to 256³) or 1D (up to 65,536 points), `TITLE`, `DOMAIN_MIN`/`DOMAIN_MAX`, `LUT_*_INPUT_RANGE`, comments. Anything else is refused with what's wrong and the line number (`Line 3: expected three numbers`), before the image is touched. Files over 32 MB are refused.
+- **Intensity** blends the graded colour with the original, 0-100% in 5% steps. Alpha is kept.
+- **A changed setting redoes the result** (the shell's new `preset.rerun`), 250 ms after the slider stops, so before and after can be compared straight away. Unlike `autoRun`, nothing runs before a LUT is chosen.
+- **Output:** the still's own format or JPG, PNG, WebP or AVIF; the metadata choice as in the other photo tools. One still at a time, so the result is the before-and-after compare.
+- **Colour:** the LUT is applied to the decoded sRGB values as they are. The FAQ says a LUT for log footage expects a log frame.
+
+**Why:** `tools/color.md` → C05.
+**Reverse:** `packages/core/src/color/lut.ts` (pure, with tests, also at `@etb/core/lut` so the worker loads only that); the engine is `packages/engines/src/image/lut-preview.ts`.
+
 ## 2026-10-02 · Smoke-testing production after each deploy
 
 **Decision:**
@@ -1293,3 +1409,13 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6 (smaller items).
 **Reverse:** the URLs are built in `createUpload` (`server/uploads.ts`); the types are one table in the script.
+
+## 2026-10-02 · Tests read video results back with WebCodecs
+
+**Decision:**
+- **Browser tests decode a result's frames with WebCodecs in the page** (`framePixels` and `frameBands` in `apps/web/e2e/fixtures.ts`). They take the packets and decoder config from Node (`videoFrameSource` in `@etb/engines`). They no longer play the file in a `<video>` element.
+- **Why the old way failed:** Playwright's Linux WebKit plays media through GStreamer, unlike Safari. It crashed or errored on every result played back that way, while the tools themselves worked. Frames are drawn as they're decoded and closed at once.
+- **What it uncovered:** once WebKit's results could be read, Resize Video's Fill crop turned out wrong there. WebKit ignores the source rectangle when drawing a VideoFrame, so every crop was the whole picture squeezed into the size. Each frame is now drawn whole on a canvas and the window cut from that canvas.
+
+**Why:** a test that crashes the browser it checks says nothing about the tool, and the crop bug would have shipped to Safari.
+**Reverse:** the helpers are test-only; `cropper()` in `reframe.ts` can go back to Mediabunny's `crop` once WebKit honours the source rectangle for VideoFrames.
