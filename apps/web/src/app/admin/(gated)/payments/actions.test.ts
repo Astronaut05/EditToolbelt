@@ -6,7 +6,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { adminAuditLog, and, eq, type Db } from '@etb/db';
+import { adminAuditLog, and, eq, fiscalReceipts, type Db } from '@etb/db';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { PaymentProvider, PurchaseRecord } from '../../../../server/payments/contract';
@@ -99,7 +99,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Admin → Payments refund actions', () => {
       enabled: false,
       vars: {},
       providers: [paddle],
-      fiscal: { mxik: '', packageCode: '' },
+      fiscal: { mxik: '', packageCode: '', tin: '', pinfl: '' },
       unfinished: {},
     } satisfies PaymentEnv;
     actions = await import('./actions');
@@ -182,5 +182,55 @@ describe.skipIf(!TEST_DATABASE_URL)('Admin → Payments refund actions', () => {
       ),
     ).toEqual({ saved: null, error: 'That’s more than was paid ($15.00).' });
     expect(asked).toHaveLength(1);
+  });
+
+  it('Send again: tries a Click receipt now, into the audit log, and checks the form', async () => {
+    const userId = await newUser(db);
+    const id = await newPurchase(db, userId, {
+      provider: 'click',
+      packId: 'starter',
+      credits: 200,
+      amountMinor: 6_300_000,
+      currency: 'UZS',
+    });
+    await createPurchaseStore(db).complete(id, {}, `ct-${randomUUID()}`, {
+      paymentId: '987654321',
+    });
+    const resend = (reason: string) =>
+      landing(actions.resendReceipt(form({ purchaseId: id, reason })));
+    expect(await resend(' x ')).toEqual({
+      saved: null,
+      error: 'Give a reason of 3 to 500 characters.',
+    });
+    expect(await resend('Click was down')).toEqual({
+      saved: null,
+      error:
+        'CLICK_SERVICE_ID, CLICK_MERCHANT_USER_ID, CLICK_SECRET_KEY, CLICK_MERCHANT_API_URL must all be set on the web service to send it.',
+    });
+    expect(await audited(id)).toEqual([]);
+
+    const before = fixture.env;
+    if (!before) throw new Error('no env');
+    fixture.env = {
+      ...before,
+      vars: {
+        CLICK_SERVICE_ID: '12345',
+        CLICK_MERCHANT_USER_ID: '3333',
+        CLICK_SECRET_KEY: 'SECRET123',
+        // A reserved name: should config/business.ts be filled in, nothing real is called.
+        CLICK_MERCHANT_API_URL: 'https://merchant.click.invalid/v2/merchant/',
+      },
+    };
+    try {
+      expect(await resend('Click was down')).toEqual({ saved: 'receipt-failed', error: null });
+    } finally {
+      fixture.env = before;
+    }
+    const [row] = await db.select().from(fiscalReceipts).where(eq(fiscalReceipts.purchaseId, id));
+    expect(row).toMatchObject({ status: 'failed', attempts: 1 });
+    expect(row?.lastError).toBeTruthy();
+    expect((await audited(id)).map((entry) => [entry.action, entry.reason])).toEqual([
+      ['purchase.fiscal_receipt_resend', 'Click was down'],
+    ]);
   });
 });

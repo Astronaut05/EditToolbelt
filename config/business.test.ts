@@ -4,9 +4,11 @@ import {
   MIN_PACK_PRICE_USD,
   creditNetUsd,
   disposableEmailDomains,
+  fiscalReceipt,
   gpuRateUsd,
   packNetUsdPerCredit,
   packs,
+  sellerTaxId,
 } from './business';
 
 describe('credit packs', () => {
@@ -58,6 +60,54 @@ describe('disposableEmailDomains', () => {
       expect(domain).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
     }
     expect(new Set(disposableEmailDomains).size).toBe(disposableEmailDomains.length);
+  });
+});
+
+describe('fiscalReceipt', () => {
+  it('has a whole VAT percent from 0 to 100', () => {
+    expect(Number.isInteger(fiscalReceipt.vatPercent)).toBe(true);
+    expect(fiscalReceipt.vatPercent).toBeGreaterThanOrEqual(0);
+    expect(fiscalReceipt.vatPercent).toBeLessThanOrEqual(100);
+  });
+
+  it('names the seller well, once it names them at all', () => {
+    // Empty until Astro has the values; a typo in either fails here, not at the tax service.
+    if (fiscalReceipt.tin.trim() || fiscalReceipt.pinfl.trim())
+      expect(sellerTaxId(fiscalReceipt)).toMatchObject({ ok: true });
+  });
+});
+
+describe('sellerTaxId', () => {
+  it('takes a 9-digit TIN or a 14-digit PINFL', () => {
+    expect(sellerTaxId({ tin: '301234567', pinfl: '' })).toEqual({
+      ok: true,
+      id: { TIN: '301234567' },
+    });
+    expect(sellerTaxId({ tin: ' ', pinfl: ' 31234567890123 ' })).toEqual({
+      ok: true,
+      id: { PINFL: '31234567890123' },
+    });
+  });
+
+  it('says what’s wrong otherwise', () => {
+    expect(sellerTaxId({ tin: '', pinfl: '' })).toEqual({
+      ok: false,
+      problem: 'fiscalReceipt.tin or fiscalReceipt.pinfl is empty.',
+    });
+    expect(sellerTaxId({ tin: '301234567', pinfl: '31234567890123' })).toEqual({
+      ok: false,
+      problem: 'Set fiscalReceipt.tin or fiscalReceipt.pinfl, not both.',
+    });
+    for (const tin of ['30123456', '3012345678', '30123456a', '301 234 567'])
+      expect(sellerTaxId({ tin, pinfl: '' })).toEqual({
+        ok: false,
+        problem: 'fiscalReceipt.tin must be 9 digits.',
+      });
+    for (const pinfl of ['3123456789012', '312345678901234', '3123456789012x'])
+      expect(sellerTaxId({ tin: '', pinfl })).toEqual({
+        ok: false,
+        problem: 'fiscalReceipt.pinfl must be 14 digits.',
+      });
   });
 });
 

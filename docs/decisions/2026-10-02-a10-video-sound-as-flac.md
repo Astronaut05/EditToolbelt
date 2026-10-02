@@ -1,0 +1,9 @@
+# 2026-10-02 · A10 with a video: only the sound travels, as FLAC, and goes back sample for sample
+
+**Decision:**
+- Audio our servers read (MP3, WAV, FLAC, OGG, M4A, AAC) goes up as it is. A video, or audio they don't (AIFF, WebM, CAF), is decoded in the browser and sent as FLAC; the picture never leaves the device, and the offer counts the FLAC's size, not the video's, against the limit.
+- A video kept as a video gets lossless FLAC back. The browser re-encodes only the sound, once, in the video's own codec where it can (AAC, Opus), at the original's bitrate (at least 128 kbps), and copies the picture and any other sound tracks. Every decoded block of the original is replaced by the cleaned frames at the same place (the FLAC went up from 0 on the same decoder's timeline), so the length and the sync are exact; frames before 0 (encoder priming) stay as they were. Picking an audio format for a video gives the cleaned sound on its own instead.
+- The preview starts where the first 3 minutes' background is loudest under speech (`@etb/core` → `previewStart`), and the person can move it ("Preview from").
+- The same read listens for mains hum (Goertzel at 40, 50, 60 and 70 Hz in 1 s blocks, so a mains frequency a little off still counts; `HumMeter`, `humGuess`): 50 or 60 Hz at least 10 dB over 40 and 70 Hz and 6 dB over the other sets De-hum to it, and the page says so before anything is sent. De-hum stays a setting the person can turn off.
+**Why:** `tools/audio.md` → A10 ("Video input: the audio is extracted in the browser, cleaned on the server, and remuxed back into the video in the browser"). FLAC both ways avoids two lossy generations and any guesswork about AAC priming between two decoders.
+**Reverse:** `soundPlan` in `apps/web/src/tools/remove-noise-plan.ts` decides what goes up and comes back; `putSoundBack` in `packages/engines/src/audio/noise.ts` does the remux.

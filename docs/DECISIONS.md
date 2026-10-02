@@ -2,6 +2,8 @@
 
 Calls made without Astro while working autonomously (`CLAUDE.md` rule 10), newest last. Each entry: date, decision, why, how to reverse. Earlier decisions (M0 and its sign-off) are in `CHANGES.md`.
 
+**New entries go in [`docs/decisions/`](decisions/README.md), one file each** (from 2026-10-02). Entries below stay here; an edit to one of them (a "superseded by" note) is still made in place.
+
 ## 2026-09-29 · Autonomous mode starts
 
 **Decision:** From now until the M2 local launch, work continues through M1a, M1b, M2 and M2b without waiting for sign-off. Checkpoints: (1) M1a skeleton clickable, (2) M1 done, (3) M2 local launch ready to stress-test. `CLAUDE.md` rules 6 and 10 and the header of `docs/14-open-questions.md` say so.
@@ -788,6 +790,8 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 
 ## 2026-10-01 · VFR to CFR, server-only tools, the admin's Jobs page and job stats (M4)
 
+_Server-only tools staying `soon`: superseded for CPU tools by "CPU server tools ship `beta`; GPU tools wait for an admin" below._
+
 **Decision:**
 - **Server-only tools stay `soon` in the registry; an admin switches each one on** (Admin → Tools → status `beta` or `live`) in the server build, the way a hybrid tool's server path is switched on. The static export has no API, so it never offers a server path, and its pages for these tools stay "coming soon".
 - **The ToolShell runs server-only tools:** a tool view with no browser engine gets the server offer as soon as a file is in, with the tool's own reason ("Precise frame timing needs ffmpeg"), and no browser button.
@@ -1259,7 +1263,7 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
   - Click's own `error < 0` cancels the purchase and answers -9; anything after a cancel answers -9.
 - **Codes:** -1 bad signature (constant-time compare), -2 amount not exactly the purchase's (in tiyin), -3 action other than 0 or 1, -4 paid, -5 no such Click purchase, -6 Complete without its Prepare, -7 store failure, -8 missing or malformed fields or another `service_id`, -9 cancelled. Always HTTP 200.
 - **No `refund()`:** the Shop API has no refund call. A refund made in Click's merchant cabinet is recorded by hand.
-- **Not built yet: Click's fiscal receipt.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL, which `config/business.ts` doesn't have. Add both before turning Click on. _Enforced since the M5 review: see "Click stays off until its fiscal receipts are sent (M5 review)" below._
+- **Click's fiscal receipt: built since.** Click takes it through its Merchant API (`ofd_data/submit_items`, signed with `CLICK_MERCHANT_USER_ID` and the secret key), and each item needs the seller's TIN or PINFL. _Built: see "Click's fiscal receipts: queued with the sale, sent with retries (M5)" below. Click still needs the TIN or PINFL in `config/business.ts` before it can be switched on._
 
 **Why:** Click's published Shop API; `docs/05` → Payments.
 **Reverse:** each choice is one branch of `prepare` or `complete` in `providers/click.ts`.
@@ -1552,6 +1556,7 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** the M5 review: with the MXIK and package codes filled in, Click could be switched on and sell without the fiscal receipt Uzbek law asks for.
 **Reverse:** delete Click's entry from `UNFINISHED`.
+_Done: the receipt is built and Click's entry is gone from `UNFINISHED`. Click's switch now refuses while the seller's TIN or PINFL is missing or malformed, beside the MXIK and package codes (see "Click's fiscal receipts: queued with the sale, sent with retries (M5)")._
 
 ## 2026-10-02 · Payment webhooks: hardening from the M5 review
 

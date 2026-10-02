@@ -320,7 +320,11 @@ def test_auto_subtitles_turns_the_transcript_into_srt_and_deletes_it(db: Conn) -
     row = one(db, "select * from jobs where id = %s", job)
     assert row["status"] == "succeeded", row["error_detail"]
     assert gpu.calls[0].function == "transcribe"
-    assert gpu.calls[0].kwargs["options"] == {"language": "auto", "task": "transcribe"}
+    assert gpu.calls[0].kwargs["options"] == {
+        "language": "auto",
+        "task": "transcribe",
+        "max_seconds": 63.22,  # the probe's 61 s, 2 % and a second: no more is decoded
+    }
     # Only the SRT is left: the transcript the GPU wrote was deleted once read.
     assert list(storage.objects) == [row["output_key"]]
     text, content_type = storage.objects[row["output_key"]]

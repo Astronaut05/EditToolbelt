@@ -22,6 +22,9 @@ from etb_worker.gpu.remote import CallFailed
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE = shutil.which("ffprobe") or "ffprobe"
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+#: Caps far past the test clips: the tests that aren't about them.
+ROOMY_SEC = 600.0
+ROOMY_FRAMES = 18_000
 
 
 def stream(**extra: Any) -> dict[str, Any]:
@@ -97,7 +100,7 @@ def test_a_cover_picture_is_not_the_video() -> None:
     # A cover that comes first: the decoder reads the real picture's stream.
     info = video.parse_probe({"streams": [cover, stream(index=1)]})
     assert info.stream == 1
-    args = video.decode_args(Path("input"), info)
+    args = video.decode_args(Path("input"), info, max_seconds=ROOMY_SEC, max_frames=ROOMY_FRAMES)
     assert args[args.index("-map") + 1] == "0:1"
 
 
@@ -143,6 +146,7 @@ def test_the_encoders_get_what_editors_expect(tmp_path: Path) -> None:
         "fps": Fraction(25),
         "source": tmp_path / "input",
         "audio": "aac",
+        "max_seconds": 12.5,
     }
     h264, notes = video.encode_args(tmp_path / "o.mp4", encoding="h264", **common)
     assert "crop=trunc(iw/2)*2:trunc(ih/2)*2" in h264[h264.index("-vf") + 1]
@@ -233,9 +237,11 @@ def test_frames_go_through_the_model_and_come_out_with_the_sound(tmp_path: Path)
         fps=info.fps,
         source=source,
         audio=info.audio,
+        max_seconds=ROOMY_SEC,
     )
     assert notes == []
-    with video.FramePipe(video.decode_args(source, info), 64 * 48 * 3, encode) as pipe:
+    decode = video.decode_args(source, info, max_seconds=ROOMY_SEC, max_frames=ROOMY_FRAMES)
+    with video.FramePipe(decode, 64 * 48 * 3, encode, max_frames=ROOMY_FRAMES) as pipe:
         for frame in pipe.frames():
             assert len(frame) == 64 * 48 * 3
             # A "2x upscale": each pixel doubled both ways.
@@ -244,6 +250,7 @@ def test_frames_go_through_the_model_and_come_out_with_the_sound(tmp_path: Path)
             pipe.write(b"".join(line + line for line in wide))
         written = pipe.finish()
     assert written == 10
+    assert not pipe.cut
     out = ffprobe(target)["streams"]
     picture = next(s for s in out if s["codec_type"] == "video")
     assert (picture["width"], picture["height"]) == (128, 96)
@@ -276,7 +283,10 @@ def test_a_rotated_phone_clip_is_read_upright_like_a_player_shows_it(tmp_path: P
     info = video.probe(turned)
     assert (info.width, info.height) == (16, 32)
     ours = subprocess.run(  # noqa: S603
-        video.decode_args(turned, info), capture_output=True, check=True, timeout=60
+        video.decode_args(turned, info, max_seconds=ROOMY_SEC, max_frames=ROOMY_FRAMES),
+        capture_output=True,
+        check=True,
+        timeout=60,
     ).stdout
     player = subprocess.run(  # noqa: S603
         [
@@ -349,8 +359,10 @@ def test_the_matte_becomes_the_alpha_channel(
         fps=info.fps,
         source=source,
         audio=info.audio,
+        max_seconds=ROOMY_SEC,
     )
-    with video.FramePipe(video.decode_args(source, info), 64 * 48 * 3, encode) as pipe:
+    decode = video.decode_args(source, info, max_seconds=ROOMY_SEC, max_frames=ROOMY_FRAMES)
+    with video.FramePipe(decode, 64 * 48 * 3, encode, max_frames=ROOMY_FRAMES) as pipe:
         for frame in pipe.frames():
             # Opaque on the left half, clear on the right.
             alpha = (b"\xff" * 32 + b"\x00" * 32) * 48
@@ -391,8 +403,10 @@ def test_an_error_mid_way_stops_both_processes(tmp_path: Path) -> None:
         fps=info.fps,
         source=source,
         audio=None,
+        max_seconds=ROOMY_SEC,
     )
-    pipe = video.FramePipe(video.decode_args(source, info), 64 * 48 * 3, encode, depth=2)
+    decode = video.decode_args(source, info, max_seconds=ROOMY_SEC, max_frames=ROOMY_FRAMES)
+    pipe = video.FramePipe(decode, 64 * 48 * 3, encode, max_frames=ROOMY_FRAMES, depth=2)
 
     def model_fails_on_the_third_frame() -> None:
         with pipe:
@@ -431,7 +445,8 @@ def test_an_encoder_that_dies_fails_the_call(tmp_path: Path) -> None:
     ]
 
     def run() -> None:
-        with video.FramePipe(video.decode_args(source, info), 64 * 48 * 3, encode) as pipe:
+        decode = video.decode_args(source, info, max_seconds=ROOMY_SEC, max_frames=ROOMY_FRAMES)
+        with video.FramePipe(decode, 64 * 48 * 3, encode, max_frames=ROOMY_FRAMES) as pipe:
             for frame in pipe.frames():
                 pipe.write(frame)
             pipe.finish()

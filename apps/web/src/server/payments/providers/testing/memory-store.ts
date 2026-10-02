@@ -14,6 +14,7 @@
  * - refund: completed or partially refunded → partially_refunded, refunded or
  *   chargeback with a `refund_purchase` row of −credits; idempotent per
  *   refundId; the balance may go below zero.
+ * - complete with a receipt queues it (`receipts`) with the completion, once.
  * - recordEvent: `fresh` is false for a (provider, eventId) already processed
  *   without an error; one that failed is fresh again, so a retry is processed.
  *
@@ -25,6 +26,7 @@ import { packs, type PackId } from '@etb/config/business';
 
 import type {
   Currency,
+  FiscalReceiptRequest,
   ProviderId,
   PurchaseRecord,
   PurchaseStatus,
@@ -66,6 +68,8 @@ const REFUNDABLE: readonly PurchaseStatus[] = ['completed', 'partially_refunded'
 export class MemoryPurchaseStore implements PurchaseStore {
   readonly ledger: LedgerRow[] = [];
   readonly events: StoredEvent[] = [];
+  /** Fiscal receipts queued by `complete`, one per purchase. */
+  readonly receipts: (FiscalReceiptRequest & { purchaseId: string })[] = [];
   private readonly purchases = new Map<string, PurchaseRecord>();
   /** refundIds already applied, per purchase, with the credits each took. */
   private readonly refunds = new Map<string, Map<string, number>>();
@@ -152,7 +156,10 @@ export class MemoryPurchaseStore implements PurchaseStore {
     id: string,
     data: Record<string, unknown> = {},
     providerTxnId?: string,
+    receipt?: FiscalReceiptRequest,
   ): Promise<PurchaseRecord> {
+    if (receipt && !receipt.paymentId.trim())
+      return Promise.reject(new Error('A receipt needs the provider’s payment id'));
     return this.run(() => {
       const record = this.require(id);
       if (record.status === 'completed') return record;
@@ -173,6 +180,7 @@ export class MemoryPurchaseStore implements PurchaseStore {
         refundId: null,
         at: this.now(),
       });
+      if (receipt) this.receipts.push({ purchaseId: record.id, paymentId: receipt.paymentId });
       return record;
     });
   }
@@ -302,12 +310,14 @@ export class MemoryPurchaseStore implements PurchaseStore {
       [...this.purchases].map(([key, value]) => [key, structuredClone(value)]),
     );
     const ledgerLength = this.ledger.length;
+    const receiptsLength = this.receipts.length;
     try {
       return Promise.resolve(structuredClone(change()));
     } catch (error) {
       this.purchases.clear();
       for (const [key, value] of before) this.purchases.set(key, value);
       this.ledger.length = ledgerLength;
+      this.receipts.length = receiptsLength;
       return Promise.reject(error instanceof Error ? error : new Error('Store error'));
     }
   }

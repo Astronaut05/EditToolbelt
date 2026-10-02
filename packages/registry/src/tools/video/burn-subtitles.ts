@@ -8,7 +8,7 @@ export default defineTool({
   name: 'Burn Subtitles into Video',
   tagline: 'Hardcode SRT, VTT or ASS subtitles into the picture with your font, size and color.',
   summary: 'Hardsub SRT, VTT or ASS with your style',
-  status: 'soon',
+  status: 'beta',
   wave: 2,
   runtime: 'server-cpu',
   engines: ['video-ffmpeg-server'],
@@ -26,7 +26,7 @@ export default defineTool({
   ],
   outputs: ['mp4'],
   limits: {
-    // Off until an admin sets its status: it needs the server build and a worker.
+    // Runs on the worker; a copy of the site with no server path holds the run (ToolShell).
     server: {
       free: { maxBytes: 2 * 1024 ** 3, maxDurationSec: 60 * 60 },
       paid: { maxBytes: 10 * 1024 ** 3, maxDurationSec: 4 * 60 * 60 },

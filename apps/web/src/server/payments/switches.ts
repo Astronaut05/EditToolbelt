@@ -6,7 +6,8 @@
  * 1. `PAYMENTS_ENABLED=true`, the global kill switch (env, default off);
  * 2. the admin's switch for that provider (`payment_settings`, default off);
  * 3. the provider is in this build and every one of its `requiredEnv` is set;
- *    Click and Payme also need the fiscal receipt codes in config/business.ts,
+ *    Click and Payme also need the fiscal receipt codes in config/business.ts
+ *    (Click also the seller's TIN or PINFL, for the receipts we send it),
  *    and nothing a sale needs may be unbuilt (`UNFINISHED`).
  *
  * The admin switch refuses to turn on while 3 isn't met, and every change
@@ -18,7 +19,7 @@
  * refunds, chargebacks, and a payment for a checkout opened before the
  * switch (`webhookProvider`). Removing its keys closes the path too.
  */
-import { fiscalReceipt } from '@etb/config/business';
+import { fiscalReceipt, sellerTaxId, type FiscalReceiptConfig } from '@etb/config/business';
 import { paymentSettings, type Db, type Queryable } from '@etb/db';
 
 import { audit } from '../audit';
@@ -37,22 +38,23 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
 export const FISCAL_PROVIDERS: readonly ProviderId[] = ['click', 'payme'];
 
 /** The fields of config/business.ts → fiscalReceipt a sale can't do without. */
-export interface FiscalReceipt {
-  mxik: string;
-  packageCode: string;
-}
+export type FiscalReceipt = Pick<FiscalReceiptConfig, 'mxik' | 'packageCode' | 'tin' | 'pinfl'>;
+
+/**
+ * Providers whose fiscal receipt we send ourselves (payments/fiscal.ts),
+ * naming the seller by TIN or PINFL. Payme sends its own from
+ * CheckPerformTransaction's `detail`.
+ */
+export const SELLER_ID_PROVIDERS: readonly ProviderId[] = ['click'];
 
 /**
  * What a provider's sales need that this release doesn't have yet. The
  * admin switch refuses to turn it on while its entry is here; remove the
- * entry with the code that builds it.
+ * entry with the code that builds it. Empty: Click's fiscal receipt, the
+ * last entry, is built (docs/DECISIONS.md → "Click's fiscal receipts:
+ * queued with the sale, sent with retries").
  */
-export const UNFINISHED: Partial<Record<ProviderId, string>> = {
-  // docs/DECISIONS.md → "Click: Prepare and Complete": Uzbek law wants a
-  // fiscal receipt for every sale, and Click doesn't send one for us.
-  click:
-    'Sending Click’s fiscal receipt to the tax service isn’t built yet (Click’s ofd_data/submit_items, with the seller’s TIN or PINFL).',
-};
+export const UNFINISHED: Partial<Record<ProviderId, string>> = {};
 
 /** What the switches read: the kill switch, the env (keys) and the providers in this build. */
 export interface PaymentEnv {
@@ -100,8 +102,11 @@ export interface ProviderState {
   built: boolean;
   /** Each variable it needs (names only, never values) and whether it's set. */
   keys: { name: string; set: boolean }[];
-  /** Click and Payme: the fiscal receipt fields in config/business.ts. Empty for Paddle. */
-  fiscal: { name: string; set: boolean }[];
+  /**
+   * Click and Payme: the fiscal receipt fields in config/business.ts (Click
+   * also the seller's TIN or PINFL). Empty for Paddle.
+   */
+  fiscal: { name: string; set: boolean; problem?: string }[];
   /** The admin's switch, and who set it last. */
   setting: ProviderSetting | null;
   switchedOn: boolean;
@@ -127,12 +132,20 @@ export function providerState(
 ): ProviderState {
   const provider = env.providers.find((candidate) => candidate.id === id) ?? null;
   const keys = (provider?.requiredEnv ?? []).map((name) => ({ name, set: isSet(env.vars[name]) }));
-  const fiscal = FISCAL_PROVIDERS.includes(id)
+  const fiscal: ProviderState['fiscal'] = FISCAL_PROVIDERS.includes(id)
     ? (['mxik', 'packageCode'] as const).map((field) => ({
         name: `fiscalReceipt.${field}`,
         set: isSet(env.fiscal[field]),
       }))
     : [];
+  if (SELLER_ID_PROVIDERS.includes(id)) {
+    const seller = sellerTaxId(env.fiscal);
+    fiscal.push({
+      name: 'fiscalReceipt.tin or .pinfl',
+      set: seller.ok,
+      ...(seller.ok ? {} : { problem: `config/business.ts: ${seller.problem}` }),
+    });
+  }
   const blockers = [
     ...(provider ? [] : [`This release has no ${PROVIDER_NAMES[id]} integration.`]),
     ...keys
@@ -140,7 +153,7 @@ export function providerState(
       .map((key) => `${key.name} is not set (a Railway shared variable on the web service).`),
     ...fiscal
       .filter((field) => !field.set)
-      .map((field) => `${field.name} is empty in config/business.ts.`),
+      .map((field) => field.problem ?? `${field.name} is empty in config/business.ts.`),
     ...(env.unfinished[id] ? [env.unfinished[id]] : []),
   ];
   const switchedOn = setting?.enabled ?? false;

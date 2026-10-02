@@ -65,6 +65,11 @@ const STAGES: Record<string, string> = {
   processing: 'Working',
   analysing: 'Analysing',
   compressing: 'Compressing',
+  reading: 'Reading the sound',
+  measuring: 'Measuring the background',
+  cleaning: 'Cleaning',
+  'checking peaks': 'Checking the peaks',
+  saving: 'Saving',
   uploading: 'Saving the result',
   done: 'Saving the result',
 };
@@ -110,6 +115,13 @@ function quoteChanged(error: unknown): boolean {
 
 /** A quote that can't start: the words to say why. */
 function cantStart(offer: ReadyQuote): ServerRunError {
+  // A free preview costs no credits: only today's previews can run out, and credits don't help.
+  if (offer.credits === 0) {
+    return new ServerRunError(
+      'No free previews left today. They come back tomorrow (UTC)',
+      'No free previews left',
+    );
+  }
   return new ServerRunError(
     offer.blocked_by === 'QUOTA_EXCEEDED'
       ? `No free server jobs left today, and this needs ${String(offer.credits)} credits; you have ${String(offer.balance)}`

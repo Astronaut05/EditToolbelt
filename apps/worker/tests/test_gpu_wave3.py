@@ -290,7 +290,14 @@ def test_upscale_video_sends_the_model_and_noise_setting() -> None:
     )
     out = upscale_video.PROCESSOR.run(ctx)
     assert gpu.calls[0].function == "upscale_video"
-    assert gpu.calls[0].kwargs["options"] == {"scale": 2, "model": "anime", "denoise": 1.0}
+    # A minute at 30 fps: 1,800 frames and a second's more; 60 s and 2 % and a second.
+    assert gpu.calls[0].kwargs["options"] == {
+        "scale": 2,
+        "model": "anime",
+        "denoise": 1.0,
+        "max_frames": 1830,
+        "max_seconds": 62.2,
+    }
     assert "extra_urls" not in gpu.calls[0].kwargs
     assert (out.content_type, out.ext) == ("video/mp4", "mp4")
     assert out.meta == {"width": 3840, "height": 2160, "model": "anime", "notes": ["a note"]}
@@ -368,7 +375,7 @@ def test_each_output_is_its_own_file_type(
     ctx, _ = context("video-background-remover", clip(1280, 720, 20), options, gpu)
     out = video_background.PROCESSOR.run(ctx)
     assert gpu.calls[0].function == "remove_video_background"
-    assert gpu.calls[0].kwargs["options"] == sent
+    assert gpu.calls[0].kwargs["options"] == {**sent, "max_frames": 630, "max_seconds": 21.4}
     assert ("PUT", out.key, content_type) in cast(Bucket, ctx.storage).signed
     assert (out.content_type, out.ext) == (content_type, ext)
 

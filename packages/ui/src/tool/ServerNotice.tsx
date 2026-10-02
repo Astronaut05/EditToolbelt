@@ -9,7 +9,7 @@ import { serverTerms, type ServerAccount, type ServerQuote, type ShellServer } f
 // A hybrid tool's server path in the ToolShell: the offer, the price check
 // and its errors. The shell loads this file only for a tool whose server path
 // is on (docs/10 → Budgets: script transfer on a tool page).
-export { ServerRunError, serverTerms } from './server';
+export { previewTerms, ServerRunError, serverTerms } from './server';
 
 /**
  * The server offer (docs/02 → Routing): why the server, what it costs this

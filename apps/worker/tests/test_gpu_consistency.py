@@ -8,6 +8,7 @@ budget go wrong, so they're held together here.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -68,6 +69,26 @@ def test_the_video_limits_agree() -> None:
     assert f"PRORES_BITS_PER_PIXEL = {video_background.PRORES_BITS_PER_PIXEL}" in rules
     assert f"MAX_LONG_SIDE = {upscale_video.MAX_LONG_SIDE}" in rules
     assert f"MAX_SHORT_SIDE = {upscale_video.MAX_SHORT_SIDE}" in rules
+
+
+def test_the_hard_caps_take_every_length_the_tools_sell() -> None:
+    """A function's own caps (a call that brings none) never cut what anyone can pay for:
+    each tool's paid maxDurationSec, with the margin the worker adds (processors/remote.py)."""
+    from etb_worker.processors.remote import LENGTH_MARGIN, LENGTH_SLACK_SEC  # noqa: PLC0415
+
+    hard = {
+        "transcribe": modal_app.MAX_AUDIO_SECONDS,
+        "upscale_video": modal_app.MAX_VIDEO_SECONDS,
+        "remove_video_background": modal_app.MAX_VIDEO_SECONDS,
+    }
+    for tool, (category, function) in TOOLS.items():
+        if function not in hard:
+            continue
+        source = (ROOT / f"packages/registry/src/tools/{category}/{tool}.ts").read_text("utf-8")
+        found = re.search(r"paid: \{[^}]*?maxDurationSec: ([\d *]+)", source)
+        assert found, tool
+        paid = math.prod(int(part) for part in found.group(1).split("*"))
+        assert paid * LENGTH_MARGIN + LENGTH_SLACK_SEC <= hard[function], tool
 
 
 def test_no_call_of_ours_queues_on_modal() -> None:

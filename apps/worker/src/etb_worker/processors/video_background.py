@@ -7,7 +7,8 @@ storage: on transparency as ProRes 4444 MOV or VP9 WebM with alpha, or on
 chroma-key green or a colour as H.264 MP4. Clips are 18,000 frames at most,
 up to 4K; ProRes 4444 is big (about 3 GB a minute at 1080p30), so it is
 refused before charging when it would pass 4.5 GB, the most one upload
-holds with room to spare.
+holds with room to spare. The function decodes no more than those checks
+saw (``upscale_video.caps``), whatever the file's header said.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Any
 
 from etb_worker.processors import Estimate, JobContext, JobFailed, Output
 from etb_worker.processors.remote import run_on_gpu
-from etb_worker.processors.upscale_video import fits_4k, frame_count, picture, too_long
+from etb_worker.processors.upscale_video import caps, fits_4k, frame_count, picture, too_long
 
 #: Each output's MIME type and extension.
 OUTPUTS = {
@@ -52,6 +53,7 @@ class VideoBackground:
         width, height = picture(ctx.meta)
         if width <= 0 or height <= 0:
             raise JobFailed("NO_VIDEO", "This file has no video in it.")
+        limits = caps(ctx.meta)
         if not fits_4k(width, height):
             raise JobFailed("TOO_LARGE", "We take video up to 4K (3840 × 2160).")  # noqa: RUF001
         reason = too_long(ctx.meta)
@@ -70,6 +72,8 @@ class VideoBackground:
         if output == "color":
             colour = str(ctx.options.get("color") or "")
             options["color"] = colour.lower() if HEX.match(colour) else "#00b140"
+        # No more frames than the ProRes and frame checks above saw (a header can say less).
+        options.update(limits)
         content_type, ext = OUTPUTS[output]
         outcome = run_on_gpu(
             ctx,

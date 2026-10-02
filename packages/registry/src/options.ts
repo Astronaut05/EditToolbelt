@@ -65,6 +65,23 @@ const burnSubtitles = z.strictObject({
   width: z.enum(['full', 'narrow']).default('full'),
 });
 
+/**
+ * A10: how hard to clean, mains hum, sibilance, the format. `preview` makes a
+ * free preview: the upload is a snippet of at most `previewSeconds` (the page
+ * cuts it), and the result comes back as WAV.
+ */
+const removeNoise = z.strictObject({
+  /** Light, Medium, Strong: up to 12, 24 or 40 dB less noise. */
+  strength: z.enum(['light', 'medium', 'strong']).default('medium'),
+  /** Notches at 50 or 60 Hz and their harmonics. */
+  dehum: z.enum(['off', '50', '60']).default('off'),
+  /** Soften sharp s sounds. */
+  deess: z.boolean().default(false),
+  /** keep: the input's own format and bitrate. */
+  format: z.enum(['keep', 'wav', 'flac', 'mp3', 'm4a', 'ogg']).default('keep'),
+  preview: z.boolean().default(false),
+});
+
 /** The denoise levels of the Real-ESRGAN tools (P08, V20): none keeps the grain. */
 const denoise = z.enum(['none', 'low', 'medium', 'high']).default('medium');
 
@@ -143,7 +160,16 @@ export const serverOptions = {
   'object-eraser': objectEraser,
   'upscale-video': upscaleVideo,
   'video-background-remover': videoBackgroundRemover,
+  'remove-noise': removeNoise,
 } satisfies Record<string, z.ZodType>;
+
+/**
+ * Tools with a free preview (`preview: true` in their options), and the
+ * longest snippet one may send, in seconds (tools/audio.md → A10: 10 s).
+ */
+export const previewSeconds: Partial<Record<keyof typeof serverOptions, number>> = {
+  'remove-noise': 10,
+};
 
 /** Options that name another upload, by tool: the job takes those files too, in this order. */
 export const uploadOptions: Partial<Record<keyof typeof serverOptions, readonly string[]>> = {
