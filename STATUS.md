@@ -87,6 +87,7 @@
   - Metering: every GPU call's seconds and cost on its job; Modal's T4 and L4 prices in `config/business.ts` (placeholders, read 2026-10-02). A daily GPU budget ($1 until changed in Admin → Dashboard → GPU) stops new GPU jobs when it's spent and alerts at 80 % and 100 %. Admin shows GPU cost against credits by tool.
   - Upscale Image (P08), Transcribe Audio (A12) and Auto Subtitles (V17) have their pages, options, prices and FAQ; Auto Subtitles sends only a video's sound, taken out in the browser. Each stays `soon` until an admin sets it to beta.
 - Fix: a result's audio player loads only its header until it's played. Loading the whole file could freeze the page in Linux WebKit (GStreamer), which hung Merge Audio's join test 1 run in 4 or 5.
+- Test fix: Remove Silence's shorten test reads the ranges once the last setting's search has landed (it read the previous search's on the phone profile, 5 runs in 8).
 - Wave 3 GPU tools (#77; tested with a stand-in GPU, real runs wait for the Modal token):
   - Object Eraser (P17): brush over an object (Mark, Unmark, size, undo) and MI-GAN fills it on a T4. The page draws the mask and sends it beside the photo; each area is filled on a crop around it and only the brushed pixels change. 3 credits.
   - Upscale Video (V20): Real-ESRGAN on every frame on an L4, 2× or 4× up to 4K, General with noise cleanup or Animation, H.264 MP4 with the sound. 10 credits a minute, up to 10 min.
