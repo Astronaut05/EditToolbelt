@@ -11,6 +11,7 @@
  * checked and whether it held.
  */
 import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 type Env = Record<string, string | undefined>;
@@ -373,6 +374,53 @@ export function accessProblems(apps: AccessApp[], host: string): string[] {
   const service = rules('non_identity');
   if (!service.some((r) => r.service_token || r.any_valid_service_token))
     problems.push("no Service Auth policy for CI's service token");
+  problems.push(...pathBypassProblems(apps, host));
+  return problems;
+}
+
+/** Where certificate authorities fetch their HTTP-01 challenges: the one path that may skip Access. */
+export const ACME_PATH = '/.well-known/acme-challenge/';
+
+/**
+ * Apps for a path under the site (`host/path`): the only one allowed to let
+ * anyone in is the ACME challenge path, so Railway can renew the site's
+ * certificates through Cloudflare.
+ */
+export function pathBypassProblems(apps: AccessApp[], host: string): string[] {
+  const problems: string[] = [];
+  for (const app of apps) {
+    const paths = [
+      app.domain,
+      ...(app.self_hosted_domains ?? []),
+      ...(app.destinations ?? []).map((d) => d.uri),
+    ]
+      .filter((d): d is string => typeof d === 'string')
+      .flatMap((d) => {
+        const slash = d.indexOf('/');
+        const name = slash < 0 ? d : d.slice(0, slash);
+        const path = slash < 0 ? '' : d.slice(slash);
+        return (name === host || name === `www.${host}`) &&
+          path !== '' &&
+          path !== '/' &&
+          path !== '/*'
+          ? [path]
+          : [];
+      });
+    if (paths.length === 0) continue;
+    const open = (app.policies ?? []).some(
+      (p) =>
+        p.decision === 'bypass' ||
+        (p.decision === 'allow' && (p.include ?? []).some((r) => r.everyone !== undefined)),
+    );
+    const outside = paths.filter(
+      (path) => !path.replace(/\*$/, '').replace(/\/?$/, '/').startsWith(ACME_PATH),
+    );
+    if (open && outside.length > 0) {
+      problems.push(
+        `an application lets anyone into ${[...new Set(outside)].join(', ')}, not only ${ACME_PATH}`,
+      );
+    }
+  }
   return problems;
 }
 
@@ -480,6 +528,150 @@ async function checkSite(env: Env, site: string): Promise<string> {
   return `private (Access login without a token); through Access: version ${version ?? '?'}, ready, security headers, www redirects`;
 }
 
+// ── A server job, end to end, through Access ─────────────────────────────────
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+interface JobView {
+  id: string;
+  status: string;
+  error?: { code?: string } | null;
+  result?: { download_url?: string; bytes?: number } | null;
+}
+
+/**
+ * Phase 1's proof that the server path works: Compress Video on a small
+ * fixture with CI's API key (ETB_SMOKE_API_KEY), through Access. Upload in
+ * parts straight to storage, quote, start, follow, download. With
+ * JOB_RETENTION_MINUTES it then waits and checks that the sweeper deleted
+ * the output from storage (CLAUDE.md rule 4: outputs within an hour).
+ */
+async function checkJob(env: Env, site: string): Promise<string> {
+  const headers = {
+    Authorization: `Bearer ${env.ETB_SMOKE_API_KEY ?? ''}`,
+    'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID ?? '',
+    'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
+  };
+  const api = async <T>(path: string, body?: unknown, extra: Record<string, string> = {}) => {
+    const response = await fetch(`${site}/api/v1${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        ...headers,
+        ...(body !== undefined && { 'Content-Type': 'application/json' }),
+        ...extra,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      redirect: 'manual',
+    });
+    const data = (await response.json().catch(() => ({}))) as T & { code?: string };
+    expect(
+      response.ok,
+      `${path.split('/').slice(0, 2).join('/')} answered HTTP ${String(response.status)} ${data.code ?? ''}`,
+    );
+    return data;
+  };
+
+  const file = readFileSync(
+    fileURLToPath(new URL('../../fixtures/video/clip-h264-aac.mp4', import.meta.url)),
+  );
+  const started = await api<{
+    upload_id: string;
+    part_size: number;
+    part_count: number;
+    parts: { n: number; url: string }[];
+  }>('/uploads', { tool_id: 'compress-video', bytes: file.length, mime: 'video/mp4' });
+  const etags: { n: number; etag: string }[] = [];
+  for (const { n, url } of started.parts) {
+    const from = (n - 1) * started.part_size;
+    const put = await fetch(url, {
+      method: 'PUT',
+      body: file.subarray(from, Math.min(file.length, from + started.part_size)),
+    });
+    expect(put.ok, `storage refused part ${String(n)} (HTTP ${String(put.status)})`);
+    etags.push({ n, etag: put.headers.get('etag') ?? '' });
+  }
+  await api(`/uploads/${started.upload_id}/complete`, { parts: etags });
+
+  const options = { mode: 'quality', quality: 'medium' };
+  let quote: {
+    status?: string;
+    can_start?: boolean;
+    blocked_by?: string;
+    credits?: number;
+    funding?: string;
+  } = {};
+  for (let i = 0; i < 60; i += 1) {
+    quote = await api('/jobs/quote', {
+      tool_id: 'compress-video',
+      upload_id: started.upload_id,
+      options,
+    });
+    if (quote.status === 'ready') break;
+    await sleep(2000);
+  }
+  expect(quote.status === 'ready', 'the upload was still being checked after 2 minutes');
+  expect(
+    quote.can_start,
+    `the job can't start (${quote.blocked_by ?? '?'}). Is Compress Video's server path on in Admin → Tools?`,
+  );
+  let { job } = await api<{ job: JobView }>(
+    '/jobs',
+    {
+      tool_id: 'compress-video',
+      upload_id: started.upload_id,
+      options,
+      quote_credits: quote.credits,
+      ...(quote.funding === 'daily' || quote.funding === 'credits'
+        ? { quote_funding: quote.funding }
+        : {}),
+    },
+    { 'Idempotency-Key': randomUUID() },
+  );
+  const begun = Date.now();
+  while (
+    (job.status === 'queued' || job.status === 'running') &&
+    Date.now() - begun < 15 * 60_000
+  ) {
+    await sleep(3000);
+    ({ job } = await api<{ job: JobView }>(`/jobs/${job.id}`));
+  }
+  expect(
+    job.status === 'succeeded',
+    `the job ended ${job.status}${job.error?.code ? ` (${job.error.code})` : ''}, not succeeded`,
+  );
+  const url = job.result?.download_url ?? '';
+  const download = await fetch(url);
+  const bytes = (await download.arrayBuffer()).byteLength;
+  expect(download.ok && bytes > 0, `the result didn't download (HTTP ${String(download.status)})`);
+  const took = `succeeded in ${String(Math.round((Date.now() - begun) / 1000))} s, ${String(Math.round(bytes / 1024))} KB out`;
+
+  const minutes = Number(env.JOB_RETENTION_MINUTES || '0');
+  if (!minutes) return `Compress Video on the server: ${took}`;
+  expect(
+    env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_ENDPOINT,
+    'the retention check needs the R2 secrets',
+  );
+  const bucket = env.R2_BUCKET ?? 'edittoolbelt-files';
+  const path = decodeURIComponent(new URL(url).pathname).replace(/^\//, '');
+  const key = path.startsWith(`${bucket}/`) ? path.slice(bucket.length + 1) : path;
+  const s3: S3 = {
+    endpoint: new URL(env.R2_ENDPOINT).origin,
+    bucket,
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    region: 'auto',
+  };
+  const exists = async () => (await fetch(presign(s3, 'HEAD', key), { method: 'HEAD' })).status;
+  expect((await exists()) === 200, 'the output is not in storage right after the job');
+  await sleep(minutes * 60_000);
+  const after = await exists();
+  expect(
+    after === 404,
+    `${String(minutes)} minutes later the output is still in storage (HTTP ${String(after)})`,
+  );
+  return `Compress Video on the server: ${took}; the output was gone from storage ${String(minutes)} minutes later`;
+}
+
 // ── Running them ─────────────────────────────────────────────────────────────
 
 /** An error a check didn't expect, named without its message (which may carry a URL or a value). */
@@ -535,6 +727,8 @@ interface Check {
   name: string;
   needs: string[];
   run: (env: Env, site: string) => Promise<string>;
+  /** Runs only when named (it spends a job). */
+  named?: boolean;
 }
 
 export const CHECKS: Check[] = [
@@ -550,6 +744,12 @@ export const CHECKS: Check[] = [
     name: 'site',
     needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
     run: checkSite,
+  },
+  {
+    name: 'job',
+    needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET', 'ETB_SMOKE_API_KEY'],
+    run: checkJob,
+    named: true,
   },
 ];
 
@@ -570,7 +770,7 @@ export async function runChecks(raw: Env): Promise<Outcome[]> {
     detail: 'no such check',
   }));
   for (const check of CHECKS) {
-    if (wanted.length > 0 && !wanted.includes(check.name)) continue;
+    if ((wanted.length > 0 || check.named) && !wanted.includes(check.name)) continue;
     const missing = check.needs.filter((name) => !env[name]);
     if (missing.length > 0) {
       outcomes.push({

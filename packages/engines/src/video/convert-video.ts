@@ -138,6 +138,56 @@ export async function videoPackets(file: Blob): Promise<Uint8Array[]> {
   }
 }
 
+/** What it takes to decode one frame with WebCodecs, anywhere: the decoder config and the packets. */
+export interface FrameSource {
+  config: { codec: string; codedWidth: number; codedHeight: number; description?: Uint8Array };
+  packets: { data: Uint8Array; timestamp: number; key: boolean }[];
+}
+
+/**
+ * The packets from the key frame before `fromSec` up to `toSec`, with the
+ * decoder config: enough to decode the frames in between with WebCodecs.
+ * Tests read results back this way rather than through a <video> element,
+ * whose formats differ between browsers (Playwright's Linux WebKit plays
+ * media through GStreamer, not as Safari does).
+ */
+export async function videoFrameSource(
+  file: Blob,
+  fromSec: number,
+  toSec = fromSec,
+): Promise<FrameSource | null> {
+  const input = openInput(file);
+  try {
+    const track = await input.getPrimaryVideoTrack();
+    const config = await track?.getDecoderConfig();
+    if (!track || !config) return null;
+    const sink = new EncodedPacketSink(track);
+    const key = (await sink.getKeyPacket(fromSec)) ?? (await sink.getFirstPacket());
+    if (!key) return null;
+    const packets: FrameSource['packets'] = [];
+    for await (const packet of sink.packets(key)) {
+      if (packet.timestamp > toSec + 1e-6 && packets.length > 0) break;
+      packets.push({ data: packet.data, timestamp: packet.timestamp, key: packet.type === 'key' });
+    }
+    const description = config.description;
+    return {
+      config: {
+        codec: config.codec,
+        codedWidth: config.codedWidth ?? 0,
+        codedHeight: config.codedHeight ?? 0,
+        ...(description && {
+          description: ArrayBuffer.isView(description)
+            ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+            : new Uint8Array(description),
+        }),
+      },
+      packets,
+    };
+  } finally {
+    input.dispose();
+  }
+}
+
 export const videoConverterEngine: Engine<VideoConverterOptions> = {
   ...MEDIA_META.videoConverter,
   async run(file, opts, ctx): Promise<EngineOutput> {

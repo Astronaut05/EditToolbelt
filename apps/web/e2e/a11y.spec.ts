@@ -56,6 +56,38 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test('merge list with files: no serious issues', async ({ page }) => {
+      await page.goto('/merge-audio', { waitUntil: 'networkidle' });
+      // Two tiny silent WAVs: a list to check, nothing to decode at length.
+      const silent = () => {
+        const wav = Buffer.alloc(44 + 4800 * 2);
+        wav.write('RIFF', 0);
+        wav.writeUInt32LE(36 + 4800 * 2, 4);
+        wav.write('WAVEfmt ', 8);
+        wav.writeUInt32LE(16, 16);
+        wav.writeUInt16LE(1, 20);
+        wav.writeUInt16LE(1, 22);
+        wav.writeUInt32LE(48_000, 24);
+        wav.writeUInt32LE(96_000, 28);
+        wav.writeUInt16LE(2, 32);
+        wav.writeUInt16LE(16, 34);
+        wav.write('data', 36);
+        wav.writeUInt32LE(4800 * 2, 40);
+        return wav;
+      };
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles([
+          { name: 'one.wav', mimeType: 'audio/wav', buffer: silent() },
+          { name: 'two.wav', mimeType: 'audio/wav', buffer: silent() },
+        ]);
+      await expect(
+        page.getByRole('list', { name: 'Files, in order' }).getByText(/48 kHz/),
+      ).toHaveCount(2);
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('loudness meter result with its graph: no serious issues', async ({ page }) => {
       await page.goto('/loudness-meter', { waitUntil: 'networkidle' });
       const rate = 48_000;

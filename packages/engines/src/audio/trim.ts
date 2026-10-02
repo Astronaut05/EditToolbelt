@@ -12,7 +12,12 @@ import { AudioSampleSink, Quality, type AudioCodec } from 'mediabunny';
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, convert, MediaInputError, openInput } from '../video/media';
 import { encodeAudio } from '../video/encode-audio';
-import { AUDIO_TARGETS, ensureEncoder, type AudioFormat } from '../video/extract-audio';
+import {
+  AUDIO_TARGETS,
+  type AudioFormat,
+  ensureEncoder,
+  KEEP_FORMAT,
+} from '../video/extract-audio';
 import { checkRanges } from '../video/trim';
 import { AUDIO_LIMITS } from './convert';
 import { MEDIA_META } from '../media-meta';
@@ -30,17 +35,6 @@ export interface TrimAudioOptions {
   /** keep, or a format from AUDIO_TARGETS */
   format?: string;
 }
-
-/** The output for a source codec when the format is kept. */
-const KEEP: Partial<Record<AudioCodec, AudioFormat>> = {
-  mp3: 'mp3',
-  aac: 'm4a',
-  opus: 'ogg',
-  flac: 'flac',
-  'pcm-s16': 'wav',
-  'pcm-s24': 'wav',
-  'pcm-f32': 'wav',
-};
 
 /** The crossfade centred on each join, seconds: heard as a cut, but it doesn't click. */
 export const JOIN_CROSSFADE = 0.01;
@@ -98,7 +92,7 @@ export const trimAudioEngine: Engine<TrimAudioOptions> = {
       }
       const joins = spans.length - 1;
       const sourceCodec = await source.getCodec();
-      const keepFormat = sourceCodec ? KEEP[sourceCodec] : undefined;
+      const keepFormat = sourceCodec ? KEEP_FORMAT[sourceCodec] : undefined;
       const format: AudioFormat =
         opts.format && opts.format in AUDIO_TARGETS
           ? (opts.format as AudioFormat)
