@@ -9,16 +9,35 @@ import type { Span } from '../media/ranges';
 /** Seconds between level readings. */
 export const LEVEL_STEP = 0.01;
 
-/** Loudest channel's RMS every 10 ms, dBFS, from planar audio pushed in order. */
+/** Level readings per second. */
+const STEPS_PER_SECOND = Math.round(1 / LEVEL_STEP);
+
+/**
+ * Loudest channel's RMS every 10 ms, dBFS, from planar audio pushed in order.
+ * Reading n covers the samples from n × 10 ms to (n + 1) × 10 ms, each edge
+ * rounded to a whole sample. At 22.05 or 11.025 kHz a 10 ms window isn't a
+ * whole number of samples, so windows are 220 or 221 samples long in turn
+ * (110 or 111 at 11.025 kHz): a fixed rounded length would drift 0.23%, 8 s
+ * over an hour.
+ */
 export class LevelScan {
-  private readonly window: number;
+  private readonly rate: number;
   private readonly sums: number[];
+  /** Samples in the window being read, and the sample it ends before. */
   private count = 0;
+  private seen = 0;
+  private edge: number;
   private readonly levels: number[] = [];
 
   constructor(rate: number, channels: number) {
-    this.window = Math.max(1, Math.round(rate * LEVEL_STEP));
+    this.rate = rate;
     this.sums = Array.from({ length: channels }, () => 0);
+    this.edge = this.edgeOf(1);
+  }
+
+  /** Where reading n ends: the sample at n × 10 ms, and always past the last window's end. */
+  private edgeOf(n: number): number {
+    return Math.max(this.seen + 1, Math.round((n * this.rate) / STEPS_PER_SECOND));
   }
 
   push(planes: Float32Array[]): void {
@@ -29,7 +48,8 @@ export class LevelScan {
         this.sums[c] = (this.sums[c] ?? 0) + v * v;
       }
       this.count += 1;
-      if (this.count === this.window) this.close();
+      this.seen += 1;
+      if (this.seen === this.edge) this.close();
     }
   }
 
@@ -41,6 +61,7 @@ export class LevelScan {
     }
     this.levels.push(loudest > 0 ? 10 * Math.log10(loudest) : -Infinity);
     this.count = 0;
+    this.edge = this.edgeOf(this.levels.length + 1);
   }
 
   finish(): Float32Array {

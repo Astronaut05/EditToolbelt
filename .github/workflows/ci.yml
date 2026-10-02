@@ -270,7 +270,8 @@ jobs:
   image:
     name: Production web image · builds, starts, refuses pages without Access
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The browser tests add about 5 minutes to the build.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The same Dockerfile Railway builds (.railway/railway.ts). Hosts are
@@ -297,6 +298,39 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/)" = 503
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/tools)" = 503
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: www.site.example' http://localhost:8080/convert)" = 308
+      # The browser tests (e2e/) against this image, as production runs it:
+      # Access is checked on every request, against a stand-in Access team
+      # that e2e-prod/global-setup.ts serves on 127.0.0.1:9797 and that signs
+      # the session cookie. Chromium only; the static build's job covers the
+      # other browsers. The runner's own Chrome brings the system libraries.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright's Chromium
+        run: pnpm exec playwright install chromium
+      - name: End-to-end against the image, through Access (Chromium) · every tool, CSP, axe
+        run: |
+          docker rm --force web
+          docker run --detach --name web --network host \
+            --env APP_ENV=production --env APP_VERSION=ci-check --env PORT=8080 \
+            --env SITE_URL=https://site.example --env DATABASE_URL=postgresql://none:none@127.0.0.1:1/none \
+            --env BETTER_AUTH_SECRET=ci-only-secret-never-used-anywhere-else-00 \
+            --env SMTP_URL=smtp://127.0.0.1:1 --env S3_ENDPOINT=https://storage.example \
+            --env S3_BUCKET=ci-only --env S3_ACCESS_KEY_ID=ci --env S3_SECRET_ACCESS_KEY=ci \
+            --env CF_ACCESS_TEAM_DOMAIN=http://127.0.0.1:9797 --env CF_ACCESS_AUD=ci-audience \
+            etb-web
+          for i in $(seq 1 60); do
+            curl -fs http://127.0.0.1:8080/healthz > /dev/null && break
+            sleep 1
+          done
+          pnpm --filter @etb/web e2e:prod
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8080
+          E2E_FAKE_ACCESS: '1'
+          E2E_FAKE_ACCESS_AUD: ci-audience
       - name: Show logs
         if: failure()
         run: docker logs web

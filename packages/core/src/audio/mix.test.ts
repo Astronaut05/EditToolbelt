@@ -1,6 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
-import { dbGain, LOOP_FADE, MAX_LOOPS, musicEnd, musicGain, musicParts } from './mix';
+import {
+  dbGain,
+  LOOP_FADE,
+  MAX_LOOPS,
+  musicEnd,
+  musicGain,
+  musicParts,
+  type MusicGain,
+} from './mix';
+
+/** The gain as it was first written: every repeat checked at every sample. */
+function everyRepeat(t: number, g: MusicGain): number {
+  if (t < 0 || t >= g.end) return 0;
+  let gain = g.level;
+  if (g.fadeIn > 0 && t < g.fadeIn) gain *= t / g.fadeIn;
+  if (g.fadeOut > 0 && t > g.end - g.fadeOut) gain *= (g.end - t) / g.fadeOut;
+  for (const at of g.repeats) {
+    const from = Math.abs(t - at);
+    if (from < LOOP_FADE) gain *= from / LOOP_FADE;
+  }
+  return gain;
+}
+
+/** A sound `loop` seconds long from `offset`, looped under `length` seconds of video. */
+function looped(loop: number, offset: number, length: number): MusicGain {
+  const parts = musicParts(loop, offset, length, true);
+  return {
+    level: dbGain(-15),
+    fadeIn: 1,
+    fadeOut: 2,
+    end: musicEnd(parts),
+    repeats: parts.slice(1).map((p) => p.at),
+  };
+}
 
 describe('musicParts', () => {
   it('plays a longer track once, cut at the video’s end', () => {
@@ -46,5 +79,42 @@ describe('musicGain', () => {
     expect(musicGain(8, looped)).toBe(0);
     expect(musicGain(8 + LOOP_FADE / 2, looped)).toBeCloseTo(looped.level / 2, 6);
     expect(musicGain(8 + LOOP_FADE, looped)).toBeCloseTo(looped.level, 6);
+  });
+});
+
+describe('musicGain under a long video', () => {
+  const RATE = 48_000;
+
+  it('matches checking every repeat, sample for sample: a 4 s loop under 15 s', () => {
+    const g = looped(4, 1.5, 15);
+    expect(g.repeats).toHaveLength(4);
+    for (let i = 0; i < 15 * RATE; i += 1) {
+      const t = i / RATE;
+      const gain = musicGain(t, g);
+      if (gain !== everyRepeat(t, g)) expect(gain).toBe(everyRepeat(t, g));
+    }
+  });
+
+  it('matches it around the first, middle and last repeats of a 4 s loop under an hour', () => {
+    const g = looped(4, 0, 3600);
+    expect(g.repeats).toHaveLength(899);
+    const near = [...g.repeats.slice(0, 3), ...g.repeats.slice(448, 451), ...g.repeats.slice(-3)];
+    for (const at of near) {
+      for (let i = -600; i <= 600; i += 1) {
+        const t = at + i / RATE;
+        const gain = musicGain(t, g);
+        if (gain !== everyRepeat(t, g)) expect(gain).toBe(everyRepeat(t, g));
+      }
+    }
+  });
+
+  it('checks only the repeats nearby: an hour of samples takes no longer than a few repeats', () => {
+    const g = looped(4, 0, 3600);
+    const started = performance.now();
+    let sum = 0;
+    for (let i = 0; i < 60 * RATE; i += 1) sum += musicGain(3000 + i / RATE, g);
+    expect(sum).toBeGreaterThan(0);
+    // A minute at 48 kHz: well under a second (checking all 899 repeats took about 6 s).
+    expect(performance.now() - started).toBeLessThan(1500);
   });
 });

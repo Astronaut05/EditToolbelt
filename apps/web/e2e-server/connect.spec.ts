@@ -3,7 +3,7 @@
  * panel (no cookies), the page plays the person approving at /connect.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { deviceCodes, eq } from '@etb/db';
+import { apiKeys, deviceCodes, eq, users } from '@etb/db';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 import { closeTestDb, linkFor, newEmail, setScheme, signIn, testDb } from './helpers';
@@ -120,6 +120,62 @@ test('an expired or made-up code goes nowhere', async ({ page, request }) => {
   });
   await page.goto('/connect?code=BCDF-GHJK');
   await expect(page.getByText(/That code is wrong or has expired/)).toBeVisible();
+});
+
+test('ten wrong codes lock the account out, the right one too', async ({ page, request }) => {
+  // An address of its own, so the lockout touches no other test.
+  await page.setExtraHTTPHeaders({
+    'cf-connecting-ip': `203.0.113.${String(Math.floor(Math.random() * 250) + 1)}`,
+  });
+  await signIn(page, newEmail());
+  const wrong = /That code is wrong or has expired/;
+  // Every kind of miss gets the same answer: malformed, made up, and declined then reused.
+  const declined = await start(request);
+  await page.goto(`/connect?code=${declined.user_code}`);
+  await page.getByRole('button', { name: 'Decline' }).click();
+  await expect(page.getByRole('status')).toHaveText(/Declined/);
+  const misses = ['BCDF', 'XXXX-XXXX', declined.user_code];
+  for (const last of 'BCDFGHJ') misses.push(`ZZZZ-ZZZ${last}`);
+  for (const [i, code] of misses.entries()) {
+    await page.goto(`/connect?code=${code}`);
+    await expect(page.getByRole('main').getByRole('alert')).toHaveText(
+      i < 9 ? wrong : /Too many wrong codes/,
+    );
+  }
+  const started = await start(request);
+  await page.goto(`/connect?code=${started.user_code}`);
+  await expect(page.getByRole('main').getByRole('alert')).toHaveText(
+    /Too many wrong codes. Try again in \d+ min/,
+  );
+  await expect(page.getByRole('button', { name: 'Connect', exact: true })).toHaveCount(0);
+  const [row] = await db
+    .select()
+    .from(deviceCodes)
+    .where(eq(deviceCodes.userCode, started.user_code.replace('-', '')));
+  expect(row?.status).toBe('pending');
+});
+
+test('approving is refused once the account has 10 keys', async ({ page, request }) => {
+  const email = newEmail();
+  const started = await start(request);
+  await signIn(page, email);
+  await page.goto(`/connect?code=${started.user_code}`);
+  // The account fills up while the page is open.
+  const [user] = await db.select().from(users).where(eq(users.email, email));
+  await db.insert(apiKeys).values(
+    Array.from({ length: 10 }, (_, i) => ({
+      userId: user?.id ?? '',
+      name: `full ${String(i)}`,
+      prefix: `etb_live_${String(i).padStart(8, '0')}`,
+      hash: `${email}:${String(i)}`,
+      scopes: ['jobs:read'],
+    })),
+  );
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('You have 10 API keys');
+  expect(await (await poll(request, started.device_code)).json()).toMatchObject({
+    code: 'AUTHORIZATION_PENDING',
+  });
 });
 
 test('/connect passes axe, light and dark', async ({ page, request }) => {

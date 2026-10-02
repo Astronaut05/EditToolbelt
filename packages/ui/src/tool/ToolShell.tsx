@@ -537,6 +537,9 @@ export interface OutputInfo {
 /** Characters of a text output shown in the preview. */
 const TEXT_PREVIEW_CHARS = 6000;
 
+/** How long a replaced result's file stays readable, ms: a download just started from it finishes. */
+const RESULT_GRACE_MS = 1000;
+
 export type ShellState =
   | { kind: 'empty' }
   | { kind: 'ready'; input: InputInfo; files?: File[] }
@@ -752,6 +755,22 @@ export function ToolShell({
       for (const url of owned) URL.revokeObjectURL(url);
     };
   }, []);
+
+  // A result's file is let go once it's no longer shown: a new result
+  // replaced it (a LUT slider redoes it at every step), the run failed, or
+  // Start over. A second's grace lets a download just started from it finish
+  // reading it. "Use in another tool" hands over the blob, not the URL.
+  const resultUrl = state.kind === 'result' ? state.output.url : undefined;
+  useEffect(() => {
+    const owned = urls.current;
+    if (!resultUrl || !owned.includes(resultUrl)) return;
+    return () => {
+      owned.splice(owned.indexOf(resultUrl), 1);
+      setTimeout(() => {
+        URL.revokeObjectURL(resultUrl);
+      }, RESULT_GRACE_MS);
+    };
+  }, [resultUrl]);
 
   const run = useCallback(
     async (input: InputInfo, file: File, values: Record<string, string> = options) => {

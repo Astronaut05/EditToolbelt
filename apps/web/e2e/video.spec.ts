@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { probeMedia, videoFrameTimes, videoPackets } from '@etb/engines';
 import type { Download, Page } from '@playwright/test';
 
-import { choose, cspViolations, expect, setRange, test } from './fixtures';
+import { choose, cspViolations, expect, remote, setRange, test } from './fixtures';
 
 // V01 Trim Video and V06 Extract Audio (tools/video.md → Tests). Outputs are
 // read back in Node with the engine's own probe. Test browsers differ in what
@@ -314,6 +314,7 @@ test('after the GIF worker, an image tool still runs its own worker', async ({
   isMobile,
 }) => {
   test.skip(isMobile, 'the service worker is the same on phones');
+  test.skip(remote, 'the server build has no service worker');
   await page.goto('/video-to-gif');
   test.skip(!(await canDecode(page, 'vp09.00.10.08', 'video')), 'needs a VP9 decoder');
   await page.evaluate(async () => {
