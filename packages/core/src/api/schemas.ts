@@ -87,8 +87,8 @@ export const Upload = z
     part_count: z.number().int(),
     /** The first 20 parts' URLs; PUT each part's exact bytes to its URL. */
     parts: z.array(PartUrl),
-    parts_url: z.string(),
-    complete_url: z.string(),
+    parts_url: z.url().describe('Absolute URL of `POST /uploads/{id}/parts`, for more part URLs.'),
+    complete_url: z.url().describe('Absolute URL of `POST /uploads/{id}/complete`.'),
     expires_at: time,
   })
   .register(api, { id: 'Upload' });
@@ -122,6 +122,11 @@ export const UploadDone = z
   .strictObject({ upload_id: z.string(), bytes: z.number().int(), status: z.literal('uploaded') })
   .register(api, { id: 'UploadDone' });
 
+/** DELETE /uploads/{id}: the upload is given up; its parts or file are deleted. */
+export const UploadCancelled = z
+  .strictObject({ status: z.literal('cancelled') })
+  .register(api, { id: 'UploadCancelled' });
+
 // ── Jobs ─────────────────────────────────────────────────────────────────
 
 export const Funding = z.enum(['daily', 'credits', 'none']).register(api, {
@@ -137,26 +142,40 @@ export const QuoteRequest = z
   })
   .register(api, { id: 'QuoteRequest' });
 
+/** The upload is still being probed (202); ask again in a second. */
+export const QuoteProbing = z
+  .strictObject({ status: z.literal('probing') })
+  .register(api, { id: 'QuoteProbing' });
+
+export const QuoteReady = z
+  .strictObject({
+    status: z.literal('ready'),
+    tool_id: z.string(),
+    upload_id: z.string(),
+    credits: z.number().int(),
+    funding: Funding,
+    can_start: z.boolean(),
+    blocked_by: z.enum(['QUOTA_EXCEEDED', 'INSUFFICIENT_CREDITS']).optional(),
+    /** The account's own numbers: only for a caller with account:read (the website has it). */
+    free_jobs_left: z
+      .number()
+      .int()
+      .optional()
+      .describe('Free server jobs left today (UTC). Only with the account:read scope.'),
+    balance: z.number().int().optional().describe('Credits now. Only with the account:read scope.'),
+    balance_after: z
+      .number()
+      .int()
+      .optional()
+      .describe('Credits once this job is paid. Only with the account:read scope.'),
+    estimate_seconds: z.number().nullable(),
+    /** The options with every default filled in: what the job will run with. */
+    options: z.record(z.string(), z.unknown()),
+  })
+  .register(api, { id: 'QuoteReady' });
+
 export const Quote = z
-  .discriminatedUnion('status', [
-    /** The upload is still being probed; ask again in a second. */
-    z.strictObject({ status: z.literal('probing') }),
-    z.strictObject({
-      status: z.literal('ready'),
-      tool_id: z.string(),
-      upload_id: z.string(),
-      credits: z.number().int(),
-      funding: Funding,
-      can_start: z.boolean(),
-      blocked_by: z.enum(['QUOTA_EXCEEDED', 'INSUFFICIENT_CREDITS']).optional(),
-      free_jobs_left: z.number().int(),
-      balance: z.number().int(),
-      balance_after: z.number().int(),
-      estimate_seconds: z.number().nullable(),
-      /** The options with every default filled in: what the job will run with. */
-      options: z.record(z.string(), z.unknown()),
-    }),
-  ])
+  .discriminatedUnion('status', [QuoteProbing, QuoteReady])
   .register(api, { id: 'Quote' });
 export type Quote = z.infer<typeof Quote>;
 
@@ -217,7 +236,12 @@ export const Job = z
     error: z
       .strictObject({ code: z.string(), detail: z.string(), credits_returned: z.boolean() })
       .nullable(),
-    result: JobResult.nullable(),
+    /** Only for a caller with jobs:read (the website has it): it holds the download URL. */
+    result: JobResult.nullable()
+      .optional()
+      .describe(
+        'Once it succeeds, the download; null before. Only with the jobs:read scope: answers to a key without it (cancel, a repeated start) leave it out.',
+      ),
   })
   .register(api, { id: 'Job' });
 export type Job = z.infer<typeof Job>;
@@ -320,6 +344,7 @@ export type PartsRequest = z.infer<typeof PartsRequest>;
 export type PartList = z.infer<typeof PartList>;
 export type UploadComplete = z.infer<typeof UploadComplete>;
 export type UploadDone = z.infer<typeof UploadDone>;
+export type UploadCancelled = z.infer<typeof UploadCancelled>;
 export type Funding = z.infer<typeof Funding>;
 export type QuoteRequest = z.infer<typeof QuoteRequest>;
 export type JobCreate = z.infer<typeof JobCreate>;

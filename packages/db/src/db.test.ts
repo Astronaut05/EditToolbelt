@@ -28,10 +28,10 @@ describe.skipIf(!url)('database', () => {
   let close: () => Promise<void>;
 
   beforeAll(async () => {
-    await migrateForTests(url ?? '');
     const made = createDb(url ?? '', { max: 20 });
     db = made.db;
     close = () => made.pool.end();
+    await migrateForTests(made.pool);
   });
 
   afterAll(async () => {

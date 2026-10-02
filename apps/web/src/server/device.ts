@@ -10,11 +10,13 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { and, deviceCodes, eq, gt } from '@etb/db';
+import { and, deviceCodes, eq, gt, users } from '@etb/db';
 
-import { createKey, TooManyKeys, type Scope } from './api-keys';
+import { log } from '../lib/log';
+import { createKey, listKeys, MAX_KEYS, TooManyKeys, type Scope } from './api-keys';
 import { db } from './db';
 import { ApiError } from './problem';
+import { lockoutLeft, strike } from './rate-limit';
 
 /** What a connected panel may do (docs/06): `jobs:read jobs:write account:read`. */
 export const PANEL_SCOPES: Scope[] = ['jobs:read', 'jobs:write', 'account:read'];
@@ -96,14 +98,55 @@ export async function pendingRequest(userCode: string): Promise<ConnectRequest |
   return row ? { ...row, scopes: row.scopes as Scope[] } : null;
 }
 
-/** Approves or denies a waiting request for `userId`; false if it was gone. */
-export async function decide(userId: string, userCode: string, approve: boolean): Promise<boolean> {
-  const done = await db()
-    .update(deviceCodes)
-    .set({ status: approve ? 'approved' : 'denied', userId })
-    .where(live(userCode))
-    .returning({ id: deviceCodes.id });
-  return done.length > 0;
+/**
+ * Approves or denies a waiting request for `userId`: `gone` if no such code
+ * is waiting, `full` (and nothing changes) when approving for an account
+ * that already has its 10 keys.
+ */
+export async function decide(
+  userId: string,
+  userCode: string,
+  approve: boolean,
+): Promise<'done' | 'gone' | 'full'> {
+  return db().transaction(async (tx) => {
+    const [row] = await tx
+      .select({ id: deviceCodes.id })
+      .from(deviceCodes)
+      .where(live(userCode))
+      .for('update');
+    if (!row) return 'gone';
+    if (approve && (await listKeys(userId, tx)).length >= MAX_KEYS) return 'full';
+    await tx
+      .update(deviceCodes)
+      .set({ status: approve ? 'approved' : 'denied', userId })
+      .where(eq(deviceCodes.id, row.id));
+    return 'done';
+  });
+}
+
+/**
+ * Guessing codes (RFC 8628 §5.1): a wrong, expired or used code typed at
+ * /connect, or sent to its approve and decline, is a miss. 10 misses in 10
+ * minutes, per account and per address, and every code is refused until
+ * that window ends, the right one too.
+ */
+export const MISS_LIMIT = 10;
+export const MISS_WINDOW_SEC = 600;
+
+const missKeys = (userId: string, address: string) => [
+  `connect.miss:user:${userId}`,
+  `connect.miss:address:${address}`,
+];
+
+/** Seconds until this account at this address may try a code again; 0 if it may now. */
+export function connectLockout(userId: string, address: string, now = Date.now()): number {
+  return Math.max(...missKeys(userId, address).map((key) => lockoutLeft(key, MISS_LIMIT, now)));
+}
+
+/** Counts a miss against the account and the address; logs the account only, never the code. */
+export function connectMiss(userId: string, address: string, now = Date.now()): void {
+  for (const key of missKeys(userId, address)) strike(key, MISS_WINDOW_SEC, now);
+  log.warn({ user_ref: userId }, 'device.code_missed');
 }
 
 export interface CollectedKey {
@@ -140,6 +183,12 @@ export async function collectKey(deviceCode: string): Promise<CollectedKey> {
       await tx.update(deviceCodes).set({ lastPolledAt: now }).where(eq(deviceCodes.id, row.id));
       return { kind: soon ? 'slow' : 'pending' };
     }
+    // Approved, but the account was disabled or deleted since: no key for it.
+    const [owner] = await tx
+      .select({ disabledAt: users.disabledAt, deletedAt: users.deletedAt })
+      .from(users)
+      .where(eq(users.id, row.userId));
+    if (!owner || owner.disabledAt || owner.deletedAt) return { kind: 'denied' };
     try {
       const { key, row: made } = await createKey(
         row.userId,

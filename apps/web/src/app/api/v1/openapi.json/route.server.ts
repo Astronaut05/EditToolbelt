@@ -4,7 +4,7 @@
  */
 import { openApiDocument } from '@etb/core/api';
 
-import { preflight, route } from '../../../../server/api';
+import { preflight, publicRoute } from '../../../../server/api';
 import { serverEnv } from '../../../../server/env';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ export const OPTIONS = preflight;
 
 let made: string | undefined;
 
-export const GET = route('openapi', () => {
+export const GET = publicRoute('openapi', () => {
   made ??= JSON.stringify(openApiDocument(serverEnv().SITE_URL));
   return Promise.resolve(
     new Response(made, {

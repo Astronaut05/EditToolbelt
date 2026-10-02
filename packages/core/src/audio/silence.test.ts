@@ -5,25 +5,25 @@ import { autoThreshold, cutsCsv, findSilences, LevelScan, silenceCuts } from './
 const RATE = 48_000;
 
 /** Speech-like: a tone with pauses of near silence (-80 dBFS hiss) at known times. */
-function talk(parts: [number, boolean][]): Float32Array {
+function talk(parts: [number, boolean][], rate = RATE): Float32Array {
   const total = parts.reduce((s, [secs]) => s + secs, 0);
-  const out = new Float32Array(Math.round(total * RATE));
+  const out = new Float32Array(Math.round(total * rate));
   let at = 0;
   let seed = 1;
   for (const [secs, loud] of parts) {
-    const n = Math.round(secs * RATE);
+    const n = Math.round(secs * rate);
     for (let i = 0; i < n; i += 1) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const hiss = ((seed / 4294967296) * 2 - 1) * 1e-4;
-      out[at + i] = loud ? 0.3 * Math.sin((2 * Math.PI * 220 * (at + i)) / RATE) + hiss : hiss;
+      out[at + i] = loud ? 0.3 * Math.sin((2 * Math.PI * 220 * (at + i)) / rate) + hiss : hiss;
     }
     at += n;
   }
   return out;
 }
 
-function levels(plane: Float32Array) {
-  const scan = new LevelScan(RATE, 1);
+function levels(plane: Float32Array, rate = RATE) {
+  const scan = new LevelScan(rate, 1);
   for (let i = 0; i < plane.length; i += 1000) scan.push([plane.subarray(i, i + 1000)]);
   return scan.finish();
 }
@@ -85,6 +85,25 @@ describe('silence detection', () => {
       { start: 0, end: 0.8 },
       { start: 9.2, end: 10 },
     ]);
+  });
+
+  // 22.05 and 11.025 kHz don't split into whole 10 ms windows (220.5 and 110.25
+  // samples): the windows follow the samples' own times, so nothing drifts.
+  it.each([22_050, 11_025])('keeps time at %i Hz: a pause near the end of 10 minutes', (rate) => {
+    const plane = talk(
+      [
+        [590, true],
+        [5, false],
+        [5, true],
+      ],
+      rate,
+    );
+    const scanned = levels(plane, rate);
+    expect(scanned.length).toBe(Math.ceil((plane.length / rate) * 100));
+    const [pause, ...rest] = findSilences(scanned, -50, 0.5);
+    expect(rest).toEqual([]);
+    expect(Math.abs((pause?.start ?? 0) - 590)).toBeLessThanOrEqual(0.02);
+    expect(Math.abs((pause?.end ?? 0) - 595)).toBeLessThanOrEqual(0.02);
   });
 
   it('writes the cut list', () => {

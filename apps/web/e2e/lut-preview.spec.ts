@@ -157,3 +157,43 @@ test('a broken .cube says what is wrong and on which line', async ({ page, isMob
     page.getByRole('alert').filter({ hasText: 'Line 3: expected three numbers' }),
   ).toBeVisible();
 });
+
+test('each new result lets the last one go, and so does Start over', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the shell’s own housekeeping, the same on phones');
+  // Every result is a Blob (the input and the LUT are Files): count the URLs still open.
+  await page.addInitScript(() => {
+    const open = new Set<string>();
+    const create = URL.createObjectURL.bind(URL);
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (object: Blob | MediaSource) => {
+      const url = create(object);
+      if (object instanceof Blob && !(object instanceof File)) open.add(url);
+      return url;
+    };
+    URL.revokeObjectURL = (url: string) => {
+      open.delete(url);
+      revoke(url);
+    };
+    (window as unknown as { openResults: () => number }).openResults = () => open.size;
+  });
+  const openResults = () =>
+    page.evaluate(() => (window as unknown as { openResults: () => number }).openResults());
+  await open(
+    page,
+    false,
+    cube(5, (r, g, b) => [b, r, g]),
+  );
+  await apply(page);
+  for (const level of ['80', '60', '40']) {
+    await page.getByRole('slider', { name: 'Intensity' }).fill(level);
+    await expect(
+      page.getByText(`Test · 5³ cube applied at ${level}%`).filter({ visible: true }),
+    ).toBeVisible();
+  }
+  // Four results so far; the three replaced ones go after a second's grace.
+  await expect.poll(openResults, { timeout: 5000 }).toBe(1);
+  // The one shown still downloads.
+  expect((await download(page)).bytes.length).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Start over' }).first().click();
+  await expect.poll(openResults, { timeout: 5000 }).toBe(0);
+});

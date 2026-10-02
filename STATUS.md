@@ -79,6 +79,7 @@
 - M8: Merge Audio (beta). Drop 2 to 20 files, put them in order (arrow buttons, keyboard too), and join them back to back, with equal-power crossfades or with gaps, or mix them together, lowered just enough not to clip. Files at different rates meet at 48 kHz; the result can be normalised to −14, −16 or −23 LUFS (#63).
 - M8: LUT Preview on Image (beta). Drop a still and a .cube LUT (1D or 3D), set the intensity, and compare before and after; download the graded image. Tetrahedral interpolation, matching the LUT within 1/255; a broken .cube says what's wrong and on which line (#63).
 - Fix: a setting changed while a file is being read is no longer overwritten by what the file suggests when the read ends (Audio Channel Tools: Split picked straight after the drop) (#63).
+- CI runs the browser tests against the production image too, through a stand-in Cloudflare Access (152 pass on Chromium). The server build's search index is fresh within 30 s, as tool status is (#65).
 - Production: after every deploy, the Smoke workflow waits for the new commit on `/healthz` and checks the live site through Access; `docs/runbooks/production.md` names every setting and where it lives (#64).
 
 - M5, part 1 (in review): payments built and switched off, with the M5 review's fixes. **M5 ≈ 50 %** (payments done, off; GPU tools next).

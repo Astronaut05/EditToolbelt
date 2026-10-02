@@ -6,9 +6,19 @@
  * in storage. Compress Video's server path is switched on for this file; it
  * costs 1 credit a minute, at least 2.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
-import { and, applyCredit, creditTransactions, eq, jobs, toolFlags, uploads, users } from '@etb/db';
+import {
+  and,
+  apiKeys,
+  applyCredit,
+  creditTransactions,
+  eq,
+  jobs,
+  toolFlags,
+  uploads,
+  users,
+} from '@etb/db';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { AwsClient } from 'aws4fetch';
 
@@ -147,6 +157,35 @@ interface JobBody {
   };
 }
 
+/** An API key for `owner` with only `scopes`, straight into the database. */
+async function keyFor(owner: string, scopes: string[]): Promise<Record<string, string>> {
+  const key = `etb_live_${randomBytes(16).toString('hex')}`;
+  await db.insert(apiKeys).values({
+    userId: owner,
+    name: scopes.join(' '),
+    prefix: key.slice(0, 17),
+    hash: createHash('sha256').update(key).digest('hex'),
+    scopes,
+  });
+  return { Authorization: `Bearer ${key}` };
+}
+
+/** The job's row as the worker leaves it when it succeeds. */
+async function succeed(id: string): Promise<void> {
+  await db
+    .update(jobs)
+    .set({
+      status: 'succeeded',
+      progress: 100,
+      outputKey: `out/${randomUUID()}`,
+      outputMeta: { bytes: 15, content_type: 'video/mp4', ext: 'mp4' },
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      inputKey: null,
+    })
+    .where(eq(jobs.id, id));
+}
+
 /** Signs in a new account and waits out the 30 s flag cache for the server path. */
 async function newUser(page: Page): Promise<string> {
   const email = newEmail();
@@ -265,6 +304,24 @@ test('a job starts at the quoted price, once per Idempotency-Key, once per uploa
   expect(again.status()).toBe(200);
   expect(((await again.json()) as JobBody).job.id).toBe(job.id);
 
+  // A key is for one request: another body under it is refused.
+  const reused = await post(
+    page.request,
+    '/api/v1/jobs',
+    {
+      tool_id: 'compress-video',
+      upload_id: file.id,
+      options: { ...OPTIONS, targetMb: 12 },
+      quote_credits: 2,
+    },
+    { 'Idempotency-Key': key },
+  );
+  expect(reused.status()).toBe(422);
+  expect(await reused.json()).toMatchObject({
+    code: 'IDEMPOTENCY_KEY_REUSED',
+    type: expect.stringMatching(/\/developers#idempotency$/),
+  });
+
   const twice = await create(page.request, file.id, 2, randomUUID());
   expect(await twice.json()).toMatchObject({ code: 'CONFLICT', status: 409 });
 
@@ -347,6 +404,58 @@ test('a job quoted as a free daily job never takes credits unasked', async ({ pa
     credits_quoted: 2,
   });
   expect(await balance()).toBe(28);
+});
+
+test('an answer shows no more than the key’s scopes allow', async ({ page, request }) => {
+  const owner = await newUser(page);
+  await applyCredit(db, owner, 'welcome_grant', 10);
+  const writeOnly = await keyFor(owner, ['jobs:write']);
+  const file = await upload(owner);
+  const body = { tool_id: 'compress-video', upload_id: file.id, options: OPTIONS };
+
+  // jobs:write alone: the price, but not the balance or free jobs left.
+  const priced = await request.post('/api/v1/jobs/quote', { headers: writeOnly, data: body });
+  expect(priced.status()).toBe(200);
+  const offer = (await priced.json()) as Record<string, unknown>;
+  expect(offer).toMatchObject({ status: 'ready', credits: 2, can_start: true });
+  for (const hidden of ['balance', 'balance_after', 'free_jobs_left']) {
+    expect(offer).not.toHaveProperty(hidden);
+  }
+
+  const idempotency = randomUUID();
+  const start = (headers: Record<string, string>) =>
+    request.post('/api/v1/jobs', {
+      headers: { ...headers, 'Idempotency-Key': idempotency },
+      data: { ...body, quote_credits: 2 },
+    });
+  const created = await start(writeOnly);
+  expect(created.status()).toBe(201);
+  const { job } = (await created.json()) as JobBody;
+  await succeed(job.id);
+
+  // Repeating the start, or cancelling the finished job, answers it without its download.
+  const repeated = await start(writeOnly);
+  expect(repeated.status()).toBe(200);
+  const again = ((await repeated.json()) as JobBody).job;
+  expect(again).toMatchObject({ id: job.id, status: 'succeeded' });
+  expect(again).not.toHaveProperty('result');
+  const cancelled = await request.post(`/api/v1/jobs/${job.id}/cancel`, { headers: writeOnly });
+  expect(cancelled.status()).toBe(200);
+  const ended = ((await cancelled.json()) as JobBody).job;
+  expect(ended.status).toBe('succeeded');
+  expect(ended).not.toHaveProperty('result');
+
+  // With jobs:read, and on the website, the download is there.
+  const readWrite = await keyFor(owner, ['jobs:read', 'jobs:write']);
+  const withRead = await request.post(`/api/v1/jobs/${job.id}/cancel`, { headers: readWrite });
+  expect(((await withRead.json()) as JobBody).job.result).toMatchObject({
+    download_url: expect.stringMatching(/^https?:/),
+  });
+  const site = await post(page.request, `/api/v1/jobs/${job.id}/cancel`, {});
+  expect(((await site.json()) as JobBody).job.result).toMatchObject({ ext: 'mp4' });
+  const siteQuote = await quote(page.request, (await upload(owner)).id);
+  // The job above was one of today's free ones.
+  expect(await siteQuote.json()).toMatchObject({ balance: 10, free_jobs_left: 2 });
 });
 
 test('three free jobs a day, then credits: reserved, and released on cancel', async ({ page }) => {
@@ -528,6 +637,41 @@ test('progress streams to the page, then the result downloads', async ({ page, b
   expect(cancel.status()).toBe(404);
   await other.close();
   await storage.fetch(objectUrl(outputKey), { method: 'DELETE' });
+});
+
+test('an account gets 5 progress streams at once', async ({ page }) => {
+  const owner = await newUser(page);
+  const created = await create(page.request, (await upload(owner)).id, 2);
+  const { job } = (await created.json()) as JobBody;
+  const headers = await keyFor(owner, ['jobs:read']);
+  const open = (signal?: AbortSignal) =>
+    fetch(`${ORIGIN}/api/v1/jobs/${job.id}/events`, { headers, signal });
+
+  const leaving = Array.from({ length: 5 }, () => new AbortController());
+  const streams = await Promise.all(leaving.map((controller) => open(controller.signal)));
+  expect(streams.map((stream) => stream.status)).toEqual([200, 200, 200, 200, 200]);
+  const sixth = await open();
+  expect(sixth.status).toBe(429);
+  expect(sixth.headers.get('retry-after')).toBe('15');
+  expect(sixth.headers.get('ratelimit-remaining')).not.toBeNull();
+  expect(await sixth.json()).toMatchObject({ code: 'RATE_LIMITED' });
+
+  // One leaves; its slot comes back within a poll or two.
+  leaving[0]?.abort();
+  const next = new AbortController();
+  await expect
+    .poll(
+      async () => {
+        const answer = await open(next.signal);
+        if (answer.status !== 200) await answer.text();
+        return answer.status;
+      },
+      { timeout: 10_000, intervals: [500] },
+    )
+    .toBe(200);
+  next.abort();
+  for (const controller of leaving) controller.abort();
+  await post(page.request, `/api/v1/jobs/${job.id}/cancel`, {});
 });
 
 test('Burn Subtitles takes the subtitle file as its own upload, beside the video', async ({

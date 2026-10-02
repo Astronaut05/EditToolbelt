@@ -12,9 +12,8 @@ import { migrateForTests } from '@etb/db/testing';
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 export async function openTestDb(): Promise<{ db: Db; close: () => Promise<void> }> {
-  const url = TEST_DATABASE_URL ?? '';
-  await migrateForTests(url);
-  const made = createDb(url, { max: 10 });
+  const made = createDb(TEST_DATABASE_URL ?? '', { max: 10 });
+  await migrateForTests(made.pool);
   return { db: made.db, close: () => made.pool.end() };
 }
 

@@ -21,6 +21,7 @@ import { log } from '../lib/log';
 import type { CurrentUser } from './account';
 import { ApiError } from './problem';
 import { db } from './db';
+import { serverEnv } from './env';
 import { refreshToolFlags } from './flags';
 import {
   abortMultipart,
@@ -198,8 +199,9 @@ export async function createUpload(user: CurrentUser, input: NewUpload) {
     part_size: plan.partSize,
     part_count: plan.partCount,
     parts: await urls(upload, 1, PART_BATCH),
-    parts_url: `/api/v1/uploads/${upload.id}/parts`,
-    complete_url: `/api/v1/uploads/${upload.id}/complete`,
+    // Absolute, so they work whatever base a client joins paths to (docs/06).
+    parts_url: new URL(`/api/v1/uploads/${upload.id}/parts`, serverEnv().SITE_URL).href,
+    complete_url: new URL(`/api/v1/uploads/${upload.id}/complete`, serverEnv().SITE_URL).href,
     expires_at: upload.expiresAt.toISOString(),
   };
 }

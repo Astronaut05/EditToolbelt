@@ -12,6 +12,7 @@ ALTER TABLE "users" DROP CONSTRAINT "users_credit_balance_nonnegative";--> state
 ALTER TABLE "credit_transactions" DROP CONSTRAINT "credit_transactions_balance_after_nonnegative";--> statement-breakpoint
 ALTER TABLE "purchases" ALTER COLUMN "provider_txn_id" DROP NOT NULL;--> statement-breakpoint
 ALTER TABLE "purchases" ADD COLUMN "provider_data" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "webhook_events" ADD COLUMN "answer" text;--> statement-breakpoint
 ALTER TABLE "payment_settings" ADD CONSTRAINT "payment_settings_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_transactions_purchase_once" ON "credit_transactions" USING btree ("purchase_id") WHERE "credit_transactions"."kind" = 'purchase';--> statement-breakpoint
 CREATE UNIQUE INDEX "credit_transactions_refund_once" ON "credit_transactions" USING btree ("purchase_id","reason") WHERE "credit_transactions"."kind" = 'refund_purchase';--> statement-breakpoint

@@ -3,7 +3,7 @@
  * document is served, `/developers` lists every endpoint, and real answers
  * parse with the same schemas the document is made from.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import AxeBuilder from '@axe-core/playwright';
 import {
@@ -13,12 +13,17 @@ import {
   JobList,
   Me,
   Problem,
+  problemsOf,
+  QuoteProbing,
+  statusesOf,
   ToolDetail,
   ToolList,
   Upload,
+  UploadCancelled,
+  type Endpoint,
 } from '@etb/core/api';
-import { apiKeys, applyCredit, toolFlags, users } from '@etb/db';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { apiKeys, applyCredit, toolFlags, uploads, users } from '@etb/db';
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import type { z } from 'zod';
 
 import { closeTestDb, newEmail, setScheme, signIn, testDb } from './helpers';
@@ -50,26 +55,63 @@ async function expectShape<S extends z.ZodType>(
 }
 
 /** A key for a fresh account, straight into the database. */
-async function keyFor(email: string): Promise<string> {
+async function keyFor(email: string): Promise<{ key: string; userId: string }> {
   const [user] = await db.insert(users).values({ email, emailVerified: true }).returning();
   if (!user) throw new Error('no user');
   await applyCredit(db, user.id, 'welcome_grant', 30);
+  return {
+    key: await addKey(user.id, ['jobs:read', 'jobs:write', 'account:read']),
+    userId: user.id,
+  };
+}
+
+async function addKey(userId: string, scopes: string[]): Promise<string> {
   // 32 hex characters: letters and digits, as a key's body is.
   const key = `etb_live_${randomBytes(16).toString('hex')}`;
   await db.insert(apiKeys).values({
-    userId: user.id,
+    userId,
     name: 'contract test',
     prefix: key.slice(0, 17),
     hash: createHash('sha256').update(key).digest('hex'),
-    scopes: ['jobs:read', 'jobs:write', 'account:read'],
+    scopes,
   });
   return key;
+}
+
+/** The documented endpoint a request went to, by method and path. */
+function endpointFor(method: string, url: string): Endpoint {
+  const path = new URL(url).pathname.replace(/^\/api\/v1/, '');
+  const found = ENDPOINTS.find(
+    (endpoint) =>
+      endpoint.method === method &&
+      new RegExp(`^${endpoint.path.replace(/\{\w+\}/g, '[^/]+')}$`).test(path),
+  );
+  if (!found) throw new Error(`${method} ${path} is not in the document`);
+  return found;
+}
+
+/**
+ * An answer as the document says it can be: a status the route documents, a
+ * problem's code listed under that status, and the `RateLimit-*` headers.
+ */
+async function expectDocumented(method: string, answer: APIResponse): Promise<void> {
+  const endpoint = endpointFor(method, answer.url());
+  const where = `${method.toUpperCase()} ${endpoint.path} → ${String(answer.status())}`;
+  expect(statusesOf(endpoint), where).toContain(answer.status());
+  if (answer.status() >= 400) {
+    const { code } = (await answer.json()) as { code?: string };
+    expect(problemsOf(endpoint)[answer.status()], where).toContain(code);
+  }
+  for (const header of ['ratelimit-limit', 'ratelimit-remaining', 'ratelimit-reset']) {
+    expect(answer.headers()[header], `${where}: ${header}`).toMatch(/^\d+$/);
+  }
 }
 
 test('the OpenAPI document is served and names this server', async ({ request }) => {
   const answer = await request.get('/api/v1/openapi.json');
   expect(answer.status()).toBe(200);
   expect(answer.headers()['access-control-allow-origin']).toBe('*');
+  expect(answer.headers()['ratelimit-remaining']).toMatch(/^\d+$/);
   const doc = (await answer.json()) as {
     openapi: string;
     servers: { url: string }[];
@@ -80,52 +122,119 @@ test('the OpenAPI document is served and names this server', async ({ request })
   expect(Object.keys(doc.paths)).toEqual(expect.arrayContaining(['/jobs', '/uploads']));
 });
 
-test('answers match the schemas the document is made from', async ({ request }) => {
-  const tools = await expectShape(await request.get('/api/v1/tools'), ToolList);
+test('answers match the schemas, and their statuses the document', async ({ request }) => {
+  // Every answer below is checked against the document at the end.
+  const seen: [string, APIResponse][] = [];
+  const call = async (
+    method: 'get' | 'post' | 'delete',
+    path: string,
+    options: Parameters<APIRequestContext['fetch']>[1] = {},
+  ) => {
+    const answer = await request.fetch(path, { ...options, method: method.toUpperCase() });
+    seen.push([method, answer]);
+    return answer;
+  };
+
+  const tools = await expectShape(await call('get', '/api/v1/tools'), ToolList);
   expect(tools.tools.find((tool) => tool.id === 'compress-video')?.server).toBe(true);
   expect(tools.tools.find((tool) => tool.id === 'trim-video')?.server).toBe(false);
+  expect((await call('get', '/api/v1/tools?surface=nope')).status()).toBe(400);
 
-  const compress = await expectShape(await request.get('/api/v1/tools/compress-video'), ToolDetail);
+  const compress = await expectShape(await call('get', '/api/v1/tools/compress-video'), ToolDetail);
   expect(compress.options).toMatchObject({
     type: 'object',
     properties: { mode: { enum: ['size', 'quality'] }, codec: expect.any(Object) as unknown },
   });
-  const burn = await expectShape(await request.get('/api/v1/tools/burn-subtitles'), ToolDetail);
+  const burn = await expectShape(await call('get', '/api/v1/tools/burn-subtitles'), ToolDetail);
   expect(burn.extra_uploads).toEqual(['subtitles']);
-  const browserOnly = await expectShape(await request.get('/api/v1/tools/trim-video'), ToolDetail);
+  const browserOnly = await expectShape(await call('get', '/api/v1/tools/trim-video'), ToolDetail);
   expect(browserOnly.options).toBeNull();
-  const missing = await request.get('/api/v1/tools/no-such-tool');
+  const missing = await call('get', '/api/v1/tools/no-such-tool');
   expect(missing.status()).toBe(404);
   await expectShape(missing, Problem);
 
-  const key = await keyFor(newEmail());
+  const { key, userId } = await keyFor(newEmail());
   const headers = { Authorization: `Bearer ${key}` };
-  const me = await expectShape(await request.get('/api/v1/me', { headers }), Me);
+  const me = await expectShape(await call('get', '/api/v1/me', { headers }), Me);
   expect(me.credit_balance).toBe(30);
   const credits = await expectShape(
-    await request.get('/api/v1/me/credits', { headers }),
+    await call('get', '/api/v1/me/credits', { headers }),
     CreditList,
   );
   expect(credits.entries).toEqual([
     expect.objectContaining({ kind: 'welcome_grant', amount: 30, balance_after: 30 }),
   ]);
   expect(credits.next_cursor).toBeNull();
-  expect((await request.get('/api/v1/me/credits?cursor=nope', { headers })).status()).toBe(400);
+  expect((await call('get', '/api/v1/me/credits?cursor=nope', { headers })).status()).toBe(400);
 
-  const upload = await request.post('/api/v1/uploads', {
+  const upload = await call('post', '/api/v1/uploads', {
     headers,
     data: { tool_id: 'compress-video', bytes: 20_000_000, mime: 'video/mp4' },
   });
   expect(upload.status()).toBe(201);
   const started = await expectShape(upload, Upload);
   expect(started.parts).toHaveLength(started.part_count);
-  await expectShape(await request.get('/api/v1/jobs', { headers }), JobList);
+  // Absolute, whatever base a client joins paths to.
+  expect(started.complete_url).toBe(
+    new URL(`/api/v1/uploads/${started.upload_id}/complete`, upload.url()).href,
+  );
+  expect(started.parts_url).toBe(
+    new URL(`/api/v1/uploads/${started.upload_id}/parts`, upload.url()).href,
+  );
+  await expectShape(await call('get', '/api/v1/jobs', { headers }), JobList);
 
-  await expectShape(await request.post('/api/v1/auth/device', { data: {} }), DeviceCode);
+  // Not finished yet, so no price; then given up.
+  const early = await call('post', '/api/v1/jobs/quote', {
+    headers,
+    data: { tool_id: 'compress-video', upload_id: started.upload_id },
+  });
+  expect(early.status()).toBe(409);
+  const cancelled = await call('delete', `/api/v1/uploads/${started.upload_id}`, { headers });
+  expect(cancelled.status()).toBe(200);
+  expect(await expectShape(cancelled, UploadCancelled)).toEqual({ status: 'cancelled' });
+
+  // A finished upload the worker hasn't checked yet: 202 until it has.
+  const [unprobed] = await db
+    .insert(uploads)
+    .values({
+      userId,
+      storageKey: `in/${randomUUID()}`,
+      bytes: 18,
+      mimeClaimed: 'video/mp4',
+      toolId: 'compress-video',
+      partSize: 8 * 1024 * 1024,
+      partCount: 1,
+      expiresAt: new Date(Date.now() + 3_600_000),
+      completedAt: new Date(),
+    })
+    .returning({ id: uploads.id });
+  const probing = await call('post', '/api/v1/jobs/quote', {
+    headers,
+    data: {
+      tool_id: 'compress-video',
+      upload_id: unprobed?.id,
+      options: { mode: 'size', targetMb: 10 },
+    },
+  });
+  expect(probing.status()).toBe(202);
+  await expectShape(probing, QuoteProbing);
+
+  // A key without the scope, and a wrong key.
+  const jobsOnly = { Authorization: `Bearer ${await addKey(userId, ['jobs:read'])}` };
+  expect((await call('get', '/api/v1/me', { headers: jobsOnly })).status()).toBe(403);
   await expectShape(
-    await request.get('/api/v1/me', { headers: { Authorization: 'Bearer x' } }),
+    await call('get', '/api/v1/me', { headers: { Authorization: 'Bearer x' } }),
     Problem,
   );
+
+  await expectShape(await call('post', '/api/v1/auth/device', { data: {} }), DeviceCode);
+  const unknownCode = await call('post', '/api/v1/auth/device/token', {
+    data: { device_code: 'x'.repeat(43) },
+  });
+  expect(await unknownCode.json()).toMatchObject({ code: 'EXPIRED_TOKEN' });
+
+  expect(seen.length).toBeGreaterThan(15);
+  for (const [method, answer] of seen) await expectDocumented(method, answer);
 });
 
 test('/developers lists every endpoint and passes axe', async ({ page }) => {
