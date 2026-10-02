@@ -12,8 +12,8 @@ export interface SegmentModel {
   label: string;
   /** Path under MODELS_BASE_URL. */
   file: string;
-  /** Pinned from a trusted download; null until then (the browser skips its check). */
-  sha256: string | null;
+  /** Pinned from a trusted download; `pnpm models` and the browser both check it. */
+  sha256: string;
   /** Download size, for the first-use progress. */
   bytes: number;
   /** Square input side in px. */
@@ -36,7 +36,8 @@ export const SEGMENT_MODELS: Record<SegmentModel['id'], SegmentModel> = {
     id: 'birefnet-lite',
     label: 'Quality · 115 MB',
     file: 'rmbg/birefnet-lite-fp16.onnx',
-    sha256: null,
+    // As CI downloaded it from models.json's source (114.5 MB), 2026-10-02.
+    sha256: 'd39b897ceb16ae654c1731f3dba0cf9b368d9cae74b5a57459b455cc8bfec402',
     bytes: 115_000_000,
     size: 1024,
     ...IMAGENET,
