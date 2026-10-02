@@ -257,6 +257,62 @@ describe('Click, played by the simulator', () => {
     expect(complete?.answer).toMatchObject({ error: -7, error_note: 'Failed to update user' });
   });
 
+  it('pays a retry after a failed Complete, and answers its repeated Complete with 0', async () => {
+    // The review's case: Complete A fails (-7, Click reverses A); the buyer
+    // pays again as B; Click re-sends Complete B because our answer was lost.
+    class FailsOnce extends MemoryPurchaseStore {
+      failed = false;
+      override complete(
+        id: string,
+        data?: Record<string, unknown>,
+        providerTxnId?: string,
+      ): Promise<PurchaseRecord> {
+        if (!this.failed) {
+          this.failed = true;
+          return Promise.reject(new Error('database is down'));
+        }
+        return super.complete(id, data, providerTxnId);
+      }
+    }
+    const { store, sim, purchase } = setup(new FailsOnce());
+    const first = await sim.pay(purchase.id, STARTER);
+    expect(first.complete?.answer.error).toBe(CLICK_ERRORS.FAILED_TO_UPDATE);
+    // Nothing half-done: no transaction id, no credits.
+    expect(store.peek(purchase.id)).toMatchObject({ status: 'pending', providerTxnId: null });
+
+    const retry = await sim.pay(purchase.id, STARTER);
+    expect(retry.complete?.answer.error).toBe(0);
+    const resent = await sim.complete({
+      merchantTransId: purchase.id,
+      amount: STARTER,
+      clickTransId: retry.clickTransId,
+      merchantPrepareId: retry.prepare.answer.merchant_prepare_id,
+    });
+    expect(resent.answer).toEqual(retry.complete?.answer);
+    expect(store.peek(purchase.id)).toMatchObject({
+      status: 'completed',
+      providerTxnId: retry.clickTransId,
+    });
+    expect(store.balance()).toBe(200);
+  });
+
+  it('replaces a pending purchase’s stale transaction id with the one that pays', async () => {
+    const { store, sim, purchase } = setup();
+    // An earlier attempt left its id on the purchase (as the old attach-then-complete could).
+    await store.attach(purchase.id, sim.newTransId());
+    const { complete, clickTransId, prepare } = await sim.pay(purchase.id, STARTER);
+    expect(complete?.answer.error).toBe(0);
+    expect(store.peek(purchase.id).providerTxnId).toBe(clickTransId);
+    const resent = await sim.complete({
+      merchantTransId: purchase.id,
+      amount: STARTER,
+      clickTransId,
+      merchantPrepareId: prepare.answer.merchant_prepare_id,
+    });
+    expect(resent.answer.error).toBe(0);
+    expect(store.ledgerFor(purchase.id)).toHaveLength(1);
+  });
+
   it('answers -8 to a request missing fields, with malformed ones, or for another service', async () => {
     const { store, sim, purchase } = setup();
     const noSign = await sim.prepare({

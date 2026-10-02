@@ -119,6 +119,26 @@ describe.skipIf(!TEST_DATABASE_URL)('PurchaseStore', () => {
     expect(await balanceOf(db, userId)).toBe(700);
   });
 
+  it('sets the paying transaction id as it completes, replacing a pending one’s stale id', async () => {
+    const userId = await newUser(db);
+    const id = await newPurchase(db, userId, { provider: 'click' });
+    const stale = `stale-${randomUUID()}`;
+    const paying = `paying-${randomUUID()}`;
+    await store.attach(id, stale);
+    const done = await store.complete(id, { confirmedAt: 'now' }, paying);
+    expect(done).toMatchObject({ status: 'completed', providerTxnId: paying });
+    expect(await store.byProviderTxn('click', stale)).toBeNull();
+    // Completed: a repeat comes back unchanged, whatever id it names.
+    expect((await store.complete(id, {}, 'another')).providerTxnId).toBe(paying);
+    expect(await rowsFor(id)).toHaveLength(1);
+    // Another purchase's id is refused, and nothing changes.
+    const other = await newPurchase(db, userId, { provider: 'click' });
+    expect(await code(store.complete(other, {}, paying))).toBe('TXN_TAKEN');
+    expect((await store.get(other))?.status).toBe('pending');
+    expect(await rowsFor(other)).toHaveLength(0);
+    expect(await code(store.complete(other, {}, ''))).toBe('TXN_MISMATCH');
+  });
+
   it('joins a caller’s transaction, and rolls back with it', async () => {
     const userId = await newUser(db);
     const id = await newPurchase(db, userId);

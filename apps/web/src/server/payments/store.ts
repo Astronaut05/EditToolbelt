@@ -82,6 +82,12 @@ function pgCode(error: unknown): string | undefined {
   return undefined;
 }
 
+/** Another purchase of this provider already has the transaction id we tried to set. */
+const txnTaken = (error: unknown) =>
+  pgCode(error) === '23505'
+    ? new PurchaseError('TXN_TAKEN', 'Another purchase has this provider transaction')
+    : error;
+
 const merge = (data: Record<string, unknown> | undefined) =>
   sql`${purchases.providerData} || ${JSON.stringify(data ?? {})}::jsonb`;
 
@@ -160,10 +166,7 @@ export function createPurchaseStore(db: Queryable): PurchaseStore {
           return toRecord(await update(tx, id, { providerTxnId }, data));
         });
       } catch (error) {
-        if (pgCode(error) === '23505') {
-          throw new PurchaseError('TXN_TAKEN', 'Another purchase has this provider transaction');
-        }
-        throw error;
+        throw txnTaken(error);
       }
     },
 
@@ -174,29 +177,43 @@ export function createPurchaseStore(db: Queryable): PurchaseStore {
       });
     },
 
-    async complete(id, data) {
-      return db.transaction(async (tx) => {
-        const row = await locked(tx, id);
-        if (row.status === 'completed') return toRecord(row);
-        if (row.status !== 'pending') {
-          throw new PurchaseError('WRONG_STATE', `A ${row.status} purchase can't be completed`);
-        }
-        const done = await update(tx, id, { status: 'completed' }, data);
-        const entry = await applyCredit(tx, row.userId, 'purchase', row.credits, {
-          purchaseId: row.id,
+    async complete(id, data, providerTxnId) {
+      if (providerTxnId === '')
+        throw new PurchaseError('TXN_MISMATCH', 'Empty provider transaction id');
+      try {
+        return await db.transaction(async (tx) => {
+          const row = await locked(tx, id);
+          if (row.status === 'completed') return toRecord(row);
+          if (row.status !== 'pending') {
+            throw new PurchaseError('WRONG_STATE', `A ${row.status} purchase can't be completed`);
+          }
+          // A pending purchase's earlier transaction id never paid: the paying one replaces it.
+          const done = await update(
+            tx,
+            id,
+            providerTxnId === undefined
+              ? { status: 'completed' }
+              : { status: 'completed', providerTxnId },
+            data,
+          );
+          const entry = await applyCredit(tx, row.userId, 'purchase', row.credits, {
+            purchaseId: row.id,
+          });
+          log.info(
+            {
+              purchase_id: row.id,
+              provider: row.provider,
+              credits: row.credits,
+              user_ref: row.userId,
+              balance_after: entry.balanceAfter,
+            },
+            'purchase.completed',
+          );
+          return toRecord(done);
         });
-        log.info(
-          {
-            purchase_id: row.id,
-            provider: row.provider,
-            credits: row.credits,
-            user_ref: row.userId,
-            balance_after: entry.balanceAfter,
-          },
-          'purchase.completed',
-        );
-        return toRecord(done);
-      });
+      } catch (error) {
+        throw txnTaken(error);
+      }
     },
 
     async cancel(id, data) {

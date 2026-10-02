@@ -56,10 +56,18 @@ export interface PurchaseStore {
   updateData(id: string, data: Record<string, unknown>): Promise<PurchaseRecord>;
   /**
    * pending → completed, with the `purchase` ledger row, in one transaction.
-   * Idempotent: a completed purchase comes back unchanged, with no second row.
-   * Throws on a cancelled or refunded purchase.
+   * With `providerTxnId`, the provider's transaction id is set in the same
+   * transaction, replacing an earlier attempt's id while the purchase is
+   * still pending (that attempt never paid); another purchase's id is an error.
+   * Idempotent: a completed purchase comes back unchanged, with no second row
+   * (the caller compares its providerTxnId). Throws on a cancelled or
+   * refunded purchase.
    */
-  complete(id: string, data?: Record<string, unknown>): Promise<PurchaseRecord>;
+  complete(
+    id: string,
+    data?: Record<string, unknown>,
+    providerTxnId?: string,
+  ): Promise<PurchaseRecord>;
   /** pending → cancelled. No ledger row. Idempotent. Throws on a completed purchase. */
   cancel(id: string, data?: Record<string, unknown>): Promise<PurchaseRecord>;
   /**

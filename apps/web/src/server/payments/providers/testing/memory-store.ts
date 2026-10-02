@@ -6,8 +6,10 @@
  * - attach sets the provider's transaction id once; the same id again only
  *   merges data, a different one throws, and one provider transaction id
  *   belongs to one purchase.
- * - complete: pending → completed with one `purchase` ledger row; a completed
- *   purchase comes back unchanged; cancelled or refunded throws.
+ * - complete: pending → completed with one `purchase` ledger row, setting the
+ *   provider's transaction id when given (replacing a pending purchase's
+ *   earlier one); a completed purchase comes back unchanged; cancelled or
+ *   refunded throws.
  * - cancel: pending → cancelled, no ledger row; idempotent; completed throws.
  * - refund: completed or partially refunded → partially_refunded, refunded or
  *   chargeback with a `refund_purchase` row of −credits; idempotent per
@@ -129,14 +131,7 @@ export class MemoryPurchaseStore implements PurchaseStore {
       const record = this.require(id);
       if (record.providerTxnId !== null && record.providerTxnId !== providerTxnId)
         throw new Error('The purchase already has another provider transaction');
-      for (const other of this.purchases.values()) {
-        if (
-          other.id !== id &&
-          other.provider === record.provider &&
-          other.providerTxnId === providerTxnId
-        )
-          throw new Error('That provider transaction belongs to another purchase');
-      }
+      this.assertTxnFree(record, providerTxnId);
       record.providerTxnId = providerTxnId;
       record.providerData = { ...record.providerData, ...structuredClone(data) };
       return record;
@@ -151,12 +146,21 @@ export class MemoryPurchaseStore implements PurchaseStore {
     });
   }
 
-  complete(id: string, data: Record<string, unknown> = {}): Promise<PurchaseRecord> {
+  complete(
+    id: string,
+    data: Record<string, unknown> = {},
+    providerTxnId?: string,
+  ): Promise<PurchaseRecord> {
     return this.run(() => {
       const record = this.require(id);
       if (record.status === 'completed') return record;
       if (record.status !== 'pending')
         throw new Error(`Cannot complete a ${record.status} purchase`);
+      if (providerTxnId !== undefined) {
+        if (providerTxnId === '') throw new Error('Empty provider transaction id');
+        this.assertTxnFree(record, providerTxnId);
+        record.providerTxnId = providerTxnId;
+      }
       record.status = 'completed';
       record.providerData = { ...record.providerData, ...structuredClone(data) };
       this.ledger.push({
@@ -260,6 +264,18 @@ export class MemoryPurchaseStore implements PurchaseStore {
     event.processed = true;
     event.error = error ?? null;
     return Promise.resolve();
+  }
+
+  /** One provider transaction id belongs to one purchase. */
+  private assertTxnFree(record: PurchaseRecord, providerTxnId: string): void {
+    for (const other of this.purchases.values()) {
+      if (
+        other.id !== record.id &&
+        other.provider === record.provider &&
+        other.providerTxnId === providerTxnId
+      )
+        throw new Error('That provider transaction belongs to another purchase');
+    }
   }
 
   private require(id: string): PurchaseRecord {

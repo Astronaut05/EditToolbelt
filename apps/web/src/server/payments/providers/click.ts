@@ -250,13 +250,21 @@ async function complete(
     return answer(CLICK_ERRORS.TRANSACTION_CANCELLED, ids);
   }
 
+  // The Click transaction becomes the purchase's in the same store call that
+  // credits it: a failure leaves neither, and a pending purchase's earlier
+  // attempt (one Click reversed) gives way to this one.
+  let done: PurchaseRecord;
   try {
-    if (purchase.providerTxnId === null)
-      await ctx.store.attach(purchase.id, request.click_trans_id);
-    await ctx.store.complete(purchase.id, { confirmedAt: ctx.now().toISOString() });
+    done = await ctx.store.complete(
+      purchase.id,
+      { confirmedAt: ctx.now().toISOString() },
+      request.click_trans_id,
+    );
   } catch {
     return answer(CLICK_ERRORS.FAILED_TO_UPDATE, ids);
   }
+  // Another Click payment completed the order between our read and this call: Click reverses this one.
+  if (done.providerTxnId !== request.click_trans_id) return answer(CLICK_ERRORS.ALREADY_PAID, ids);
   return answer(CLICK_ERRORS.SUCCESS, { ...ids, merchant_confirm_id: state.prepareId });
 }
 
