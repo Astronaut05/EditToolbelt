@@ -6,6 +6,13 @@ output under a random key → mark the job. Whatever happens, the ``finally``
 deletes the temp dir and the input object: inputs live exactly as long as
 their job. Only a worker that dies mid-job leaves the input, so the reaper
 can hand the job to another worker.
+
+GPU jobs (remote processors) skip the download and upload: the GPU function
+reads the input and writes the output through presigned URLs. They run in
+their own slots (``pool="gpu"``, WORKER_GPU_SLOTS), which claim only GPU
+jobs, so a call waiting on Modal never holds up probing or the CPU tools;
+CPU slots claim only CPU jobs. A GPU call's time goes on the job as it ends,
+and GPU claims stop while today's GPU budget is spent (gpu/budget.py).
 """
 
 from __future__ import annotations
@@ -17,14 +24,23 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 
 from etb_worker import jobqueue
 from etb_worker.db import Conn
+from etb_worker.gpu.backend import GpuBackend
 from etb_worker.logs import get_logger
-from etb_worker.processors import PROCESSORS, JobContext, JobFailed, Processor
+from etb_worker.processors import (
+    PROCESSORS,
+    GpuUsage,
+    JobContext,
+    JobFailed,
+    Output,
+    Processor,
+    is_remote,
+)
 from etb_worker.sandbox import Limits, ToolError
 from etb_worker.storage import Storage, StorageError
 
@@ -73,9 +89,9 @@ class _Heartbeat(threading.Thread):
 
 
 class JobRunner:
-    """One job slot: claims and runs jobs one at a time."""
+    """One job slot: claims and runs jobs of its pool, CPU or GPU, one at a time."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - keyword-only after the two it always needs
         self,
         storage: Storage,
         connect: Callable[[], Conn],
@@ -83,19 +99,28 @@ class JobRunner:
         processors: dict[str, Processor] | None = None,
         worker_id: str | None = None,
         heartbeat_sec: float = jobqueue.HEARTBEAT_SEC,
+        gpu: GpuBackend | None = None,
+        pool: Literal["cpu", "gpu"] = "cpu",
     ) -> None:
         self.storage = storage
         self.connect = connect
         self.processors = PROCESSORS if processors is None else processors
+        #: GPU_BACKEND's backend; None: GPU jobs fail at once with their credits back.
+        self.gpu = gpu
+        #: Which jobs this slot claims: CPU jobs, or GPU jobs (under the daily budget).
+        self.pool = pool
         self.worker_id = worker_id or f"{socket.gethostname()}:{threading.get_ident()}"
         self.heartbeat_sec = heartbeat_sec
         self.stopping = threading.Event()
         self._current: threading.Event | None = None
 
     def run_next(self) -> bool:
-        """Claims and runs one job; False when the queue is empty."""
+        """Claims and runs one job of this slot's pool; False when there's none to start."""
         with self.connect() as conn:
-            job = jobqueue.claim(conn, self.worker_id)
+            if self.pool == "gpu":
+                job = jobqueue.claim_gpu(conn, self.worker_id)
+            else:
+                job = jobqueue.claim(conn, self.worker_id)
         if job is None:
             return False
         self.run(job)
@@ -119,6 +144,8 @@ class JobRunner:
         beat.start()
         requeued = False
         try:
+            self._settle_stale_call(job)
+            self._drop_stale_output(job)
             output_key, output_meta = self._process(job, workdir, cancel, progress)
             with self.connect() as conn:
                 done = jobqueue.succeed(conn, job, self.worker_id, output_key, output_meta)
@@ -158,12 +185,15 @@ class JobRunner:
         if not job.get("input_key"):
             raise JobFailed("NOT_FOUND", "the input is gone")
         input_path = workdir / "input"
-        progress.set(0, "downloading")
-        self.storage.download(str(job["input_key"]), input_path)
+        remote = is_remote(processor)
         extras = []
-        for index, key in enumerate(job.get("extra_input_keys") or []):
-            extras.append(workdir / f"extra-{index}")
-            self.storage.download(str(key), extras[-1])
+        if not remote:
+            progress.set(0, "downloading")
+            self.storage.download(str(job["input_key"]), input_path)
+            for index, key in enumerate(job.get("extra_input_keys") or []):
+                extras.append(workdir / f"extra-{index}")
+                self.storage.download(str(key), extras[-1])
+        job_id = str(job["id"])
         ctx = JobContext(
             job_id=str(job["id"]),
             tool_id=str(job["tool_id"]),
@@ -175,14 +205,20 @@ class JobRunner:
             cancel=cancel,
             progress=progress.set,
             extra_paths=extras,
+            input_key=str(job["input_key"]),
+            storage=self.storage if remote else None,
+            gpu=self.gpu if remote else None,
+            record_gpu=lambda usage: self._record_gpu(job_id, usage),
+            start_call=lambda key, expires: self._start_call(job_id, key, expires),
+            call_spawned=lambda call_id: self._call_spawned(job_id, call_id),
         )
         progress.set(0, "processing")
         output = processor.run(ctx)
         if cancel.is_set():
+            if output.key:
+                self.storage.delete(output.key)
             raise ToolError("CANCELLED", "cancelled")
-        progress.set(99, "uploading")
-        size = output.path.stat().st_size
-        key = self.storage.upload(output.path, output.content_type)
+        key, size = self._store(output, progress)
         meta = {
             **output.meta,
             "bytes": size,
@@ -190,6 +226,67 @@ class JobRunner:
             "ext": output.ext,
         }
         return key, meta
+
+    def _store(self, output: Output, progress: _Progress) -> tuple[str, int]:
+        """The output's key and size: stored already by a GPU function, or uploaded now."""
+        if output.key is not None:
+            return output.key, int(output.bytes or 0)
+        if output.path is None:
+            raise JobFailed("INTERNAL", "the tool made no output")
+        progress.set(99, "uploading")
+        size = output.path.stat().st_size
+        return self.storage.upload(output.path, output.content_type), size
+
+    def _record_gpu(self, job_id: str, usage: GpuUsage) -> None:
+        log = get_logger(job_id=job_id)
+        try:
+            with self.connect() as conn:
+                recorded = jobqueue.record_gpu(
+                    conn, job_id, self.worker_id, usage.gpu_seconds, usage.billed_seconds
+                )
+        except psycopg.Error:
+            # Left in flight on the job: the reaper (or the next attempt) settles it later.
+            log.exception("job.gpu_not_recorded", gpu_seconds=round(usage.gpu_seconds, 1))
+            return
+        if not recorded:
+            log.info("job.gpu_settled_elsewhere", gpu_seconds=round(usage.gpu_seconds, 1))
+            return
+        log.info("job.gpu_used", gpu_seconds=round(usage.gpu_seconds, 1))
+
+    def _start_call(self, job_id: str, key: str, expires_sec: int) -> bool:
+        with self.connect() as conn:
+            return jobqueue.start_gpu_call(conn, job_id, self.worker_id, key, expires_sec)
+
+    def _call_spawned(self, job_id: str, call_id: str) -> None:
+        try:
+            with self.connect() as conn:
+                jobqueue.gpu_call_spawned(conn, job_id, self.worker_id, call_id)
+        except psycopg.Error:
+            # If this worker now dies, its call runs on to its timeout: say so loudly.
+            get_logger(job_id=job_id).exception("job.gpu_call_id_not_recorded")
+
+    def _settle_stale_call(self, job: jobqueue.Job) -> None:
+        """A call an earlier attempt left in flight and nobody settled: record it, cancel it."""
+        if job.get("gpu_call_at") is None:
+            return
+        with self.connect() as conn:
+            with conn.transaction():
+                stale = jobqueue.settle_call(conn, str(job["id"]))
+            if stale is not None:
+                cancel = self.gpu.cancel if self.gpu is not None else None
+                jobqueue.cancel_stale_call(conn, cancel, stale)
+
+    def _drop_stale_output(self, job: jobqueue.Job) -> None:
+        """A key an earlier attempt's GPU call wrote to (that worker died): delete it first."""
+        stale = job.get("output_key")
+        if not stale:
+            return
+        self.storage.delete(str(stale))
+        with self.connect() as conn:
+            conn.execute(
+                "update jobs set output_key = null where id = %s and output_key = %s",
+                (job["id"], stale),
+            )
 
     def _fail(self, job: jobqueue.Job, code: str, detail: str) -> None:
         log = get_logger(job_id=str(job["id"]), tool_id=job["tool_id"])

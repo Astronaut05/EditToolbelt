@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { MIN_PACK_PRICE_USD, creditNetUsd, packNetUsdPerCredit, packs } from './business';
+import {
+  MIN_PACK_PRICE_USD,
+  creditNetUsd,
+  gpuRateUsd,
+  packNetUsdPerCredit,
+  packs,
+} from './business';
 
 describe('credit packs', () => {
   it('never go below the minimum pack price', () => {
@@ -35,5 +41,15 @@ describe('creditNetUsd', () => {
   it('is taken from the pack that is worst for us, not the list price', () => {
     expect(creditNetUsd).toBeCloseTo(0.0154, 4);
     expect(creditNetUsd).toBe(Math.min(...packs.map(packNetUsdPerCredit)));
+  });
+});
+
+describe('gpuRateUsd', () => {
+  it('prices a GPU function by the second: its GPU, 2 cores and 8 GiB', () => {
+    // T4 $0.000164 + 2 × $0.0000131 + 8 × $0.00000222
+    expect(gpuRateUsd('T4')).toBeCloseTo(0.00020796, 8);
+    expect(gpuRateUsd('L4')).toBeCloseTo(0.00026596, 8);
+    // About 75 ¢ and 96 ¢ an hour.
+    expect(gpuRateUsd('L4') * 3600).toBeCloseTo(0.957, 2);
   });
 });

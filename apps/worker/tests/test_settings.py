@@ -114,3 +114,62 @@ def test_alert_email_needs_smtp(clean_env: pytest.MonkeyPatch) -> None:
         )
         == []
     )
+
+
+def _base(env: pytest.MonkeyPatch) -> None:
+    for name, value in VALID_ENV.items():
+        env.setenv(name, value)
+
+
+def test_gpu_tools_are_off_by_default(clean_env: pytest.MonkeyPatch) -> None:
+    _base(clean_env)
+    settings = Settings()
+    assert settings.gpu_backend is None
+    assert settings.modal_token_id is None
+
+
+def test_modal_needs_its_token(clean_env: pytest.MonkeyPatch) -> None:
+    _base(clean_env)
+    clean_env.setenv("GPU_BACKEND", "modal")
+    # No token: the worker still starts (its CPU tools work), with the GPU tools off.
+    assert not Settings().gpu_ready
+    clean_env.setenv("MODAL_TOKEN_ID", "ak-test")
+    with pytest.raises(ValidationError) as caught:
+        Settings()  # half a token is a mistake
+    assert format_errors(caught.value) == [
+        "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET: set both, or neither"
+    ]
+    clean_env.setenv("MODAL_TOKEN_SECRET", "as-test-secret")
+    settings = Settings()
+    assert settings.gpu_backend == "modal"
+    assert settings.gpu_ready
+    assert "as-test-secret" not in repr(settings)
+
+
+def test_local_gpu_is_refused_in_production(clean_env: pytest.MonkeyPatch) -> None:
+    _base(clean_env)
+    clean_env.setenv("GPU_BACKEND", "local")
+    assert Settings().gpu_backend == "local"
+    clean_env.setenv("APP_ENV", "production")
+    with pytest.raises(ValidationError):
+        Settings()
+    clean_env.setenv("GPU_BACKEND", "cuda")
+    clean_env.setenv("APP_ENV", "local")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_gpu_jobs_get_their_own_slots(clean_env: pytest.MonkeyPatch) -> None:
+    for name, value in VALID_ENV.items():
+        clean_env.setenv(name, value)
+    defaults = Settings()
+    assert (defaults.worker_slots, defaults.worker_gpu_slots) == (1, 2)
+    clean_env.setenv("WORKER_GPU_SLOTS", "0")  # a worker that takes no GPU jobs
+    assert Settings().worker_gpu_slots == 0
+    clean_env.setenv("WORKER_GPU_SLOTS", "4")
+    assert Settings().worker_gpu_slots == 4
+    for bad in ("-1", "17", "two"):
+        clean_env.setenv("WORKER_GPU_SLOTS", bad)
+        with pytest.raises(ValidationError) as caught:
+            Settings()
+        assert format_errors(caught.value)[0].startswith("WORKER_GPU_SLOTS: ")
