@@ -2,6 +2,7 @@
 
 import { MEDIA_META } from '@etb/engines';
 import {
+  TempoTools,
   ToolShell,
   type ProbeInfo,
   type ShellOption,
@@ -62,7 +63,7 @@ const PRESET: ShellPreset = {
   outputExt: (options) => options.markers ?? 'csv',
   outputSuffix: 'beats',
   resultTitle: 'Tempo and key',
-  tempo: true,
+  tempo: <TempoTools />,
 };
 
 /** A03 BPM & Key Finder (tools/audio.md). */

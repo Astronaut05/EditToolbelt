@@ -73,6 +73,7 @@ export type { FaceFinder } from './tool/BlurLayer';
 export { NO_EDIT, type Edit } from './tool/crop';
 export { CropFields } from './tool/CropFields';
 export { DropZone, type DropZoneProps } from './tool/DropZone';
+export { TempoTools } from './tool/TempoTools';
 export { FactGrid, type GridFact } from './tool/FactGrid';
 export { FactList, type ListFact } from './tool/FactList';
 export {
