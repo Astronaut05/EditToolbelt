@@ -13,11 +13,12 @@
 import { EncodedPacketSink, VideoSample, VideoSampleSink, type InputVideoTrack } from 'mediabunny';
 
 import { EngineAbortError } from '../dummy';
-import { shownFor } from './held';
+import { even, shownFor } from './held';
 import { MediaInputError } from './media';
 
-/** A side rounded to even: H.264 and HEVC encoders refuse odd sizes (1437 × 899 is drawn at 1438 × 900). */
-export const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+// A side rounded to even (`even`, shared with Merge Videos and Video Speed):
+// H.264 and HEVC encoders refuse odd sizes (1437 × 899 is drawn at 1438 × 900).
+export { even };
 
 /** The size a clip is encoded at again: its display size, rotation applied, each side even. */
 export async function encoderSize(
