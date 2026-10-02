@@ -220,3 +220,26 @@ test('renames a folder’s files where they are, and undoes it', async ({
     '3.txt=was 3.txt',
   ]);
 });
+
+test('files over 2 GB in all can’t go in a ZIP, and the page says where to rename them', async ({
+  page,
+}) => {
+  await page.goto('/batch-rename');
+  // Two "1.5 GB" clips: only their sizes are read before a rename, so none is made that big.
+  await fileInput(page).evaluate((input: HTMLInputElement) => {
+    const files = new DataTransfer();
+    for (const name of ['A001.MOV', 'A002.MOV']) {
+      const file = new File(['clip'], name);
+      Object.defineProperty(file, 'size', { value: 1.5 * 1024 ** 3 });
+      files.items.add(file);
+    }
+    input.files = files.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(
+    page
+      .getByText(/^These files come to 3 GB, and a ZIP made in the browser holds up to 2 GB\. /)
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Rename · 2 files' })).toBeDisabled();
+});

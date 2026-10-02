@@ -38,6 +38,7 @@ import {
   renameAll,
   RenameInPlaceError,
   undoRenames,
+  zipLimit,
   type MovableFile,
   type Renamed,
 } from './in-place';
@@ -524,10 +525,13 @@ export interface ShellPreset {
    * file from the settings; the list shows each new name and what's wrong
    * with it, and a name that can't be used stops the run. With `inPlace`,
    * desktop Chromium can open a folder and rename its files where they are.
+   * Otherwise the renamed files download as a ZIP, built in memory, which
+   * holds up to `zipMaxBytes` in all.
    */
   names?: {
     plan: (files: readonly File[], options: Record<string, string>) => Promise<NamesPlan>;
     inPlace?: boolean;
+    zipMaxBytes: number;
   };
   /**
    * The timeline holds several ranges (V01, A02): the engine gets them all as
@@ -1529,6 +1533,15 @@ export function ToolShell({
   const showCrop = cropping && state.kind === 'ready' && batch.length === 0;
   // An analyzer changes nothing: its notes are the verdict.
   const notesTitle = tool.ui === 'analyzer' ? 'Verdict' : undefined;
+  // U02: files dropped, not a folder opened, download renamed in a ZIP, which has a size limit.
+  const zipFull =
+    preset.names && !folder && state.kind === 'ready'
+      ? zipLimit(
+          (state.files ?? []).reduce((sum, f) => sum + f.size, 0),
+          preset.names.zipMaxBytes,
+          folderable,
+        )
+      : undefined;
   const blocked =
     state.kind !== 'ready'
       ? undefined
@@ -1541,7 +1554,7 @@ export function ToolShell({
             : preset.detect && ranges.length === 0
               ? preset.detect.empty
               : preset.names && !renamed
-                ? namesBlocked(namesPlan)
+                ? (zipFull ?? namesBlocked(namesPlan))
                 : preset.blocked?.(options, state.files?.length ?? 1);
   const settings = (
     <OptionsPanel className="mt-6.5 hidden lg:block">
