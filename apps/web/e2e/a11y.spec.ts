@@ -84,6 +84,19 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test('checksum list with hashes, compared: no serious issues', async ({ page }) => {
+      await page.goto('/file-checksum', { waitUntil: 'networkidle' });
+      await page
+        .locator('input[type=file][data-hydrated]')
+        .first()
+        .setInputFiles([
+          { name: 'a.mov', mimeType: 'video/quicktime', buffer: Buffer.from('a') },
+          { name: 'b.mov', mimeType: 'video/quicktime', buffer: Buffer.from('b') },
+        ]);
+      await expect(page.getByText('The 2 files are different.')).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+
     test('merge list with files: no serious issues', async ({ page }) => {
       await page.goto('/merge-audio', { waitUntil: 'networkidle' });
       // Two tiny silent WAVs: a list to check, nothing to decode at length.

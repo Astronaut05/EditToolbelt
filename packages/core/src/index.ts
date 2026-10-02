@@ -12,8 +12,12 @@ export * as timecode from './calc/timecode';
 export * as aspect from './calc/aspect';
 export * as bitrate from './calc/bitrate';
 export * as print from './calc/print';
+export * as shutter from './calc/shutter';
+export * as storage from './calc/storage';
+export * as checksum from './checksum';
 export * as color from './color/color';
 export * as contrast from './color/contrast';
+export * as gradient from './color/gradient';
 export { CSS_NAMED_COLORS } from './color/names';
 export { applyLut, identityLut, lookup, LutError, parseCube, type Lut } from './color/lut';
 export {
@@ -56,6 +60,8 @@ export {
   type Span,
 } from './media/ranges';
 export { Splicer, type SpliceOptions } from './media/splice';
+export { joinGain, reversePieces, type ReversePiece } from './media/reverse';
+export { equalParts, MAX_PARTS, pieceParts, silenceParts, TooManyParts } from './media/split';
 export {
   PLATFORM_NAMES,
   PLATFORMS,

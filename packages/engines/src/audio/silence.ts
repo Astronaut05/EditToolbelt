@@ -27,10 +27,10 @@ export interface SilenceOptions {
   keep?: string;
 }
 
-/** Levels already read, by file: changing a setting finds again without decoding again. */
+/** Levels already read, by file: changing a setting finds again without decoding again (A11, A14). */
 const read = new WeakMap<Blob, Promise<{ levels: Float32Array; duration: number }>>();
 
-function levelsOf(file: Blob) {
+export function levelsOf(file: Blob) {
   let found = read.get(file);
   if (!found) {
     found = (async () => {

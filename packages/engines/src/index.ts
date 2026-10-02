@@ -128,6 +128,7 @@ export {
 } from './files/batch-rename';
 export { takenDate } from './files/taken';
 export { trackEnds } from './video/merge-videos';
+export { fileChecksumEngine, type FileChecksumOptions } from './files/checksum';
 export {
   arrowHead,
   centredPoints,

@@ -1551,3 +1551,87 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** rule 9 and WCAG 2.1.1. Arrows, lines, boxes, ellipses and markers don't depend on the pointer's path, yet a keyboard user couldn't place, move or remove one (M8 review, finding 8). The 2.5.7 entry above only covered dragging.
 **Reverse:** `centredPoints`, `moveMark`, `resizeMark` and `markBounds` in `packages/engines/src/image/annotate.ts`; the boxes and `onMarkKey` in `packages/ui/src/tool/DrawLayer.tsx`; `onAdd` in `CanvasEditor.tsx`.
+
+## 2026-10-01 · Shutter Angle and Recording Storage calculators (Wave 3)
+
+**Decision:**
+- **Wave 3 starts:** M8's browser work is done, and its other tools wait on M5 or a model runtime (`STATUS.md` → Blocked), so Wave 3's browser tools come next, one small group per PR. These two calculators go together, as Contrast and DPI did.
+- **Shutter angle:**
+  - Speed = angle ÷ (360 × fps). 23.976, 29.97 and 59.94 mean the exact NTSC rates (24000/1001 and so on).
+  - A speed can be typed as 1/50, 50 (what a camera shows) or 0.02.
+  - **Flicker:** lights on mains power pulse at twice its frequency. Speeds lasting a whole number of pulses (within 1%), up to 360°, are listed as flicker-safe. When the frame rate divides the pulse rate evenly (25 fps on 50 Hz, 30 on 60), every frame starts at the same point of the pulse, so the page says no speed flickers, though a rolling shutter may still show still bands.
+  - A speed longer than a frame is flagged, not clamped.
+- **Storage:**
+  - Decimal units throughout, as cards and drives are labelled (1 TB = 10¹² bytes). The page says Windows shows 931 GB for 1 TB.
+  - Hours are rounded down to the minute.
+  - Space needed comes with and without a backup copy, plus the number of 128 GB cards.
+- **"Editable table" of codecs:** a list of typical bitrates, labelled "check your camera's manual". A row's Use button fills the bitrate, and the bitrate field takes the camera's own value, which marks the codec "My own bitrate". Values: Apple's ProRes figures at 29.97 fps, Sony XAVC S 4K at 100 Mbps, and typical phone and mirrorless rates.
+
+**Why:** `tools/subtitles-and-time.md` → T07, T08; `docs/12` → "Then — Wave 3".
+**Reverse:** the maths is in `packages/core/src/calc/shutter.ts` and `storage.ts`.
+
+
+## 2026-10-01 · File Checksum (Wave 3)
+
+**Decision:**
+- **hash-wasm** (MIT, `docs/13`) hashes in a worker. One read of the file feeds MD5, SHA-1 and SHA-256 at once, a piece at a time, so a 30 GB clip never sits in memory. Web Crypto can't hash a stream, so it would need the whole file at once.
+- **New engine id `file-hash`**, which loads WebAssembly. U04 isn't `text`, the engine for pure-TypeScript work.
+- **One file or many, the page is a batch list:** it runs as soon as files are in, and each row shows its three hashes with copy buttons. Up to 1,000 files, 32 GB each.
+- **Expected hash** takes one hash, or a list in `sha256sum` style (`<hash>  <name>`, `*` for binary mode) or BSD style (`SHA256 (<name>) = <hash>`). The algorithm is told by the hash's length. Files are matched to a list by name, without folders and ignoring case. Checking a pasted hash never re-reads the files.
+- **Two or more files without a pasted hash are compared:** "The 2 files are identical / different", or how many are copies of another.
+- **The download is the list, not a ZIP of one-line files:** SHA256SUMS, MD5SUMS or SHA1SUMS (checkable with `sha256sum -c` or `shasum -a 256 -c`), or a CSV with all three. In the CSV, a name a spreadsheet would run as a formula gets a leading `'`.
+
+**Why:** `tools/utility.md` → U04.
+**Reverse:** the logic is in `packages/core/src/checksum.ts`; the engine is `packages/engines/src/files/checksum.ts`; the ToolShell's `batchCheck`, `batchSummary` and `batchList` are only used here.
+
+## 2026-10-01 · Reverse Audio and Reverse Video (Wave 3)
+
+**Decision:**
+- **Read backwards a window at a time.** Media decodes only forwards, so both tools read the file from its end in short stretches, decode each, turn it round and encode it. Memory stays at one stretch, however long the file (`@etb/core`'s `reversePieces`).
+  - **Sound:** 10 s windows. Each is decoded from 0.2 s before it, which is thrown away, so a lossy decoder has settled. Frames are placed by timestamp, so the windows meet with nothing lost or doubled.
+  - **Picture:** stretches of up to 90 frames, fewer for big frames (a 384 MB budget of RGBA copies). Each frame is copied out of the decoder at once, so the decoder never runs out of frames, and keeps its own duration, so a variable frame rate stays as it was.
+- **Reverse Audio's selection:** the timeline starts with the whole file selected. A smaller selection reverses only that part, the rest stays as it was, and the audio dips to silence for 5 ms either side of each join so the jump doesn't click. WAV and FLAC stay lossless; lossy formats are encoded again at the file's own bitrate.
+- **Reverse Video:** always encoded again (a reversed picture can't be copied), in the clip's own container, at high quality. The sound is reversed over the picture's length, or left out. Clips over 5 min get a "this will take a while" note before starting (`tools/video.md` → V18: long clips warn).
+
+**Why:** `tools/audio.md` → A15, `tools/video.md` → V18.
+**Reverse:** `packages/engines/src/audio/reverse.ts`, `video/reverse-video.ts` and `video/clip-frames.ts` (the stretch size is `framesPerStretch`).
+
+## 2026-10-01 · Loop Video (Wave 3)
+
+**Decision:**
+- **Copied when it can be, the "fast concat":** each repeat is the clip's own packets, its timestamps moved along by the clip's length. That is instant and lossless, and the sound is copied the same way. The encoder's lead-in is kept only in the first copy, so timestamps stay in order.
+- **A length that ends partway through a copy** cuts that copy's last frames. Copying stays safe when no frame depends on a later one. A clip with reordered frames (B-frames, common in H.264 from cameras) is encoded again instead, and the note says why.
+- **Boomerang:** one loop is every frame forwards, then backwards without repeating the two frames it turns on (0…N−1, N−2…1), so it loops without a stutter. It is encoded again at high quality, with the picture read backwards a stretch at a time (`ClipFrames`) and the sound reversed with it.
+- **Limits:** 2 to 50 repeats, or a length up to 60 min, which is the browser limit for video. A copy that would pass 2 GB is refused, since the result is built in memory.
+
+**Why:** `tools/video.md` → V19.
+**Reverse:** `packages/engines/src/video/loop-video.ts`.
+
+## 2026-10-01 · Split Audio (Wave 3)
+
+**Decision:**
+- **The parts are the timeline's ranges.** The settings fill them in, and any part can be moved, dropped or added before the split, as Remove Silence does with its cuts. Four ways to fill them: equal parts, pieces of a length (a sliver under 0.05 s at the end joins the piece before), at silences, or by hand.
+- **At silences, the split is in the middle of each pause** that is at least as long as set (1 s at first), so nothing is lost and each part keeps half a pause either side. A silence at the very start or end stays with the first or last part. The silence finder is Remove Silence's, auto threshold included.
+- **Up to 50 parts**, the timeline's limit for ranges. Past that, the page asks for longer pieces.
+- **Each part is a Trim Audio "keep":** MP3, AAC and Opus in their own format are copied frame by frame (cut at the nearest frame), and WAV and FLAC are cut to the sample. Only a change of format encodes again.
+- **The download is one ZIP, stored without compression** (audio is already compressed), with the parts named `name_01.mp3` and on. A single part downloads as the file itself.
+
+**Why:** `tools/audio.md` → A14.
+**Reverse:** `packages/core/src/media/split.ts` (the parts) and `packages/engines/src/audio/split.ts`.
+
+## 2026-10-01 · Gradient Generator (Wave 3)
+
+**Decision:**
+- **Laid out exactly as CSS does,** so the PNG matches the preview:
+  - Linear: along a line through the centre, at the angle (0° up, 90° right), long enough that the corners meet the end stops.
+  - Radial: a circle out to the farthest corner, which is CSS's `radial-gradient(circle, …)`.
+  - Conic: clockwise from the angle, round the centre.
+  - Before the first stop and after the last, their colours.
+- **Plain blends in sRGB**, as browsers do by default.
+- **Smooth blends in Oklch** along the shorter hue arc, with chroma lowered (hue and lightness kept) where a colour falls outside sRGB, the way CSS Color 4 maps gamut. A grey stop takes the other colour's hue, so the blend doesn't swing through others. Smooth is the default: it's the point of the tool.
+- **Smooth CSS spells the blend out** as a stop every 10 %, rather than CSS's `in oklch`, so it looks the same in every browser, older ones included.
+- **The PNG is dithered** (a 4 × 4 ordered pattern, half a step either way), so wide, gentle gradients don't band. It's drawn in the tab, up to 8,000 px a side.
+- Up to 8 stops; "Add a stop" puts one halfway between the last two, in their blend. Everything is in the URL.
+
+**Why:** `tools/color.md` → C07.
+**Reverse:** `packages/core/src/color/gradient.ts`.

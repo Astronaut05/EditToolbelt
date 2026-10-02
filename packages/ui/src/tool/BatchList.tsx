@@ -1,6 +1,8 @@
 import { CircleAlert, Download } from 'lucide-react';
+import { Fragment } from 'react';
 
 import { cn } from '../cn';
+import { CopyButton } from '../primitives/CopyButton';
 import { formatBytes } from './format';
 
 export interface BatchItem {
@@ -19,6 +21,8 @@ export interface BatchItem {
   to?: string;
   problem?: string;
   blocks?: boolean;
+  /** U04: values read from the file (its hashes), shown under its name with copy buttons. */
+  facts?: { label: string; value: string }[];
 }
 
 const STATUS: Record<BatchItem['status'], string> = {
@@ -32,10 +36,13 @@ const STATUS: Record<BatchItem['status'], string> = {
 export function BatchList({
   items,
   onDownload,
+  results = true,
   className,
 }: {
   items: BatchItem[];
   onDownload?: (id: string) => void;
+  /** The result size column; off when a batch gives values, not files (U04). */
+  results?: boolean;
   className?: string;
 }) {
   const renaming = items.some((item) => item.to !== undefined);
@@ -59,9 +66,11 @@ export function BatchList({
             <th scope="col" className="py-2.5 pr-4 font-medium">
               Status
             </th>
-            <th scope="col" className="hidden py-2.5 pr-4 text-right font-medium sm:table-cell">
-              Result
-            </th>
+            {results && (
+              <th scope="col" className="hidden py-2.5 pr-4 text-right font-medium sm:table-cell">
+                Result
+              </th>
+            )}
             <th scope="col" className="py-2.5 font-medium">
               <span className="sr-only">Download</span>
             </th>
@@ -71,9 +80,46 @@ export function BatchList({
           {items.map((item) => (
             <tr key={item.id} className="h-13 border-b border-border">
               <td className="py-2 pr-4">
-                <span className="block break-all sm:max-w-60 sm:truncate sm:break-normal">
+                <span
+                  className={cn(
+                    'block break-all',
+                    !item.facts && 'sm:max-w-60 sm:truncate sm:break-normal',
+                  )}
+                >
                   {item.name}
                 </span>
+                {item.facts && (
+                  <dl className="mt-1 grid grid-cols-[auto_1fr] items-center gap-x-3">
+                    {item.facts.map((fact) => (
+                      <Fragment key={fact.label}>
+                        <dt className="font-mono text-11.5 tracking-label text-text-muted uppercase">
+                          {fact.label}
+                        </dt>
+                        <dd className="flex min-w-0 items-center">
+                          <span className="min-w-0 font-mono text-12.5 break-all">
+                            {fact.value}
+                          </span>
+                          <CopyButton
+                            text={fact.value}
+                            label={`Copy ${fact.label} of ${item.name}`}
+                            className="flex-none"
+                          />
+                        </dd>
+                      </Fragment>
+                    ))}
+                  </dl>
+                )}
+                {!renaming && item.problem && (
+                  <span className="mt-1 flex items-start gap-1.5 text-13 text-danger">
+                    <CircleAlert
+                      aria-hidden="true"
+                      size={14}
+                      strokeWidth={2}
+                      className="mt-0.5 flex-none"
+                    />
+                    {item.problem}
+                  </span>
+                )}
               </td>
               {renaming && (
                 <td className="py-2 pr-4">
@@ -124,9 +170,11 @@ export function BatchList({
                 {item.error && <span className="block text-13 text-text-muted">{item.error}</span>}
                 {item.note && <span className="block text-13 text-text-muted">{item.note}</span>}
               </td>
-              <td className="hidden pr-4 text-right font-mono text-12.5 sm:table-cell">
-                {item.resultSize !== undefined ? formatBytes(item.resultSize) : ''}
-              </td>
+              {results && (
+                <td className="hidden pr-4 text-right font-mono text-12.5 sm:table-cell">
+                  {item.resultSize !== undefined ? formatBytes(item.resultSize) : ''}
+                </td>
+              )}
               <td className="w-11 text-right">
                 {item.status === 'done' && onDownload && (
                   <button

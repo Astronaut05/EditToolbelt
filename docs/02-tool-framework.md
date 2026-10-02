@@ -80,6 +80,7 @@ Shared processing implementations. Tools choose one and pass options.
 | `audio-dsp` | client, TS DSP in worker | convert (via encoders), trim, fade, normalize, loudness, BPM/key, silence, channels |
 | `audio-ml-server` | server-gpu / cpu | stems, noise reduction, transcription |
 | `media-probe` | client, mediainfo.js; server ffprobe | video info / VFR check, EXIF viewer |
+| `file-hash` | client, hash-wasm in a worker, streamed | file checksums (MD5, SHA-1, SHA-256) |
 | `text` | client, `packages/core` | subtitle convert/shift, calculators, QR, color math |
 
 Engines live in `packages/engines/<engine-id>/` and expose a worker-friendly API:

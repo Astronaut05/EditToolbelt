@@ -438,6 +438,19 @@
       "checked": "2026-09-30"
     },
     {
+      "label": "hash-wasm",
+      "section": "Browser processing",
+      "ecosystem": "npm",
+      "packages": ["hash-wasm"],
+      "use": "File Checksum's MD5, SHA-1 and SHA-256, streamed in WebAssembly so multi-GB files hash in the browser (WebCrypto has no MD5 and no streaming)",
+      "license": "MIT",
+      "scope": "browser",
+      "status": "approved",
+      "version": "4.12.0",
+      "source": "https://github.com/Daninet/hash-wasm/blob/master/LICENSE",
+      "checked": "2026-10-01"
+    },
+    {
       "label": "@mediabunny/mp3-encoder",
       "section": "Browser processing",
       "ecosystem": "npm",
