@@ -19,7 +19,7 @@
 - **Crossfade:** 0.5, 1 or 2 s at every join, at most half the shortest clip.
 - **The list** is the shell's combine mode from Merge Audio: 2 to 20 clips, reordered by keyboard.
 - **Up to 2 GB in all,** the browser limit for video: the joined file is built in memory. Clips that come to more are refused before any is read, as Loop Video refuses too many repeats.
-- **The server path for large totals** (the spec's hybrid runtime and per-minute price) waits for jobs that take several uploads. The registry keeps the spec's runtime and price, the tool's server switch stays off, and the page offers only the browser path.
+- **The server path for large totals** (the spec's hybrid runtime and per-minute price): built on 2026-10-02, jobs that take several uploads (see [2026-10-02-merge-videos-on-our-servers.md](2026-10-02-merge-videos-on-our-servers.md)). Its switch stays off until an admin turns it on; until then the page offers only the browser path.
 
 **Why:** `tools/video.md` → V12.
 **Reverse:** `packages/engines/src/video/merge-videos.ts`; the fixture `clip-vp9-25fps.webm` is described in `fixtures/video/README.md`.

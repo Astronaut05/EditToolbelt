@@ -751,6 +751,8 @@ export function ToolShell({
       return next;
     });
   }, []);
+  // The files to join go to our servers together (their size, length and offer: ServerNotice.tsx).
+  const joined = preset.combine && serverPath?.joinedFiles(queue, preset.maxBytes);
   /** A11: the ranges are being found in the file. */
   const [detecting, setDetecting] = useState(false);
   /** Which search is the latest, and the timer that waits for typing to stop. */
@@ -1017,7 +1019,7 @@ export function ToolShell({
       setState({ kind: 'running', input, stage: 'Uploading', fraction: 0, elapsedSec: 0 });
       try {
         const credits = server.estimate(
-          media?.durationSec ?? input.durationSec,
+          joined ? joined.durationSec : (media?.durationSec ?? input.durationSec),
           { width: media?.width ?? input.width, height: media?.height ?? input.height },
           options,
         );
@@ -1025,6 +1027,7 @@ export function ToolShell({
           credits === 0 || (account !== null && account !== undefined && account.freeJobsLeft > 0);
         const out = await server.run(file, options, {
           signal: abort.signal,
+          ...(joined && { files: joined.files }),
           offered: { credits, free },
           progress: ({ stage, fraction, amount, step }) => {
             setState({
@@ -1104,7 +1107,7 @@ export function ToolShell({
         });
       }
     },
-    [account, media, options, preset.preview, server, serverPath, track],
+    [account, joined, media, options, preset.preview, server, serverPath, track],
   );
 
   /** The free preview: the page cuts and sends the snippet; the result plays A/B. */
@@ -1157,9 +1160,12 @@ export function ToolShell({
     setSnippet({ kind: 'idle' });
   }, []);
 
+  // Why the server is offered: the person chose it, or the files to join are too big together.
+  const offerReason = serverReason ?? joined?.reason ?? null;
+
   // The account decides the offer's terms: loaded when the offer shows.
   useEffect(() => {
-    if (!server || serverReason === null || account !== undefined) return;
+    if (!server || offerReason === null || account !== undefined) return;
     let live = true;
     server
       .account()
@@ -1172,7 +1178,7 @@ export function ToolShell({
     return () => {
       live = false;
     };
-  }, [account, server, serverReason]);
+  }, [account, server, offerReason]);
 
   /** Media tools read the file first: its length sets up the timeline. */
   const inspect = useCallback(
@@ -1649,11 +1655,11 @@ export function ToolShell({
     </OptionsPanel>
   );
 
-  // The offer's numbers: the price for this file's length, and whether this account can start it.
+  // The offer's numbers: the price for this file's length (or the files to join), and whether this account can start it.
   const serverCredits =
     server && state.kind === 'ready'
       ? server.estimate(
-          media?.durationSec ?? state.input.durationSec,
+          joined ? joined.durationSec : (media?.durationSec ?? state.input.durationSec),
           {
             width: media?.width ?? state.input.width,
             height: media?.height ?? state.input.height,
@@ -1661,16 +1667,17 @@ export function ToolShell({
           options,
         )
       : null;
-  // What a run sends: the file, or less (a video sends only its sound).
+  // What a run sends: the file, or less (a video sends only its sound), or the files to join.
   const sendFile = state.kind === 'ready' ? state.files?.[0] : undefined;
-  const sendBytes =
-    state.kind === 'ready'
+  const sendBytes = joined
+    ? joined.bytes
+    : state.kind === 'ready'
       ? sendFile && server?.uploadBytes
         ? server.uploadBytes(sendFile)
         : state.input.size
       : 0;
   const serverOffer =
-    server && serverReason !== null && state.kind === 'ready'
+    server && offerReason !== null && state.kind === 'ready'
       ? {
           ok:
             account && serverPath
@@ -1680,7 +1687,7 @@ export function ToolShell({
             serverPath && (
               <serverPath.ServerNotice
                 server={server}
-                reason={serverReason}
+                reason={offerReason}
                 account={account}
                 bytes={sendBytes}
                 credits={serverCredits}
@@ -1727,7 +1734,7 @@ export function ToolShell({
       : null;
   // Within the browser's limits the server is a choice, never a push.
   const serverChoice = server &&
-    serverReason === null &&
+    offerReason === null &&
     state.kind === 'ready' &&
     batch.length === 0 && (
       <p className="mt-3.5 px-4 text-14 lg:px-0">

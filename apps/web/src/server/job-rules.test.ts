@@ -6,6 +6,7 @@ import { maskFits, MAX_PRORES_BYTES } from '../lib/gpu-limits';
 import {
   extrasRefusal,
   frameCount,
+  frameRateRefusal,
   gpuRate,
   MAX_NOISE_WORK_BYTES,
   noiseWorkBytes,
@@ -114,6 +115,8 @@ describe('every server tool', () => {
       });
     }
     expect(refusal('compress-video', clip(240), {})).toBeNull();
+    // Merge Videos names the clip.
+    expect(frameRateRefusal(clip(300), 'clip 2')?.detail).toMatch(/^Clip 2 runs at 300 fps;/);
     // A still image says 25 fps and has no length.
     expect(
       refusal('upscale-image', { duration_ms: 0, video: { width: 100, height: 100, fps: 25 } }, {}),

@@ -34,12 +34,7 @@ import {
   type Queryable,
 } from '@etb/db';
 import { costOf, hasServerPath, isAvailable, limitsOf, priceOf, tools } from '@etb/registry';
-import {
-  parseServerOptions,
-  previewSeconds,
-  uploadKinds,
-  uploadOptions,
-} from '@etb/registry/options';
+import { parseServerOptions, previewSeconds } from '@etb/registry/options';
 import type { ToolDef } from '@etb/registry/schema';
 
 import { log } from '../lib/log';
@@ -47,7 +42,23 @@ import type { CurrentUser } from './account';
 import { db } from './db';
 import { refreshToolFlags } from './flags';
 import { requestHash } from './idempotency';
-import { extrasRefusal, gpuRate, priceInput, refusal, type Probe } from './job-rules';
+import {
+  checkCrossfade,
+  checkHasLength,
+  checkHasVideo,
+  checkInputs,
+  checkKind,
+  namedUploads,
+  type NamedUpload,
+} from './inputs';
+import {
+  extrasRefusal,
+  frameRateRefusal,
+  gpuRate,
+  priceInput,
+  refusal,
+  type Probe,
+} from './job-rules';
 import { buyUrl } from './payments/checkout';
 import { ApiError, problemType } from './problem';
 import { deleteObject, presignDownload, StorageError } from './storage';
@@ -189,28 +200,6 @@ function checkUpload(upload: Upload, tool: ToolDef): void {
   }
 }
 
-function checkLimits(tool: ToolDef, tier: Tier, probe: Probe): void {
-  const limit = limitsOf(tool)?.server?.[tier];
-  if (!limit)
-    throw new ApiError(409, 'TOOL_UNAVAILABLE', `${tool.name} doesn’t run on our servers yet`);
-  const seconds = (probe.duration_ms ?? 0) / 1000;
-  if (limit.maxDurationSec !== undefined && seconds > limit.maxDurationSec) {
-    throw new ApiError(
-      413,
-      'FILE_TOO_LARGE',
-      'Too long',
-      `This is ${(seconds / 60).toFixed(1)} min; the limit for ${tool.name} is ${String(limit.maxDurationSec / 60)} min.`,
-      { max_duration_sec: limit.maxDurationSec },
-    );
-  }
-  const pixels = (probe.video?.width ?? 0) * (probe.video?.height ?? 0);
-  if (limit.maxPixels !== undefined && pixels > limit.maxPixels) {
-    throw new ApiError(413, 'FILE_TOO_LARGE', 'Too many pixels', undefined, {
-      max_pixels: limit.maxPixels,
-    });
-  }
-}
-
 /** "This needs 4 credits; you have 1." A balance below zero comes from a refunded pack. */
 function shortfall(credits: number, balance: number): string {
   return balance < 0
@@ -271,8 +260,11 @@ interface Prepared {
   tier: Tier;
   upload: Upload;
   probe: Probe;
-  /** The other files the tool takes (Burn Subtitles: the subtitles), in order. */
-  extras: { upload: Upload; probe: Probe }[];
+  /**
+   * The other files the tool takes, in order: Burn Subtitles' subtitle file,
+   * Object Eraser's mask, or Merge Videos' other clips (`joined`).
+   */
+  extras: { upload: Upload; probe: Probe; joined: boolean }[];
   credits: number;
   options: Record<string, unknown>;
   /** A free preview of a snippet (`previewSeconds` in the registry's options). */
@@ -280,30 +272,41 @@ interface Prepared {
 }
 
 /**
- * The uploads a tool's options name (`uploadOptions` in the registry): the
- * caller's own, made for this tool, of the kind the option takes (a subtitle
- * file, a PNG mask), unused, and probed. Null while one is still being probed.
+ * The uploads a tool's options name (`uploadOptions` in the registry), in
+ * order: each the caller's own, made for this tool, of the kind its option
+ * takes (a subtitle file, a PNG mask, a video), unused by any job, and
+ * probed. Null while one is still being probed.
  */
 async function extraUploads(
   user: CurrentUser,
   tool: ToolDef,
-  options: Record<string, unknown>,
+  named: readonly NamedUpload[],
 ): Promise<Prepared['extras'] | null> {
+  // Checked in order, so the answer names the first one that's wrong.
   const extras: Prepared['extras'] = [];
-  const id = tool.id as keyof typeof uploadOptions;
-  for (const name of uploadOptions[id] ?? []) {
-    const extra = await ownUpload(user, String(options[name]));
-    checkUpload(extra, tool);
-    const kind = uploadKinds[id]?.[name];
-    if (kind && !kind.types.includes(extra.mimeClaimed)) {
-      throw new ApiError(400, 'BAD_REQUEST', kind.title, `${name}: ${kind.is}.`);
+  let probing = false;
+  for (const extra of named) {
+    const upload = await ownUpload(user, extra.id);
+    checkUpload(upload, tool);
+    checkKind(extra, upload.mimeClaimed);
+    await checkUnused(upload);
+    const probed = probing ? (upload.probedAt ? upload : null) : await waitForProbe(upload);
+    if (!probed) {
+      // The rest are still checked for the caller's mistakes, without waiting again.
+      probing = true;
+      continue;
     }
-    await checkUnused(extra);
-    const probed = await waitForProbe(extra);
-    if (!probed) return null;
-    extras.push({ upload: probed, probe: probeOf(probed) });
+    const probe = probeOf(probed);
+    const joined = extra.kind?.joined === true;
+    if (joined) {
+      checkHasVideo(probe, extra.label);
+      checkHasLength(probe, extra.label);
+      const fast = frameRateRefusal(probe, extra.label);
+      if (fast) throw new ApiError(fast.status, fast.code, fast.title, fast.detail);
+    }
+    extras.push({ upload: probed, probe, joined });
   }
-  return extras;
+  return probing ? null : extras;
 }
 
 /** Everything a quote and a job both need; null while the worker is still probing. */
@@ -323,15 +326,27 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
   await checkUnused(upload);
   const parsed = parseServerOptions(tool.id, request.options);
   if (!parsed.ok) throw new ApiError(400, 'BAD_REQUEST', 'Invalid options', parsed.error);
+  const named = namedUploads(tool.id, parsed.options);
+  if (named.some((extra) => extra.id === upload.id)) {
+    throw new ApiError(400, 'BAD_REQUEST', 'A file is named twice', 'Each upload goes in once.');
+  }
+  // Merge Videos' clips are joined with this one: the limits are for them together.
+  const joins = named.some((extra) => extra.kind?.joined);
   const probed = await waitForProbe(upload);
   if (!probed) return null;
   const probe = probeOf(probed);
   const tier = await tierOf(user.id);
-  checkLimits(tool, tier, probe);
+  const own = { bytes: probed.bytes, probe };
+  if (!joins) checkInputs(tool, tier, [own]);
   // A tool's own reason not to take the file, before anything is charged.
-  const refused = refusal(tool.id, probe, parsed.options);
+  const refused =
+    (joins ? frameRateRefusal(probe, 'clip 1') : null) ?? refusal(tool.id, probe, parsed.options);
   if (refused) throw new ApiError(refused.status, refused.code, refused.title, refused.detail);
-  const extras = await extraUploads(user, tool, parsed.options);
+  if (joins) {
+    checkHasVideo(probe, 'clip 1');
+    checkHasLength(probe, 'clip 1');
+  }
+  const extras = await extraUploads(user, tool, named);
   if (!extras) return null;
   const odd = extrasRefusal(
     tool.id,
@@ -339,9 +354,27 @@ async function prepare(user: CurrentUser, request: JobRequest): Promise<Prepared
     extras.map((extra) => extra.probe),
   );
   if (odd) throw new ApiError(odd.status, odd.code, odd.title, odd.detail);
+  // What a per-minute price is for: this file's length, or the clips' together.
+  let durationMs = probe.duration_ms ?? 0;
+  if (joins) {
+    const joined = [
+      own,
+      ...extras
+        .filter((extra) => extra.joined)
+        .map((extra) => ({ bytes: extra.upload.bytes, probe: extra.probe })),
+    ];
+    durationMs = checkInputs(tool, tier, joined);
+    checkCrossfade(
+      tool.id,
+      parsed.options,
+      joined.map((input) => input.probe),
+    );
+  }
   const preview = parsed.options.preview === true;
   if (preview) checkPreview(tool, probe);
-  const credits = preview ? 0 : priceOf(costOf(tool), priceInput(tool.id, probe, parsed.options));
+  const credits = preview
+    ? 0
+    : priceOf(costOf(tool), { ...priceInput(tool.id, probe, parsed.options), durationMs });
   return { tool, tier, upload: probed, probe, extras, credits, options: parsed.options, preview };
 }
 
@@ -530,9 +563,17 @@ async function startJob(
         // Paid credits go before free jobs (docs/01 → Queue).
         priority: paying.funding === 'credits' ? 1 : 0,
         options: prepared.options,
-        inputMeta: prepared.extras.length
-          ? { ...prepared.probe, extras: prepared.extras.map((extra) => extra.probe) }
-          : prepared.probe,
+        // What the worker needs besides the files: each one's probe and the type it came as.
+        inputMeta: {
+          ...prepared.probe,
+          mime: prepared.upload.mimeClaimed,
+          ...(prepared.extras.length > 0 && {
+            extras: prepared.extras.map((extra) => ({
+              ...extra.probe,
+              mime: extra.upload.mimeClaimed,
+            })),
+          }),
+        },
         inputKey: prepared.upload.storageKey,
         extraInputKeys: prepared.extras.map((extra) => extra.upload.storageKey),
         funding: paying.funding,
@@ -628,6 +669,8 @@ const ERROR_TEXT: Record<string, string> = {
 const PROCESSOR_CODES: ReadonlySet<string> = new Set([
   'TARGET_TOO_SMALL',
   'NO_VIDEO',
+  // Merge Videos' own.
+  'CROSSFADE_TOO_LONG',
   // Noise Reduction's own.
   'TOO_MANY_CHANNELS',
   // The GPU tools' own (Upscale Image, Transcribe Audio, Auto Subtitles, Object Eraser).
@@ -729,20 +772,30 @@ export async function stopJob(
   if (!cancelled) return null;
   const keys = [...(job.inputKey ? [job.inputKey] : []), ...job.extraInputKeys];
   if (job.status === 'queued' && keys.length > 0) {
-    try {
-      for (const key of keys) await deleteObject(key);
+    // Each is tried, even after one fails: the job keeps the keys of any left, and the
+    // sweeper removes those within the hour.
+    const gone: string[] = [];
+    for (const key of keys) {
+      try {
+        await deleteObject(key);
+        gone.push(key);
+      } catch (error) {
+        if (!(error instanceof StorageError)) throw error;
+        log.warn({ job_id: job.id }, 'job.input_not_deleted');
+      }
+    }
+    if (gone.length > 0) {
       await db()
         .update(jobs)
-        .set({ inputKey: null, extraInputKeys: [] })
+        .set({
+          inputKey: job.inputKey && gone.includes(job.inputKey) ? null : job.inputKey,
+          extraInputKeys: job.extraInputKeys.filter((key) => !gone.includes(key)),
+        })
         .where(eq(jobs.id, job.id));
       await db()
         .update(uploads)
         .set({ deletedAt: new Date() })
-        .where(inArray(uploads.storageKey, keys));
-    } catch (error) {
-      // The sweeper removes it within the hour.
-      if (!(error instanceof StorageError)) throw error;
-      log.warn({ job_id: job.id }, 'job.input_not_deleted');
+        .where(inArray(uploads.storageKey, gone));
     }
   }
   log.info({ job_id: job.id, tool_id: job.toolId }, 'job.cancelled');

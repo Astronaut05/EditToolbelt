@@ -292,22 +292,28 @@ export function extrasRefusal(toolId: string, probe: Probe, extras: Probe[]): Re
  */
 export const MAX_SERVER_FPS = 240;
 
+/**
+ * A video past `MAX_SERVER_FPS`; `label` names it when it is one of several
+ * (Merge Videos' "clip 2"). A still image has a rate but no length.
+ */
+export function frameRateRefusal(probe: Probe, label = 'this video'): Refusal | null {
+  const fps = probe.video?.fps ?? 0;
+  if (fps <= MAX_SERVER_FPS || (probe.duration_ms ?? 0) <= 0) return null;
+  return {
+    status: 422,
+    code: 'UNSUPPORTED_FORMAT',
+    title: 'Too many frames a second',
+    detail: `${label.charAt(0).toUpperCase()}${label.slice(1)} runs at ${String(Math.round(fps))} fps; our servers take up to ${String(MAX_SERVER_FPS)} fps. Export it at its playback rate (24 to 60 fps) first.`,
+  };
+}
+
 /** A tool's own reason not to run this file, before anything is charged; null to go on. */
 export function refusal(
   toolId: string,
   probe: Probe,
   options: Record<string, unknown>,
 ): Refusal | null {
-  const fps = probe.video?.fps ?? 0;
-  if (fps > MAX_SERVER_FPS && (probe.duration_ms ?? 0) > 0) {
-    return {
-      status: 422,
-      code: 'UNSUPPORTED_FORMAT',
-      title: 'Too many frames a second',
-      detail: `This video runs at ${String(Math.round(fps))} fps; our servers take up to ${String(MAX_SERVER_FPS)} fps. Export it at its playback rate (24 to 60 fps) first.`,
-    };
-  }
-  return RULES[toolId]?.(probe, options) ?? null;
+  return frameRateRefusal(probe) ?? RULES[toolId]?.(probe, options) ?? null;
 }
 
 /**

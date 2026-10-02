@@ -28,6 +28,7 @@ from etb_worker import jobqueue
 from etb_worker.db import Conn, connect_url
 from etb_worker.probe import probe_next
 from etb_worker.processors import (
+    PROCESSORS,
     Estimate,
     JobContext,
     JobFailed,
@@ -39,7 +40,7 @@ from etb_worker.retention import lifecycle_check, sweep
 from etb_worker.runner import JobRunner
 from etb_worker.sandbox import ffmpeg
 from etb_worker.settings import Settings
-from etb_worker.storage import Storage
+from etb_worker.storage import Storage, StorageError
 
 URL = os.environ.get("TEST_DATABASE_URL", "")
 S3 = os.environ.get("TEST_S3_ENDPOINT", "http://127.0.0.1:7070")
@@ -349,6 +350,123 @@ def test_extra_inputs_reach_the_tool_and_go_with_the_job(
     assert not exists(storage, key)
     assert not exists(storage, extra)
     assert one(db, "select deleted_at from uploads where storage_key = %s", extra)["deleted_at"]
+
+
+def put_clip(db: Conn, storage: Storage, user: str, path: Path) -> str:
+    """A completed, probed upload of a clip for Merge Videos."""
+    key = put_input(storage, path)
+    db.execute(
+        """
+        insert into uploads (user_id, storage_key, bytes, mime_claimed, tool_id, part_size,
+                             part_count, expires_at, completed_at, probed_at)
+        values (%s, %s, 1, 'video/mp4', 'merge-videos', 1, 1,
+                now() + interval '1 hour', now(), now())
+        """,
+        (user, key),
+    )
+    return key
+
+
+def merge_runner(storage: Storage) -> JobRunner:
+    return JobRunner(
+        storage,
+        lambda: connect_url(URL),
+        processors={"merge-videos": PROCESSORS["merge-videos"]},
+        worker_id=f"test-{uuid.uuid4().hex[:6]}",
+        heartbeat_sec=0.2,
+    )
+
+
+@pytest.mark.parametrize("outcome", ["succeeded", "failed"])
+def test_every_clip_of_a_merge_goes_when_the_job_ends(
+    db: Conn, storage: Storage, media: dict[str, Any], outcome: str
+) -> None:
+    user = new_user(db, credits=10)
+    # The first clip's upload row comes with the job; the others have their own.
+    keys = [put_input(storage, media["mp4"])] + [
+        put_clip(db, storage, user, media["mp4"]) for _ in range(2)
+    ]
+    # A 1 s crossfade is too long for 2 s clips: the job fails, after its clips arrived.
+    options = {"transition": "crossfade", "transitionLength": "2" if outcome == "failed" else "1"}
+    job = new_job(
+        db,
+        user,
+        keys[0],
+        tool="merge-videos",
+        quote=3,
+        extra_input_keys=keys[1:],
+        options=Jsonb(options),
+        # Each clip's probe, as the jobs API passes them on: their lengths priced the job.
+        input_meta=Jsonb(
+            {
+                "duration_ms": 2000,
+                "mime": "video/mp4",
+                "extras": [{"duration_ms": 2000, "mime": "video/mp4"}] * 2,
+            }
+        ),
+    )
+    run = merge_runner(storage)
+    run.run(claim_this(db, run, job))
+
+    row = one(db, "select * from jobs where id = %s", job)
+    assert row["status"] == outcome
+    if outcome == "failed":
+        assert row["error_code"] == "CROSSFADE_TOO_LONG"
+    else:
+        assert exists(storage, row["output_key"])
+        assert row["output_meta"]["notes"][0] == "3 clips joined with 1.00 s crossfades: 4.00 s"
+        storage.delete(row["output_key"])
+    assert (row["input_key"], row["extra_input_keys"]) == (None, [])
+    for key in keys:
+        assert not exists(storage, key)
+        assert one(db, "select deleted_at from uploads where storage_key = %s", key)["deleted_at"]
+    balance = one(db, "select credit_balance from users where id = %s", user)["credit_balance"]
+    assert balance == (7 if outcome == "succeeded" else 10)
+
+
+class FlakyDelete(Storage):
+    """Storage that refuses to delete one key, as a storage blip would."""
+
+    def __init__(self, inner: Storage, refuse: str) -> None:
+        self.__dict__.update(inner.__dict__)
+        self.refuse = refuse
+
+    def delete(self, key: str) -> None:
+        if key == self.refuse:
+            raise StorageError("InternalError", "storage blinked")
+        super().delete(key)
+
+
+def test_one_input_that_wont_delete_doesnt_keep_the_others(
+    db: Conn, storage: Storage, media: dict[str, Any]
+) -> None:
+    user = new_user(db)
+    # The first clip's upload row comes with the job; the others have their own.
+    keys = [put_input(storage, media["mp4"])] + [
+        put_clip(db, storage, user, media["mp4"]) for _ in range(2)
+    ]
+    job = new_job(db, user, keys[0], extra_input_keys=keys[1:])
+    run = runner(FlakyDelete(storage, keys[1]))
+    run.run(claim_this(db, run, job))
+
+    row = one(db, "select * from jobs where id = %s", job)
+    assert row["status"] == "succeeded"
+    assert not exists(storage, keys[0])
+    assert exists(storage, keys[1])
+    assert not exists(storage, keys[2])
+    # The job keeps the one left; its upload expires and the sweeper deletes it.
+    assert (row["input_key"], row["extra_input_keys"]) == (None, [keys[1]])
+    deleted = {
+        r["storage_key"]: r["deleted_at"]
+        for r in db.execute(
+            "select storage_key, deleted_at from uploads where storage_key = any(%s)", (keys,)
+        ).fetchall()
+    }
+    assert deleted[keys[0]] is not None
+    assert deleted[keys[1]] is None
+    assert deleted[keys[2]] is not None
+    storage.delete(keys[1])
+    storage.delete(row["output_key"])
 
 
 def test_a_failed_job_returns_its_credits_and_drops_its_input(

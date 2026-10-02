@@ -48,6 +48,10 @@ test.beforeAll(async () => {
     .insert(toolFlags)
     .values({ toolId: 'burn-subtitles', status: 'beta' })
     .onConflictDoUpdate({ target: toolFlags.toolId, set: { status: 'beta' } });
+  await db
+    .insert(toolFlags)
+    .values({ toolId: 'merge-videos', serverEnabled: true })
+    .onConflictDoUpdate({ target: toolFlags.toolId, set: { serverEnabled: true } });
 });
 
 // The switches stay on: the API's routes see a change within 30 s, so turning
@@ -71,6 +75,10 @@ interface Probed {
   probeError?: string;
   /** Put a small object at the upload's key, as a real upload would. */
   stored?: boolean;
+  bytes?: number;
+  /** Sound only: no picture. */
+  noVideo?: boolean;
+  fps?: number;
 }
 
 /** A completed upload, probed as the worker would probe it. */
@@ -86,7 +94,7 @@ async function upload(owner: string, probe: Probed = {}): Promise<{ id: string; 
     .values({
       userId: owner,
       storageKey: key,
-      bytes: 18,
+      bytes: probe.bytes ?? 18,
       mimeClaimed: probe.subtitles ? 'application/x-subrip' : 'video/mp4',
       toolId: probe.tool ?? 'compress-video',
       partSize: 8 * 1024 * 1024,
@@ -100,7 +108,9 @@ async function upload(owner: string, probe: Probed = {}): Promise<{ id: string; 
           : {
               container: 'mp4',
               duration_ms: probe.durationMs ?? 90_000,
-              video: { codec: 'h264', width: 1920, height: 1080, fps: 30 },
+              video: probe.noVideo
+                ? null
+                : { codec: 'h264', width: 1920, height: 1080, fps: probe.fps ?? 30 },
             },
       probedAt: probed ? new Date() : null,
       probeError: probe.probeError ?? null,
@@ -733,4 +743,127 @@ test('Burn Subtitles takes the subtitle file as its own upload, beside the video
   expect(peek.status()).toBe(404);
   await other2.close();
   await post(page.request, `/api/v1/jobs/${job.id}/cancel`, {});
+});
+
+test('Merge Videos takes its other clips as a list of uploads, in order', async ({
+  page,
+  browser,
+}) => {
+  const owner = await newUser(page);
+  const clip = (durationMs: number, more: Probed = {}) =>
+    upload(owner, { tool: 'merge-videos', durationMs, stored: true, ...more });
+  const merge = (uploadId: string, options: unknown, path = '/api/v1/jobs/quote', extra = {}) =>
+    post(page.request, path, { tool_id: 'merge-videos', upload_id: uploadId, options, ...extra });
+  const [a, b, c] = [await clip(90_000), await clip(60_000), await clip(30_000)];
+  const order = { clips: [c.id, b.id] };
+
+  // The server switch reaches the API within 30 s.
+  await expect
+    .poll(async () => (await merge(a.id, order)).status(), { timeout: 40_000, intervals: [1000] })
+    .toBe(200);
+  // Priced on the clips' length together: 3 min.
+  expect(
+    await (await merge(a.id, { ...order, transition: 'crossfade', size: '720' })).json(),
+  ).toMatchObject({
+    status: 'ready',
+    credits: 3,
+    funding: 'daily',
+    options: { clips: [c.id, b.id], transition: 'crossfade', transitionLength: '1', size: '720' },
+  });
+
+  const refused = async (options: unknown, uploadId = a.id) => {
+    const answer = await merge(uploadId, options);
+    return { status: answer.status(), ...((await answer.json()) as Record<string, unknown>) };
+  };
+  expect(await refused({ clips: [] })).toMatchObject({ status: 400, code: 'BAD_REQUEST' });
+  expect(await refused({ clips: [b.id, b.id] })).toMatchObject({ detail: 'clips: each clip once' });
+  expect(await refused({ clips: [a.id] })).toMatchObject({ title: 'A file is named twice' });
+  const tone = await clip(60_000, { noVideo: true });
+  expect(await refused({ clips: [b.id, tone.id] })).toMatchObject({
+    status: 422,
+    code: 'UNSUPPORTED_FORMAT',
+    detail: 'Clip 3 has no picture in it, only sound.',
+  });
+  // A clip whose header gives no length can't be priced, so it isn't joined.
+  const unknown = await clip(0);
+  expect(await refused({ clips: [b.id, unknown.id] })).toMatchObject({
+    status: 422,
+    title: 'A clip has no length',
+    detail:
+      'Clip 3 doesn’t say how long it is, so we can’t price it. Save or export it again, then upload that.',
+  });
+  // Every clip keeps to the servers' frame rate, not only the first.
+  const fast = await clip(3000, { fps: 10_000 });
+  expect(await refused({ clips: [b.id, fast.id] })).toMatchObject({
+    status: 422,
+    title: 'Too many frames a second',
+    detail: expect.stringMatching(/^Clip 3 runs at 10000 fps/),
+  });
+  expect(await refused({ clips: [b.id] }, fast.id)).toMatchObject({
+    detail: expect.stringMatching(/^Clip 1 runs at 10000 fps/),
+  });
+  const subtitles = await upload(owner, { tool: 'merge-videos', subtitles: true });
+  expect(await refused({ clips: [subtitles.id] })).toMatchObject({ title: 'Not a video' });
+  const elsewhere = await upload(owner);
+  expect(await refused({ clips: [elsewhere.id] })).toMatchObject({
+    title: 'This upload was made for another tool',
+  });
+  // The free tier's limits hold for the clips together: 60 min, 2 GiB.
+  const long = [await clip(40 * MINUTE), await clip(25 * MINUTE)];
+  expect(await refused({ clips: [long[1]?.id] }, long[0]?.id)).toMatchObject({
+    status: 413,
+    code: 'FILE_TOO_LARGE',
+    detail: 'These clips come to 65.0 min together; the limit for Merge Videos is 60 min.',
+    max_duration_sec: 3600,
+  });
+  const big = [await clip(MINUTE, { bytes: 1.5e9 }), await clip(MINUTE, { bytes: 1.5e9 })];
+  expect(await refused({ clips: [big[1]?.id] }, big[0]?.id)).toMatchObject({
+    status: 413,
+    detail: 'These clips come to 3.0 GB together; the limit for Merge Videos is 2.1 GB.',
+  });
+  const short = await clip(3000);
+  expect(
+    await refused({ clips: [short.id], transition: 'crossfade', transitionLength: '2' }),
+  ).toMatchObject({ status: 400, title: 'Crossfade too long' });
+
+  const created = await merge(a.id, order, '/api/v1/jobs', { quote_credits: 3 });
+  expect(created.status()).toBe(201);
+  const { job } = (await created.json()) as JobBody;
+  const [row] = await db.select().from(jobs).where(eq(jobs.id, job.id));
+  // The worker gets the clips in the order asked, each with its probe and type.
+  expect(row?.inputKey).toBe(a.key);
+  expect(row?.extraInputKeys).toEqual([c.key, b.key]);
+  expect(row?.inputMeta).toMatchObject({
+    duration_ms: 90_000,
+    mime: 'video/mp4',
+    extras: [
+      { duration_ms: 30_000, mime: 'video/mp4' },
+      { duration_ms: 60_000, mime: 'video/mp4' },
+    ],
+  });
+  expect(row).toMatchObject({ toolId: 'merge-videos', timeoutSec: 7200, maxConcurrent: 2 });
+
+  // One job per clip: a clip in this job can't go in another.
+  const d = await clip(30_000);
+  expect(await refused({ clips: [b.id] }, d.id)).toMatchObject({ code: 'CONFLICT' });
+  // Someone else's clip is no clip at all.
+  const other = await browser.newContext();
+  const stranger = await other.newPage();
+  const strangerId = await newUser(stranger);
+  const theirs = await upload(strangerId, { tool: 'merge-videos' });
+  const peek = await post(stranger.request, '/api/v1/jobs/quote', {
+    tool_id: 'merge-videos',
+    upload_id: theirs.id,
+    options: { clips: [d.id] },
+  });
+  expect(peek.status()).toBe(404);
+  await other.close();
+
+  // Cancelled while queued: every clip goes at once, not only the first.
+  await post(page.request, `/api/v1/jobs/${job.id}/cancel`, {});
+  for (const file of [a, b, c]) {
+    expect((await storage.fetch(objectUrl(file.key), { method: 'HEAD' })).status).toBe(404);
+    const [gone] = await db.select().from(uploads).where(eq(uploads.id, file.id));
+    expect(gone?.deletedAt).not.toBeNull();
+  }
 });
