@@ -48,6 +48,7 @@ export { ThemeToggle } from './primitives/ThemeToggle';
 export { Wordmark } from './primitives/Wordmark';
 
 export { Footer } from './layout/Footer';
+export { accepts, handOff } from './tool/handoff';
 export { ACCOUNT_PATH, Header, SIGN_IN_PATH } from './layout/Header';
 export { MobileMenu, type NavItem } from './layout/MobileMenu';
 export { OPEN_SEARCH_EVENT, SearchButton, SearchOverlay } from './layout/SearchOverlay';
@@ -57,6 +58,7 @@ export { BatchList, type BatchItem } from './tool/BatchList';
 export { BeforeAfter, MediaTag } from './tool/BeforeAfter';
 export { CalculatorShell } from './tool/CalculatorShell';
 export { CanvasEditor, type CanvasEditorProps, type EditorMode } from './tool/CanvasEditor';
+export type { FaceFinder } from './tool/BlurLayer';
 export { NO_EDIT, type Edit } from './tool/crop';
 export { CropFields } from './tool/CropFields';
 export { DropZone, type DropZoneProps } from './tool/DropZone';

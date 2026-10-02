@@ -32,6 +32,7 @@ Thumbs.db
 
 # large model/WASM files served locally from MODELS_BASE_URL (default /models)
 apps/web/public/models/
+apps/web/public/fonts/text/
 
 # local TLS certificates for phone testing (mkcert, see README)
 certs/

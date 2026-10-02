@@ -4,11 +4,13 @@
  * The map in ./index.tsx is typed against this list, so the two can't drift.
  */
 export const TOOL_IDS = [
+  'add-text-to-image',
   'aspect-ratio-calculator',
   'audio-channels',
   'audio-converter',
   'batch-rename',
   'bitrate-calculator',
+  'blur-image',
   'bpm-key-finder',
   'change-pitch',
   'burn-subtitles',
@@ -20,6 +22,7 @@ export const TOOL_IDS = [
   'contrast-checker',
   'crop-image',
   'dpi-calculator',
+  'draw-on-image',
   'exif-remover',
   'extract-audio',
   'extract-frames',
@@ -32,6 +35,7 @@ export const TOOL_IDS = [
   'merge-videos',
   'mute-video',
   'normalize-audio',
+  'photo-editor',
   'qr-code-generator',
   'remove-background',
   'remove-silence',

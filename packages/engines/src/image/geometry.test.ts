@@ -350,6 +350,27 @@ describe('P04 rotate and flip', () => {
     }
   });
 
+  it('crops a box drawn on the straightened photo in its frame, inside the auto-crop', () => {
+    // Left half red, right half blue; a box over the right half, straightened 5°.
+    const src = image(400, 300, (x) => (x < 200 ? [255, 0, 0, 255] : [0, 0, 255, 255]));
+    const keep = straightenedCrop({ width: 400, height: 300 }, 5);
+    const { image: out, notes } = applyGeometry(src, {
+      angle: 5,
+      angleFit: 'crop',
+      crop: { x: 220, y: 0, width: 180, height: 300 },
+    });
+    // Cut to the part with no corners showing: the auto-crop's height, and its right edge.
+    const right = Math.floor((400 - keep.width) / 2) + keep.width;
+    expect([out.width, out.height]).toEqual([right - 220, keep.height]);
+    expect(at(out, 0, Math.floor(out.height / 2))).toEqual([0, 0, 255, 255]);
+    expect(notes).toEqual([
+      `Straightened 5° and cropped to ${String(out.width)} × ${String(out.height)} px`,
+    ]);
+    expect(() =>
+      applyGeometry(src, { angle: 5, angleFit: 'crop', crop: { x: 0, y: 0, width: 4, height: 4 } }),
+    ).toThrow(/outside the straightened photo/);
+  });
+
   it('fills an expanded canvas with a colour, anti-aliased at the edge', () => {
     const out = rotateFree(
       image(20, 20, () => [0, 0, 0, 255]),

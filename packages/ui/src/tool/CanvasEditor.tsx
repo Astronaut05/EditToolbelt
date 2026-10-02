@@ -1,6 +1,18 @@
 'use client';
 
-import { turnedSize, type Size } from '@etb/engines';
+import {
+  defaultAmount,
+  faceArea,
+  isNeutral,
+  NO_ADJUST,
+  throughUpright,
+  uprightFor,
+  type Point,
+  maxAmount,
+  turnedSize,
+  type Redact,
+  type Size,
+} from '@etb/engines';
 import {
   Crop,
   FlipHorizontal2,
@@ -13,6 +25,7 @@ import {
   RotateCw,
   Ruler,
   Scaling,
+  SlidersHorizontal,
   Type,
   Undo2,
   Waves,
@@ -29,7 +42,19 @@ import {
 
 import { cn } from '../cn';
 import { Slider } from '../primitives/fields';
+import { AdjustBar } from './AdjustBar';
+import {
+  BlurBar,
+  BlurLayer,
+  centredBox,
+  type BlurPen,
+  type FaceFinder,
+  type FaceSearch,
+} from './BlurLayer';
 import { boxLabel, dragHandle, moveBox, turnEdit, type Edit, type Handle } from './crop';
+import { DrawBar, DrawLayer, defaultSize, type DrawStyle } from './DrawLayer';
+import { TextBar } from './TextBar';
+import { newTextLayer, TextLayers } from './TextLayers';
 import type { EditorState } from './useEditor';
 
 export type EditorMode =
@@ -42,7 +67,8 @@ export type EditorMode =
   | 'flip-v'
   | 'draw'
   | 'text'
-  | 'blur';
+  | 'blur'
+  | 'adjust';
 
 const icon = (Icon: typeof Crop) => <Icon size={16} strokeWidth={1.75} aria-hidden="true" />;
 
@@ -54,6 +80,7 @@ const MODES: { id: EditorMode; label: string; icon: ReactNode }[] = [
   { id: 'rotate', label: 'Rotate 90°', icon: icon(RotateCw) },
   { id: 'flip', label: 'Flip', icon: icon(FlipHorizontal2) },
   { id: 'flip-v', label: 'Flip vertical', icon: icon(FlipVertical2) },
+  { id: 'adjust', label: 'Adjust', icon: icon(SlidersHorizontal) },
   { id: 'draw', label: 'Draw', icon: icon(Highlighter) },
   { id: 'text', label: 'Text', icon: icon(Type) },
   { id: 'blur', label: 'Blur', icon: icon(Waves) },
@@ -90,6 +117,13 @@ export interface CanvasEditorProps {
   initialMode?: EditorMode;
   /** Modes the preset shows; all by default. */
   enabledModes?: EditorMode[];
+  /** P12: finds faces for blur mode's "Find faces"; without it the button isn't shown. */
+  findFaces?: FaceFinder;
+  /**
+   * P01: "rail" puts the modes in a column on the left on wide screens and in
+   * a bar along the bottom on phones; "bar" (the default) keeps them at the top.
+   */
+  layout?: 'bar' | 'rail';
   className?: string;
 }
 
@@ -117,11 +151,15 @@ export function CanvasEditor({
   ratio = null,
   initialMode = 'crop',
   enabledModes,
+  findFaces,
+  layout = 'bar',
   className,
 }: CanvasEditorProps) {
   const { edit, onEdit, natural, onNatural, history } = editor;
   const [mode, setMode] = useState<EditorMode>(initialMode);
   const [zoom, setZoom] = useState(100);
+  /** P09: the pen as changed; until then, a red arrow sized for the image. */
+  const [penChoice, setPen] = useState<DrawStyle | null>(null);
   const [frame, setFrame] = useState<Size>({ width: 0, height: 0 });
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -140,6 +178,82 @@ export function CanvasEditor({
       observer.disconnect();
     };
   }, []);
+
+  const pen: DrawStyle | null =
+    penChoice ??
+    (natural ? { tool: 'arrow', color: '#e53935', size: defaultSize(natural), opacity: 1 } : null);
+  const marks = edit.marks ?? [];
+  const texts = edit.texts ?? [];
+  /** P10: the text layer being edited. */
+  const [selectedText, setSelectedText] = useState<string | null>(null);
+  /** P12: the shape blur mode draws, and the face search. */
+  const [blurPenChoice, setBlurPen] = useState<BlurPen | null>(null);
+  const [search, setSearch] = useState<FaceSearch>({ kind: 'idle' });
+  const searching = useRef<AbortController | null>(null);
+  const latest = useRef(edit);
+  useEffect(() => {
+    latest.current = edit;
+  });
+  useEffect(
+    () => () => {
+      searching.current?.abort();
+    },
+    [],
+  );
+  const blurPen: BlurPen | null =
+    blurPenChoice ??
+    (natural
+      ? {
+          shape: 'rect',
+          brush: Math.max(8, Math.round(Math.max(natural.width, natural.height) / 30)),
+        }
+      : null);
+  const redact: Redact | null =
+    edit.redact ??
+    (natural
+      ? { effect: 'blur', amount: defaultAmount(natural), color: '#000000', areas: [] }
+      : null);
+
+  /** Finds faces and hides them all, replacing faces found before; drawn areas stay. One undo step. */
+  function find() {
+    if (!findFaces || !natural) return;
+    searching.current?.abort();
+    const controller = new AbortController();
+    searching.current = controller;
+    setSearch({ kind: 'running', label: 'Finding faces' });
+    findFaces(src, controller.signal, (progress) => {
+      if (!controller.signal.aborted) {
+        setSearch({ kind: 'running', label: progress.label, amount: progress.amount });
+      }
+    }).then(
+      (faces) => {
+        if (controller.signal.aborted) return;
+        const now = latest.current;
+        const current = now.redact ?? redact;
+        if (!current) return;
+        const bounds = { x: 0, y: 0, ...natural };
+        onEdit({
+          ...now,
+          redact: {
+            ...current,
+            areas: [
+              ...current.areas.filter((area) => area.face === undefined),
+              ...faces.map((face) => faceArea(face, bounds)),
+            ],
+          },
+        });
+        setSearch({ kind: 'done', count: faces.length });
+      },
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        setSearch({
+          kind: 'error',
+          message:
+            error instanceof Error ? error.message.replace(/\.$/, '') : 'Faces couldn’t be found',
+        });
+      },
+    );
+  }
 
   const turned = natural ? turnedSize(natural, edit.turns) : null;
   const fit =
@@ -255,227 +369,404 @@ export function CanvasEditor({
   const box = edit.crop;
   const imageSize = natural && { width: natural.width * fit, height: natural.height * fit };
 
+  /** The editor's frame: what the layers' wrapper does to the image, as the engine does it. */
+  const view = { turns: edit.turns, flip: edit.flip, flipV: edit.flipV, angle: edit.angle };
+  const upright = uprightFor(view);
+  /**
+   * A pointer → the image's own pixels: from the stage's centre (the image's
+   * centre too), zoom undone, then the angle, flips and turns undone.
+   */
+  const toImage = (clientX: number, clientY: number): Point => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect || !stage || !imageSize || fit <= 0 || stage.width === 0) return [0, 0];
+    const zoomed = rect.width / stage.width;
+    const [dx, dy] = throughUpright(
+      (clientX - (rect.left + rect.width / 2)) / zoomed,
+      (clientY - (rect.top + rect.height / 2)) / zoomed,
+      upright,
+    );
+    return [(dx + imageSize.width / 2) / fit, (dy + imageSize.height / 2) / fit];
+  };
+  /** Arrow keys move what's on screen that way: turns and flips undone (not the free angle). */
+  const nudge = (dx: number, dy: number) =>
+    throughUpright(dx, dy, uprightFor({ ...view, angle: 0 }));
+
+  const rail = layout === 'rail';
+  /** The mode buttons: a row at the top, or the rail's stacked icon and label. */
+  const modeButtons = (stacked: boolean) =>
+    modes.map((m) => {
+      const isAction = ACTIONS.includes(m.id);
+      const chosen = !isAction && mode === m.id;
+      return (
+        <button
+          key={m.id}
+          type="button"
+          aria-pressed={isAction ? undefined : chosen}
+          disabled={isAction && !natural}
+          onClick={() => {
+            act(m.id);
+          }}
+          className={cn(
+            'flex-none disabled:opacity-38',
+            stacked
+              ? 'inline-flex h-14 min-w-18 flex-col items-center justify-center gap-1 px-1 text-11 leading-tight lg:h-16 lg:w-full'
+              : 'inline-flex h-11 items-center gap-2 px-2.5 text-14',
+            chosen ? 'font-strong text-text' : 'text-text-muted hover:text-text',
+            chosen && stacked && 'bg-surface',
+          )}
+        >
+          {m.icon}
+          <span className={cn(chosen && 'underline-accent')}>{m.label}</span>
+        </button>
+      );
+    });
+
   return (
-    <div className={cn('absolute inset-0 flex flex-col bg-surface', className)}>
-      <div
-        role="toolbar"
-        aria-label="Editor"
-        className="flex h-12 flex-none items-center gap-1 overflow-x-auto border-b border-border bg-bg px-3"
-      >
-        {modes.map((m) => {
-          const isAction = ACTIONS.includes(m.id);
-          return (
-            <button
-              key={m.id}
-              type="button"
-              aria-pressed={isAction ? undefined : mode === m.id}
-              disabled={isAction && !natural}
-              onClick={() => {
-                act(m.id);
-              }}
-              className={cn(
-                'inline-flex h-11 flex-none items-center gap-2 px-2.5 text-14 disabled:opacity-38',
-                !isAction && mode === m.id
-                  ? 'font-strong text-text'
-                  : 'text-text-muted hover:text-text',
-              )}
-            >
-              {m.icon}
-              <span className={cn(!isAction && mode === m.id && 'underline-accent')}>
-                {m.label}
-              </span>
-            </button>
-          );
-        })}
-        <span aria-hidden="true" className="mx-2 h-5 w-px flex-none bg-border" />
-        <IconButton label="Undo" disabled={!history.canUndo} onClick={history.undo}>
-          <Undo2 size={16} strokeWidth={1.75} aria-hidden="true" />
-        </IconButton>
-        <IconButton label="Redo" disabled={!history.canRedo} onClick={history.redo}>
-          <Redo2 size={16} strokeWidth={1.75} aria-hidden="true" />
-        </IconButton>
-        <span className="ml-auto hidden flex-none items-center gap-1 sm:flex">
-          <IconButton
-            label="Zoom out"
-            disabled={zoom <= 25}
-            onClick={() => {
-              setZoom(Math.max(25, zoom - 25));
-            }}
-          >
-            <Minus size={16} strokeWidth={1.75} aria-hidden="true" />
-          </IconButton>
-          <output aria-label="Zoom" className="w-12 text-center font-mono text-12.5 text-text">
-            {zoom}%
-          </output>
-          <IconButton
-            label="Zoom in"
-            disabled={zoom >= 400}
-            onClick={() => {
-              setZoom(Math.min(400, zoom + 25));
-            }}
-          >
-            <Plus size={16} strokeWidth={1.75} aria-hidden="true" />
-          </IconButton>
-        </span>
-      </div>
-      {mode === 'straighten' && (
-        <div className="flex h-12 flex-none items-center gap-3 border-b border-border bg-bg px-4">
-          <label htmlFor={angleId} className="text-14 text-text-muted">
-            Angle
-          </label>
-          <Slider
-            id={angleId}
-            min={-MAX_ANGLE}
-            max={MAX_ANGLE}
-            step={0.1}
-            value={edit.angle}
-            disabled={!natural}
-            aria-valuetext={`${String(edit.angle)}°`}
-            onChange={(event) => {
-              setAngle(Number(event.target.value), false);
-            }}
-            onPointerUp={(event) => {
-              setAngle(Number(event.currentTarget.value), true);
-            }}
-            onKeyUp={(event) => {
-              setAngle(Number(event.currentTarget.value), true);
-            }}
-            className="min-w-0 flex-1 sm:max-w-80"
-          />
-          <output htmlFor={angleId} className="w-14 text-right font-mono text-12.5 text-text">
-            {edit.angle.toFixed(1)}°
-          </output>
-          <button
-            type="button"
-            disabled={edit.angle === 0}
-            onClick={() => {
-              setAngle(0, true);
-            }}
-            className="text-14 text-text-muted hover:text-text disabled:opacity-38"
-          >
-            Reset
-          </button>
+    <div
+      className={cn('absolute inset-0 flex flex-col bg-surface', rail && 'lg:flex-row', className)}
+    >
+      {rail && (
+        <div
+          role="toolbar"
+          aria-label="Modes"
+          className="order-last flex flex-none overflow-x-auto border-t border-border bg-bg lg:order-first lg:w-22 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:border-t-0 lg:border-r"
+        >
+          {modeButtons(true)}
         </div>
       )}
-      <div ref={frameRef} className="relative min-h-0 flex-1 overflow-hidden">
-        {/* Loads the image to learn its size; the stage shows it once known. */}
-        {!natural && (
-          // eslint-disable-next-line @next/next/no-img-element -- local object URL, measured only
-          <img
-            src={src}
-            alt=""
-            className="invisible absolute size-px"
-            onLoad={(event) => {
-              const img = event.currentTarget;
-              if (img.naturalWidth > 0) {
-                onNatural({ width: img.naturalWidth, height: img.naturalHeight });
-              }
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          role="toolbar"
+          aria-label="Editor"
+          className="flex h-12 flex-none items-center gap-1 overflow-x-auto border-b border-border bg-bg px-3"
+        >
+          {!rail && modeButtons(false)}
+          {!rail && <span aria-hidden="true" className="mx-2 h-5 w-px flex-none bg-border" />}
+          <IconButton label="Undo" disabled={!history.canUndo} onClick={history.undo}>
+            <Undo2 size={16} strokeWidth={1.75} aria-hidden="true" />
+          </IconButton>
+          <IconButton label="Redo" disabled={!history.canRedo} onClick={history.redo}>
+            <Redo2 size={16} strokeWidth={1.75} aria-hidden="true" />
+          </IconButton>
+          <span className="ml-auto hidden flex-none items-center gap-1 sm:flex">
+            <IconButton
+              label="Zoom out"
+              disabled={zoom <= 25}
+              onClick={() => {
+                setZoom(Math.max(25, zoom - 25));
+              }}
+            >
+              <Minus size={16} strokeWidth={1.75} aria-hidden="true" />
+            </IconButton>
+            <output aria-label="Zoom" className="w-12 text-center font-mono text-12.5 text-text">
+              {zoom}%
+            </output>
+            <IconButton
+              label="Zoom in"
+              disabled={zoom >= 400}
+              onClick={() => {
+                setZoom(Math.min(400, zoom + 25));
+              }}
+            >
+              <Plus size={16} strokeWidth={1.75} aria-hidden="true" />
+            </IconButton>
+          </span>
+        </div>
+        {mode === 'straighten' && (
+          <div className="flex h-12 flex-none items-center gap-3 border-b border-border bg-bg px-4">
+            <label htmlFor={angleId} className="text-14 text-text-muted">
+              Angle
+            </label>
+            <Slider
+              id={angleId}
+              min={-MAX_ANGLE}
+              max={MAX_ANGLE}
+              step={0.1}
+              value={edit.angle}
+              disabled={!natural}
+              aria-valuetext={`${String(edit.angle)}°`}
+              onChange={(event) => {
+                setAngle(Number(event.target.value), false);
+              }}
+              onPointerUp={(event) => {
+                setAngle(Number(event.currentTarget.value), true);
+              }}
+              onKeyUp={(event) => {
+                setAngle(Number(event.currentTarget.value), true);
+              }}
+              className="min-w-0 flex-1 sm:max-w-80"
+            />
+            <output htmlFor={angleId} className="w-14 text-right font-mono text-12.5 text-text">
+              {edit.angle.toFixed(1)}°
+            </output>
+            <button
+              type="button"
+              disabled={edit.angle === 0}
+              onClick={() => {
+                setAngle(0, true);
+              }}
+              className="text-14 text-text-muted hover:text-text disabled:opacity-38"
+            >
+              Reset
+            </button>
+          </div>
+        )}
+        {mode === 'draw' && natural && pen && (
+          <DrawBar
+            style={pen}
+            onStyle={setPen}
+            maxSize={Math.max(20, Math.round(Math.max(natural.width, natural.height) / 20))}
+            canClear={marks.length > 0}
+            onClear={() => {
+              onEdit({ ...edit, marks: [] });
             }}
           />
         )}
-        {stage && imageSize && fit > 0 && (
-          <div
-            ref={stageRef}
-            className="absolute"
-            style={{
-              left: (frame.width - stage.width) / 2,
-              top: (frame.height - stage.height) / 2,
-              width: stage.width,
-              height: stage.height,
-              transform: `scale(${String(zoom / 100)})`,
+        {mode === 'adjust' && (
+          <AdjustBar
+            adjust={edit.adjust ?? NO_ADJUST}
+            onAdjust={(next, transient) => {
+              onEdit({ ...edit, adjust: next }, transient);
             }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- local object URL */}
+          />
+        )}
+        {mode === 'blur' && natural && blurPen && redact && (
+          <BlurBar
+            pen={blurPen}
+            onPen={setBlurPen}
+            redact={redact}
+            onRedact={(next, transient) => {
+              onEdit({ ...edit, redact: next }, transient);
+            }}
+            natural={natural}
+            maxStrength={maxAmount(natural)}
+            search={search}
+            onFind={findFaces ? find : undefined}
+            onAddBox={() => {
+              onEdit({
+                ...edit,
+                redact: { ...redact, areas: [...redact.areas, centredBox(natural)] },
+              });
+            }}
+          />
+        )}
+        {mode === 'text' && natural && (
+          <TextBar
+            layers={texts}
+            selected={selectedText}
+            onSelect={setSelectedText}
+            onLayers={(next, transient) => {
+              onEdit({ ...edit, texts: next }, transient);
+            }}
+            onAdd={() => {
+              const added = newTextLayer(natural, natural.width / 2, natural.height / 2, upright);
+              onEdit({ ...edit, texts: [...texts, added] });
+              setSelectedText(added.id);
+            }}
+          />
+        )}
+        <div ref={frameRef} className="relative min-h-0 flex-1 overflow-hidden">
+          {/* Loads the image to learn its size; the stage shows it once known. */}
+          {!natural && (
+            // eslint-disable-next-line @next/next/no-img-element -- local object URL, measured only
             <img
               src={src}
               alt=""
-              draggable={false}
-              className="absolute max-w-none select-none"
-              style={{
-                left: (stage.width - imageSize.width) / 2,
-                top: (stage.height - imageSize.height) / 2,
-                width: imageSize.width,
-                height: imageSize.height,
-                // Turns first, then the flips, then the free angle, as the engine applies them.
-                transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
+              className="invisible absolute size-px"
+              onLoad={(event) => {
+                const img = event.currentTarget;
+                if (img.naturalWidth > 0) {
+                  onNatural({ width: img.naturalWidth, height: img.naturalHeight });
+                }
               }}
             />
-            {mode === 'straighten' && (
-              // A grid to line the horizon or a wall up against.
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--media-text)_45%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--media-text)_45%,transparent)_1px,transparent_1px)] bg-size-[12.5%_12.5%]"
-              />
-            )}
-            {mode === 'crop' && box && (
-              <div
-                role="group"
-                tabIndex={0}
-                aria-label={`Crop box, ${boxLabel(box)}, at ${String(box.x)}, ${String(box.y)}`}
-                aria-describedby={hintId}
-                onKeyDown={onBoxKey}
-                {...pointer}
-                className="absolute cursor-move touch-none border border-media-text shadow-[0_0_0_100vmax_color-mix(in_srgb,var(--media-scrim)_55%,transparent)] outline-offset-4"
+          )}
+          {stage && imageSize && fit > 0 && (
+            <div
+              ref={stageRef}
+              className="absolute"
+              style={{
+                left: (frame.width - stage.width) / 2,
+                top: (frame.height - stage.height) / 2,
+                width: stage.width,
+                height: stage.height,
+                transform: `scale(${String(zoom / 100)})`,
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- local object URL */}
+              <img
+                src={src}
+                alt=""
+                draggable={false}
+                className="absolute max-w-none select-none"
                 style={{
-                  left: box.x * fit,
-                  top: box.y * fit,
-                  width: box.width * fit,
-                  height: box.height * fit,
+                  left: (stage.width - imageSize.width) / 2,
+                  top: (stage.height - imageSize.height) / 2,
+                  width: imageSize.width,
+                  height: imageSize.height,
+                  // Turns first, then the flips, then the free angle, as the engine applies them.
+                  transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
                 }}
-              >
-                <span id={hintId} className="sr-only">
-                  Arrow keys move the box, Shift moves 10 px. Width, height and position are also in
-                  the settings.
-                </span>
-                {/* Thirds lines. */}
-                <span aria-hidden="true" className="pointer-events-none absolute inset-0">
-                  {['left-1/3', 'left-2/3'].map((pos) => (
-                    <span
-                      key={pos}
-                      className={cn('absolute inset-y-0 w-px bg-media-text/40', pos)}
+              />
+              {blurPen &&
+                redact &&
+                (mode === 'blur' ||
+                  mode === 'adjust' ||
+                  redact.areas.length > 0 ||
+                  !isNeutral(edit.adjust)) && (
+                  // Hidden areas sit on the image and turn with it; only blur mode takes the pointer.
+                  <div
+                    className={cn('absolute', mode !== 'blur' && 'pointer-events-none')}
+                    style={{
+                      left: (stage.width - imageSize.width) / 2,
+                      top: (stage.height - imageSize.height) / 2,
+                      width: imageSize.width,
+                      height: imageSize.height,
+                      transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
+                    }}
+                  >
+                    <BlurLayer
+                      toImage={toImage}
+                      nudge={nudge}
+                      src={src}
+                      natural={natural}
+                      adjust={edit.adjust}
+                      redact={redact}
+                      pen={blurPen}
+                      active={mode === 'blur'}
+                      onRedact={(next, transient) => {
+                        onEdit({ ...edit, redact: next }, transient);
+                      }}
                     />
-                  ))}
-                  {['top-1/3', 'top-2/3'].map((pos) => (
-                    <span
-                      key={pos}
-                      className={cn('absolute inset-x-0 h-px bg-media-text/40', pos)}
-                    />
-                  ))}
-                </span>
+                  </div>
+                )}
+              {pen && (mode === 'draw' || marks.length > 0) && (
+                // Marks sit on the image and turn with it; only draw mode takes the pointer.
+                <div
+                  className={cn('absolute', mode !== 'draw' && 'pointer-events-none')}
+                  style={{
+                    left: (stage.width - imageSize.width) / 2,
+                    top: (stage.height - imageSize.height) / 2,
+                    width: imageSize.width,
+                    height: imageSize.height,
+                    transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
+                  }}
+                >
+                  <DrawLayer
+                    toImage={toImage}
+                    upright={upright}
+                    natural={natural}
+                    marks={marks}
+                    style={pen}
+                    onMarks={(next, transient) => {
+                      onEdit({ ...edit, marks: next }, transient);
+                    }}
+                  />
+                </div>
+              )}
+              {(mode === 'text' || texts.length > 0) && (
+                // Text sits on the image and turns with it; only text mode takes the pointer.
+                <div
+                  className={cn('absolute', mode !== 'text' && 'pointer-events-none')}
+                  style={{
+                    left: (stage.width - imageSize.width) / 2,
+                    top: (stage.height - imageSize.height) / 2,
+                    width: imageSize.width,
+                    height: imageSize.height,
+                    transform: `rotate(${String(edit.angle)}deg)${edit.flipV ? ' scaleY(-1)' : ''}${edit.flip ? ' scaleX(-1)' : ''} rotate(${String(edit.turns * 90)}deg)`,
+                  }}
+                >
+                  <TextLayers
+                    toImage={toImage}
+                    upright={upright}
+                    nudge={nudge}
+                    natural={natural}
+                    layers={texts}
+                    selected={mode === 'text' ? selectedText : null}
+                    onSelect={setSelectedText}
+                    onLayers={(next, transient) => {
+                      onEdit({ ...edit, texts: next }, transient);
+                    }}
+                  />
+                </div>
+              )}
+              {mode === 'straighten' && (
+                // A grid to line the horizon or a wall up against.
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute top-1.5 left-1.5 rounded-control bg-media-scrim/75 px-1.5 py-1 font-mono text-11 leading-none text-media-text"
+                  className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--media-text)_45%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--media-text)_45%,transparent)_1px,transparent_1px)] bg-size-[12.5%_12.5%]"
+                />
+              )}
+              {mode === 'crop' && box && (
+                <div
+                  role="group"
+                  tabIndex={0}
+                  aria-label={`Crop box, ${boxLabel(box)}, at ${String(box.x)}, ${String(box.y)}`}
+                  aria-describedby={hintId}
+                  onKeyDown={onBoxKey}
+                  {...pointer}
+                  className="absolute cursor-move touch-none border border-media-text shadow-[0_0_0_100vmax_color-mix(in_srgb,var(--media-scrim)_55%,transparent)] outline-offset-4"
+                  style={{
+                    left: box.x * fit,
+                    top: box.y * fit,
+                    width: box.width * fit,
+                    height: box.height * fit,
+                  }}
                 >
-                  {boxLabel(box)}
-                </span>
-                {HANDLES.map((handle) => (
-                  <span
-                    key={handle.id}
-                    aria-hidden="true"
-                    data-handle={handle.id}
-                    {...pointer}
-                    className={cn(
-                      'absolute flex size-8 touch-none items-center justify-center',
-                      handle.className,
-                      handle.cursor,
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'block bg-media-text shadow-[0_0_0_1px_var(--media-scrim)]',
-                        handle.id.length === 2
-                          ? 'size-2.5'
-                          : handle.id === 'n' || handle.id === 's'
-                            ? 'h-1 w-4'
-                            : 'h-4 w-1',
-                      )}
-                    />
+                  <span id={hintId} className="sr-only">
+                    Arrow keys move the box, Shift moves 10 px. Width, height and position are also
+                    in the settings.
                   </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                  {/* Thirds lines. */}
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-0">
+                    {['left-1/3', 'left-2/3'].map((pos) => (
+                      <span
+                        key={pos}
+                        className={cn('absolute inset-y-0 w-px bg-media-text/40', pos)}
+                      />
+                    ))}
+                    {['top-1/3', 'top-2/3'].map((pos) => (
+                      <span
+                        key={pos}
+                        className={cn('absolute inset-x-0 h-px bg-media-text/40', pos)}
+                      />
+                    ))}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-1.5 left-1.5 rounded-control bg-media-scrim/75 px-1.5 py-1 font-mono text-11 leading-none text-media-text"
+                  >
+                    {boxLabel(box)}
+                  </span>
+                  {HANDLES.map((handle) => (
+                    <span
+                      key={handle.id}
+                      aria-hidden="true"
+                      data-handle={handle.id}
+                      {...pointer}
+                      className={cn(
+                        'absolute flex size-8 touch-none items-center justify-center',
+                        handle.className,
+                        handle.cursor,
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'block bg-media-text shadow-[0_0_0_1px_var(--media-scrim)]',
+                          handle.id.length === 2
+                            ? 'size-2.5'
+                            : handle.id === 'n' || handle.id === 's'
+                              ? 'h-1 w-4'
+                              : 'h-4 w-1',
+                        )}
+                      />
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

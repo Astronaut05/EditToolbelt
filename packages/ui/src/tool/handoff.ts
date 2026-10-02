@@ -3,10 +3,11 @@
  * tool in memory, without a re-upload. The file waits here, in this module,
  * across a client-side navigation; the next tool's shell takes it on mount.
  * A full page load starts empty, which is fine: nothing is ever stored.
+ * M8's Android share target hands files on the same way, several at once.
  */
 
 interface Pending {
-  file: File;
+  files: File[];
   to: string;
   at: number;
 }
@@ -35,14 +36,14 @@ export function accepts(
   );
 }
 
-export function handOff(file: File, to: string, now = Date.now()): void {
-  pending = { file, to, at: now };
+export function handOff(file: File | File[], to: string, now = Date.now()): void {
+  pending = { files: Array.isArray(file) ? file : [file], to, at: now };
 }
 
-/** The file handed to this tool, once; null if there is none or it waited too long. */
-export function takeHandoff(toolId: string, now = Date.now()): File | null {
+/** The files handed to this tool, once; null if there are none or they waited too long. */
+export function takeHandoff(toolId: string, now = Date.now()): File[] | null {
   const current = pending;
   if (!current || current.to !== toolId) return null;
   pending = null;
-  return now - current.at <= WAIT_MS ? current.file : null;
+  return now - current.at <= WAIT_MS && current.files.length > 0 ? current.files : null;
 }
