@@ -9,6 +9,7 @@ import {
   Table,
   when,
 } from '../../../../components/admin/AdminFrame';
+import { requireAdmin } from '../../../../server/admin';
 import { db } from '../../../../server/db';
 import { serverEnv } from '../../../../server/env';
 import { runLedgerCheck } from '../actions';
@@ -39,6 +40,7 @@ async function migrations(): Promise<{ applied: number; last: Date | null }> {
  * lifecycle rows arrive with M4's storage.
  */
 export default async function AdminSystem({ searchParams }: Props) {
+  await requireAdmin();
   const env = serverEnv();
   const query = await searchParams;
   const [migrated, checks, version, recent] = await Promise.all([

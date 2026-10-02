@@ -16,6 +16,7 @@ import { hasServerPath, tools } from '@etb/registry';
 import { Button, Input, Select } from '@etb/ui';
 
 import { AdminFrame, Table, took, when } from '../../../../components/admin/AdminFrame';
+import { requireAdmin } from '../../../../server/admin';
 import { db } from '../../../../server/db';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,7 @@ const one = (value: string | string[] | undefined) =>
  * admin never gets a user's file.
  */
 export default async function AdminJobs({ searchParams }: Props) {
+  await requireAdmin();
   const query = await searchParams;
   const filters = {
     tool: one(query.tool),
