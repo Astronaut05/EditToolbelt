@@ -43,7 +43,8 @@ export function HomeSearch({
       >
         What do you need to do?
       </label>
-      <div className="mt-4.5 flex items-center gap-4 border-b-2 border-border-strong pb-5">
+      {/* Focus shows on the rule: --focus-ring and 4 px while the input has focus (padding keeps the height). */}
+      <div className="mt-4.5 flex items-center gap-4 border-b-2 border-border-strong pb-5 focus-within:border-b-4 focus-within:border-focus-ring focus-within:pb-4.5">
         <input
           ref={input}
           id="home-search"
@@ -61,7 +62,7 @@ export function HomeSearch({
             setQuery(event.target.value);
           }}
           onKeyDown={onKeyDown}
-          className="min-w-0 flex-1 bg-transparent text-34 leading-none font-strong tracking-display-xl caret-accent outline-none placeholder:text-text-muted/45 focus-visible:outline-none lg:h-18 lg:text-72"
+          className="min-w-0 flex-1 bg-transparent text-34 leading-none font-strong tracking-display-xl caret-accent outline-none placeholder:text-text-muted lg:h-18 lg:text-72"
         />
         <span
           id="home-search-hint"

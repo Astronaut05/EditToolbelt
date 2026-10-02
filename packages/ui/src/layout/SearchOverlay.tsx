@@ -101,7 +101,7 @@ export function SearchOverlay() {
       className="m-0 mt-(--header-h) h-auto max-h-[calc(100dvh-var(--header-h))] w-full max-w-none border-b border-border bg-bg p-0 text-text backdrop:bg-media-scrim/50 max-lg:mt-13"
     >
       <div className="mx-auto max-w-(--content-max) px-4 pt-6 pb-8 lg:px-10 lg:pt-10">
-        <div className="flex items-center gap-3 border-b-2 border-border-strong pb-4">
+        <div className="flex items-center gap-3 border-b-2 border-border-strong pb-4 focus-within:border-b-4 focus-within:border-focus-ring focus-within:pb-3.5">
           <Search
             aria-hidden="true"
             className="flex-none text-text-muted"
@@ -126,7 +126,7 @@ export function SearchOverlay() {
               setActive(0);
             }}
             onKeyDown={onKeyDown}
-            className="min-w-0 flex-1 bg-transparent text-34 leading-none font-strong tracking-display-xl caret-accent outline-none placeholder:text-text-muted/45 lg:text-72"
+            className="min-w-0 flex-1 bg-transparent text-34 leading-none font-strong tracking-display-xl caret-accent outline-none placeholder:text-text-muted lg:text-72"
           />
           <button
             type="button"
