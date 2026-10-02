@@ -122,147 +122,43 @@ export async function becomeAdmin(page: Page): Promise<{ id: string; key: string
  * one ever sees.
  */
 export async function setScheme(page: Page, scheme: 'light' | 'dark'): Promise<void> {
-  // TEMPORARY (claude/debug-firefox-axe only): a bounded wait, then a report
-  // of whatever is still running, so the Firefox hang prints instead of timing out.
   await page.emulateMedia({ colorScheme: scheme });
-  const tag = `[setScheme-debug ${scheme}]`;
-  const started = Date.now();
-  const settled = () =>
-    document
-      .getAnimations()
-      .every(
-        (animation) =>
-          animation.playState !== 'running' ||
-          !Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)),
+  // Polls each frame until no animation that ends is still running on an
+  // element the page renders. Not the animations' `finished` promises:
+  // Chromium can leave those unsettled after the transition has finished
+  // (seen on /admin/payments), and a loop, such as a progress bar's pulse,
+  // never finishes at all. Not the elements it doesn't render, such as the
+  // form in a closed <details> (content-visibility: hidden): Firefox makes
+  // their transitions but never starts them, so they stay pending at 0 ms
+  // for good (/admin/payments' refund forms), and axe skips them anyway.
+  await page.waitForFunction(() =>
+    document.getAnimations().every((animation) => {
+      const effect = animation.effect;
+      const target = effect instanceof KeyframeEffect ? effect.target : null;
+      return (
+        animation.playState !== 'running' ||
+        !Number.isFinite(Number(effect?.getComputedTiming().endTime)) ||
+        target?.checkVisibility() === false
       );
-  try {
-    await page.waitForFunction(settled, undefined, { timeout: 3_000 });
-    const count = await page.evaluate(() => document.getAnimations().length);
-    console.log(
-      `${tag} settled in ${String(Date.now() - started)} ms url=${page.url()} animations=${String(count)} pages=${String(page.context().pages().length)}`,
-    );
-    return;
-  } catch (error) {
-    console.log(
-      `${tag} NOT settled after ${String(Date.now() - started)} ms url=${page.url()} pages=${String(page.context().pages().length)}: ${String(error).split('\n')[0] ?? ''}`,
-    );
-  }
-  const snapshot = () =>
-    page.evaluate(async () => {
-      type Loose = Animation & {
-        transitionProperty?: string;
-        animationName?: string;
-        effect: (AnimationEffect & { target?: Element | null; pseudoElement?: string | null }) | null;
-      };
-      const stuck = () =>
-        (document.getAnimations() as Loose[]).filter(
-          (a) =>
-            a.playState === 'running' &&
-            Number.isFinite(Number(a.effect?.getComputedTiming().endTime)),
-        );
-      const describe = (a: Loose) => {
-        const timing = a.effect?.getComputedTiming();
-        const target = a.effect?.target ?? null;
-        const rect = target?.getBoundingClientRect();
-        const details = target?.closest('details') ?? null;
-        let detailsContent: string | null = null;
-        if (details) {
-          try {
-            const cs = getComputedStyle(details, '::details-content');
-            detailsContent = `${cs.display}/${cs.contentVisibility}`;
-          } catch (error) {
-            detailsContent = String(error);
-          }
-        }
-        return {
-          kind: a.constructor.name,
-          playState: a.playState,
-          pending: a.pending,
-          startTime: a.startTime,
-          currentTime: a.currentTime,
-          endTime: timing?.endTime,
-          activeDuration: timing?.activeDuration,
-          progress: timing?.progress,
-          property: a.transitionProperty ?? a.animationName ?? a.id,
-          pseudo: a.effect?.pseudoElement ?? null,
-          rect: rect
-            ? [Math.round(rect.top), Math.round(rect.bottom), Math.round(rect.width), Math.round(rect.height)]
-            : null,
-          checkVisibility: target ? target.checkVisibility() : null,
-          display: target ? getComputedStyle(target).display : null,
-          inDetails: details ? (details.open ? 'open' : 'closed') : 'no',
-          detailsContent,
-          target: target ? target.outerHTML.slice(0, 200) : null,
-        };
-      };
-      const t0 = document.timeline.currentTime;
-      const p0 = performance.now();
-      const before = stuck().map((a) => a.currentTime);
-      let frames = 0;
-      let counting = true;
-      const tick = () => {
-        frames += 1;
-        if (counting) requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      counting = false;
-      const t1 = document.timeline.currentTime;
-      const p1 = performance.now();
-      const all = document.getAnimations() as Loose[];
-      const running = stuck();
-      const count = (keys: string[]) =>
-        keys.reduce<Record<string, number>>((acc, key) => {
-          acc[key] = (acc[key] ?? 0) + 1;
-          return acc;
-        }, {});
-      const described = running.map(describe);
-      return {
-        userAgent: navigator.userAgent,
-        url: location.href,
-        visibilityState: document.visibilityState,
-        hasFocus: document.hasFocus(),
-        timeline: [t0, t1],
-        performanceNow: [p0, p1],
-        rafFramesIn500ms: frames,
-        innerHeight,
-        scrollY,
-        animations: all.length,
-        byPlayState: count(all.map((a) => a.playState)),
-        stuck: running.length,
-        stuckCurrentTimeBefore: before.slice(0, 8),
-        stuckCurrentTimeAfter: running.slice(0, 8).map((a) => a.currentTime),
-        stuckGroups: count(
-          described.map(
-            (d) =>
-              `pending=${String(d.pending)} inDetails=${d.inDetails} visible=${String(d.checkVisibility)} display=${String(d.display)} onscreen=${String(d.rect ? d.rect[1] > 0 && d.rect[0] < innerHeight : null)}`,
-          ),
-        ),
-        stuckDetails: described.slice(0, 40),
-      };
-    });
-  console.log(`${tag} snapshot ${JSON.stringify(await snapshot())}`);
-  // Experiment: bring the page to the front, then look again.
-  await page.bringToFront();
-  await page.waitForTimeout(1_000);
-  const after = await page.evaluate(() => ({
-    visibilityState: document.visibilityState,
-    hasFocus: document.hasFocus(),
-    stuck: document
-      .getAnimations()
-      .filter(
-        (a) =>
-          a.playState === 'running' &&
-          Number.isFinite(Number(a.effect?.getComputedTiming().endTime)),
-      )
-      .map((a) => [a.pending, a.startTime, a.currentTime]),
-  }));
-  console.log(
-    `${tag} after bringToFront: ${JSON.stringify({ ...after, stuck: after.stuck.length, sample: after.stuck.slice(0, 5) })}`,
+    }),
   );
-  if (after.stuck.length > 0) {
-    // Experiment: does one more second change anything?
-    await page.waitForTimeout(2_000);
-    console.log(`${tag} 2 s later: ${JSON.stringify(await snapshot())}`);
-  }
+  // TEMPORARY (claude/debug-firefox-axe only): what the wait passed over.
+  const left = await page.evaluate(() =>
+    document.getAnimations().map((animation) => {
+      const effect = animation.effect;
+      const target = effect instanceof KeyframeEffect ? effect.target : null;
+      return [
+        animation.playState,
+        animation.pending,
+        animation.currentTime,
+        (animation as Animation & { transitionProperty?: string }).transitionProperty ?? '',
+        target?.checkVisibility() ?? null,
+        target?.closest('details') ? (target.closest('details')?.open ? 'open' : 'closed') : 'no',
+        target?.textContent?.trim().slice(0, 40) ?? '',
+      ];
+    }),
+  );
+  console.log(
+    `[setScheme-fix ${scheme}] ${page.url()} left=${String(left.length)} ${JSON.stringify(left.slice(0, 12))}`,
+  );
 }

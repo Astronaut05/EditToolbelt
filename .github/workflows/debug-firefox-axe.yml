@@ -36,7 +36,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium firefox
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
       - name: Storage for the server build's tests (the local stack's gateway)
         run: |
           docker run --detach --name storage --publish 7070:7070 --tmpfs /data \
@@ -50,16 +50,24 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
           PW_BROWSERS: firefox
-      - name: Chromium · admin + payments specs
+      - name: Chromium · admin + payments specs, repeat-each 2
         id: chromium
+        if: always()
+        continue-on-error: true
+        run: pnpm --filter @etb/web e2e:server --no-build e2e-server/admin.spec.ts e2e-server/payments.spec.ts --repeat-each=2
+        env:
+          TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
+          PW_BROWSERS: chromium
+      - name: WebKit · admin + payments specs
+        id: webkit
         if: always()
         continue-on-error: true
         run: pnpm --filter @etb/web e2e:server --no-build e2e-server/admin.spec.ts e2e-server/payments.spec.ts
         env:
           TEST_DATABASE_URL: postgresql://etb:etb-ci-only@localhost:5432/etb_test
-          PW_BROWSERS: chromium
+          PW_BROWSERS: webkit
       - name: Result
         if: always()
         run: |
-          echo "firefox: ${{ steps.firefox.outcome }}, chromium: ${{ steps.chromium.outcome }}"
-          test "${{ steps.firefox.outcome }}" = success && test "${{ steps.chromium.outcome }}" = success
+          echo "firefox: ${{ steps.firefox.outcome }}, chromium: ${{ steps.chromium.outcome }}, webkit: ${{ steps.webkit.outcome }}"
+          test "${{ steps.firefox.outcome }}" = success && test "${{ steps.chromium.outcome }}" = success && test "${{ steps.webkit.outcome }}" = success
