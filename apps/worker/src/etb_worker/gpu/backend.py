@@ -3,12 +3,14 @@
 ``GpuBackend`` runs one call of a GPU function and waits for it, so switching
 backend is a config change (``GPU_BACKEND``):
 
-- ``ModalGpu`` (ServerlessGpu): spawns the function on Modal by name and
-  polls the call every couple of seconds. Between polls it reports the
-  elapsed time (the processor turns it into progress and the runner's
-  heartbeat carries it), and it cancels the call when the job is cancelled,
-  the worker stops, or the job's time is up. Modal never calls us; files
-  move only through the presigned URLs in the call's arguments.
+- ``ModalGpu`` (ServerlessGpu): spawns the function on Modal by name,
+  hands the call's id to the job (so a call whose worker dies can be
+  cancelled by id: ``cancel``), and polls the call every couple of seconds.
+  Between polls it reports the elapsed time (the processor turns it into
+  progress and the runner's heartbeat carries it), and it cancels the call
+  when the job is cancelled, the worker stops, or the job's time is up.
+  Modal never calls us; files move only through the presigned URLs in the
+  call's arguments.
 - ``LocalGpu``: the development card in the local stack (docs/01 -> Local
   GPU). Not built yet, so it says so.
 
@@ -56,6 +58,8 @@ class GpuCall:
     cancel: threading.Event = field(default_factory=threading.Event)
     #: Called between polls with the seconds since the spawn.
     on_wait: Callable[[float], None] = lambda _elapsed: None
+    #: Called once the call exists, with the backend's id for it (Modal's FunctionCall id).
+    on_spawn: Callable[[str], None] = lambda _call_id: None
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,10 @@ class GpuBackend(Protocol):
     name: str
 
     def run(self, call: GpuCall) -> GpuResult: ...
+
+    def cancel(self, call_id: str) -> bool:
+        """Cancels a call by its id (its worker is gone); False if that couldn't be done."""
+        ...
 
 
 def parse_answer(answer: object, wall_seconds: float) -> GpuResult:
@@ -115,11 +123,13 @@ class ModalGpu:
         *,
         app_name: str = APP_NAME,
         lookup: Callable[[str, str], Any] | None = None,
+        call_from_id: Callable[[str], Any] | None = None,
         poll_sec: float = POLL_SEC,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.app_name = app_name
         self._lookup = lookup or _modal_lookup
+        self._from_id = call_from_id or _modal_call
         self.poll_sec = poll_sec
         self._clock = clock
 
@@ -131,6 +141,9 @@ class ModalGpu:
             handle = self._lookup(self.app_name, call.function).spawn(**call.kwargs)
         except modal.exception.Error as error:
             raise GpuError("GPU_UNAVAILABLE", f"spawn failed: {type(error).__name__}") from None
+        call_id = getattr(handle, "object_id", None)
+        if isinstance(call_id, str) and call_id:
+            call.on_spawn(call_id)
         while True:
             elapsed = self._clock() - started
             if call.cancel.is_set():
@@ -158,11 +171,28 @@ class ModalGpu:
                 raise GpuError("GPU_FAILED", detail, gpu_seconds=elapsed) from None
             return parse_answer(answer, self._clock() - started)
 
+    def cancel(self, call_id: str) -> bool:
+        import modal.exception  # noqa: PLC0415
+
+        try:
+            self._from_id(call_id).cancel()
+        except modal.exception.NotFoundError:
+            return True  # Modal no longer knows it: it ended long ago
+        except Exception:  # noqa: BLE001 - unreachable, refused: the caller charges the worst case
+            return False
+        return True
+
 
 def _modal_lookup(app_name: str, function: str) -> Any:
     import modal  # noqa: PLC0415
 
     return modal.Function.from_name(app_name, function)
+
+
+def _modal_call(call_id: str) -> Any:
+    import modal  # noqa: PLC0415
+
+    return modal.FunctionCall.from_id(call_id)
 
 
 def _cancel(handle: Any) -> None:
@@ -182,6 +212,9 @@ class LocalGpu:
             "GPU_UNAVAILABLE",
             "LocalGpu isn't set up on this machine: run GPU tools with GPU_BACKEND=modal",
         )
+
+    def cancel(self, call_id: str) -> bool:
+        return True  # it never starts one
 
 
 def make_backend(settings: Settings) -> GpuBackend | None:

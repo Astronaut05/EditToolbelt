@@ -42,6 +42,8 @@ class Clock:
 class Handle:
     """A FunctionCall: not done for ``polls`` polls (each one 2 s), then ``outcome``."""
 
+    object_id = "fc-test-call"
+
     def __init__(self, clock: Clock, polls: int, outcome: Any) -> None:
         self.clock, self.polls, self.outcome = clock, polls, outcome
         self.cancelled = False
@@ -86,10 +88,19 @@ def backend(outcome: Any, polls: int = 0) -> tuple[ModalGpu, Function, Clock]:
 def test_a_call_is_spawned_by_name_polled_and_measured() -> None:
     gpu, function, _clock = backend(ANSWER, polls=3)
     waited: list[float] = []
+    spawned: list[str] = []
     result = gpu.run(
-        GpuCall("upscale_image", {"input_url": "u", "options": {}}, 60, on_wait=waited.append)
+        GpuCall(
+            "upscale_image",
+            {"input_url": "u", "options": {}},
+            60,
+            on_wait=waited.append,
+            on_spawn=spawned.append,
+        )
     )
     assert function.spawned == [{"input_url": "u", "options": {}}]
+    # The call's id goes to the job before the first poll: the reaper cancels by it.
+    assert spawned == ["fc-test-call"]
     assert waited == [0.0, 2.0, 4.0, 6.0]
     assert result.gpu == "T4"
     assert result.gpu_seconds == 12.5
@@ -161,6 +172,35 @@ def test_answers_are_read_defensively() -> None:
     assert result.billed_seconds == 7.0
     assert result.meta == {}
     assert result.notes == []
+
+
+class Call:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.cancelled = 0
+
+    def cancel(self) -> None:
+        self.cancelled += 1
+        if self.error is not None:
+            raise self.error
+
+
+def test_a_call_is_cancelled_by_its_id() -> None:
+    calls: dict[str, Call] = {"fc-1": Call()}
+    gpu = ModalGpu(call_from_id=calls.__getitem__)
+    assert gpu.cancel("fc-1")
+    assert calls["fc-1"].cancelled == 1
+
+
+def test_a_call_modal_no_longer_knows_counts_as_cancelled() -> None:
+    gone = Call(modal.exception.NotFoundError("no such call"))
+    assert ModalGpu(call_from_id=lambda _id: gone).cancel("fc-old")
+
+
+def test_a_cancel_that_cant_reach_modal_says_so() -> None:
+    down = Call(ConnectionError("unreachable"))
+    assert not ModalGpu(call_from_id=lambda _id: down).cancel("fc-1")
+    assert LocalGpu().cancel("anything")
 
 
 def test_the_setting_picks_the_backend(settings: Settings) -> None:

@@ -144,6 +144,7 @@ class JobRunner:
         beat.start()
         requeued = False
         try:
+            self._settle_stale_call(job)
             self._drop_stale_output(job)
             output_key, output_meta = self._process(job, workdir, cancel, progress)
             with self.connect() as conn:
@@ -208,7 +209,8 @@ class JobRunner:
             storage=self.storage if remote else None,
             gpu=self.gpu if remote else None,
             record_gpu=lambda usage: self._record_gpu(job_id, usage),
-            reserve_output=lambda key: self._reserve_output(job_id, key),
+            start_call=lambda key, expires: self._start_call(job_id, key, expires),
+            call_spawned=lambda call_id: self._call_spawned(job_id, call_id),
         )
         progress.set(0, "processing")
         output = processor.run(ctx)
@@ -239,16 +241,40 @@ class JobRunner:
         log = get_logger(job_id=job_id)
         try:
             with self.connect() as conn:
-                jobqueue.record_gpu(conn, job_id, usage.gpu_seconds, usage.billed_seconds)
+                recorded = jobqueue.record_gpu(
+                    conn, job_id, self.worker_id, usage.gpu_seconds, usage.billed_seconds
+                )
         except psycopg.Error:
-            # The budget would undercount: say so loudly.
+            # Left in flight on the job: the reaper (or the next attempt) settles it later.
             log.exception("job.gpu_not_recorded", gpu_seconds=round(usage.gpu_seconds, 1))
+            return
+        if not recorded:
+            log.info("job.gpu_settled_elsewhere", gpu_seconds=round(usage.gpu_seconds, 1))
             return
         log.info("job.gpu_used", gpu_seconds=round(usage.gpu_seconds, 1))
 
-    def _reserve_output(self, job_id: str, key: str) -> None:
+    def _start_call(self, job_id: str, key: str, expires_sec: int) -> bool:
         with self.connect() as conn:
-            jobqueue.reserve_output(conn, job_id, self.worker_id, key)
+            return jobqueue.start_gpu_call(conn, job_id, self.worker_id, key, expires_sec)
+
+    def _call_spawned(self, job_id: str, call_id: str) -> None:
+        try:
+            with self.connect() as conn:
+                jobqueue.gpu_call_spawned(conn, job_id, self.worker_id, call_id)
+        except psycopg.Error:
+            # If this worker now dies, its call runs on to its timeout: say so loudly.
+            get_logger(job_id=job_id).exception("job.gpu_call_id_not_recorded")
+
+    def _settle_stale_call(self, job: jobqueue.Job) -> None:
+        """A call an earlier attempt left in flight and nobody settled: record it, cancel it."""
+        if job.get("gpu_call_at") is None:
+            return
+        with self.connect() as conn:
+            with conn.transaction():
+                stale = jobqueue.settle_call(conn, str(job["id"]))
+            if stale is not None:
+                cancel = self.gpu.cancel if self.gpu is not None else None
+                jobqueue.cancel_stale_call(conn, cancel, stale)
 
     def _drop_stale_output(self, job: jobqueue.Job) -> None:
         """A key an earlier attempt's GPU call wrote to (that worker died): delete it first."""

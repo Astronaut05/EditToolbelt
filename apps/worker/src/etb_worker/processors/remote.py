@@ -1,11 +1,15 @@
 """The step every GPU tool shares (docs/01 -> GPU backend, Retention).
 
 1. Presign: a GET URL for the job's input and a PUT URL for a new random
-   output key, valid for the job's time limit plus a margin. The key is
-   recorded on the job first, so if this worker dies mid-call, the next
-   attempt or the sweeper still finds and deletes what the GPU wrote.
-2. Call the backend with those URLs and the options; between polls the
-   elapsed time becomes progress (against the processor's estimate) and the
+   output key, valid for the job's time limit plus a margin. Before either
+   leaves the worker, the call is recorded on the job: when it started, and
+   the key, as the job's output and among its GPU keys. If this worker dies
+   mid-call, the reaper cancels the call and records its time, and the
+   sweeper keeps deleting the key until the URL has expired, so nothing a
+   runaway call writes outlives the hour.
+2. Call the backend with those URLs and the options. The backend's id for
+   the call goes on the job as soon as it exists. Between polls the elapsed
+   time becomes progress (against the processor's estimate) and the
    runner's heartbeat carries it, noticing a cancel within 5 s.
 3. Record the call's GPU time on the job whatever happened, then check the
    output is there. A failure deletes whatever the GPU wrote and fails the
@@ -15,9 +19,11 @@
 from __future__ import annotations
 
 import contextlib
+import time
 from dataclasses import dataclass
 from typing import Any
 
+from etb_worker.gpu import MAX_IDLE_TAIL_SEC
 from etb_worker.gpu.backend import GpuCall, GpuCancelled, GpuError, GpuResult
 from etb_worker.processors import GpuUsage, JobContext, JobFailed
 from etb_worker.sandbox import ToolError
@@ -71,7 +77,6 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
     timeout = ctx.limits.timeout_sec
     expires = int(timeout + PRESIGN_MARGIN_SEC)
     key = new_output_key()
-    ctx.reserve_output(key)
     kwargs = {
         "input_url": storage.presign_get(str(ctx.input_key), expires),
         "output_url": storage.presign_put(key, content_type, expires),
@@ -84,9 +89,13 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
         share = min(1.0, elapsed / max(estimate_sec, 1.0))
         ctx.progress(start + round(span * share * 0.95), stage)
 
+    if not ctx.start_call(key, expires):
+        raise ToolError("CANCELLED", "cancelled")  # cancelled or reaped meanwhile: start nothing
+    started = time.monotonic()
     ctx.progress(start, stage)
+    call = GpuCall(function, kwargs, timeout, ctx.cancel, on_wait, on_spawn=ctx.call_spawned)
     try:
-        result = ctx.gpu.run(GpuCall(function, kwargs, timeout, ctx.cancel, on_wait))
+        result = ctx.gpu.run(call)
     except GpuCancelled as stopped:
         ctx.record_gpu(GpuUsage(stopped.gpu_seconds, stopped.gpu_seconds))
         _drop(storage, key)
@@ -95,6 +104,12 @@ def run_on_gpu(  # noqa: PLR0913 - keyword-only settings of one call
         ctx.record_gpu(GpuUsage(error.gpu_seconds, error.gpu_seconds))
         _drop(storage, key)
         raise JobFailed(error.code, GPU_TEXT.get(error.code, str(error))) from None
+    except Exception:
+        # A bug: still settle the call, at its wall-clock time, before the job fails.
+        wall = time.monotonic() - started
+        ctx.record_gpu(GpuUsage(wall, wall + MAX_IDLE_TAIL_SEC))
+        _drop(storage, key)
+        raise
     ctx.record_gpu(GpuUsage(result.gpu_seconds, result.billed_seconds))
     size = storage.size(key)
     if not size:

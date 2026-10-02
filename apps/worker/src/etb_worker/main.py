@@ -86,7 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     storage = Storage(settings)
     gpu = make_backend(settings)
-    scheduler = Scheduler(settings, Notifier(settings), storage=storage)
+    scheduler = Scheduler(settings, Notifier(settings), storage=storage, gpu=gpu)
     if args.task:
         with connect(settings) as conn:
             return 0 if scheduler.run(conn, args.task) else 1

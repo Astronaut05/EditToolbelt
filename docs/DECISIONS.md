@@ -1290,3 +1290,28 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** review of #66, finding 1; `CLAUDE.md` rule 1 (the speed promise) depends on probing and the CPU tools never waiting behind a GPU.
 **Reverse:** `WORKER_GPU_SLOTS=0` stops a worker taking GPU jobs; the claims are `jobqueue.claim` and `jobqueue.claim_gpu`, the loops `slots.run_slot` and `slots.run_gpu_slot`.
+
+## 2026-10-02 · A GPU call's id is on its job: a dead worker's call is cancelled and counted
+
+**Decision:**
+- **The call in flight is on its job** (`jobs.gpu_call_at`, `jobs.gpu_call_id`; migration `gpu_calls`). `gpu_call_at` is set before the presigned URLs leave the worker, the id (Modal's `FunctionCall` id) as soon as the call is spawned, and both are cleared in the same statement that records the call's cost, so a call is counted once.
+- **Reap:** a job whose worker went quiet with a call on it has the call settled in the reaper's transaction (its wall-clock time since `gpu_call_at`, plus the longest idle window, as GPU time and cost), then cancelled by id (`modal.FunctionCall.from_id(id).cancel()`), then the job is requeued (or failed, the third time) as before. The scheduler holds the GPU backend for this. A call left on a job that's no longer running, whose worker is quiet too (its owner cancelled it while the worker was dead), is settled and cancelled the same way.
+- **Re-claim:** a job claimed with a call still on it (nobody settled it, e.g. an admin's retry) gets the same before its next attempt starts.
+- **Worker stop:** unchanged in shape (the call is cancelled through its handle, its time recorded, the job handed back), now with the call cleared from the job; a test drives it through `ModalGpu` against a stand-in for Modal.
+- **A slow worker the reaper took for dead** can't count its call again: recording requires the job to still be its own and the call still on it.
+- **A call that can't be cancelled** (Modal unreachable, or a scheduler without a Modal token) is charged to the rest of its job's time limit at once, so the budget counts its worst case, and an immediate alert (`gpu_call_not_cancelled`, runbook in `alerts.md`) names the call so it can be stopped in Modal's dashboard. Overcharging the budget for a day is the safe side; an uncounted hour-long L4 call (about $1) was not.
+- Modal answering "not found" for an id counts as cancelled: the call ended long ago.
+
+**Why:** review of #66, finding 5 (the call ran on uncancelled, and its cost never reached the budget; with three attempts, three could run at once).
+**Reverse:** the columns are harmless when unused; the logic is `jobqueue.settle_call` / `cancel_stale_call` and `Scheduler._cancel_call`.
+
+## 2026-10-02 · Every GPU output key is swept until its URL expires
+
+**Decision:**
+- **Every key a GPU call gets a PUT URL for is remembered** (`jobs.gpu_output_keys`, append-only while URLs can write, with `gpu_put_expires_at`, the latest expiry: the job's limit plus 15 min).
+- **On every pass (5 min) the sweeper deletes each of those keys that isn't the job's live output** (the output of a running or succeeded job, which keeps its usual 60 minutes). Once the last URL has expired nothing can write to them, so after one last delete they're forgotten.
+- **Why every pass, not once after expiry** (the review's first suggestion): a URL lives up to 85 minutes for a transcription, so an orphaned call could write the person's transcript at minute 1 and it would stay until minute 85, past the hour. Deleting on every pass keeps anything an orphan writes to at most 5 minutes; deleting a key that isn't there costs one request. With finding 5's cancel, orphans should be rare; this holds even when the cancel fails.
+- **Not done:** deleting every unreferenced `out/` object older than the presign window (the review's other option). Listing and matching the whole bucket each pass is heavier, and a bug there would delete live outputs; the keys are known, so they're deleted by name.
+
+**Why:** review of #66, finding 4; `CLAUDE.md` rule 4 (outputs within the hour; the sweeper is the guarantee).
+**Reverse:** drop `_sweep_gpu_keys` in `retention.py`; the lifecycle backstop (≤ 48 h) and the 2-hour alert remain.
