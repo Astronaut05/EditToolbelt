@@ -122,8 +122,10 @@ function createAuth() {
     user: { fields: { name: 'displayName' } },
     session: { expiresIn: 30 * DAY, updateAge: DAY },
     account: {
-      // Google sign-in with the same, verified email joins the existing account.
-      accountLinking: { enabled: true, trustedProviders: ['google'] },
+      // A Google sign-in joins the account with the same email only when Google
+      // says the email is verified. No trusted providers: trusting one would
+      // link even an unverified email.
+      accountLinking: { enabled: true },
     },
     emailAndPassword: { enabled: false },
     socialProviders: google,

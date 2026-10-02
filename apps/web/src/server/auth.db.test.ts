@@ -1,14 +1,15 @@
 /**
  * Better Auth as src/server/auth.ts sets it up, through its HTTP handler, on a
  * real Postgres (TEST_DATABASE_URL; skipped without it):
- * the two-factor endpoints don't answer over HTTP, so a session alone can't
- * read an admin's TOTP secret, mint backup codes or turn TOTP off.
- * Mail and the logger are stand-ins.
+ * - the two-factor endpoints don't answer over HTTP, so a session alone can't
+ *   read an admin's TOTP secret, mint backup codes or turn TOTP off;
+ * - Google joins an existing account only when Google says the email is verified.
+ * Mail, the logger and Google's token endpoint are stand-ins.
  */
 import { randomUUID } from 'node:crypto';
 
-import { eq, twoFactors, users, type Db } from '@etb/db';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { accounts, and, eq, sessions, twoFactors, users, type Db } from '@etb/db';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { auth } from './auth';
 import { openTestDb, TEST_DATABASE_URL } from './test-db';
@@ -17,6 +18,7 @@ const holder = vi.hoisted(() => ({
   db: null as Db | null,
   links: [] as string[],
   site: 'http://localhost:3000',
+  googleClientId: 'test-client.apps.googleusercontent.com',
 }));
 const SITE = holder.site;
 
@@ -30,6 +32,8 @@ vi.mock('./env', () => ({
   serverEnv: () => ({
     SITE_URL: holder.site,
     BETTER_AUTH_SECRET: 'test-only-secret-for-auth-db-test-0123456789',
+    GOOGLE_CLIENT_ID: holder.googleClientId,
+    GOOGLE_CLIENT_SECRET: 'test-client-secret',
     WELCOME_GRANT_ENABLED: false,
   }),
 }));
@@ -105,6 +109,10 @@ describe.skipIf(!TEST_DATABASE_URL)('accounts', () => {
     await close();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   const testDb = () => {
     if (!holder.db) throw new Error('no test database');
     return holder.db;
@@ -164,5 +172,76 @@ describe.skipIf(!TEST_DATABASE_URL)('accounts', () => {
     expect(user?.twoFactorEnabled).toBe(true);
     const [after] = await testDb().select().from(twoFactors).where(eq(twoFactors.userId, admin.id));
     expect(after).toEqual(stored);
+  });
+
+  /** "Continue with Google", with Google's token endpoint answering for `email`. */
+  async function google(email: string, emailVerified: boolean): Promise<Response> {
+    const start = await post(new Map(), '/sign-in/social', {
+      provider: 'google',
+      callbackURL: '/account',
+      errorCallbackURL: '/sign-in',
+    });
+    expect(start.status).toBe(200);
+    const { url } = (await start.json()) as { url: string };
+    const state = new URL(url).searchParams.get('state') ?? '';
+    const jar: Jar = new Map();
+    keep(jar, start);
+
+    const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = [
+      part({ alg: 'RS256', kid: 'test' }),
+      part({
+        aud: holder.googleClientId,
+        sub: randomUUID(),
+        email,
+        email_verified: emailVerified,
+        name: 'Somebody',
+        iat: now,
+        exp: now + 3600,
+      }),
+      'signature',
+    ].join('.');
+    // Google's token endpoint is the callback's only call out.
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const target = new URL(input instanceof Request ? input.url : String(input));
+      return target.pathname === '/token'
+        ? Promise.resolve(Response.json({ access_token: 'x', id_token: idToken, expires_in: 3600 }))
+        : Promise.reject(new Error(`unexpected fetch: ${target.pathname}`));
+    });
+    return auth().handler(
+      new Request(`${SITE}/api/auth/callback/google?code=x&state=${encodeURIComponent(state)}`, {
+        headers: { cookie: cookie(jar) },
+      }),
+    );
+  }
+
+  it('join a Google sign-in to an account only when Google verified the email', async () => {
+    const email = `someone-${randomUUID()}@example.test`;
+    const [user] = await testDb()
+      .insert(users)
+      .values({ email, emailVerified: true })
+      .returning({ id: users.id });
+    if (!user) throw new Error('no user');
+    const linked = () =>
+      testDb()
+        .select()
+        .from(accounts)
+        .where(and(eq(accounts.userId, user.id), eq(accounts.providerId, 'google')));
+    const signedIn = () => testDb().select().from(sessions).where(eq(sessions.userId, user.id));
+
+    // Google hasn't verified the address: no link, no session for the account.
+    const refused = await google(email, false);
+    expect(refused.status).toBe(302);
+    expect(refused.headers.get('location')).toContain('/sign-in?error=account_not_linked');
+    expect(await linked()).toHaveLength(0);
+    expect(await signedIn()).toHaveLength(0);
+
+    // Verified: the same address joins the account.
+    const joined = await google(email, true);
+    expect(joined.status).toBe(302);
+    expect(joined.headers.get('location')).toBe('/account');
+    expect(await linked()).toHaveLength(1);
+    expect((await signedIn()).length).toBeGreaterThan(0);
   });
 });
