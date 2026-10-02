@@ -1,0 +1,46 @@
+# After every production deploy: the live site, through Cloudflare Access
+# (scripts/ops/verify.ts → site). Railway reports each deploy to GitHub as a
+# deployment; when one succeeds, this waits until /healthz reports that commit,
+# then checks the site: private without a token, ready, security headers, www.
+# Skipped cleanly until the Access service token is set (CF_ACCESS_CLIENT_ID,
+# CF_ACCESS_CLIENT_SECRET). Run it by hand from Actions → Smoke → Run workflow.
+#
+# Not on `push` or `workflow_run`: Railway deploys a commit only once its check
+# suites pass, so a check that waits for the deploy would wait for itself.
+name: Smoke
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Commit the site should run (empty checks whatever it runs now)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.event.deployment.sha || github.sha }}
+
+jobs:
+  site:
+    name: Production · the live site through Access
+    if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Site checks
+        run: node scripts/ops/verify.ts
+        env:
+          # Only the site check's variables: the others skip themselves.
+          SITE_URL: ${{ vars.SITE_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          EXPECT_VERSION: ${{ github.event.deployment.sha || inputs.version }}
+          EXPECT_WAIT_MINUTES: '20'
