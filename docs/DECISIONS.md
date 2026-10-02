@@ -1138,3 +1138,14 @@ _Ranges and the join: superseded by "Several ranges on the timeline, joined with
 - One project keeps the worker's calls and the functions they call in step.
 
 **Reverse:** move `gpu/` to its own project with its own lockfile; the worker would then depend on `modal` only.
+
+## 2026-10-02 · Approvals never stop the work
+
+**Decision:** Astro's instruction of 2026-10-02.
+- **The `railway` approval gate stays.** Every apply of `.railway/railway.ts` waits for Astro to approve it in GitHub, from a phone if Astro is away.
+- **Work never pauses for an approval.** Request it, carry on with other tasks, and pick the deploy back up once it's approved.
+- **What can't move until then** is listed in `STATUS.md` → "Waiting for Astro's approval"; everything else keeps being built.
+- **Custom domains are added in Railway's dashboard.** Railway's configuration can't register them: its plan says so. `.railway/railway.ts` declares them once they exist, so later plans match.
+
+**Why:** Astro's instruction; and Railway's own limit on custom domains.
+**Reverse:** remove the `railway` environment's required reviewer (Settings → Environments), and the apply runs without waiting.

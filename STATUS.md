@@ -81,6 +81,12 @@
 3. M8: the rest of Wave 2, browser tools first, then CPU server tools. M7 (the Premiere panel) follows M5's GPU tools.
 4. M5 (credits, payments, GPU tools) after Go public.
 
+## Waiting for Astro's approval
+
+Applies of the Railway project (Actions → Railway → "Apply the plan", environment `railway`). Work goes on around them.
+
+- None right now.
+
 ## Blocked
 
 - HEIC opens only in Safari until open question 10 (HEVC patents) is answered; `/convert/heic-to-jpg` and `/convert/heic-to-png` wait for it. Everything else continues.

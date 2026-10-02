@@ -60,11 +60,9 @@ export default defineRailway((ctx) => {
     healthcheck: '/readyz',
     healthcheckTimeout: 300,
     regions: { [REGION]: 1 },
-    // Only the custom domains: no Railway hostname, so Access can't be bypassed.
-    domains: [
-      { domain: site.host, port: 8080 },
-      { domain: `www.${site.host}`, port: 8080 },
-    ],
+    // The custom domains (the site's host and www, port 8080) are added in
+    // Railway's dashboard: its configuration can't register them. No Railway
+    // hostname is generated, so Access can't be bypassed.
     deploy: { restartPolicyType: 'ON_FAILURE', restartPolicyMaxRetries: 10, drainingSeconds: 30 },
     env: {
       ...common,
