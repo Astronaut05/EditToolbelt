@@ -20,7 +20,7 @@ import {
 } from '@etb/db';
 import { expect, test, type Page } from '@playwright/test';
 
-import { becomeAdmin, closeTestDb, newEmail, signIn, testDb, totp } from './helpers';
+import { becomeAdmin, closeTestDb, newEmail, setScheme, signIn, testDb, totp } from './helpers';
 
 const db = testDb();
 
@@ -268,7 +268,7 @@ test('the signed-in pages pass axe, light and dark', async ({ page }) => {
   ];
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    await setScheme(page, scheme);
     for (const path of paths) {
       await page.goto(path);
       const results = await new AxeBuilder({ page })

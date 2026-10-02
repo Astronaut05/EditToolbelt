@@ -11,7 +11,7 @@ import { adminAuditLog, and, eq, paymentSettings, purchases, users } from '@etb/
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import { PAYMENTS_STUB_KEY, SERVER_PORT } from '../scripts/server-env.ts';
-import { becomeAdmin, closeTestDb, newEmail, signIn, testDb } from './helpers';
+import { becomeAdmin, closeTestDb, newEmail, setScheme, signIn, testDb } from './helpers';
 
 const db = testDb();
 const ORIGIN = `http://localhost:${String(SERVER_PORT)}`;
@@ -35,7 +35,7 @@ test.afterAll(async () => {
 async function axe(page: Page): Promise<string[]> {
   const found: string[] = [];
   for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    await setScheme(page, scheme);
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();
