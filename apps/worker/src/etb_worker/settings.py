@@ -37,8 +37,14 @@ class Settings(BaseSettings):
     s3_access_key_id: SecretStr
     s3_secret_access_key: SecretStr
 
-    # Jobs this worker runs at once, one tool process each (docs/01 -> Workers).
+    # CPU jobs this worker runs at once, one tool process each; these slots also
+    # probe uploads (docs/01 -> Workers).
     worker_slots: int = Field(default=1, ge=1, le=32)
+    # GPU jobs this worker runs at once, in their own slots: each mostly waits on
+    # a call on Modal, so they never hold up probing or the CPU tools. 0: this
+    # worker takes no GPU jobs. The daily GPU budget and each tool's
+    # maxConcurrent still apply across all workers.
+    worker_gpu_slots: int = Field(default=2, ge=0, le=16)
 
     # The GPU tools' backend (docs/01 -> GPU backend): `modal` runs them on
     # Modal (ServerlessGpu) with MODAL_TOKEN_ID and MODAL_TOKEN_SECRET, which the

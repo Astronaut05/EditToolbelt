@@ -111,12 +111,15 @@ Store, then process. Processing is idempotent on `event_id`.
 | worker_id | text null | |
 | gpu_seconds | numeric null | the job's GPU calls, measured inside the function (cold model loads included) |
 | gpu_rate_usd | numeric null | USD a second of the tool's GPU function (GPU, CPU, memory), written by the jobs API from `config/business.ts`; null for CPU jobs |
-| gpu_cost_usd | numeric null | what the GPU calls cost: (GPU seconds + the function's idle window) × the rate; set whatever the outcome |
+| gpu_cost_usd | numeric null | what the GPU calls cost: billed seconds × the rate, set whatever the outcome (`05` → GPU costs and the daily budget) |
+| gpu_call_at, gpu_call_id | timestamptz null, text null | the GPU call in flight: when the worker started it, and the backend's id for it (Modal's `FunctionCall` id) once spawned; both cleared when its cost is recorded. A dead worker's call is cancelled by this id (`01` → GPU backend) |
+| gpu_output_keys | text[] | every key a GPU call got a presigned PUT URL for; the sweeper deletes the ones that aren't the live output on every pass until `gpu_put_expires_at`, then empties it |
+| gpu_put_expires_at | timestamptz null | when the last of those URLs expires |
 | cpu_seconds | numeric null | |
 | heartbeat_at, queued_at, started_at, finished_at, files_deleted_at | timestamptz | |
 | idempotency_key | text null | unique per (user_id, key) |
 
-Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper).
+Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper); `(started_at)` where `gpu_rate_usd is not null` (today's GPU spend, read on every GPU claim); `(gpu_call_at)` where it is not null (calls in flight, for the reaper); `(gpu_put_expires_at)` where it is not null (the sweeper's GPU keys).
 
 Job rows older than 90 days are aggregated into `tool_stats_daily` and deleted.
 

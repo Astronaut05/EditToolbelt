@@ -81,8 +81,11 @@ class JobContext:
     storage: Storage | None = None
     gpu: GpuBackend | None = None
     record_gpu: Callable[[GpuUsage], None] = lambda _usage: None
-    #: Records a key the GPU will write to on the job, before the call (see remote.py).
-    reserve_output: Callable[[str], None] = lambda _key: None
+    #: Records a GPU call about to start and the key it may write to, valid for so many
+    #: seconds, on the job (see remote.py); False when the job is no longer ours to run.
+    start_call: Callable[[str, int], bool] = lambda _key, _expires_sec: True
+    #: Records the backend's id for the call once it exists, so it can be cancelled by id.
+    call_spawned: Callable[[str], None] = lambda _call_id: None
 
     def run(self, args: list[str], on_line: Callable[[str], None] | None = None) -> str:
         """Runs a tool in the sandbox, in the job's temp dir, under the job's time limit."""

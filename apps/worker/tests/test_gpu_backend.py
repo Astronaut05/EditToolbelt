@@ -1,4 +1,4 @@
-"""ModalGpu against a stand-in for Modal: spawn, poll, progress, cancel, time out."""
+"""ModalGpu against a stand-in for Modal: spawn, poll, progress, cancel, time out, bill."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import modal.exception
 import pytest
 from pydantic import SecretStr
 
+from etb_worker.gpu import MAX_IDLE_TAIL_SEC
 from etb_worker.gpu.backend import (
     GpuCall,
     GpuCancelled,
@@ -41,6 +42,8 @@ class Clock:
 
 class Handle:
     """A FunctionCall: not done for ``polls`` polls (each one 2 s), then ``outcome``."""
+
+    object_id = "fc-test-call"
 
     def __init__(self, clock: Clock, polls: int, outcome: Any) -> None:
         self.clock, self.polls, self.outcome = clock, polls, outcome
@@ -86,10 +89,19 @@ def backend(outcome: Any, polls: int = 0) -> tuple[ModalGpu, Function, Clock]:
 def test_a_call_is_spawned_by_name_polled_and_measured() -> None:
     gpu, function, _clock = backend(ANSWER, polls=3)
     waited: list[float] = []
+    spawned: list[str] = []
     result = gpu.run(
-        GpuCall("upscale_image", {"input_url": "u", "options": {}}, 60, on_wait=waited.append)
+        GpuCall(
+            "upscale_image",
+            {"input_url": "u", "options": {}},
+            60,
+            on_wait=waited.append,
+            on_spawn=spawned.append,
+        )
     )
     assert function.spawned == [{"input_url": "u", "options": {}}]
+    # The call's id goes to the job before the first poll: the reaper cancels by it.
+    assert spawned == ["fc-test-call"]
     assert waited == [0.0, 2.0, 4.0, 6.0]
     assert result.gpu == "T4"
     assert result.gpu_seconds == 12.5
@@ -158,9 +170,79 @@ def test_a_spawn_that_fails_means_the_gpu_is_unavailable() -> None:
 def test_answers_are_read_defensively() -> None:
     result = parse_answer({"ok": True, "gpu_seconds": -1, "meta": "x", "notes": "y"}, 7.0)
     assert result.gpu_seconds == 7.0
-    assert result.billed_seconds == 7.0
+    # No idle window said: the longest any function has.
+    assert result.billed_seconds == 7.0 + MAX_IDLE_TAIL_SEC
     assert result.meta == {}
     assert result.notes == []
+
+
+def test_a_warm_call_bills_its_gpu_time_and_idle_window() -> None:
+    warm = {**ANSWER, "cold": False, "gpu_seconds": 4.0, "idle_tail_seconds": 10}
+    # The wall clock (9 s) includes Modal's dispatch, which isn't billed.
+    assert parse_answer(warm, 9.0).billed_seconds == 14.0
+    assert parse_answer(warm, 30.0).billed_seconds == 14.0
+
+
+def test_a_cold_call_bills_at_least_its_wall_clock_time() -> None:
+    # The container's boot and imports are billed, but only the worker's clock saw them.
+    cold = {**ANSWER, "cold": True, "gpu_seconds": 20.0, "idle_tail_seconds": 30}
+    assert parse_answer(cold, 75.0).billed_seconds == 75.0
+    assert parse_answer(cold, 40.0).billed_seconds == 50.0
+
+
+def test_a_failed_call_bills_its_idle_window_or_wall_clock_time() -> None:
+    failed = {"ok": False, "code": "TOO_LARGE", "gpu_seconds": 2.0, "idle_tail_seconds": 10}
+    with pytest.raises(GpuError) as caught:
+        parse_answer(failed, 45.0)
+    assert (caught.value.gpu_seconds, caught.value.billed_seconds) == (2.0, 45.0)
+    with pytest.raises(GpuError) as caught:
+        parse_answer(failed, 5.0)
+    assert caught.value.billed_seconds == 12.0
+
+
+def test_a_call_that_never_said_bills_its_wall_time_and_the_longest_idle_window() -> None:
+    gpu, _function, _clock = backend(ANSWER, polls=100)
+    with pytest.raises(GpuError) as caught:
+        gpu.run(GpuCall("transcribe", {}, 9))
+    assert caught.value.billed_seconds == caught.value.gpu_seconds + MAX_IDLE_TAIL_SEC
+
+
+def test_a_spawn_that_fails_bills_nothing() -> None:
+    def lookup(app: str, name: str) -> Any:
+        raise modal.exception.AuthError("bad token")
+
+    with pytest.raises(GpuError) as caught:
+        ModalGpu(lookup=lookup).run(GpuCall("transcribe", {}, 60))
+    assert caught.value.billed_seconds == 0.0
+
+
+class Call:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.cancelled = 0
+
+    def cancel(self) -> None:
+        self.cancelled += 1
+        if self.error is not None:
+            raise self.error
+
+
+def test_a_call_is_cancelled_by_its_id() -> None:
+    calls: dict[str, Call] = {"fc-1": Call()}
+    gpu = ModalGpu(call_from_id=calls.__getitem__)
+    assert gpu.cancel("fc-1")
+    assert calls["fc-1"].cancelled == 1
+
+
+def test_a_call_modal_no_longer_knows_counts_as_cancelled() -> None:
+    gone = Call(modal.exception.NotFoundError("no such call"))
+    assert ModalGpu(call_from_id=lambda _id: gone).cancel("fc-old")
+
+
+def test_a_cancel_that_cant_reach_modal_says_so() -> None:
+    down = Call(ConnectionError("unreachable"))
+    assert not ModalGpu(call_from_id=lambda _id: down).cancel("fc-1")
+    assert LocalGpu().cancel("anything")
 
 
 def test_the_setting_picks_the_backend(settings: Settings) -> None:

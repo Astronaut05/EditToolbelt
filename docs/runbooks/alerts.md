@@ -62,3 +62,11 @@ The bucket's backstop rules (1-day expiry, 1-day multipart abort) are missing on
 ## gpu_budget: "GPU spend is $X of today's $Y budget" / "GPU budget reached"
 
 Once a day each, at 80 % and at 100 % of the day's GPU budget (UTC). At 100 % GPU jobs wait instead of starting. See [gpu-budget.md](gpu-budget.md).
+
+## gpu_call_not_cancelled: "A GPU call left by a worker that stopped couldn't be cancelled on Modal (fc-…)"
+
+A worker died mid-call, and when the reaper tried to cancel its call on Modal, Modal didn't answer (or this worker has no Modal token). The call may run on to its function's timeout (15 min upscaler, 65 min Whisper); the job has already been charged its whole time limit, so the budget counts the worst case. Anything the call writes is deleted by the sweeper within 5 minutes.
+
+1. Modal's dashboard → Apps → `edittoolbelt-gpu` → the function's calls: find the call id from the alert. If it's still running, stop it there.
+2. If Modal itself is down, GPU jobs fail with `GPU_UNAVAILABLE` and their credits back until it returns; nothing else to do.
+3. If the worker has no Modal token (`gpu.off` in its logs), set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` (`production.md`).
