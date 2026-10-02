@@ -81,6 +81,41 @@ describe('Payme, played by the simulator', () => {
     expect(store.balance()).toBe(200);
   });
 
+  it('keeps every authenticated call with the answer it got', async () => {
+    const { store, sim, purchase } = setup();
+    await sim.checkPerform(purchase.id, STARTER, { authorization: paymeAuthorization('wrong') });
+    expect(store.events).toEqual([]);
+
+    await sim.checkPerform(purchase.id, 1);
+    const { paymeId: id } = await sim.pay(purchase.id, STARTER);
+    await sim.statement(0, 1);
+    await sim.call('ChangePassword', { password: 'a-new-merchant-key' });
+    expect(
+      store.events.map((event) => [event.eventId, event.type, event.answer, event.error]),
+    ).toEqual([
+      // The refused check, then the one that passed: one row, the latest answer.
+      [`CheckPerformTransaction:${purchase.id}`, 'CheckPerformTransaction', 'result', null],
+      [`CreateTransaction:${id}`, 'CreateTransaction', 'result', null],
+      [`PerformTransaction:${id}`, 'PerformTransaction', 'result', null],
+      ['GetStatement:0-1', 'GetStatement', 'result', null],
+      ['ChangePassword:', 'ChangePassword', '-32601 Method not found', null],
+    ]);
+    expect(store.events[1]?.payload).toMatchObject({
+      method: 'CreateTransaction',
+      params: { id, amount: STARTER, account: { order_id: purchase.id } },
+    });
+    // A method we don't have keeps no params: ChangePassword's carry a new key.
+    expect(JSON.stringify(store.events[4]?.payload)).not.toContain('a-new-merchant-key');
+
+    const wrong = await sim.create(store.seed({ provider: 'payme' }).id, 1);
+    expect(wrong.error?.code).toBe(PAYME_ERRORS.WRONG_AMOUNT);
+    expect(store.events.at(-1)).toMatchObject({
+      type: 'CreateTransaction',
+      answer: '-31001 Wrong amount',
+      error: null,
+    });
+  });
+
   it('answers repeats of every call the same way, with no second ledger row', async () => {
     const { store, sim, clock, purchase } = setup();
     const create = await sim.create(purchase.id, STARTER);
@@ -210,6 +245,7 @@ describe('Payme, played by the simulator', () => {
     await store.refund(purchase.id, { refundId: 'admin' });
     const cancel = await sim.cancel(id, 5);
     expect(cancel.error?.code).toBe(PAYME_ERRORS.CANNOT_CANCEL);
+    expect(store.events.at(-1)?.error).toMatch(/refunded purchase: check it by hand/);
     expect(store.ledgerFor(purchase.id)).toHaveLength(2);
   });
 
@@ -374,10 +410,16 @@ describe('Payme, played by the simulator', () => {
         return Promise.reject(new Error('database is down'));
       }
     }
-    const { sim, purchase } = setup(new BrokenStore());
+    const { store, sim, purchase } = setup(new BrokenStore());
     const { perform } = await sim.pay(purchase.id, STARTER);
     expect(perform.error).toMatchObject({ code: PAYME_ERRORS.SYSTEM_ERROR });
     expect(perform.error).not.toHaveProperty('data');
+    // The reason is the event's error, which alerts.
+    expect(store.events.at(-1)).toMatchObject({
+      type: 'PerformTransaction',
+      answer: '-32400 System error',
+      error: 'Error: database is down',
+    });
   });
 
   it('lists transactions by Payme’s time for GetStatement, oldest first, with their states', async () => {

@@ -323,10 +323,10 @@ export function createPurchaseStore(db: Queryable): PurchaseStore {
       return { id: seen.id, fresh: false };
     },
 
-    async markEventProcessed(id, error) {
+    async markEventProcessed(id, error, answer) {
       await db
         .update(webhookEvents)
-        .set({ processedAt: new Date(), error: error ?? null })
+        .set({ processedAt: new Date(), error: error ?? null, answer: answer ?? null })
         .where(eq(webhookEvents.id, id));
     },
   };

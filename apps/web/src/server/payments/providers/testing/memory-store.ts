@@ -14,7 +14,8 @@
  * - refund: completed or partially refunded → partially_refunded, refunded or
  *   chargeback with a `refund_purchase` row of −credits; idempotent per
  *   refundId; the balance may go below zero.
- * - recordEvent: `fresh` is false for a (provider, eventId) seen before.
+ * - recordEvent: `fresh` is false for a (provider, eventId) already processed
+ *   without an error; one that failed is fresh again, so a retry is processed.
  *
  * Every record handed out is a copy, as rows read from a database would be.
  */
@@ -47,6 +48,7 @@ export interface StoredEvent {
   payload: unknown;
   processed: boolean;
   error: string | null;
+  answer: string | null;
 }
 
 export interface SeedInput {
@@ -244,7 +246,15 @@ export class MemoryPurchaseStore implements PurchaseStore {
     const seen = this.events.find(
       (event) => event.provider === provider && event.eventId === eventId,
     );
-    if (seen) return Promise.resolve({ id: seen.id, fresh: false });
+    if (seen) {
+      // Only an event processed without an error is a duplicate; a retry after
+      // a failure is processed again.
+      if (seen.processed && seen.error === null)
+        return Promise.resolve({ id: seen.id, fresh: false });
+      seen.processed = false;
+      seen.error = null;
+      return Promise.resolve({ id: seen.id, fresh: true });
+    }
     const id = randomUUID();
     this.events.push({
       id,
@@ -254,15 +264,17 @@ export class MemoryPurchaseStore implements PurchaseStore {
       payload: structuredClone(payload),
       processed: false,
       error: null,
+      answer: null,
     });
     return Promise.resolve({ id, fresh: true });
   }
 
-  markEventProcessed(id: string, error?: string): Promise<void> {
+  markEventProcessed(id: string, error?: string, answer?: string): Promise<void> {
     const event = this.events.find((candidate) => candidate.id === id);
     if (!event) return Promise.reject(new Error('Unknown event'));
     event.processed = true;
     event.error = error ?? null;
+    event.answer = answer ?? null;
     return Promise.resolve();
   }
 

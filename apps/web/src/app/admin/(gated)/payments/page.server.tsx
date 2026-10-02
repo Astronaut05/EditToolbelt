@@ -97,6 +97,7 @@ export default async function AdminPayments({ searchParams }: Props) {
         receivedAt: webhookEvents.receivedAt,
         processedAt: webhookEvents.processedAt,
         error: webhookEvents.error,
+        answer: webhookEvents.answer,
       })
       .from(webhookEvents)
       .orderBy(desc(webhookEvents.receivedAt))
@@ -328,7 +329,7 @@ export default async function AdminPayments({ searchParams }: Props) {
         ) : (
           <Table
             label="Webhook events"
-            head={['Received', 'Provider', 'Type', 'Processed', 'Error']}
+            head={['Received', 'Provider', 'Type', 'Processed', 'Answer', 'Error']}
           >
             {events.map((event) => (
               <tr key={event.id}>
@@ -336,13 +337,15 @@ export default async function AdminPayments({ searchParams }: Props) {
                 <td>{event.provider}</td>
                 <td className="font-mono text-12">{event.type}</td>
                 <td>{event.processedAt ? when(event.processedAt) : 'not yet'}</td>
+                <td className="font-mono text-12">{event.answer ?? ''}</td>
                 <td>{event.error ?? ''}</td>
               </tr>
             ))}
           </Table>
         )}
         <p className="text-14 text-text-muted">
-          Payloads stay in the database, never shown or logged. A provider retries an event we
+          Payloads stay in the database, never shown or logged. Answer: what Click or Payme was
+          told. Error: something to check by hand; it alerts at once. A provider retries an event we
           didn’t answer with success; Paddle can also resend one from its dashboard.
         </p>
       </Section>

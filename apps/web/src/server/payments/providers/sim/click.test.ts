@@ -63,6 +63,56 @@ describe('Click, played by the simulator', () => {
     expect(store.balance()).toBe(200);
   });
 
+  it('keeps every signed call with the answer it got, and nothing unsigned', async () => {
+    const { store, sim, purchase } = setup();
+    await sim.prepare({ merchantTransId: purchase.id, amount: STARTER, secretKey: 'guessed' });
+    expect(store.events).toEqual([]);
+
+    const { clickTransId, prepare } = await sim.pay(purchase.id, STARTER);
+    const late = await sim.complete({
+      merchantTransId: purchase.id,
+      amount: STARTER,
+      clickTransId: sim.newTransId(),
+      merchantPrepareId: 1,
+    });
+    expect(late.answer.error).toBe(CLICK_ERRORS.ALREADY_PAID);
+    expect(store.events).toEqual([
+      {
+        id: expect.any(String) as string,
+        provider: 'click',
+        eventId: `${clickTransId}:0`,
+        type: 'prepare',
+        payload: prepare.sent,
+        processed: true,
+        error: null,
+        answer: '0 Success',
+      },
+      expect.objectContaining({
+        eventId: `${clickTransId}:1`,
+        type: 'complete',
+        error: null,
+        answer: '0 Success',
+      }),
+      // A refusal Click's protocol expects is an answer, not an error.
+      expect.objectContaining({ type: 'complete', error: null, answer: '-4 Already paid' }),
+    ]);
+  });
+
+  it('keeps a store failure as the event’s error, so it alerts', async () => {
+    class BrokenStore extends MemoryPurchaseStore {
+      override complete(): Promise<PurchaseRecord> {
+        return Promise.reject(new Error('database is down'));
+      }
+    }
+    const { store, sim, purchase } = setup(new BrokenStore());
+    await sim.pay(purchase.id, STARTER);
+    expect(store.events.at(-1)).toMatchObject({
+      type: 'complete',
+      error: 'Error: database is down',
+      answer: '-7 Failed to update user',
+    });
+  });
+
   it('accepts the amount written without decimals', async () => {
     const { store, sim, purchase } = setup();
     const { complete } = await sim.pay(purchase.id, '63000');

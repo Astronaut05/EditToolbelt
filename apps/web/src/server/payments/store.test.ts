@@ -292,5 +292,10 @@ describe.skipIf(!TEST_DATABASE_URL)('PurchaseStore', () => {
     await store.markEventProcessed(first.id);
     const [cleared] = await db.select().from(webhookEvents).where(eq(webhookEvents.id, first.id));
     expect(cleared?.error).toBeNull();
+    expect(cleared?.answer).toBeNull();
+    // Click and Payme: what they were told, beside any error.
+    await store.markEventProcessed(first.id, undefined, '-6 Transaction does not exist');
+    const [answered] = await db.select().from(webhookEvents).where(eq(webhookEvents.id, first.id));
+    expect(answered).toMatchObject({ error: null, answer: '-6 Transaction does not exist' });
   });
 });

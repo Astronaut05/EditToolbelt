@@ -11,6 +11,8 @@
  * - Every answer is HTTP 200 JSON with Click's error code; Click reverses a
  *   payment whose Complete isn't answered 0, so a repeated Complete for the
  *   same click_trans_id answers 0 again (and adds no second ledger row).
+ * - Every signed call is kept in webhook_events (`<click_trans_id>:<action>`)
+ *   with the code we answered; a store failure is also its error, which alerts.
  */
 import { createHash, randomInt } from 'node:crypto';
 
@@ -19,6 +21,7 @@ import {
   asInteger,
   asString,
   assertCheckoutable,
+  describeError,
   parseSums,
   readBody,
   readEnv,
@@ -167,15 +170,27 @@ function echoId(text: string | null): number | string | undefined {
   return Number.isSafeInteger(number) ? number : text;
 }
 
-function answer(
-  code: ClickErrorCode,
-  fields: {
-    click_trans_id?: string | null;
-    merchant_trans_id?: string | null;
-    merchant_prepare_id?: number;
-    merchant_confirm_id?: number;
-  } = {},
-): Response {
+interface AnswerFields {
+  click_trans_id?: string | null;
+  merchant_trans_id?: string | null;
+  merchant_prepare_id?: number;
+  merchant_confirm_id?: number;
+}
+
+/** What we tell Click, and anything a person must look at (webhook_events.error, which alerts). */
+interface Outcome {
+  code: ClickErrorCode;
+  fields?: AnswerFields;
+  problem?: string;
+}
+
+const outcome = (code: ClickErrorCode, fields?: AnswerFields, problem?: string): Outcome => ({
+  code,
+  ...(fields ? { fields } : {}),
+  ...(problem ? { problem } : {}),
+});
+
+function answer(code: ClickErrorCode, fields: AnswerFields = {}): Response {
   const body: Record<string, unknown> = {
     click_trans_id: echoId(fields.click_trans_id ?? null),
     merchant_trans_id: fields.merchant_trans_id ?? undefined,
@@ -193,16 +208,16 @@ async function prepare(
   request: ClickRequest,
   purchase: PurchaseRecord,
   ctx: ProviderContext,
-): Promise<Response> {
+): Promise<Outcome> {
   const ids = { click_trans_id: request.click_trans_id, merchant_trans_id: purchase.id };
-  if (purchase.status === 'cancelled') return answer(CLICK_ERRORS.TRANSACTION_CANCELLED, ids);
-  if (purchase.status !== 'pending') return answer(CLICK_ERRORS.ALREADY_PAID, ids);
+  if (purchase.status === 'cancelled') return outcome(CLICK_ERRORS.TRANSACTION_CANCELLED, ids);
+  if (purchase.status !== 'pending') return outcome(CLICK_ERRORS.ALREADY_PAID, ids);
   if (parseSums(request.amount) !== purchase.amountMinor)
-    return answer(CLICK_ERRORS.INCORRECT_AMOUNT, ids);
+    return outcome(CLICK_ERRORS.INCORRECT_AMOUNT, ids);
 
   const state = clickState(purchase);
   if (state?.clickTransId === request.click_trans_id)
-    return answer(CLICK_ERRORS.SUCCESS, { ...ids, merchant_prepare_id: state.prepareId });
+    return outcome(CLICK_ERRORS.SUCCESS, { ...ids, merchant_prepare_id: state.prepareId });
 
   // A new Click transaction for this order (the first, or the buyer trying
   // again): the latest Prepare is the one a Complete must match.
@@ -213,41 +228,41 @@ async function prepare(
     prepareId,
     preparedAt: ctx.now().toISOString(),
   });
-  return answer(CLICK_ERRORS.SUCCESS, { ...ids, merchant_prepare_id: prepareId });
+  return outcome(CLICK_ERRORS.SUCCESS, { ...ids, merchant_prepare_id: prepareId });
 }
 
 async function complete(
   request: ClickRequest,
   purchase: PurchaseRecord,
   ctx: ProviderContext,
-): Promise<Response> {
+): Promise<Outcome> {
   const ids = { click_trans_id: request.click_trans_id, merchant_trans_id: purchase.id };
   const clickError = Number(request.error);
   const state = clickState(purchase);
 
-  if (purchase.status === 'cancelled') return answer(CLICK_ERRORS.TRANSACTION_CANCELLED, ids);
+  if (purchase.status === 'cancelled') return outcome(CLICK_ERRORS.TRANSACTION_CANCELLED, ids);
   if (purchase.status !== 'pending') {
     // Paid already. The same Click transaction asking again gets the same
     // answer; any other payment for this order is refused, and Click reverses it.
     if (purchase.providerTxnId === request.click_trans_id && clickError >= 0 && state)
-      return answer(CLICK_ERRORS.SUCCESS, { ...ids, merchant_confirm_id: state.prepareId });
-    return answer(CLICK_ERRORS.ALREADY_PAID, ids);
+      return outcome(CLICK_ERRORS.SUCCESS, { ...ids, merchant_confirm_id: state.prepareId });
+    return outcome(CLICK_ERRORS.ALREADY_PAID, ids);
   }
   if (
     !state ||
     state.clickTransId !== request.click_trans_id ||
     String(state.prepareId) !== request.merchant_prepare_id
   )
-    return answer(CLICK_ERRORS.TRANSACTION_NOT_FOUND, ids);
+    return outcome(CLICK_ERRORS.TRANSACTION_NOT_FOUND, ids);
   if (parseSums(request.amount) !== purchase.amountMinor)
-    return answer(CLICK_ERRORS.INCORRECT_AMOUNT, ids);
+    return outcome(CLICK_ERRORS.INCORRECT_AMOUNT, ids);
 
   if (clickError < 0) {
     await ctx.store.cancel(purchase.id, {
       cancelledAt: ctx.now().toISOString(),
       clickError,
     });
-    return answer(CLICK_ERRORS.TRANSACTION_CANCELLED, ids);
+    return outcome(CLICK_ERRORS.TRANSACTION_CANCELLED, ids);
   }
 
   // The Click transaction becomes the purchase's in the same store call that
@@ -260,13 +275,39 @@ async function complete(
       { confirmedAt: ctx.now().toISOString() },
       request.click_trans_id,
     );
-  } catch {
-    return answer(CLICK_ERRORS.FAILED_TO_UPDATE, ids);
+  } catch (error) {
+    return outcome(CLICK_ERRORS.FAILED_TO_UPDATE, ids, describeError(error));
   }
   // Another Click payment completed the order between our read and this call: Click reverses this one.
-  if (done.providerTxnId !== request.click_trans_id) return answer(CLICK_ERRORS.ALREADY_PAID, ids);
-  return answer(CLICK_ERRORS.SUCCESS, { ...ids, merchant_confirm_id: state.prepareId });
+  if (done.providerTxnId !== request.click_trans_id) return outcome(CLICK_ERRORS.ALREADY_PAID, ids);
+  return outcome(CLICK_ERRORS.SUCCESS, { ...ids, merchant_confirm_id: state.prepareId });
 }
+
+/** A call Click signed: the order's Prepare or Complete, or an action we don't have. */
+async function respond(request: ClickRequest, serviceId: string, ctx: ProviderContext) {
+  const ids = {
+    click_trans_id: request.click_trans_id,
+    merchant_trans_id: request.merchant_trans_id,
+  };
+  if (request.action !== CLICK_PREPARE && request.action !== CLICK_COMPLETE)
+    return outcome(CLICK_ERRORS.ACTION_NOT_FOUND, ids);
+  if (request.service_id !== serviceId) return outcome(CLICK_ERRORS.BAD_REQUEST, ids);
+  try {
+    const purchase = await ctx.store.get(request.merchant_trans_id);
+    if (!purchase || purchase.provider !== 'click')
+      return outcome(CLICK_ERRORS.ORDER_NOT_FOUND, ids);
+    return request.action === CLICK_PREPARE
+      ? await prepare(request, purchase, ctx)
+      : await complete(request, purchase, ctx);
+  } catch (error) {
+    return outcome(CLICK_ERRORS.FAILED_TO_UPDATE, ids, describeError(error));
+  }
+}
+
+const ACTION_NAMES: Record<string, string> = {
+  [CLICK_PREPARE]: 'prepare',
+  [CLICK_COMPLETE]: 'complete',
+};
 
 /** Click's payment page for this purchase, with our purchase id as transaction_param. */
 function checkoutUrl(purchase: PurchaseRecord, ctx: ProviderContext): string {
@@ -314,19 +355,28 @@ export const click: PaymentProvider = {
       !safeEqual(parsed.sign_string.toLowerCase(), clickSignature(parsed, config.CLICK_SECRET_KEY))
     )
       return answer(CLICK_ERRORS.SIGN_CHECK_FAILED, ids);
-    if (parsed.action !== CLICK_PREPARE && parsed.action !== CLICK_COMPLETE)
-      return answer(CLICK_ERRORS.ACTION_NOT_FOUND, ids);
-    if (parsed.service_id !== config.CLICK_SERVICE_ID) return answer(CLICK_ERRORS.BAD_REQUEST, ids);
 
+    // Signed by Click: kept as it came (docs/11 → Payments), once per Click
+    // transaction and action, with the answer we give it.
+    let event: { id: string };
     try {
-      const purchase = await ctx.store.get(parsed.merchant_trans_id);
-      if (!purchase || purchase.provider !== 'click')
-        return answer(CLICK_ERRORS.ORDER_NOT_FOUND, ids);
-      return parsed.action === CLICK_PREPARE
-        ? await prepare(parsed, purchase, ctx)
-        : await complete(parsed, purchase, ctx);
+      event = await ctx.store.recordEvent(
+        'click',
+        `${parsed.click_trans_id}:${parsed.action}`,
+        ACTION_NAMES[parsed.action] ?? `action ${parsed.action}`,
+        Object.fromEntries(form),
+      );
     } catch {
       return answer(CLICK_ERRORS.FAILED_TO_UPDATE, ids);
     }
+    const result = await respond(parsed, config.CLICK_SERVICE_ID, ctx);
+    await ctx.store
+      .markEventProcessed(
+        event.id,
+        result.problem,
+        `${String(result.code)} ${CLICK_ERROR_NOTES[result.code]}`,
+      )
+      .catch(() => undefined);
+    return answer(result.code, result.fields);
   },
 };

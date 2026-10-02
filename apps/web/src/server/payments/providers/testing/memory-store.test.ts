@@ -108,16 +108,34 @@ describe('MemoryPurchaseStore (the contract fake)', () => {
     expect(store.peek(purchase.id)).toMatchObject({ status: 'pending', providerData: {} });
   });
 
-  it('records each (provider, event id) once', async () => {
+  it('records each (provider, event id) once, fresh again until processed without an error', async () => {
     const store = new MemoryPurchaseStore();
     const first = await store.recordEvent('paddle', 'evt_1', 'transaction.completed', { a: 1 });
-    const again = await store.recordEvent('paddle', 'evt_1', 'transaction.completed', { a: 1 });
     const other = await store.recordEvent('click', 'evt_1', 'prepare', {});
     expect(first.fresh).toBe(true);
-    expect(again).toEqual({ id: first.id, fresh: false });
     expect(other.fresh).toBe(true);
-    await store.markEventProcessed(first.id, 'why');
-    expect(store.events[0]).toMatchObject({ processed: true, error: 'why' });
+    // Never marked (the process died): the retry is fresh.
+    expect(await store.recordEvent('paddle', 'evt_1', 'transaction.completed', {})).toEqual({
+      id: first.id,
+      fresh: true,
+    });
+    await store.markEventProcessed(first.id, 'why', '-7 Failed to update user');
+    expect(store.events[0]).toMatchObject({
+      processed: true,
+      error: 'why',
+      answer: '-7 Failed to update user',
+    });
+    // Failed: the retry is fresh again.
+    expect((await store.recordEvent('paddle', 'evt_1', 'transaction.completed', {})).fresh).toBe(
+      true,
+    );
+    await store.markEventProcessed(first.id);
+    expect(await store.recordEvent('paddle', 'evt_1', 'transaction.completed', {})).toEqual({
+      id: first.id,
+      fresh: false,
+    });
+    expect(store.events).toHaveLength(2);
+    expect(store.events[0]).toMatchObject({ payload: { a: 1 }, error: null, answer: null });
   });
 
   it('lists a provider’s purchases in a time range, oldest first', async () => {

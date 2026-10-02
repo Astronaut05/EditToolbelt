@@ -53,7 +53,14 @@ export const webhookEvents = pgTable(
     payload: jsonb('payload').notNull(),
     receivedAt: tstz('received_at').notNull().defaultNow(),
     processedAt: tstz('processed_at'),
+    /** Something a person must look at (it alerts at once): a payment not credited, a store failure. */
     error: text('error'),
+    /**
+     * Click and Payme, which wait for an answer: the one we gave (their error
+     * code and its note, or `result`). A refusal their protocol expects is an
+     * answer, not an `error`.
+     */
+    answer: text('answer'),
   },
   (t) => [uniqueIndex('webhook_events_provider_event_key').on(t.provider, t.eventId)],
 );

@@ -89,7 +89,11 @@ export interface PurchaseStore {
     type: string,
     payload: unknown,
   ): Promise<{ id: string; fresh: boolean }>;
-  markEventProcessed(id: string, error?: string): Promise<void>;
+  /**
+   * The event was handled. `error`: something a person must look at (it
+   * alerts at once). `answer`: what Click or Payme was told (their code).
+   */
+  markEventProcessed(id: string, error?: string, answer?: string): Promise<void>;
 }
 
 /** Where the buyer goes to pay. */

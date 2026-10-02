@@ -12,6 +12,8 @@
  *   Payme's own time) lives in providerData. Times are in milliseconds.
  * - Every answer is HTTP 200, a JSON-RPC result or an error with Payme's code
  *   and a ru/uz/en message.
+ * - Every authenticated call is kept in webhook_events (`<method>:<id>`) with
+ *   the answer; a store failure is also its error, which alerts.
  */
 import { fiscalReceipt } from '@etb/config/business';
 
@@ -20,6 +22,7 @@ import {
   asInteger,
   asString,
   assertCheckoutable,
+  describeError,
   isRecord,
   packFor,
   ProviderConfigError,
@@ -132,6 +135,8 @@ class PaymeError extends Error {
   constructor(
     readonly code: PaymeErrorCode,
     readonly data?: string,
+    /** Something a person must look at, kept as the event's error (it alerts). */
+    readonly problem?: string,
   ) {
     super(PAYME_MESSAGES[code].en);
     this.name = 'PaymeError';
@@ -360,7 +365,11 @@ async function cancelPerformed(
   ctx: ProviderContext,
 ): Promise<unknown> {
   if (purchase.status !== 'completed' && purchase.status !== 'partially_refunded')
-    throw new PaymeError(PAYME_ERRORS.CANNOT_CANCEL);
+    throw new PaymeError(
+      PAYME_ERRORS.CANNOT_CANCEL,
+      undefined,
+      `Payme cancelled a performed transaction of a ${purchase.status} purchase: check it by hand`,
+    );
   const done = await ctx.store.refund(
     purchase.id,
     { refundId: `payme:${paymeId}` },
@@ -461,6 +470,59 @@ const METHODS: Record<string, (params: Params, ctx: ProviderContext) => Promise<
 
 type RpcId = string | number | null;
 
+/** What we answer an authenticated call, and anything a person must look at (webhook_events.error). */
+type Outcome = { answer: string; problem?: string } & (
+  { result: unknown } | { code: PaymeErrorCode; data?: string }
+);
+
+function failed(code: PaymeErrorCode, data?: string, problem?: string): Outcome {
+  return {
+    code,
+    ...(data === undefined ? {} : { data }),
+    answer: `${String(code)} ${PAYME_MESSAGES[code].en}`,
+    ...(problem ? { problem } : {}),
+  };
+}
+
+async function dispatch(payload: unknown, ctx: ProviderContext): Promise<Outcome> {
+  if (!isRecord(payload) || typeof payload.method !== 'string' || !isRecord(payload.params))
+    return failed(PAYME_ERRORS.INVALID_REQUEST);
+  const method = Object.hasOwn(METHODS, payload.method) ? METHODS[payload.method] : undefined;
+  if (!method) return failed(PAYME_ERRORS.METHOD_NOT_FOUND, payload.method);
+  try {
+    return { result: await method(payload.params, ctx), answer: 'result' };
+  } catch (error) {
+    if (error instanceof PaymeError) return failed(error.code, error.data, error.problem);
+    // No detail for Payme; the reason stays in the event, which alerts.
+    return failed(PAYME_ERRORS.SYSTEM_ERROR, undefined, describeError(error));
+  }
+}
+
+/**
+ * How an authenticated call is kept in webhook_events: `<method>:<Payme's
+ * transaction id>`, or the order (CheckPerformTransaction) or the period
+ * (GetStatement). A method we don't have keeps no params: ChangePassword's
+ * carry a new merchant key.
+ */
+function describeCall(payload: unknown): { eventId: string; type: string; payload: unknown } {
+  const record = isRecord(payload) ? payload : {};
+  const method = typeof record.method === 'string' ? record.method.slice(0, 100) : 'invalid';
+  const params = isRecord(record.params) ? record.params : {};
+  const account = isRecord(params.account) ? params.account : {};
+  const from = asInteger(params.from);
+  const to = asInteger(params.to);
+  const key =
+    asString(params.id) ??
+    asString(account.order_id) ??
+    (from !== null && to !== null ? `${String(from)}-${String(to)}` : '');
+  const known = Object.hasOwn(METHODS, method) && isRecord(record.params);
+  return {
+    eventId: `${method}:${key.slice(0, 200)}`,
+    type: method,
+    payload: known ? record : { jsonrpc: record.jsonrpc ?? null, id: record.id ?? null, method },
+  };
+}
+
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 function rpcResult(id: RpcId, result: unknown): Response {
@@ -536,16 +598,22 @@ export const payme: PaymentProvider = {
       isRecord(payload) && (typeof payload.id === 'number' || typeof payload.id === 'string')
         ? payload.id
         : null;
-    if (!isRecord(payload) || typeof payload.method !== 'string' || !isRecord(payload.params))
-      return rpcError(id, PAYME_ERRORS.INVALID_REQUEST);
-    const method = Object.hasOwn(METHODS, payload.method) ? METHODS[payload.method] : undefined;
-    if (!method) return rpcError(id, PAYME_ERRORS.METHOD_NOT_FOUND, payload.method);
 
+    // Authenticated: kept (docs/11 → Payments), once per method and
+    // transaction, with the answer we give it.
+    const call = describeCall(payload);
+    let event: { id: string };
     try {
-      return rpcResult(id, await method(payload.params, ctx));
-    } catch (error) {
-      if (error instanceof PaymeError) return rpcError(id, error.code, error.data);
+      event = await ctx.store.recordEvent('payme', call.eventId, call.type, call.payload);
+    } catch {
       return rpcError(id, PAYME_ERRORS.SYSTEM_ERROR);
     }
+    const result = await dispatch(payload, ctx);
+    await ctx.store
+      .markEventProcessed(event.id, result.problem, result.answer)
+      .catch(() => undefined);
+    return 'result' in result
+      ? rpcResult(id, result.result)
+      : rpcError(id, result.code, result.data);
   },
 };
