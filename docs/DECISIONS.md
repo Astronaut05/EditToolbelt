@@ -1271,3 +1271,14 @@ Each tool keeps its own tests and its own entry here; each PR lists what it gath
 
 **Why:** a review of M6 confirmed a reused key with a different body got the first job with 200, and found a retry arriving just before the first try committed could get "This upload already has a job".
 **Reverse:** to drop the check, stop writing `idempotency_hash` (the column can stay null); the race retry is the `catch` in `createJob`.
+
+## 2026-10-02 · The OpenAPI document lists every status a route answers (M6 fix)
+
+**Decision:**
+- **Each endpoint in `ENDPOINTS` names its problems by status** (`errors: { 409: ['CONFLICT', …] }`), and `problemsOf` adds what every endpoint of its kind answers: 429 `RATE_LIMITED` and 500 `INTERNAL` everywhere; 401 and 403 with a key or session; 400, 413 and 415 `BAD_REQUEST` with a JSON body. The document has one response per status, with its codes, and no `default`.
+- **Other successes are listed too** (`also`): a quote's 202 `QuoteProbing`, a repeated start's 200. `Quote`'s two variants are components of their own (`QuoteProbing`, `QuoteReady`); `Quote` stays as their union for clients.
+- **Corrected:** `DELETE /uploads/{id}` is 200 `UploadCancelled` (`{ status: "cancelled" }`), not 204; `/auth/device/token` can answer 409 `CONFLICT` (the account has 10 keys); both device endpoints document 429; cancelling a job never answers 409, so it no longer says so. Every response documents the `RateLimit-*` headers.
+- **Checked twice:** a unit test that each operation's responses are exactly `statusesOf(endpoint)`, and the end-to-end contract test, which now sends each answer it sees through `expectDocumented`: its status must be listed for the route, a problem's code listed under that status, and the `RateLimit-*` headers present.
+
+**Why:** a review of M6 found the document disagreeing with the routes (204 vs 200, the missing 202, 200, 409 and 429s).
+**Reverse:** nothing to undo; to loosen the contract test, drop `expectDocumented`.
