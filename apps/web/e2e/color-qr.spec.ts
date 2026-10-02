@@ -4,6 +4,17 @@ import type { Download, Page } from '@playwright/test';
 import jsQR from 'jsqr';
 
 import { expect, test } from './fixtures';
+import { probe as debugProbe } from './zz-probe';
+
+
+// DEBUG (claude/debug-webkit-flakes only): stage logs and a page heartbeat.
+const probes = new Map<string, Awaited<ReturnType<typeof debugProbe>>>();
+test.beforeEach(async ({ page }, testInfo) => {
+  probes.set(testInfo.testId, await debugProbe(page, testInfo, 'qr'));
+});
+test.afterEach(({}, testInfo) => {
+  probes.get(testInfo.testId)?.dump();
+});
 
 // C03 Color Converter and U01 QR Code Generator (tools/color.md, tools/utility.md).
 

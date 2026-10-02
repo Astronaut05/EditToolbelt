@@ -625,6 +625,15 @@ export function ToolShell({
   server,
 }: ToolShellProps) {
   const [state, setState] = useState<ShellState>(initialState ?? { kind: 'empty' });
+  // DEBUG (claude/debug-webkit-flakes only): when each state is committed to the page.
+  useEffect(() => {
+    console.log(
+      `[dbg] ${String(Math.round(performance.now()))} shell: committed ${state.kind}` +
+        (state.kind === 'result'
+          ? ` ${state.output.blob?.type ?? '-'} ${String(state.output.size)} B`
+          : ''),
+    );
+  }, [state.kind]); // eslint-disable-line react-hooks/exhaustive-deps
   // The server path: why it's offered for this file, the account, and a price to confirm.
   const [serverReason, setServerReason] = useState<string | null>(null);
   const [account, setAccount] = useState<ServerAccount | null | undefined>(undefined);
@@ -791,6 +800,7 @@ export function ToolShell({
       track('tool_run_started', { path: 'client' });
       setOnServer(false);
       setState({ kind: 'running', input, fraction: 0, elapsedSec: 0 });
+      let lastStage: string | undefined = '\u0000';
       try {
         const edit = editor.edit;
         const out = await engine.run(
@@ -816,6 +826,12 @@ export function ToolShell({
           {
             signal: abort.signal,
             progress: (fraction, stage, detail) => {
+              if (stage !== lastStage) {
+                lastStage = stage;
+                console.log(
+                  `[dbg] ${String(Math.round(performance.now()))} shell: stage ${stage ?? '-'} ${fraction.toFixed(2)}`,
+                );
+              }
               setState({
                 kind: 'running',
                 input,
@@ -827,6 +843,9 @@ export function ToolShell({
               });
             },
           },
+        );
+        console.log(
+          `[dbg] ${String(Math.round(performance.now()))} shell: engine done ${out.blob.type} ${String(out.blob.size)} B`,
         );
         const url = URL.createObjectURL(out.blob);
         urls.current.push(url);

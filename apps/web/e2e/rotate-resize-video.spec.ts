@@ -6,6 +6,17 @@ import { probeMedia, videoPackets } from '@etb/engines';
 import type { Download, Page } from '@playwright/test';
 
 import { choose, expect, frameBands, pick, test } from './fixtures';
+import { probe as debugProbe } from './zz-probe';
+
+
+// DEBUG (claude/debug-webkit-flakes only): stage logs and a page heartbeat.
+const probes = new Map<string, Awaited<ReturnType<typeof debugProbe>>>();
+test.beforeEach(async ({ page }, testInfo) => {
+  probes.set(testInfo.testId, await debugProbe(page, testInfo, 'video'));
+});
+test.afterEach(({}, testInfo) => {
+  probes.get(testInfo.testId)?.dump();
+});
 
 // V11 Rotate & Flip Video and V09 Resize & Crop Video for Social (tools/video.md
 // → Tests). Outputs are read back in Node with the engine's own probe, and the
