@@ -85,7 +85,7 @@
 
 Applies of the Railway project (Actions → Railway → "Apply the plan", environment `railway`). Work goes on around them.
 
-- None right now.
+- **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Approve at Actions → Railway → run 36946470385 → Review deployments. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
 
 ## Blocked
 
