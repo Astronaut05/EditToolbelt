@@ -78,6 +78,13 @@
       "when": 1790909251426,
       "tag": "0010_webhook_answer",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790917245763,
+      "tag": "0011_click_fiscal",
+      "breakpoints": true
     }
   ]
 }

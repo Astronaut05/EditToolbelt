@@ -15,6 +15,7 @@
 import { log } from '../../../../lib/log';
 import { db } from '../../../../server/db';
 import { providerContext } from '../../../../server/payments/checkout';
+import { wakeFiscalSender } from '../../../../server/payments/fiscal-sender';
 import { paymentEnv, webhookProvider } from '../../../../server/payments/switches';
 import { ApiError, problem } from '../../../../server/problem';
 
@@ -33,6 +34,8 @@ async function handle(request: Request, { params }: Context): Promise<Response> 
       providerContext(db(), env, found.open),
     );
     log.info({ provider: id, status: response.status, open: found.open }, 'payments.webhook');
+    // A Complete may have queued Click's fiscal receipt: send it now, after this answer.
+    if (id === 'click') wakeFiscalSender();
     return response;
   } catch (error) {
     // The provider retries a 5xx. Errors the provider code catches are kept

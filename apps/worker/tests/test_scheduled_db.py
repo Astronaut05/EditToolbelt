@@ -18,6 +18,7 @@ import pytest
 
 from etb_worker.alerts import (
     Alert,
+    fiscal_receipts_unsent,
     queue_wait,
     raise_alert,
     stale_heartbeats,
@@ -191,6 +192,66 @@ def test_the_scheduler_raises_webhook_errors(settings: Settings, db: Conn) -> No
         event,
     )
     assert row["n"] == 1
+
+
+def fiscal_receipt(
+    db: Conn, *, status: str, attempts: int, age: timedelta, error: str | None = None
+) -> str:
+    """A Click purchase, completed, and its fiscal receipt in the given state."""
+    user = new_user(db)
+    purchase = one(
+        db,
+        "insert into purchases (user_id, provider, pack_id, credits, amount_minor, currency,"
+        " status) values (%s, 'click', 'starter', 200, 6300000, 'UZS', 'completed')"
+        " returning id",
+        user,
+    )["id"]
+    row = one(
+        db,
+        "insert into fiscal_receipts (purchase_id, payment_id, status, attempts, last_error,"
+        " created_at) values (%s, %s, %s, %s, %s, now() - %s) returning id::text as id",
+        purchase,
+        str(uuid.uuid4().int % 10**9 + 1),
+        status,
+        attempts,
+        error,
+        age,
+    )
+    return str(row["id"])
+
+
+def test_an_unsent_fiscal_receipt_alerts_once(db: Conn, outbox: Outbox) -> None:
+    tried = fiscal_receipt(
+        db,
+        status="failed",
+        attempts=6,
+        age=timedelta(minutes=31),
+        error="Click refused it: -5 Payment not found",
+    )
+    stuck = fiscal_receipt(db, status="pending", attempts=0, age=timedelta(minutes=61))
+    young = fiscal_receipt(db, status="failed", attempts=3, age=timedelta(minutes=7))
+    sent = fiscal_receipt(db, status="sent", attempts=9, age=timedelta(hours=5))
+    found = {alert.subject: alert for alert in fiscal_receipts_unsent(db)}
+    assert tried in found
+    assert stuck in found
+    assert young not in found
+    assert sent not in found
+    alert = found[tried]
+    assert alert.immediate
+    assert alert.rule == "fiscal_receipt_unsent"
+    assert alert.message.startswith("Click fiscal receipt not sent: purchase ")
+    assert alert.message.endswith(
+        ", 6 tries, last error: Click refused it: -5 Payment not found. "
+        "Retries carry on; see Admin, Payments."
+    )
+    assert found[stuck].message.endswith(", 0 tries. Retries carry on; see Admin, Payments.")
+    assert raise_alert(db, alert, outbox.notifier)
+    assert raise_alert(db, found[stuck], outbox.notifier)
+    assert len(outbox.sent) == 2
+    # Once per receipt: still unsent on the next check, it doesn't page again.
+    subjects = {alert.subject for alert in fiscal_receipts_unsent(db)}
+    assert tried not in subjects
+    assert stuck not in subjects
 
 
 def test_a_ledger_mismatch_is_recorded_and_alerts(db: Conn, outbox: Outbox) -> None:

@@ -15,6 +15,10 @@
  *   answered -5; Completes for orders prepared before still complete.
  * - Every signed call is kept in webhook_events (`<click_trans_id>:<action>`)
  *   with the code we answered; a store failure is also its error, which alerts.
+ * - The Complete that credits a purchase queues its fiscal receipt in the
+ *   same store call (Click's `click_paydoc_id` is the receipt's payment id);
+ *   payments/fiscal.ts sends it to Click's Merchant API afterwards, so the
+ *   answer to Click never waits for, or fails with, the tax receipt.
  */
 import { createHash, randomInt } from 'node:crypto';
 
@@ -37,6 +41,8 @@ export const CLICK_ENV = [
   'CLICK_MERCHANT_ID',
   'CLICK_MERCHANT_USER_ID',
   'CLICK_SECRET_KEY',
+  // Where its fiscal receipts go (providers/click-merchant.ts): no sale without one.
+  'CLICK_MERCHANT_API_URL',
 ] as const;
 
 export const CLICK_PAY_URL = 'https://my.click.uz/services/pay';
@@ -271,14 +277,16 @@ async function complete(
   }
 
   // The Click transaction becomes the purchase's in the same store call that
-  // credits it: a failure leaves neither, and a pending purchase's earlier
-  // attempt (one Click reversed) gives way to this one.
+  // credits it and queues its fiscal receipt: a failure leaves none of them,
+  // and a pending purchase's earlier attempt (one Click reversed) gives way
+  // to this one.
   let done: PurchaseRecord;
   try {
     done = await ctx.store.complete(
       purchase.id,
-      { confirmedAt: ctx.now().toISOString() },
+      { confirmedAt: ctx.now().toISOString(), clickPaydocId: request.click_paydoc_id },
       request.click_trans_id,
+      { paymentId: request.click_paydoc_id },
     );
   } catch (error) {
     return outcome(CLICK_ERRORS.FAILED_TO_UPDATE, ids, describeError(error));

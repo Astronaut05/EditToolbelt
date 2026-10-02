@@ -102,7 +102,7 @@ describe.skipIf(!TEST_DATABASE_URL)('refunds from the admin', () => {
       enabled: false,
       vars,
       providers: [paddle, click, payme],
-      fiscal: { mxik: '1', packageCode: '2' },
+      fiscal: { mxik: '1', packageCode: '2', tin: '301234567', pinfl: '' },
       unfinished: {},
     });
 

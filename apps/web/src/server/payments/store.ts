@@ -13,6 +13,8 @@
  *   `credits` it takes back what's left; with them, never more than that.
  * - A webhook event counts as fresh until it's processed without an error,
  *   so a provider's retry after a failure is processed again.
+ * - `complete` with a receipt queues Click's fiscal receipt in the same
+ *   transaction (`fiscal_receipts`), so a credited Click sale always has one.
  */
 import type { PackId } from '@etb/config/business';
 import {
@@ -21,6 +23,7 @@ import {
   asc,
   creditTransactions,
   eq,
+  fiscalReceipts,
   gte,
   lte,
   purchases,
@@ -39,7 +42,7 @@ import type {
 } from './contract';
 
 export type PurchaseErrorCode =
-  'NOT_FOUND' | 'WRONG_STATE' | 'TXN_MISMATCH' | 'TXN_TAKEN' | 'BAD_REFUND';
+  'NOT_FOUND' | 'WRONG_STATE' | 'TXN_MISMATCH' | 'TXN_TAKEN' | 'BAD_REFUND' | 'BAD_RECEIPT';
 
 /** A store call that can't be done: unknown purchase, wrong state, or a clash. */
 export class PurchaseError extends Error {
@@ -177,9 +180,11 @@ export function createPurchaseStore(db: Queryable): PurchaseStore {
       });
     },
 
-    async complete(id, data, providerTxnId) {
+    async complete(id, data, providerTxnId, receipt) {
       if (providerTxnId === '')
         throw new PurchaseError('TXN_MISMATCH', 'Empty provider transaction id');
+      if (receipt && !receipt.paymentId.trim())
+        throw new PurchaseError('BAD_RECEIPT', 'A receipt needs the provider’s payment id');
       try {
         return await db.transaction(async (tx) => {
           const row = await locked(tx, id);
@@ -199,6 +204,12 @@ export function createPurchaseStore(db: Queryable): PurchaseStore {
           const entry = await applyCredit(tx, row.userId, 'purchase', row.credits, {
             purchaseId: row.id,
           });
+          if (receipt) {
+            await tx
+              .insert(fiscalReceipts)
+              .values({ purchaseId: row.id, paymentId: receipt.paymentId })
+              .onConflictDoNothing({ target: fiscalReceipts.purchaseId });
+          }
           log.info(
             {
               purchase_id: row.id,
