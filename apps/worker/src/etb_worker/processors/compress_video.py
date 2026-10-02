@@ -243,7 +243,7 @@ class CompressVideo:
         out = ctx.workdir / f"out.{p.container}"
         source = display_size(ctx.meta["video"])
         duration_ms = int(ctx.meta.get("duration_ms") or 0)
-        head = ["-i", ctx.input_path.name, "-map", "0:v:0", *_filters(p, source)]
+        head = ["-i", ctx.input_path.name, "-map", "0:V:0", *_filters(p, source)]
         tail = ["-map_metadata", "-1", "-map_chapters", "-1"]
         if p.container == "mp4":
             tail += ["-movflags", "+faststart"]

@@ -273,3 +273,55 @@ def test_a_length_that_takes_too_long_to_measure_says_so(
     with pytest.raises(ProbeRefused) as refused:
         probe_json(path)
     assert refused.value.code == "TIMEOUT"
+
+
+def ffmpeg(*args: str) -> None:
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run(  # noqa: S603
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *args],  # noqa: S607
+        check=True,
+    )
+
+
+def with_cover(path: Path, source: str, encode: list[str], cover: int) -> Path:
+    """``source`` with a 300 x 300 JPEG as its cover art, as music players and phones save
+    it; ``cover`` is the artwork's place among the output's video streams."""
+    jpeg = path.with_suffix(".jpg")
+    ffmpeg("-f", "lavfi", "-i", "color=red:size=300x300", "-frames:v", "1", str(jpeg))
+    ffmpeg(
+        *("-f", "lavfi", "-i", source, "-i", str(jpeg), "-map", "0", "-map", "1", *encode),
+        *(f"-c:v:{cover}", "mjpeg", f"-disposition:v:{cover}", "attached_pic", str(path)),
+    )
+    return path
+
+
+@pytest.mark.parametrize(
+    ("name", "mime", "codec"),
+    [("song.mp3", "audio/mpeg", "libmp3lame"), ("song.m4a", "audio/mp4", "aac")],
+)
+def test_a_songs_cover_art_is_not_a_picture(
+    tmp_path: Path, name: str, mime: str, codec: str
+) -> None:
+    # ffprobe gives the artwork 90,000 fps, which the jobs API would refuse as video.
+    song = with_cover(tmp_path / name, "sine=frequency=440:duration=5", ["-c:a", codec], 0)
+    data = probe_json(song)
+    assert "frame_times" not in data
+    record = summarize(data, mime)
+    assert record["video"] is None
+    assert record["audio"]["channels"] == 1
+    assert 4_900 <= record["duration_ms"] <= 5_200
+
+
+def test_a_videos_cover_art_is_not_its_picture(tmp_path: Path) -> None:
+    clip = with_cover(
+        tmp_path / "clip.mp4",
+        "testsrc2=size=160x120:rate=25:duration=3",
+        ["-c:v:0", "libx264", "-preset", "ultrafast", "-pix_fmt:v:0", "yuv420p"],
+        1,
+    )
+    data = probe_json(clip)
+    record = summarize(data, "video/mp4")
+    video = record["video"]
+    assert (video["codec"], video["width"], video["height"], video["fps"]) == ("h264", 160, 120, 25)
+    assert len(data["frame_times"]) == 75

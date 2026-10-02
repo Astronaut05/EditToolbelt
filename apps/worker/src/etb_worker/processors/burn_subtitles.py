@@ -111,7 +111,7 @@ class BurnSubtitles:
         )
         ctx.run(
             ffmpeg(
-                *("-i", ctx.input_path.name, "-map", "0:v:0", "-vf", burn),
+                *("-i", ctx.input_path.name, "-map", "0:V:0", "-vf", burn),
                 *("-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p"),
                 *sound,
                 *("-map_metadata", "-1", "-map_chapters", "-1", "-movflags", "+faststart"),
