@@ -43,6 +43,7 @@ const OPTIONS: ShellOption[] = [
 
 const PRESET: ShellPreset = {
   ...VIDEO_INTAKE,
+  maxBytes: 2 * 1024 ** 3,
   formats: 'MP4, MOV, WebM, MKV · up to 2 GB free, 10 GB with credits',
   dropTitle: 'Drop a phone or screen recording',
   chooseLabel: 'Choose a video',

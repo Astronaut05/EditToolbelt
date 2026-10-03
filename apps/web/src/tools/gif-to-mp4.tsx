@@ -1,6 +1,6 @@
 'use client';
 
-import { GIF_INPUT_LIMITS, MEDIA_META, readGif } from '@etb/engines';
+import { MEDIA_META, readGif } from '@etb/engines';
 import {
   ToolShell,
   type ProbeInfo,
@@ -60,11 +60,10 @@ async function probe(file: File): Promise<ProbeInfo> {
 const PRESET: ShellPreset = {
   noun: 'image',
   accept: 'image/gif,.gif',
-  maxBytes: GIF_INPUT_LIMITS.maxBytes,
   dropTitle: 'Drop a GIF here',
   chooseLabel: 'Choose a GIF',
   tapLabel: 'Choose a GIF',
-  formats: 'Animated GIF · up to 200 MB',
+  formats: (max) => `Animated GIF · up to ${max}`,
   formatsShort: 'Animated GIF',
   options: OPTIONS,
   phoneGroups: [['format', 'plays'], ['background']],

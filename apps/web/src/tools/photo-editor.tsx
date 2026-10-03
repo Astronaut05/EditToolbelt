@@ -90,7 +90,7 @@ const PRESET: ShellPreset = {
   dropTitle: 'Drop a photo to edit',
   chooseLabel: 'Choose a photo',
   tapLabel: 'Choose a photo',
-  formats: 'JPG, PNG, WebP, AVIF, GIF, BMP, HEIC · up to 200 MB and 100 MP',
+  formats: (max) => `JPG, PNG, WebP, AVIF, GIF, BMP, HEIC · up to ${max} and 100 MP`,
   formatsShort: 'JPG, PNG, WebP, AVIF, HEIC',
   options: OPTIONS,
   phoneGroups: [['ratio'], ['by', 'longest', 'percent'], ['format', 'quality'], ['metadata']],

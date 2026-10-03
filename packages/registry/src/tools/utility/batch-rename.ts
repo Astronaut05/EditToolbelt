@@ -19,6 +19,8 @@ export default defineTool({
   outputs: ['zip'],
   // Dropped files download renamed in a ZIP, built in memory without ZIP64:
   // 2 GB in all. A folder renamed in place (desktop Chromium) has no limit.
+  // The renamed copies download as one ZIP built in memory, without ZIP64
+  // (fflate): 2 GB in all is safe. A folder renamed in place has no limit.
   limits: { client: { maxBytes: 2 * 1024 ** 3 } },
   cost: { kind: 'free' },
   surfaces: ['web'],

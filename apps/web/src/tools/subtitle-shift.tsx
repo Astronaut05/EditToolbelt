@@ -127,11 +127,10 @@ async function probe(file: File): Promise<ProbeInfo> {
 const PRESET: ShellPreset = {
   noun: 'file',
   accept: '.srt,.vtt,.webvtt,.ass,.ssa,.sbv',
-  maxBytes: 20 * 1024 * 1024,
   dropTitle: 'Drop a subtitle file here',
   chooseLabel: 'Choose a file',
   tapLabel: 'Choose a subtitle file',
-  formats: 'SRT, VTT, ASS, SSA, SBV · up to 20 MB',
+  formats: (max) => `SRT, VTT, ASS, SSA, SBV · up to ${max}`,
   formatsShort: 'SRT, VTT, ASS, SSA, SBV',
   sampleUrl: '/samples/sample.srt',
   sampleName: 'sample.srt',

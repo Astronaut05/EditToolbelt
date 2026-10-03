@@ -41,11 +41,10 @@ const OPTIONS: ShellOption[] = [
 const PRESET: ShellPreset = {
   noun: 'file',
   accept: '.cube,.3dl',
-  maxBytes: 64 * 1024 * 1024,
   dropTitle: 'Drop a LUT to convert',
   chooseLabel: 'Choose a LUT',
   tapLabel: 'Choose a LUT file',
-  formats: '.cube or .3dl, 1D or 3D · up to 64 MB',
+  formats: (max) => `.cube or .3dl, 1D or 3D · up to ${max}`,
   formatsShort: '.cube, .3dl',
   options: OPTIONS,
   phoneGroups: [['to'], ['grid', 'shape']],

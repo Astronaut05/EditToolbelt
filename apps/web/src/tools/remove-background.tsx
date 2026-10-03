@@ -147,11 +147,10 @@ export default function RemoveBackground({ tool }: { tool: ShellTool }) {
     () => ({
       noun: 'image',
       accept: IMAGE_ACCEPT,
-      maxBytes: 200 * 1024 * 1024,
       dropTitle: 'Drop an image here',
       chooseLabel: 'Choose image',
       tapLabel: 'Choose\nan image',
-      formats: 'JPG · PNG · WEBP · AVIF · HEIC · up to 24 MP, 200 MB',
+      formats: (max) => `JPG · PNG · WEBP · AVIF · HEIC · up to 24 MP, ${max}`,
       formatsShort: 'JPG · PNG · WEBP · HEIC · up to 24 MP',
       camera: true,
       sampleUrl: '/samples/mug.jpg',

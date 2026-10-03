@@ -11,6 +11,24 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unit] ?? 'TB'}`;
 }
 
+/**
+ * A browser limit as the copy states it: "1 GB", "200 MB", "1.5 GB". Limits
+ * are set in 1024s (the registry's `200 * 1024 ** 2`), so this counts in
+ * 1024s, unlike `formatBytes`, and a whole number has no decimal. No limit
+ * (Infinity) reads "any size".
+ */
+export function formatLimit(bytes: number): string {
+  if (!Number.isFinite(bytes)) return 'any size';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${String(Math.round(value * 10) / 10)} ${units[unit] ?? 'TB'}`;
+}
+
 /** "00:01:12.400" (hours always shown, milliseconds). */
 export function formatTimecode(seconds: number): string {
   const total = Math.max(0, seconds);

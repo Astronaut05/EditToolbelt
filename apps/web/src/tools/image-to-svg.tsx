@@ -50,11 +50,10 @@ const OPTIONS: ShellOption[] = [
 const PRESET: ShellPreset = {
   noun: 'image',
   accept: IMAGE_ACCEPT,
-  maxBytes: 200 * 1024 * 1024,
   dropTitle: 'Drop a logo or illustration',
   chooseLabel: 'Choose an image',
   tapLabel: 'Choose an image',
-  formats: 'PNG, JPG, WebP, GIF, AVIF, BMP · up to 200 MB',
+  formats: (max) => `PNG, JPG, WebP, GIF, AVIF, BMP · up to ${max}`,
   formatsShort: 'PNG, JPG, WebP, GIF, AVIF',
   options: OPTIONS,
   phoneGroups: [

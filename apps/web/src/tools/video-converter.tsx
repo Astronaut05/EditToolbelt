@@ -52,7 +52,7 @@ const PRESET: ShellPreset = {
   dropTitle: 'Drop a video to convert',
   chooseLabel: 'Choose a video',
   tapLabel: 'Choose a video',
-  formats: 'MP4, MOV, WebM, MKV · up to 2 GB and 60 min',
+  formats: (max) => `MP4, MOV, WebM, MKV · up to ${max} and 60 min`,
   options: OPTIONS,
   phoneGroups: [['format'], ['mode', 'codec']],
   probe: (file) => probeVideo(file),

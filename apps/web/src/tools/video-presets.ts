@@ -11,14 +11,13 @@ export const VIDEO_ACCEPT = 'video/*,.mp4,.m4v,.mov,.webm,.mkv';
 
 export const VIDEO_INTAKE: Pick<
   ShellPreset,
-  'noun' | 'accept' | 'maxBytes' | 'sampleUrl' | 'sampleName' | 'formats' | 'formatsShort'
+  'noun' | 'accept' | 'sampleUrl' | 'sampleName' | 'formats' | 'formatsShort'
 > = {
   noun: 'video',
   accept: VIDEO_ACCEPT,
-  maxBytes: VIDEO_LIMITS.maxBytes,
   sampleUrl: '/samples/clip.mp4',
   sampleName: 'clip.mp4',
-  formats: 'MP4, MOV, WebM, MKV · up to 2 GB and 60 min',
+  formats: (max) => `MP4, MOV, WebM, MKV · up to ${max} and 60 min`,
   formatsShort: 'MP4, MOV, WebM, MKV',
 };
 

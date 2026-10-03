@@ -1,4 +1,4 @@
-import { getTool, isAvailable, tools, type ToolDef } from '@etb/registry';
+import { getTool, isAvailable, setToolFlags, tools, type ToolDef } from '@etb/registry';
 import { describe, expect, it } from 'vitest';
 
 import { hasView, VIEW_IDS } from '../tools/ids';
@@ -25,6 +25,19 @@ describe('live tool pages', () => {
       ui: 'calculator',
       category: { name: 'Subtitles & Time', href: '/subtitles-time' },
     });
+  });
+
+  it('carries the registry’s browser limit, or an admin’s override of it', () => {
+    expect(shellTool(getTool('audio-converter')).maxBytes).toBe(1024 ** 3);
+    expect(shellTool(getTool('compress-image')).maxBytes).toBe(200 * 1024 ** 2);
+    // A server tool has none: its page sets the drop zone's own.
+    expect(shellTool(getTool('upscale-image'))).not.toHaveProperty('maxBytes');
+    try {
+      setToolFlags(new Map([['audio-converter', { limits: { client: { maxBytes: 5_000 } } }]]));
+      expect(shellTool(getTool('audio-converter')).maxBytes).toBe(5_000);
+    } finally {
+      setToolFlags(new Map());
+    }
   });
 });
 

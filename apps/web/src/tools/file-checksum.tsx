@@ -16,9 +16,6 @@ import { trackUnknown } from '../lib/analytics';
 const { HASH_ALGOS, HASH_LABEL, checkFile, checksumList, parseExpected } = checksum;
 type HashAlgo = checksum.HashAlgo;
 
-/** Up to 32 GB a file: it is read in pieces, never held whole. */
-const MAX_BYTES = 32 * 1024 ** 3;
-
 const OPTIONS: ShellOption[] = [
   {
     id: 'expected',
@@ -108,11 +105,10 @@ const PRESET: ShellPreset = {
   accept: '',
   multiple: true,
   maxFiles: 1000,
-  maxBytes: MAX_BYTES,
   dropTitle: 'Drop files to hash',
   chooseLabel: 'Choose files',
   tapLabel: 'Choose files',
-  formats: 'Any files · up to 32 GB each',
+  formats: (max) => `Any files · up to ${max} each`,
   options: OPTIONS,
   autoRun: true,
   runLabel: 'Hash',

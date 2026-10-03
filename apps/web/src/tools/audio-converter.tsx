@@ -77,11 +77,10 @@ const PRESET: ShellPreset = {
   accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.opus,.m4a,.aac,video/*',
   multiple: true,
   maxFiles: 50,
-  maxBytes: 1024 ** 3,
   dropTitle: 'Drop audio files here',
   chooseLabel: 'Choose files',
   tapLabel: 'Choose audio files',
-  formats: 'MP3, WAV, FLAC, OGG, Opus, M4A, AAC · up to 1 GB each · up to 50 at once',
+  formats: (max) => `MP3, WAV, FLAC, OGG, Opus, M4A, AAC · up to ${max} each · up to 50 at once`,
   formatsShort: 'MP3, WAV, FLAC, OGG, M4A',
   options: OPTIONS,
   phoneGroups: [

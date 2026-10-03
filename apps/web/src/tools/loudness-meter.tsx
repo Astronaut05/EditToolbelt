@@ -35,11 +35,10 @@ async function probe(file: File): Promise<ProbeInfo> {
 const PRESET: ShellPreset = {
   noun: 'audio',
   accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.opus,.m4a,.aac,video/*',
-  maxBytes: 1024 ** 3,
   dropTitle: 'Drop audio or a video to measure',
   chooseLabel: 'Choose a file',
   tapLabel: 'Choose a file',
-  formats: 'MP3, WAV, FLAC, OGG, M4A, or a video’s sound · up to 1 GB',
+  formats: (max) => `MP3, WAV, FLAC, OGG, M4A, or a video’s sound · up to ${max}`,
   formatsShort: 'MP3, WAV, FLAC, M4A, video',
   options: OPTIONS,
   phoneGroups: [['export']],

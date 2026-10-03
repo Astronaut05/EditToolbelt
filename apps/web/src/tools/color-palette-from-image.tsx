@@ -1,6 +1,6 @@
 'use client';
 
-import { PALETTE_LIMITS, paletteEngine } from '@etb/engines';
+import { paletteEngine } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 
 import { trackUnknown } from '../lib/analytics';
@@ -49,13 +49,12 @@ const OPTIONS: ShellOption[] = [
 const PRESET: ShellPreset = {
   noun: 'image',
   accept: 'image/*,.jpg,.jpeg,.png,.webp,.avif,.gif,.bmp',
-  maxBytes: PALETTE_LIMITS.maxBytes,
   sampleUrl: '/samples/mug.jpg',
   sampleName: 'mug.jpg',
   dropTitle: 'Drop an image here',
   chooseLabel: 'Choose an image',
   tapLabel: 'Choose an image',
-  formats: 'JPG, PNG, WebP, AVIF, GIF · up to 100 MB',
+  formats: (max) => `JPG, PNG, WebP, AVIF, GIF · up to ${max}`,
   formatsShort: 'JPG, PNG, WebP, AVIF',
   options: OPTIONS,
   phoneGroups: [['count', 'method'], ['extremes'], ['export']],

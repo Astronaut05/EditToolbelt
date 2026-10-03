@@ -56,7 +56,6 @@ async function describe(file: File) {
 const PRESET: ShellPreset = {
   noun: 'image',
   accept: IMAGE_ACCEPT,
-  maxBytes: 200 * 1024 * 1024,
   dropTitle: 'Drop images to make a PDF',
   chooseLabel: 'Choose images',
   tapLabel: 'Choose images',

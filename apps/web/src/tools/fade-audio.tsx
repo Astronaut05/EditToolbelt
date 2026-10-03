@@ -67,11 +67,10 @@ async function probe(file: File): Promise<ProbeInfo> {
 const PRESET: ShellPreset = {
   noun: 'audio',
   accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.opus,.m4a,.aac',
-  maxBytes: 1024 ** 3,
   dropTitle: 'Drop audio to fade',
   chooseLabel: 'Choose audio',
   tapLabel: 'Choose audio',
-  formats: 'MP3, WAV, FLAC, OGG, M4A · up to 1 GB',
+  formats: (max) => `MP3, WAV, FLAC, OGG, M4A · up to ${max}`,
   formatsShort: 'MP3, WAV, FLAC, OGG, M4A',
   options: OPTIONS,
   phoneGroups: [['fadeIn', 'inCurve'], ['fadeOut', 'outCurve'], ['format']],

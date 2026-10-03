@@ -24,8 +24,6 @@ const OPTIONS: ShellOption[] = [
 
 const PRESET: ShellPreset = {
   ...VIDEO_INTAKE,
-  // Only the headers and packet table are read, so the file can be as big as it likes.
-  maxBytes: 2 * 1024 ** 3,
   dropTitle: 'Drop a video to inspect',
   chooseLabel: 'Choose a video',
   tapLabel: 'Choose a video',

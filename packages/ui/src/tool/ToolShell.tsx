@@ -42,7 +42,7 @@ import type * as FolderRename from './FolderRename';
 import type { Renamed } from './in-place';
 import type { SwatchInfo } from './Swatches';
 import { accepts, handOff, takeHandoff } from './handoff';
-import { durationBucket, formatBytes, outputName, plural, sizeBucket } from './format';
+import { durationBucket, formatBytes, formatLimit, outputName, plural, sizeBucket } from './format';
 import { ProgressBar } from './ProgressBar';
 import type { FocusFrame } from './FocusPicker';
 import type { GraphInfo } from './LineGraph';
@@ -116,6 +116,11 @@ export interface ShellTool {
   /** Related tools; those with `accepts` can take this tool's result (the handoff). */
   related: { name: string; href: string; id?: string; accepts?: string[] }[];
   howTo?: string[];
+  /**
+   * The most the browser takes of one file: the registry's
+   * `limits.client.maxBytes`. A server tool has none.
+   */
+  maxBytes?: number;
   /** Set when the tool's server path is on (the server build reads it from the database). */
   server?: ServerInfo;
   /** Small screens get a note that it works best on a computer (docs/01 → Mobile). */
@@ -434,11 +439,21 @@ export interface ShellPreset {
   noun: Noun;
   accept: string;
   multiple?: boolean;
-  maxBytes: number;
+  /**
+   * The browser limit when the registry has none: a server tool's drop zone.
+   * The registry's (`ShellTool.maxBytes`) comes first; with neither, the
+   * browser takes a file of any size.
+   */
+  maxBytes?: number;
   dropTitle: string;
   chooseLabel: string;
   tapLabel: string;
-  formats: string;
+  /**
+   * The mono line under the drop zone. A function is given the browser limit
+   * as the copy states it ("1 GB", from `formatLimit`) and puts it in the
+   * line, so the size shown is the one checked.
+   */
+  formats: string | ((max: string) => string);
   formatsShort?: string;
   camera?: boolean;
   sampleUrl?: string;
@@ -570,12 +585,11 @@ export interface ShellPreset {
    * with it, and a name that can't be used stops the run. With `inPlace`,
    * desktop Chromium can open a folder and rename its files where they are.
    * Otherwise the renamed files download as a ZIP, built in memory, which
-   * holds up to `zipMaxBytes` in all.
+   * holds up to the tool's browser limit in all.
    */
   names?: {
     plan: (files: readonly File[], options: Record<string, string>) => Promise<NamesPlan>;
     inPlace?: boolean;
-    zipMaxBytes: number;
   };
   /**
    * U04: each finished file's results checked against the settings without
@@ -751,6 +765,8 @@ export function ToolShell({
   server,
 }: ToolShellProps) {
   const [state, setState] = useState<ShellState>(initialState ?? { kind: 'empty' });
+  // The browser limit: the registry's, else the preset's (a server tool's), else none.
+  const maxBytes = tool.maxBytes ?? preset.maxBytes ?? Number.POSITIVE_INFINITY;
   // The server path: why it's offered for this file, the account, and a price to confirm.
   // Its notice, terms and errors load with a tool whose server path is on.
   const [serverPath, setServerPath] = useState<typeof ServerPath | null>(null);
@@ -823,7 +839,7 @@ export function ToolShell({
     });
   }, []);
   // The files to join go to our servers together (their size, length and offer: ServerNotice.tsx).
-  const joined = preset.combine && serverPath?.joinedFiles(queue, preset.maxBytes);
+  const joined = preset.combine && serverPath?.joinedFiles(queue, maxBytes);
   /** A11: the ranges are being found in the file. */
   const [detecting, setDetecting] = useState(false);
   /** Which search is the latest, and the timer that waits for typing to stop. */
@@ -1349,8 +1365,8 @@ export function ToolShell({
         ? null
         : !engine
           ? (preset.serverReason ?? 'This tool runs on our servers.')
-          : file.size > preset.maxBytes
-            ? `This is a ${formatBytes(file.size)} file; the browser limit for this tool is ${formatBytes(preset.maxBytes)}. Our servers can take it.`
+          : file.size > maxBytes
+            ? `This is a ${formatBytes(file.size)} file; the browser limit for this tool is ${formatBytes(maxBytes)}. Our servers can take it.`
             : null;
       setServerReason(null);
       track('tool_file_added', {
@@ -1388,7 +1404,19 @@ export function ToolShell({
       if (preset.autoRun && !offer) void run(input, file);
       else setState({ kind: 'ready', input, files });
     },
-    [addToQueue, dropPreview, engine, inspect, preset, resetEditor, run, server, tool.ui, track],
+    [
+      addToQueue,
+      dropPreview,
+      engine,
+      inspect,
+      maxBytes,
+      preset,
+      resetEditor,
+      run,
+      server,
+      tool.ui,
+      track,
+    ],
   );
 
   // A result handed over from another tool arrives as if it were dropped here.
@@ -1752,7 +1780,7 @@ export function ToolShell({
                           ? undefined
                           : {
                               bytes: (state.files ?? []).reduce((sum, f) => sum + f.size, 0),
-                              maxBytes: preset.names.zipMaxBytes,
+                              maxBytes,
                               inPlace: folderable,
                             },
                       )
@@ -2208,12 +2236,16 @@ export function ToolShell({
       accept={preset.accept}
       multiple={preset.multiple ?? Boolean(preset.combine)}
       // With a server path, bigger files come in and get the server offer.
-      maxBytes={server ? Math.max(preset.maxBytes, server.maxBytes.paid) : preset.maxBytes}
+      maxBytes={server ? Math.max(maxBytes, server.maxBytes.paid) : maxBytes}
       noun={preset.noun}
       title={preset.dropTitle}
       chooseLabel={preset.chooseLabel}
       tapLabel={preset.tapLabel}
-      formats={preset.formats}
+      formats={
+        typeof preset.formats === 'function'
+          ? preset.formats(formatLimit(maxBytes))
+          : preset.formats
+      }
       formatsShort={preset.formatsShort}
       camera={preset.camera}
       onFiles={intake}

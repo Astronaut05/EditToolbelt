@@ -104,11 +104,10 @@ function rules(options: Record<string, string>): CheckRules {
 const PRESET: ShellPreset = {
   noun: 'file',
   accept: '.srt,.vtt,.webvtt,.ass,.ssa,.sbv',
-  maxBytes: 20 * 1024 * 1024,
   dropTitle: 'Drop a subtitle file to edit',
   chooseLabel: 'Choose a file',
   tapLabel: 'Choose a subtitle file',
-  formats: 'SRT, VTT, ASS, SSA, SBV · up to 20 MB',
+  formats: (max) => `SRT, VTT, ASS, SSA, SBV · up to ${max}`,
   formatsShort: 'SRT, VTT, ASS, SBV',
   options: OPTIONS,
   phoneGroups: [

@@ -87,11 +87,10 @@ const clock = (seconds: number) => {
 const PRESET: ShellPreset = {
   noun: 'audio',
   accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.opus,.m4a,.aac',
-  maxBytes: 1024 ** 3,
   dropTitle: 'Drop audio to change its speed or pitch',
   chooseLabel: 'Choose a file',
   tapLabel: 'Choose an audio file',
-  formats: 'MP3, WAV, FLAC, OGG, M4A · up to 1 GB and 4 h',
+  formats: (max) => `MP3, WAV, FLAC, OGG, M4A · up to ${max} and 4 h`,
   formatsShort: 'MP3, WAV, FLAC, OGG, M4A',
   options: OPTIONS,
   phoneGroups: [['mode', 'tempo', 'semitones', 'cents'], ['format']],
