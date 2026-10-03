@@ -1,6 +1,6 @@
 # Status
 
-**Now:** Phase 2, the final pass, while Phase 1 waits on Astro (Railway approvals and the Modal token, below). **M8 and Wave 3 done:** 68 of the 75 tools work: the 26 Wave 1 tools live, and every other browser tool and every CPU server tool in beta. The six GPU tools are built and stay `soon` until the Modal token is in and an admin switches each on; Stem Splitter waits for its weights' licence (Parked for Astro). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal. **M6 done:** the public API. M1 to M4 done. **Final pass:** a fresh three-way audit of main (server and money, worker and privacy, browser and licences) found 4 blocking issues and 12 should-fixes; the blocking ones and most of the rest are merged (#101, #102), the others are in review (#104 retention and the outside watch, #105 CSP, #106 field contrast and shortcuts) or being built (the tool shell's focus and announcements, tool pages over their script budget). A Lighthouse sweep of every page found one page over the layout-shift budget and the cause behind five near it (#97, in review). Then the Playwright smoke against production through Access once Railway has deployed.
+**Now:** Phase 2, the final pass, while Phase 1 waits on Astro (Railway approvals and the Modal token, below). **M8 and Wave 3 done:** 68 of the 75 tools work: the 26 Wave 1 tools live, and every other browser tool and every CPU server tool in beta. The six GPU tools are built and stay `soon` until the Modal token is in and an admin switches each on; Stem Splitter waits for its weights' licence (Parked for Astro). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal. **M6 done:** the public API. M1 to M4 done. **Final pass:** a fresh three-way audit of main (server and money, worker and privacy, browser and licences) found 4 blocking issues and 12 should-fixes. Every one is merged (#101 to #106, #109, #111 to #113), and the last nit is in review (#116, browser limits from the registry). A Lighthouse sweep of every page found one page over the layout-shift budget and the cause behind five near it, both fixed (#97). Every tool page is now under its script budget, and a test holds every page there (#111). What's left is the Playwright smoke against production through Access, once Railway has deployed (Waiting, below).
 
 ## Done
 
@@ -145,17 +145,45 @@
 - Accessibility: Bitrate's and Storage's reference tables name their columns, and axe now checks every table for headers; calculator buttons wait until the page's script runs, so an early tap isn't lost (#100).
 - Security, from the final audit: every admin page checks the admin itself, not only the layout (a client-navigation request could render a page without it); the two-factor endpoints answer only on the server, so a session alone can't read the TOTP secret, mint backup codes or turn two-factor off; a Google sign-in joins an existing account only when Google says the email is verified (#101).
 - Perf: a batch of many files redraws its rows every 120 ms instead of once a file; 50 tiny files in File Checksum went from 4.4–5.0 s to 3.1–3.7 s (#103).
+- Pages stay still as they load. BPM & Key Finder's tap tempo now comes with the page instead of just after it; on a phone it had moved the drop zone 520 px (a layout shift of 0.93). On Android and Linux, which have no Arial, text falls back to Arial's metric twins, so long titles no longer wrap and then unwrap. A test holds every tool page's load shift on a phone to 0.05 (#97).
+- Worker, from the final audit:
+  - Every stored file has its key in the database before it's uploaded, so a crash can't leave a file the sweeper doesn't know about. That covers a CPU job's output, and an upload storage finished but the web never recorded.
+  - Inputs and scratch folders are deleted as soon as nothing needs them.
+  - `/readyz/worker` reports the worker's heartbeat and the sweeper's last pass. A Watch workflow reads it through Access every 30 minutes and fails, so GitHub emails, when either is stale (#104).
+- Security, from the final audit:
+  - Every public page allows WebAssembly; before, an MP3 made after a client-side navigation was refused.
+  - The server build's CSP is decided: `'unsafe-inline'` on public pages until Go public, nonces on personal ones.
+  - Analytics sends nothing from personal pages such as `/account` and `/admin` (#105).
+- Accessibility, from the final audit:
+  - Form fields have a 3:1 border.
+  - The search placeholders read at 5.3:1, and the search line shows focus.
+  - Search opens with Ctrl+K (⌘K on a Mac) from anywhere, and with `/` only from the header. Tap tempo's T key works only in its own panel (#106).
+- CI: Lighthouse counts a page's own scripts, not the router's prefetches of the pages it links to, so the same build reads the same bytes on every run (#108).
+- Security: Upscale Image and Object Eraser check the picture's size against what was priced before decoding a pixel. A file whose header claims a smaller size than it holds is refused, and its credits come back (#109).
+- Licences: `/licenses` offers LAME 3.100's own source and how our copy is built. The licence check holds that link to the installed version. Its tables scroll inside themselves on a phone (#110).
+- Perf: every tool page is under its script budget. 36 were over, up to 195,626 bytes; the largest is now 178,221. Engines load with their first run, and a hybrid tool's job code with its first job. A test holds every page to its budget, not only Lighthouse's six (#111).
+- Security: the GPU functions' ffmpeg reads only local files and pipes, as the worker's already did (#112).
+- Accessibility, from the final audit:
+  - The tool shell says each step once in a status line: "face.jpg loaded", "Working", "Done: JPG, 11.7 KB".
+  - It moves focus only when a change leaves focus nowhere: to the first setting, to Download, or to Try another file.
+  - Nothing focused hides under the sticky header or a phone's action bar.
+  - Focus rings over pictures stay visible on light photos (#113).
+- Fix: in Split Audio, parts found for a new setting no longer give way to an edit made from the old parts, and Split waits until they're drawn (#114).
+- Test fix: the isolation test lets each page settle before opening the next. WebKit had failed the navigation while the home page's prefetches were in flight, which cost two CI runs (#115).
 
 ## Next
 
-1. Merge the final pass's open PRs as their checks pass: #97 (pages stay still as they load), #104 (every stored file's key in the database first; the worker watched from outside), #105 (WebAssembly on every public page; the server build's CSP decided), #106 (field borders at 3:1; Ctrl+K search). Then the last two from the audit: the tool shell's focus and announcements during a run, and the 36 tool pages over the 180 KB script budget (with a CI check on every tool page).
+1. #116 (browser limits come from the registry, the audit's last nit) merges once its checks pass.
 2. The final pass's last step: once Railway has deployed (Waiting, below), the Playwright smoke against production through Access.
 3. Follow-ups:
-   - MP3 and FLAC encoders in a worker loaded from a URL, so no page needs `'wasm-unsafe-eval'` (`docs/decisions/2026-10-02-server-build-csp.md`); hashes instead of `'unsafe-inline'` on the server build's public pages, to settle at Go public.
-   - The Modal functions' own ffmpeg commands get `-protocol_whitelist` with the first Modal deploy; torch to 2.13 or later in the GPU images then too (`docs/decisions/2026-10-02-torch-alerts.md`).
-   - `/readyz/worker` gets its own Access rule at Go public, as `/admin` will.
-   - The batch list's remaining cost (profile it); Upscale Image could refuse a decoded size other than the priced one.
-4. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover likely about 20 credits a minute, `docs/05`). Then P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), Object Eraser in the browser (MI-GAN is 28 MB).
+   - Load the MP3 and FLAC encoders in a worker from a URL, so no page needs `'wasm-unsafe-eval'` (`docs/decisions/2026-10-02-server-build-csp.md`). Use hashes instead of `'unsafe-inline'` on the server build's public pages; both are to settle at Go public.
+   - Move the GPU images to torch 2.13 or later with the first Modal deploy (`docs/decisions/2026-10-02-torch-alerts.md`).
+   - Give `/readyz/worker` its own Access rule at Go public, as `/admin` will get.
+   - Profile the batch list's remaining cost.
+   - Read the time and pixel limits in the tools' copy ("4 h", "100 MP") from the registry too, as the sizes now are (#116).
+   - Make the licence check say where a server-scoped package ships (audit nit 7; no GPL or LGPL package is installed today). Add an integrity check to ONNX Runtime's import, but only if the models move off our own origin (nit 5).
+   - Merge Videos' server test failed once on Firefox in CI: the server offer didn't show for 90 s. It passed on re-run and on Chromium and WebKit. Look into it if it comes back.
+4. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then set each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover is likely about 20 credits a minute, `docs/05`). After that: P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), and Object Eraser in the browser (MI-GAN is 28 MB).
 5. M7, the Premiere panel, comes last (not in this run).
 
 ## Waiting for Astro's approval
