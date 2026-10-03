@@ -2,7 +2,15 @@
 
 import { addRange, clampRange, invertRanges } from '@etb/core/ranges';
 import { Minus, Plus, X } from 'lucide-react';
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 
 import { cn } from '../cn';
 import { formatTimecode, parseTimecode } from './format';
@@ -72,6 +80,16 @@ export function Timeline({
 }) {
   const [playhead, setPlayhead] = useState(value.start);
   const [zoom, setZoom] = useState(1);
+  // What the keys did, said once they stop (a held arrow would queue a time per step).
+  const [spoken, setSpoken] = useState('');
+  const speakTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (speakTimer.current) clearTimeout(speakTimer.current);
+    },
+    [],
+  );
+  const playheadId = useId();
   const track = useRef<HTMLDivElement>(null);
   const dragging = useRef<'start' | 'end' | 'playhead' | null>(null);
   const standIn = useMemo(() => bars(160, 42), []);
@@ -79,6 +97,7 @@ export function Timeline({
   // Audio steps by the millisecond, video by the frame.
   const fps = fpsProp ?? (kind === 'audio' ? 1000 : 30);
   const frame = 1 / fps;
+  const stepName = kind === 'audio' ? `${String(Math.round(1000 / fps))} ms` : 'frame';
   const pct = (t: number) => `${String((t / durationSec) * 100)}%`;
   const clamp = (t: number) => Math.min(durationSec, Math.max(0, Math.round(t / frame) * frame));
 
@@ -105,30 +124,33 @@ export function Timeline({
 
   const multi = ranges !== undefined && onRangesChange !== undefined;
 
-  /** The selected range, kept clear of its neighbours when there are several. */
-  function update(next: TimelineRange) {
+  /** The selected range, kept clear of its neighbours when there are several; what was set. */
+  function update(next: TimelineRange): TimelineRange {
     if (!multi) {
       onChange(next);
-      return;
+      return next;
     }
     const kept = clampRange(ranges, active, next, durationSec, frame);
     onRangesChange(
       ranges.map((r, i) => (i === active ? kept : r)),
       active,
     );
+    return kept;
   }
 
-  function setIn(t: number) {
+  function setIn(t: number): number {
     const start = clamp(Math.min(t, value.end - frame));
-    update({ start, end: value.end });
+    const set = update({ start, end: value.end }).start;
     // The playhead follows the edit, so the frame shown is the one cut at.
     seek(start);
+    return set;
   }
 
-  function setOut(t: number) {
+  function setOut(t: number): number {
     const end = clamp(Math.max(t, value.start + frame));
-    update({ start: value.start, end });
+    const set = update({ start: value.start, end }).end;
     seek(end);
+    return set;
   }
 
   function select(index: number) {
@@ -165,17 +187,36 @@ export function Timeline({
     else if (dragging.current === 'playhead') seek(t);
   }
 
+  function speak(line: string) {
+    if (speakTimer.current) clearTimeout(speakTimer.current);
+    speakTimer.current = setTimeout(() => {
+      // The same time again (Home at the start) is still news.
+      setSpoken((said) => (said === line ? `${line}\u00a0` : line));
+    }, 300);
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     const step = event.shiftKey ? 1 : frame;
     const key = event.key.toLowerCase();
-    if (key === 'arrowleft') seek(clamp(playhead - step));
-    else if (key === 'arrowright') seek(clamp(playhead + step));
-    else if (key === 'home') seek(0);
-    else if (key === 'end') seek(durationSec);
-    else if (key === 'i') setIn(playhead);
-    else if (key === 'o') setOut(playhead);
+    const to =
+      key === 'arrowleft'
+        ? clamp(playhead - step)
+        : key === 'arrowright'
+          ? clamp(playhead + step)
+          : key === 'home'
+            ? 0
+            : key === 'end'
+              ? durationSec
+              : null;
+    let line: string;
+    if (to !== null) {
+      seek(to);
+      line = `Playhead ${formatTimecode(to)}`;
+    } else if (key === 'i') line = `In ${formatTimecode(setIn(playhead))}`;
+    else if (key === 'o') line = `Out ${formatTimecode(setOut(playhead))}`;
     else return;
     event.preventDefault();
+    speak(line);
   }
 
   return (
@@ -224,7 +265,8 @@ export function Timeline({
           ref={track}
           role="group"
           tabIndex={0}
-          aria-label={`Timeline. Playhead ${formatTimecode(playhead)}. Arrow keys move by frame, I and O set in and out.`}
+          aria-label={`Timeline. Arrow keys move the playhead by ${stepName}, Shift by 1 s. I and O set in and out.`}
+          aria-describedby={playheadId}
           onKeyDown={onKeyDown}
           onPointerDown={(event) => {
             if (multi) {
@@ -367,9 +409,12 @@ export function Timeline({
           </button>
         </div>
       )}
-      <p className="font-mono text-12 uppercase tracking-meta text-text-muted">
+      <p id={playheadId} className="font-mono text-12 uppercase tracking-meta text-text-muted">
         Playhead <b className="font-medium text-text">{formatTimecode(playhead)}</b> ·{' '}
-        {kind === 'audio' ? `${String(Math.round(1000 / fps))} ms steps` : `${String(fps)} fps`}
+        {kind === 'audio' ? `${stepName} steps` : `${String(fps)} fps`}
+      </p>
+      <p role="status" className="sr-only">
+        {spoken}
       </p>
     </div>
   );

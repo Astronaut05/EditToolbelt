@@ -32,7 +32,11 @@ export function HubList({
   counts?: Record<Filter, number>;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
-  const shown = rows.filter((row) => filter === 'all' || (filter === 'ai' ? row.ai : row.browser));
+  // A filter change says how many tools it shows, not the whole list again.
+  const [said, setSaid] = useState('');
+  const matching = (by: Filter) =>
+    rows.filter((row) => by === 'all' || (by === 'ai' ? row.ai : row.browser));
+  const shown = matching(filter);
   const n = counts ?? {
     all: rows.length,
     browser: rows.filter((row) => row.browser).length,
@@ -48,7 +52,13 @@ export function HubList({
           size="lg"
           className="lg:-mb-3.5"
           value={filter}
-          onChange={setFilter}
+          onChange={(next) => {
+            setFilter(next);
+            const count = matching(next).length;
+            const line = `${String(count)} tool${count === 1 ? '' : 's'}`;
+            // The same count as before is still news.
+            setSaid((was) => (was === line ? `${line}\u00a0` : line));
+          }}
           options={[
             { value: 'all', label: 'All', count: n.all },
             { value: 'browser', label: 'In browser', count: n.browser },
@@ -56,7 +66,10 @@ export function HubList({
           ]}
         />
       </div>
-      <ol className="grid lg:grid-cols-2 lg:gap-x-10" aria-live="polite">
+      <p role="status" className="sr-only">
+        {said}
+      </p>
+      <ol className="grid lg:grid-cols-2 lg:gap-x-10">
         {shown.map((row, index) => {
           const inner = (
             <>
