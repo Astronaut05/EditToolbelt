@@ -1,6 +1,6 @@
 # Status
 
-**Now:** Phase 2, the final pass, while Phase 1 waits on Astro (Railway approvals and the Modal token, below). **M8 and Wave 3 done:** 68 of the 75 tools work: the 26 Wave 1 tools live, and every other browser tool and every CPU server tool in beta. The six GPU tools are built and stay `soon` until the Modal token is in and an admin switches each on; Stem Splitter waits for its weights' licence (Parked for Astro). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal. **M6 done:** the public API. M1 to M4 done. **Final pass:** a fresh three-way audit of main (server and money, worker and privacy, browser and licences) found 4 blocking issues and 12 should-fixes. Every one is merged (#101 to #106, #109, #111 to #113), and the last nit is in review (#116, browser limits from the registry). A Lighthouse sweep of every page found one page over the layout-shift budget and the cause behind five near it, both fixed (#97). Every tool page is now under its script budget, and a test holds every page there (#111). What's left is the Playwright smoke against production through Access, once Railway has deployed (Waiting, below).
+**Now:** Phase 2, the final pass, while Phase 1 waits on Astro (Railway approvals and the Modal token, below). **M8 and Wave 3 done:** 68 of the 75 tools work: the 26 Wave 1 tools live, and every other browser tool and every CPU server tool in beta. The six GPU tools are built and stay `soon` until the Modal token is in and an admin switches each on; Stem Splitter waits for its weights' licence (Parked for Astro). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal. **M6 done:** the public API. M1 to M4 done. **Final pass:** a fresh three-way audit of main (server and money, worker and privacy, browser and licences) found 4 blocking issues and 12 should-fixes. Every one is merged (#101 to #106, #109, #111 to #113, and the last nit in #116). A Lighthouse sweep of every page found one page over the layout-shift budget and the cause behind five near it, both fixed (#97). Every tool page is now under its script budget, and a test holds every page there (#111). What's left is the Playwright smoke against production through Access, once Railway has deployed (Waiting, below).
 
 ## Done
 
@@ -170,12 +170,12 @@
   - Focus rings over pictures stay visible on light photos (#113).
 - Fix: in Split Audio, parts found for a new setting no longer give way to an edit made from the old parts, and Split waits until they're drawn (#114).
 - Test fix: the isolation test lets each page settle before opening the next. WebKit had failed the navigation while the home page's prefetches were in flight, which cost two CI runs (#115).
+- Each tool's browser limit comes from the registry: the page checks it, the drop zone states it ("up to 1 GB each"), and 36 tool pages no longer repeat it. A test fails if a page sets its own size where the registry has one, or if an engine's limit drifts from the registry's (#116).
 
 ## Next
 
-1. #116 (browser limits come from the registry, the audit's last nit) merges once its checks pass.
-2. The final pass's last step: once Railway has deployed (Waiting, below), the Playwright smoke against production through Access.
-3. Follow-ups:
+1. The final pass's last step: once Railway has deployed (Waiting, below), the Playwright smoke against production through Access.
+2. Follow-ups:
    - Load the MP3 and FLAC encoders in a worker from a URL, so no page needs `'wasm-unsafe-eval'` (`docs/decisions/2026-10-02-server-build-csp.md`). Use hashes instead of `'unsafe-inline'` on the server build's public pages; both are to settle at Go public.
    - Move the GPU images to torch 2.13 or later with the first Modal deploy (`docs/decisions/2026-10-02-torch-alerts.md`).
    - Give `/readyz/worker` its own Access rule at Go public, as `/admin` will get.
@@ -183,8 +183,8 @@
    - Read the time and pixel limits in the tools' copy ("4 h", "100 MP") from the registry too, as the sizes now are (#116).
    - Make the licence check say where a server-scoped package ships (audit nit 7; no GPL or LGPL package is installed today). Add an integrity check to ONNX Runtime's import, but only if the models move off our own origin (nit 5).
    - Merge Videos' server test failed once on Firefox in CI: the server offer didn't show for 90 s. It passed on re-run and on Chromium and WebKit. Look into it if it comes back.
-4. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then set each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover is likely about 20 credits a minute, `docs/05`). After that: P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), and Object Eraser in the browser (MI-GAN is 28 MB).
-5. M7, the Premiere panel, comes last (not in this run).
+3. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then set each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover is likely about 20 credits a minute, `docs/05`). After that: P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), and Object Eraser in the browser (MI-GAN is 28 MB).
+4. M7, the Premiere panel, comes last (not in this run).
 
 ## Waiting for Astro's approval
 
