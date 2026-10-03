@@ -407,7 +407,7 @@ function TimeField({
           if (event.key === 'Enter') commit();
           if (event.key === 'Escape') setDraft(null);
         }}
-        className="h-9 w-32 rounded-control border border-border bg-bg px-2 text-right font-mono text-12.5 text-text normal-case hover:border-text focus-visible:border-text"
+        className="h-9 w-32 rounded-control border border-border-field bg-bg px-2 text-right font-mono text-12.5 text-text normal-case hover:border-text focus-visible:border-text"
       />
     </label>
   );

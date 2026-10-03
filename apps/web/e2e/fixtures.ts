@@ -47,6 +47,17 @@ export { expect };
 export const remote = Boolean(process.env.E2E_BASE_URL);
 export const WORKSHOP_ONLY = 'the workshop is only in local builds';
 
+/**
+ * Ctrl+K, or ⌘K when the page sees an Apple device, as a person on that device
+ * presses it. Playwright's `ControlOrMeta` follows the machine running the
+ * tests, not the browser: the WebKit project reports a Mac, where Ctrl+K in a
+ * text field deletes to the end of the line and doesn't open search.
+ */
+export async function pressSearchShortcut(page: Page): Promise<void> {
+  const apple = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.userAgent));
+  await page.keyboard.press(apple ? 'Meta+k' : 'Control+k');
+}
+
 export async function cspViolations(page: import('@playwright/test').Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __csp: string[] }).__csp);
 }

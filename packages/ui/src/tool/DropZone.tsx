@@ -7,7 +7,6 @@ import {
   useEffectEvent,
   useRef,
   useState,
-  useSyncExternalStore,
   type DragEvent,
   type ReactNode,
 } from 'react';
@@ -15,6 +14,7 @@ import {
 import { cn } from '../cn';
 import { Button } from '../primitives/Button';
 import { Kbd } from '../primitives/Kbd';
+import { useModifierLabel } from '../primitives/keys';
 import { MonoLabel } from '../primitives/MonoLabel';
 import { formatBytes, matchesAccept } from './format';
 
@@ -45,12 +45,6 @@ export interface DropZoneProps {
   camera?: boolean;
   /** Keyboard and paste shortcuts are live (only while the drop zone is shown). */
   active?: boolean;
-}
-
-const noSubscribe = () => () => undefined;
-
-function modifierKey(): string {
-  return /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 }
 
 function check(
@@ -84,7 +78,7 @@ export function DropZone(props: DropZoneProps) {
     input.current = element;
     element?.setAttribute('data-hydrated', '');
   }, []);
-  const mod = useSyncExternalStore(noSubscribe, modifierKey, () => 'Ctrl');
+  const mod = useModifierLabel();
 
   function take(list: FileList | File[] | null | undefined) {
     const files = Array.from(list ?? []).slice(0, multiple ? undefined : 1);

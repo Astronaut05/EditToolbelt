@@ -14,6 +14,7 @@
   --surface: #F6F6F6;
   --surface-raised: #FFFFFF;
   --border: #E4E4E4;
+  --border-field: #858585;        /* form fields' outline: 3:1 on --bg/--surface (WCAG 1.4.11), added 2026-10-02 */
   --border-strong: #0A0A0A;        /* 2px rule under big headings / home search */
   --text: #0A0A0A;
   --text-muted: #6B6B6B;
@@ -87,6 +88,7 @@
     --surface: #121212;
     --surface-raised: #181818;
     --border: #262626;
+    --border-field: #6B6B6B;
     --border-strong: #F2F2F2;
     --text: #F2F2F2;
     --text-muted: #8C8C8C;
@@ -108,6 +110,7 @@
   --surface: #121212;
   --surface-raised: #181818;
   --border: #262626;
+  --border-field: #6B6B6B;
   --border-strong: #F2F2F2;
   --text: #F2F2F2;
   --text-muted: #8C8C8C;

@@ -351,7 +351,7 @@ function OptionControl({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className="block w-full min-w-0 resize-y rounded-control border border-border bg-bg px-3 py-2 font-mono text-12.5 text-text placeholder:text-text-muted hover:border-text focus-visible:border-text sm:w-72"
+        className="block w-full min-w-0 resize-y rounded-control border border-border-field bg-bg px-3 py-2 font-mono text-12.5 text-text placeholder:text-text-muted hover:border-text focus-visible:border-text sm:w-72"
       />
     );
   }

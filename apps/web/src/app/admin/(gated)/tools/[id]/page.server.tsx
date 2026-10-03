@@ -25,7 +25,7 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const field = 'h-11 rounded-control border border-border bg-bg px-3 text-16';
+const field = 'h-11 rounded-control border border-border-field bg-bg px-3 text-16';
 
 /** One tool's runtime overrides (docs/07 → Tools; docs/04 → tool_flags). */
 export default async function AdminTool({ params, searchParams }: Props) {
@@ -85,7 +85,7 @@ export default async function AdminTool({ params, searchParams }: Props) {
               maxLength={300}
               rows={2}
               defaultValue={flag?.maintenanceMessage ?? ''}
-              className="rounded-control border border-border bg-bg p-3 text-16"
+              className="rounded-control border border-border-field bg-bg p-3 text-16"
             />
           </label>
           <fieldset className="flex flex-col gap-1.5 text-14">
@@ -124,7 +124,7 @@ export default async function AdminTool({ params, searchParams }: Props) {
               name="costOverride"
               rows={2}
               defaultValue={flag?.costOverride ? JSON.stringify(flag.costOverride) : ''}
-              className="rounded-control border border-border bg-bg p-3 font-mono text-14"
+              className="rounded-control border border-border-field bg-bg p-3 font-mono text-14"
             />
           </label>
           <label className="flex flex-col gap-1.5 text-14">
@@ -135,7 +135,7 @@ export default async function AdminTool({ params, searchParams }: Props) {
               name="limitsOverride"
               rows={3}
               defaultValue={flag?.limitsOverride ? JSON.stringify(flag.limitsOverride) : ''}
-              className="rounded-control border border-border bg-bg p-3 font-mono text-14"
+              className="rounded-control border border-border-field bg-bg p-3 font-mono text-14"
             />
           </label>
           <ReasonField />

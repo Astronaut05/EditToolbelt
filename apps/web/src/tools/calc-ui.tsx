@@ -74,8 +74,9 @@ function useEarlyEdit(
   }, []);
 }
 
+/** Every field's look; the border colour is added per field (`--border-field`, or `--danger` when invalid). */
 const input =
-  'h-11 rounded-control border border-border bg-bg px-3 font-mono text-14 text-text hover:border-text focus-visible:border-text';
+  'h-11 rounded-control border bg-bg px-3 font-mono text-14 text-text hover:border-text focus-visible:border-text';
 
 export function NumberField({
   id,
@@ -109,7 +110,7 @@ export function NumberField({
           onChange={(event) => {
             onChange(event.target.value);
           }}
-          className={cn(input, 'w-full text-right', unit && 'pr-14')}
+          className={cn(input, 'w-full border-border-field text-right', unit && 'pr-14')}
         />
         {unit && (
           <span className="pointer-events-none absolute right-3 font-mono text-12 uppercase text-text-muted">
@@ -163,7 +164,7 @@ export function TextField({
           width,
           align === 'right' ? 'text-right' : 'text-left',
           'min-w-0 placeholder:text-text-muted',
-          invalid && 'border-danger',
+          invalid ? 'border-danger' : 'border-border-field',
         )}
       />
     </OptionRow>
@@ -203,7 +204,7 @@ export function TextAreaField({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className="mt-2 block w-full resize-y rounded-control border border-border bg-bg px-3 py-2.5 text-15 leading-body text-text placeholder:text-text-muted hover:border-text focus-visible:border-text"
+        className="mt-2 block w-full resize-y rounded-control border border-border-field bg-bg px-3 py-2.5 text-15 leading-body text-text placeholder:text-text-muted hover:border-text focus-visible:border-text"
       />
     </div>
   );
@@ -234,7 +235,7 @@ export function SelectField({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className={cn(input, 'w-44 cursor-pointer')}
+        className={cn(input, 'w-44 cursor-pointer border-border-field')}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

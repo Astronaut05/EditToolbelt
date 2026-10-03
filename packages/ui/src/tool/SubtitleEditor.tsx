@@ -81,7 +81,7 @@ function TimeInput({
         if (event.key === 'Enter') commit();
         if (event.key === 'Escape') setDraft(null);
       }}
-      className="h-9 w-31 rounded-control border border-border bg-bg px-2 text-right font-mono text-12.5 tabular-nums text-text hover:border-text focus-visible:border-text"
+      className="h-9 w-31 rounded-control border border-border-field bg-bg px-2 text-right font-mono text-12.5 tabular-nums text-text hover:border-text focus-visible:border-text"
     />
   );
 }
@@ -672,7 +672,7 @@ export function SubtitleEditor({
               onChange={(event) => {
                 setQuery(event.target.value);
               }}
-              className="h-11 min-w-0 flex-1 rounded-control border border-border bg-bg px-3 text-14 hover:border-text focus-visible:border-text"
+              className="h-11 min-w-0 flex-1 rounded-control border border-border-field bg-bg px-3 text-14 hover:border-text focus-visible:border-text"
             />
             <input
               aria-label="Replace with"
@@ -681,7 +681,7 @@ export function SubtitleEditor({
               onChange={(event) => {
                 setReplacement(event.target.value);
               }}
-              className="h-11 min-w-0 flex-1 rounded-control border border-border bg-bg px-3 text-14 hover:border-text focus-visible:border-text"
+              className="h-11 min-w-0 flex-1 rounded-control border border-border-field bg-bg px-3 text-14 hover:border-text focus-visible:border-text"
             />
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-14">
@@ -824,7 +824,7 @@ export function SubtitleEditor({
                 onChange={(event) => {
                   commit(replaceCue(i, editedCue({ ...cue, text: event.target.value })), '', i);
                 }}
-                className="col-span-2 min-h-16 w-full rounded-control border border-border bg-bg px-3 py-2 text-15 leading-snug hover:border-text focus-visible:border-text lg:col-span-1"
+                className="col-span-2 min-h-16 w-full rounded-control border border-border-field bg-bg px-3 py-2 text-15 leading-snug hover:border-text focus-visible:border-text lg:col-span-1"
               />
               <div className="col-span-2 flex flex-col gap-1 text-13 lg:col-span-1 lg:w-56">
                 <span className="font-mono text-12 text-text-muted tabular-nums">

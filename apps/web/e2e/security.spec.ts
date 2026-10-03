@@ -1,6 +1,14 @@
 import type { Page } from '@playwright/test';
 
-import { choose, cspViolations, expect, PAGES, remote, test } from './fixtures';
+import {
+  choose,
+  cspViolations,
+  expect,
+  PAGES,
+  pressSearchShortcut,
+  remote,
+  test,
+} from './fixtures';
 
 /** One second of a 440 Hz tone as a 16-bit mono WAV: decodes in every browser. */
 function toneWav(): Buffer {
@@ -49,7 +57,7 @@ test.describe('CSP and headers', () => {
   test('search and client-side navigation stay within the CSP', async ({ page, isMobile }) => {
     test.skip(isMobile, 'keyboard shortcut');
     await page.goto('/photo', { waitUntil: 'networkidle' });
-    await page.keyboard.press('/');
+    await pressSearchShortcut(page);
     await page.keyboard.type('trim vid');
     await expect(page.getByRole('option').first()).toContainText('Trim Video');
     await page.keyboard.press('Enter');

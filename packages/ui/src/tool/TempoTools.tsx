@@ -1,10 +1,17 @@
 'use client';
 
 import { addTap, tapBpm } from '@etb/engines';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 
 import { Button } from '../primitives/Button';
 import { NumberWithUnit, Select } from '../primitives/fields';
+import { letterOf } from '../primitives/keys';
 import { OptionRow } from '../primitives/OptionsPanel';
 
 type Sound = 'click' | 'beep' | 'wood';
@@ -50,8 +57,9 @@ const TICK_MS = 25;
 
 /**
  * A03's tap tempo pad and metronome, shown by ToolShell under the settings
- * (`preset.tempo`). Tap with the pad or the T key; the metronome schedules
- * its clicks on the Web Audio clock, so they stay steady when the page is busy.
+ * (`preset.tempo`). Tap with the pad (Space or Enter on it), or press T while
+ * focus is in this panel; the metronome schedules its clicks on the Web Audio
+ * clock, so they stay steady when the page is busy.
  */
 export function TempoTools({ className }: { className?: string }) {
   const [taps, setTaps] = useState<number[]>([]);
@@ -84,18 +92,17 @@ export function TempoTools({ className }: { className?: string }) {
     setTaps((current) => addTap(current, performance.now()));
   }, []);
 
-  // T taps from anywhere on the page, except while typing.
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
-      if (event.key === 't' || event.key === 'T') tap();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [tap]);
+  // T taps only while focus is in this panel, never from elsewhere on the page
+  // (WCAG 2.1.4: a one-key shortcut works only where its control has focus).
+  // Not while typing in the metronome's fields, and a held key taps once.
+  function onPanelKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (letterOf(event) !== 't') return;
+    const target = event.target as HTMLElement;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    event.preventDefault();
+    tap();
+  }
 
   const stop = useCallback(() => {
     if (timer.current) clearInterval(timer.current);
@@ -139,7 +146,15 @@ export function TempoTools({ className }: { className?: string }) {
   useEffect(() => stop, [stop]);
 
   return (
-    <div className={className}>
+    // A click anywhere in the panel focuses it, so T works after a mouse tap
+    // too (Safari doesn't focus buttons on click).
+    <div
+      role="group"
+      aria-label="Tap tempo and metronome"
+      tabIndex={-1}
+      onKeyDown={onPanelKey}
+      className={className}
+    >
       <h2 className="font-mono text-11.5 font-medium uppercase tracking-label text-text-muted">
         Tap tempo
       </h2>
@@ -148,6 +163,7 @@ export function TempoTools({ className }: { className?: string }) {
           type="button"
           onClick={tap}
           aria-describedby="tap-help"
+          aria-keyshortcuts="T"
           className="size-24 flex-none rounded-card border border-border bg-surface text-18 font-medium hover:border-text-muted active:bg-border"
         >
           Tap
@@ -158,7 +174,7 @@ export function TempoTools({ className }: { className?: string }) {
           </p>
           <p id="tap-help" className="mt-1 text-13 leading-body text-text-muted">
             {taps.length < 3
-              ? 'Tap along 4 times or more, or press T.'
+              ? 'Tap along 4 times or more, or focus the pad and press T.'
               : `${String(taps.length)} taps. Stop for 3 s to start over.`}
           </p>
           {tapped && (
