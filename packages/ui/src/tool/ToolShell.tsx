@@ -779,9 +779,15 @@ export function ToolShell({
   const [options, setOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
-  const [ranges, setRanges] = useState<TimelineRange[]>([{ start: 0, end: 12 }]);
-
-  const [activeRange, setActiveRange] = useState(0);
+  // The timeline's ranges and the selected one change together. `found` counts the
+  // times a file or a search set them, so an edit can tell it was made from older ones
+  // (see changeRanges).
+  const [timeline, setTimeline] = useState<{
+    ranges: TimelineRange[];
+    active: number;
+    found: number;
+  }>({ ranges: [{ start: 0, end: 12 }], active: 0, found: 0 });
+  const { ranges, active: activeRange } = timeline;
   /** A04, V12: the files to join, in order. */
   const [queue, setQueue] = useState<(OrderedFile & { file: File })[]>([]);
   const queued = useRef(0);
@@ -842,11 +848,11 @@ export function ToolShell({
       try {
         const found = await detect.run(file, values);
         if (round !== detectRound.current) return;
-        setRanges(found);
-        setActiveRange(0);
+        setTimeline((current) => ({ ranges: found, active: 0, found: current.found + 1 }));
       } catch {
         // Nothing to cut, then: the run waits and says why.
-        if (round === detectRound.current) setRanges([]);
+        if (round === detectRound.current)
+          setTimeline((current) => ({ ranges: [], active: 0, found: current.found + 1 }));
       } finally {
         if (round === detectRound.current) setDetecting(false);
       }
@@ -857,16 +863,29 @@ export function ToolShell({
     () => ranges[activeRange] ?? ranges[0] ?? { start: 0, end: 12 },
     [ranges, activeRange],
   );
-  const setRange = useCallback(
-    (next: TimelineRange) => {
-      setRanges((current) => current.map((r, i) => (i === activeRange ? next : r)));
-    },
-    [activeRange],
-  );
-  const changeRanges = useCallback((next: TimelineRange[], active: number) => {
-    setRanges(next);
-    setActiveRange(active);
+  const setRange = useCallback((next: TimelineRange) => {
+    setTimeline((current) => ({
+      ...current,
+      ranges: current.ranges.map((r, i) => (i === current.active ? next : r)),
+    }));
   }, []);
+  /**
+   * The timeline edits the ranges it drew. Parts found by a search can land
+   * after that drawing and before the edit (A14: "By hand" picked, In typed as
+   * its one part arrives); the edit, made from the old parts, would bring them
+   * all back and keep them. So it's dropped, and the parts found stand, as
+   * they do over any edit made before they came. Edits made from the same
+   * parts (a drag's moves between two renders) all apply.
+   */
+  const drawnFrom = timeline.found;
+  const changeRanges = useCallback(
+    (next: TimelineRange[], active: number) => {
+      setTimeline((current) =>
+        current.found === drawnFrom ? { ...current, ranges: next, active } : current,
+      );
+    },
+    [drawnFrom],
+  );
   const [batch, setBatch] = useState<BatchItem[]>([]);
   const [batchDone, setBatchDone] = useState(false);
   /**
@@ -1289,8 +1308,13 @@ export function ToolShell({
         ? Object.fromEntries(Object.entries(info.values).filter(([id]) => !touched.current.has(id)))
         : undefined;
       if (suggested) setOptions((current) => ({ ...current, ...suggested }));
-      setRanges([preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }]);
-      setActiveRange(0);
+      // A search a setting change was about to start would read the file before this one.
+      if (detectTimer.current) clearTimeout(detectTimer.current);
+      setTimeline((current) => ({
+        ranges: [preset.initialRange?.(info.durationSec) ?? { start: 0, end: info.durationSec }],
+        active: 0,
+        found: current.found + 1,
+      }));
       if (preset.detect) void detectRanges(file, { ...options, ...suggested });
       const probed = { ...input, durationSec: info.durationSec };
       setServerReason(offer);
@@ -1619,6 +1643,9 @@ export function ToolShell({
     const readyFile = state.kind === 'ready' ? state.files?.[0] : undefined;
     if (preset.detect?.deps.includes(id) && readyFile) {
       if (detectTimer.current) clearTimeout(detectTimer.current);
+      // A search for the old settings still running is void now: its parts
+      // must not land, nor its end let the run go before these are found.
+      detectRound.current += 1;
       setDetecting(true);
       detectTimer.current = setTimeout(() => {
         void detectRanges(readyFile, next);
