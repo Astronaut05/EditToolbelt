@@ -9,20 +9,19 @@ export const IMAGE_ACCEPT = 'image/*,.heic,.heif,.avif';
 
 export const IMAGE_INTAKE: Pick<
   ShellPreset,
-  'noun' | 'accept' | 'multiple' | 'maxFiles' | 'maxBytes' | 'sampleUrl' | 'sampleName' | 'camera'
+  'noun' | 'accept' | 'multiple' | 'maxFiles' | 'sampleUrl' | 'sampleName' | 'camera'
 > = {
   noun: 'image',
   accept: IMAGE_ACCEPT,
   multiple: true,
   maxFiles: 50,
-  maxBytes: 200 * 1024 * 1024,
   sampleUrl: '/samples/mug.jpg',
   sampleName: 'mug.jpg',
   camera: true,
 };
 
-export const IMAGE_FORMATS_LINE =
-  'JPG, PNG, WebP, AVIF, GIF, BMP, HEIC · up to 200 MB and 100 MP · up to 50 at once';
+export const IMAGE_FORMATS_LINE = (max: string) =>
+  `JPG, PNG, WebP, AVIF, GIF, BMP, HEIC · up to ${max} and 100 MP · up to 50 at once`;
 
 export const LOSSY = ['jpeg', 'webp', 'avif'];
 

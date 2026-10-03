@@ -95,7 +95,6 @@ async function probe(file: File): Promise<ProbeInfo> {
 const PRESET: ShellPreset = {
   noun: 'audio',
   accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.opus,.m4a,.aac',
-  maxBytes: 1024 ** 3,
   dropTitle: 'Drop audio to turn into a video',
   chooseLabel: 'Choose a file',
   tapLabel: 'Choose an audio file',

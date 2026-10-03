@@ -64,11 +64,10 @@ async function describe(file: File) {
 const PRESET: ShellPreset = {
   noun: 'audio',
   accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.opus,.m4a,.aac',
-  maxBytes: 1024 ** 3,
   dropTitle: 'Drop audio files to merge',
   chooseLabel: 'Choose files',
   tapLabel: 'Choose audio files',
-  formats: 'MP3, WAV, FLAC, OGG, M4A · 2 to 20 files, each up to 1 GB',
+  formats: (max) => `MP3, WAV, FLAC, OGG, M4A · 2 to 20 files, each up to ${max}`,
   formatsShort: 'MP3, WAV, FLAC, OGG, M4A',
   options: OPTIONS,
   phoneGroups: [

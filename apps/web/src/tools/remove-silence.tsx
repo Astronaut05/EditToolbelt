@@ -113,11 +113,10 @@ async function probe(file: File): Promise<ProbeInfo> {
 const PRESET: ShellPreset = {
   noun: 'audio',
   accept: 'audio/*,.mp3,.wav,.flac,.ogg,.oga,.opus,.m4a,.aac',
-  maxBytes: 1024 ** 3,
   dropTitle: 'Drop a recording to remove its silences',
   chooseLabel: 'Choose a file',
   tapLabel: 'Choose a recording',
-  formats: 'MP3, WAV, FLAC, OGG, M4A · up to 1 GB and 4 h',
+  formats: (max) => `MP3, WAV, FLAC, OGG, M4A · up to ${max} and 4 h`,
   formatsShort: 'MP3, WAV, FLAC, OGG, M4A',
   options: OPTIONS,
   phoneGroups: [

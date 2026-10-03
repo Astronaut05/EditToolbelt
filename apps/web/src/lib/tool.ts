@@ -21,6 +21,8 @@ import type { ShellTool } from '@etb/ui';
 /** What the client-side shell needs from a registry entry (serialisable). */
 export function shellTool(tool: ToolDef): ShellTool {
   const category = getCategory(tool.category);
+  // The browser limit the shell checks and the drop zone states (server tools have none).
+  const maxBytes = limitsOf(tool)?.client?.maxBytes;
   return {
     id: tool.id,
     name: tool.name,
@@ -36,6 +38,7 @@ export function shellTool(tool: ToolDef): ShellTool {
       accepts,
     })),
     howTo: tool.seo.howTo,
+    ...(maxBytes !== undefined && { maxBytes }),
     ...(serverInfo(tool) && { server: serverInfo(tool) }),
     ...(tool.desktopBest && { desktopBest: true }),
   };

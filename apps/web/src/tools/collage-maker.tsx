@@ -70,7 +70,6 @@ async function describe(file: File) {
 const PRESET: ShellPreset = {
   noun: 'image',
   accept: IMAGE_ACCEPT,
-  maxBytes: 200 * 1024 * 1024,
   dropTitle: 'Drop 2 to 9 photos for a collage',
   chooseLabel: 'Choose photos',
   tapLabel: 'Choose photos',

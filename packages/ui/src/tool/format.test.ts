@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   durationBucket,
   formatBytes,
+  formatLimit,
   formatTimecode,
   matchesAccept,
   outputName,
@@ -15,6 +16,15 @@ describe('format helpers', () => {
     expect(formatBytes(512)).toBe('512 B');
     expect(formatBytes(3_100_000)).toBe('3.1 MB');
     expect(formatBytes(4_100_000_000)).toBe('4.1 GB');
+  });
+
+  it('states browser limits the way the copy does, in 1024s', () => {
+    expect(formatLimit(1024 ** 3)).toBe('1 GB');
+    expect(formatLimit(200 * 1024 ** 2)).toBe('200 MB');
+    expect(formatLimit(20 * 1024 * 1024)).toBe('20 MB');
+    expect(formatLimit(32 * 1024 ** 3)).toBe('32 GB');
+    expect(formatLimit(1.5 * 1024 ** 3)).toBe('1.5 GB');
+    expect(formatLimit(Number.POSITIVE_INFINITY)).toBe('any size');
   });
 
   it('formats timecode', () => {

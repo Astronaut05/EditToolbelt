@@ -43,6 +43,7 @@ const OPTIONS: ShellOption[] = [
 
 const PRESET: ShellPreset = {
   ...VIDEO_INTAKE,
+  maxBytes: 2 * 1024 ** 3,
   formats: 'MP4, MOV, WebM, MKV · 1 min and 200 MB free, 10 min and 2 GB with credits',
   dropTitle: 'Drop a video to upscale',
   chooseLabel: 'Choose a video',

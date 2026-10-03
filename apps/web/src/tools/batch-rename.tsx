@@ -145,22 +145,15 @@ const OPTIONS: ShellOption[] = [
   },
 ];
 
-/**
- * Renamed copies download as a ZIP built in memory, without ZIP64 (fflate):
- * 2 GB in all is safe. A folder renamed in place has no limit.
- */
-const ZIP_MAX_BYTES = 2 * 1024 ** 3;
-
 const PRESET: ShellPreset = {
   noun: 'file',
   accept: '',
   multiple: true,
   maxFiles: 1000,
-  maxBytes: ZIP_MAX_BYTES,
   dropTitle: 'Drop files to rename',
   chooseLabel: 'Choose files',
   tapLabel: 'Choose files',
-  formats: 'Any files · up to 1,000 at once, 2 GB in all',
+  formats: (max) => `Any files · up to 1,000 at once, ${max} in all`,
   options: OPTIONS,
   phoneGroups: [
     ['find', 'replaceWith', 'match'],
@@ -170,7 +163,7 @@ const PRESET: ShellPreset = {
     ['counter', 'counterStart', 'counterStep', 'counterPad', 'counterWhere', 'sortBy'],
     ['extension', 'extensionCase'],
   ],
-  names: { plan: renamePlan, inPlace: true, zipMaxBytes: ZIP_MAX_BYTES },
+  names: { plan: renamePlan, inPlace: true },
   runLabel: 'Rename',
   outputExt: () => '',
   outputSuffix: '',

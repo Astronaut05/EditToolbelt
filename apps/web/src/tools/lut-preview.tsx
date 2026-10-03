@@ -47,7 +47,7 @@ const PRESET: ShellPreset = {
   dropTitle: 'Drop a still to try a LUT on',
   chooseLabel: 'Choose an image',
   tapLabel: 'Choose an image',
-  formats: 'JPG, PNG, WebP, AVIF, TIFF, HEIC · up to 200 MB and 100 MP',
+  formats: (max) => `JPG, PNG, WebP, AVIF, TIFF, HEIC · up to ${max} and 100 MP`,
   formatsShort: 'JPG, PNG, WebP, AVIF, TIFF',
   options: OPTIONS,
   phoneGroups: [['lut', 'intensity'], ['format', 'quality'], ['metadata']],

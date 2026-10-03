@@ -17,6 +17,7 @@ export default defineTool({
   // Any file: only its bytes are read.
   accepts: ['*/*'],
   outputs: ['sha256', 'md5', 'sha1', 'csv'],
+  // Up to 32 GB a file: it is read in pieces, never held whole.
   limits: { client: { maxBytes: 32 * 1024 * 1024 * 1024 } },
   cost: { kind: 'free' },
   surfaces: ['web'],
