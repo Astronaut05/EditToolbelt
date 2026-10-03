@@ -171,6 +171,7 @@
 - Fix: in Split Audio, parts found for a new setting no longer give way to an edit made from the old parts, and Split waits until they're drawn (#114).
 - Test fix: the isolation test lets each page settle before opening the next. WebKit had failed the navigation while the home page's prefetches were in flight, which cost two CI runs (#115).
 - Each tool's browser limit comes from the registry: the page checks it, the drop zone states it ("up to 1 GB each"), and 36 tool pages no longer repeat it. A test fails if a page sets its own size where the registry has one, or if an engine's limit drifts from the registry's (#116).
+- CI: the dependency audit ignores GHSA-vfj7-8cjw-p6xm until a fixed braces exists. braces reaches us only through Next's ESLint plugin at lint time, on our own patterns, and `pnpm audit --prod` is clean (#119).
 
 ## Next
 
@@ -182,6 +183,7 @@
    - Profile the batch list's remaining cost.
    - Read the time and pixel limits in the tools' copy ("4 h", "100 MP") from the registry too, as the sizes now are (#116).
    - Make the licence check say where a server-scoped package ships (audit nit 7; no GPL or LGPL package is installed today). Add an integrity check to ONNX Runtime's import, but only if the models move off our own origin (nit 5).
+   - Remove the braces advisory's ignore from `pnpm-workspace.yaml` once a fixed braces is out (`docs/decisions/2026-10-03-braces-advisory.md`).
    - Merge Videos' server test failed once on Firefox in CI: the server offer didn't show for 90 s. It passed on re-run and on Chromium and WebKit. Look into it if it comes back.
 3. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then set each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover is likely about 20 credits a minute, `docs/05`). After that: P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), and Object Eraser in the browser (MI-GAN is 28 MB).
 4. M7, the Premiere panel, comes last (not in this run).
