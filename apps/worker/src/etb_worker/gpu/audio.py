@@ -17,7 +17,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from etb_worker.gpu.remote import CallFailed, length_label
+from etb_worker.gpu.remote import CallFailed, guard_inputs, length_label
 
 FFMPEG = "ffmpeg"
 #: Whisper's rate (whisper.audio.SAMPLE_RATE), one channel, 16-bit samples.
@@ -33,30 +33,32 @@ def decode_args(source: Path, max_seconds: float) -> list[str]:
     """Whisper's ffmpeg command (whisper.audio.load_audio), reading ``max_seconds`` at most."""
     if max_seconds <= 0:
         raise ValueError("max_seconds must be positive")
-    return [
-        FFMPEG,
-        "-nostdin",
-        "-v",
-        "error",
-        "-threads",
-        "0",
-        "-t",
-        f"{max_seconds:.3f}",
-        "-i",
-        str(source),
-        "-vn",
-        "-sn",
-        "-dn",
-        "-f",
-        "s16le",
-        "-ac",
-        "1",
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        str(SAMPLE_RATE),
-        "pipe:1",
-    ]
+    return guard_inputs(
+        [
+            FFMPEG,
+            "-nostdin",
+            "-v",
+            "error",
+            "-threads",
+            "0",
+            "-t",
+            f"{max_seconds:.3f}",
+            "-i",
+            str(source),
+            "-vn",
+            "-sn",
+            "-dn",
+            "-f",
+            "s16le",
+            "-ac",
+            "1",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            str(SAMPLE_RATE),
+            "pipe:1",
+        ]
+    )
 
 
 def decode(source: Path, max_seconds: float) -> bytes:

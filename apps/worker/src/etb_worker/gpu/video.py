@@ -40,7 +40,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import IO, Any, Literal
 
-from etb_worker.gpu.remote import CallFailed, length_label
+from etb_worker.gpu.remote import CallFailed, guard_inputs, length_label
 
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
@@ -203,6 +203,7 @@ def probe(path: Path) -> VideoInfo:
                 FFPROBE,
                 "-v",
                 "error",
+                *("-protocol_whitelist", "file"),
                 "-print_format",
                 "json",
                 "-show_format",
@@ -283,35 +284,37 @@ def decode_args(
         f"scale=in_color_matrix={info.matrix}:in_range={'pc' if info.full_range else 'tv'}"
         f":flags=bicubic+accurate_rnd+full_chroma_int,format={pix_fmt}"
     )
-    return [
-        FFMPEG,
-        "-nostdin",
-        "-v",
-        "error",
-        "-noautorotate",
-        "-t",
-        seconds_arg(max_seconds),
-        "-i",
-        str(source),
-        "-map",
-        f"0:{info.stream}",
-        "-an",
-        "-sn",
-        "-dn",
-        "-vf",
-        ",".join(filters),
-        "-fps_mode",
-        "cfr",
-        "-r",
-        rate(info.fps),
-        "-frames:v",
-        str(max_frames + 1),
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        pix_fmt,
-        "pipe:1",
-    ]
+    return guard_inputs(
+        [
+            FFMPEG,
+            "-nostdin",
+            "-v",
+            "error",
+            "-noautorotate",
+            "-t",
+            seconds_arg(max_seconds),
+            "-i",
+            str(source),
+            "-map",
+            f"0:{info.stream}",
+            "-an",
+            "-sn",
+            "-dn",
+            "-vf",
+            ",".join(filters),
+            "-fps_mode",
+            "cfr",
+            "-r",
+            rate(info.fps),
+            "-frames:v",
+            str(max_frames + 1),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            pix_fmt,
+            "pipe:1",
+        ]
+    )
 
 
 def cut_note(frames: int, fps: Fraction) -> str:
@@ -442,7 +445,7 @@ def encode_args(  # noqa: PLR0913 - one command line, keyword-only settings
         video = ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30", "-deadline", "good"]
         video += ["-cpu-used", "4", "-row-mt", "1", "-auto-alt-ref", "0"]
         tail = ["-f", "webm"]
-    command = [*head, *video, *_TAGS, *sound, *tail, str(target)]
+    command = guard_inputs([*head, *video, *_TAGS, *sound, *tail, str(target)])
     return command, [note] if note else []
 
 

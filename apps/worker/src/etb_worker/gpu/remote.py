@@ -16,6 +16,9 @@ Standard library only, so the GPU images need nothing extra for it:
   the job was priced on. A file's header can say less than the file holds;
   the decoders stop at these, so the GPU never works on more than was paid
   for. A picture can't be cut short, so ``check_pixels`` refuses a bigger one.
+- ``guard_inputs``: every ffmpeg input a function opens may read only its
+  temp files and pipes, never a URL a file's contents name (playlists,
+  concat lists), as the worker's own commands (``sandbox.ffmpeg``).
 
 Nothing here logs: URLs carry signatures and files are the person's.
 """
@@ -74,6 +77,21 @@ def float_cap(options: dict[str, Any], name: str, most: float) -> float:
     """A cap in seconds the worker sent (``max_seconds``), at most ``most``; as ``int_cap``."""
     value = _cap(options, name, integer=False)
     return most if value is None else min(float(value), most)
+
+
+#: The only protocols a function's ffmpeg input may open: its temp files, and pipes.
+INPUT_WHITELIST = ("-protocol_whitelist", "file,pipe")
+
+
+def guard_inputs(command: list[str]) -> list[str]:
+    """``command`` with the whitelist before every ``-i``: an input option applies to the next
+    input only, so each one needs it (the encoder reads the frames' pipe and the user's file)."""
+    guarded: list[str] = []
+    for i, arg in enumerate(command):
+        if arg == "-i" and i + 1 < len(command):
+            guarded += INPUT_WHITELIST
+        guarded.append(arg)
+    return guarded
 
 
 def check_pixels(width: int, height: int, max_pixels: int) -> None:
