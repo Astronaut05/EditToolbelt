@@ -18,3 +18,13 @@ ignoredOptionalDependencies:
 # (already in the lockfile for drizzle-kit itself) loads files the same way.
 overrides:
   '@esbuild-kit/core-utils>esbuild': 0.25.12
+
+# GHSA-vfj7-8cjw-p6xm (braces <= 3.0.3, stack exhaustion on deeply nested
+# patterns) has no fixed version yet. braces reaches us only through
+# @next/eslint-plugin-next > fast-glob > micromatch, at lint time, on the
+# patterns we write ourselves; nothing in the browser or on a server uses it
+# (`pnpm audit --prod` is clean). Remove once a fixed braces is out.
+# docs/decisions/2026-10-03-braces-advisory.md
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm
