@@ -15,6 +15,7 @@ import {
 } from '@etb/core';
 
 import { EngineAbortError } from './dummy';
+import { LUT_CONVERT_META } from './lazy-engines/lut-convert';
 import { safeStem } from './names';
 import type { Engine, EngineOutput } from './types';
 
@@ -34,8 +35,7 @@ const describe = (lut: Lut, format: string) =>
   `${format} · ${lut.dimensions === 3 ? `3D, ${String(lut.size)}³` : `1D, ${String(lut.size)} points`}`;
 
 export const lutConvertEngine: Engine<LutConvertOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: () => ({ seconds: 0.3 }),
+  ...LUT_CONVERT_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const name = input instanceof File ? input.name : 'lut.cube';
     const text = await input.text();

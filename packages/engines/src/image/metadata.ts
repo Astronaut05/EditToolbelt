@@ -7,9 +7,10 @@
  * Kept whatever is chosen: the colour profile (removing it changes colours)
  * and the orientation (removing it turns the photo).
  */
+import { METADATA_META } from '../lazy-engines/metadata';
 import type { Engine, EngineOutput } from '../types';
 import { crc32 } from './exif';
-import { baseJob, checkImage, imageCodecEngine, runImageJob } from './image-codec';
+import { baseJob, checkImage, runImageJob } from './image-codec';
 import { FORMAT_LABELS, headerSize, type ImageFormat } from './sniff';
 import {
   describe,
@@ -488,8 +489,7 @@ export interface MetadataOptions {
 const REMOVALS: readonly Removal[] = ['all', 'location', 'camera', 'none'];
 
 export const imageMetadataEngine: Engine<MetadataOptions> = {
-  capabilities: (caps) => imageCodecEngine.capabilities(caps),
-  estimate: (input) => ({ seconds: Math.max(0.2, input.size / 50_000_000) }),
+  ...METADATA_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const removal = (REMOVALS as readonly string[]).includes(opts.remove ?? '')
       ? (opts.remove as Removal)

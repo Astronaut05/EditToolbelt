@@ -6,43 +6,54 @@
  */
 export type { Capabilities, Engine, EngineOutput, InputMeta, RunContext } from './types';
 export { dummyEngine, EngineAbortError, type DummyOptions } from './dummy';
+export { cuesFromJson, type SubtitleEditOptions, type SubtitleEngineOptions } from './subtitles';
 export {
-  cuesFromJson,
+  loadSubtitleShift,
   readSubtitleFile,
   subtitleEditEngine,
   subtitleEngine,
-  type SubtitleEditOptions,
-  type SubtitleEngineOptions,
-} from './subtitles';
-export { lutConvertEngine, type LutConvertOptions } from './lut-convert';
-export {
-  checkImage,
-  IMAGE_LIMITS,
-  imageCodecEngine,
-  ImageInputError,
-  type ImageCodecOptions,
-} from './image/image-codec';
-export { FORMAT_LABELS as IMAGE_FORMAT_LABELS, sniffImage, type ImageFormat } from './image/sniff';
+  subtitleShiftEngine,
+} from './lazy-engines/subtitles';
+export { lutConvertEngine } from './lazy-engines/lut-convert';
+export type { LutConvertOptions } from './lut-convert';
+// The image engines load with their first run (./lazy-engines); their
+// option types come from the engines themselves.
+export { checkImage, IMAGE_LIMITS, ImageInputError } from './image/image-codec';
+export type { ImageCodecOptions } from './image/image-codec';
+export { imageCodecEngine } from './lazy-engines/image-codec';
+export { sniffImage, type ImageFormat } from './image/sniff';
+export { FORMAT_LABELS as IMAGE_FORMAT_LABELS } from './image/format-labels';
 export { cleanExif, jpegWithExif, readJpegExif } from './image/exif';
-export { imageGeometryEngine, ratioValue, type ImageGeometryOptions } from './image/image-geometry';
-export { collageEngine, COLLAGE_SIZES, type CollageOptions } from './image/collage';
-export { imageSplitEngine, type ImageSplitOptions } from './image/image-split';
-export { imagesToPdfEngine, type ImagesToPdfOptions } from './image/images-to-pdf';
-export { imageHeader, type ImageHeader } from './image/image-header';
-export { imageToSvgEngine, type ImageToSvgOptions } from './image/vector/image-to-svg';
-export { socialResizeEngine, type SocialResizeOptions } from './image/social-resize';
-export { lutPreviewEngine, type LutPreviewOptions } from './image/lut-preview';
-export { watermarkEngine, type WatermarkOptions } from './image/watermark';
+export { imageGeometryEngine } from './lazy-engines/image-geometry';
+export type { ImageGeometryOptions } from './image/image-geometry';
+export { collageEngine, COLLAGE_SIZES } from './lazy-engines/collage';
+export type { CollageOptions } from './image/collage';
+export { imageSplitEngine } from './lazy-engines/image-split';
+export type { ImageSplitOptions } from './image/image-split';
+export { imagesToPdfEngine } from './lazy-engines/images-to-pdf';
+export type { ImagesToPdfOptions } from './image/images-to-pdf';
+export { imageHeader } from './lazy-engines/image-header';
+export type { ImageHeader } from './image/image-header';
+export { imageToSvgEngine } from './lazy-engines/image-to-svg';
+export type { ImageToSvgOptions } from './image/vector/image-to-svg';
+export { socialResizeEngine } from './lazy-engines/social-resize';
+export type { SocialResizeOptions } from './image/social-resize';
+export { lutPreviewEngine } from './lazy-engines/lut-preview';
+export type { LutPreviewOptions } from './image/lut-preview';
+export { watermarkEngine } from './lazy-engines/watermark';
+export type { WatermarkOptions } from './image/watermark';
 export { fitPlacement, focusCrop, focusOf, type Focus, type SocialFit } from './image/social';
-export { imageMetadataEngine, type MetadataOptions } from './image/metadata';
+export { imageMetadataEngine } from './lazy-engines/metadata';
+export type { MetadataOptions } from './image/metadata';
+export type { Filter } from './image/geometry';
 export {
   centredRatio,
   clampRect,
+  ratioValue,
   turnedSize,
-  type Filter,
   type Rect,
   type Size,
-} from './image/geometry';
+} from './image/rect';
 export {
   codecLabel,
   describeMedia,
@@ -82,7 +93,7 @@ export {
   type RemoveBackgroundOptions,
 } from './image/rmbg/remove-background';
 export { canRunQuality, modelCached, pickModel } from './image/rmbg/support';
-export { lazyEngine } from './lazy';
+export { lazyEngine, type EngineMeta } from './lazy';
 export {
   AUDIO_LIMITS,
   estimateGifBytes,
@@ -104,7 +115,6 @@ export {
   readTime,
   signedSeconds,
   SubtitleShiftError,
-  subtitleShiftEngine,
   type SubtitleShiftOptions,
 } from './subtitle-shift';
 export { audioConverterEngine, type AudioConverterOptions } from './audio/convert';
@@ -112,15 +122,16 @@ export { probeAudio, type AudioProbe } from './audio/probe';
 export { audioPeaks, trimAudioEngine, type TrimAudioOptions } from './audio/trim';
 export { gifToVideoEngine, videoFrameTimes, type GifToVideoOptions } from './video/gif-to-video';
 export { gifFrames, readGif, type GifInfo } from './video/gif/decode';
-export { paletteEngine, PALETTE_LIMITS, type PaletteEngineOptions } from './image/palette';
+export { paletteEngine, PALETTE_LIMITS } from './lazy-engines/palette';
+export type { PaletteEngineOptions } from './image/palette';
 export {
   describeColor,
-  pickedColorsEngine,
   readPicked,
   sampleColor,
   type PickedColor,
   type PickedColorsOptions,
 } from './image/pick';
+export { pickedColorsEngine } from './lazy-engines/pick';
 export {
   planConversion,
   videoConverterEngine,
@@ -132,13 +143,8 @@ export {
 } from './video/convert-video';
 export { bpmKeyEngine, Downmix, type BpmKeyOptions } from './audio/bpm-key';
 export { addTap, tapBpm } from '@etb/core';
-export {
-  batchRenameEngine,
-  renamePlan,
-  rulesFrom,
-  type NamedFile,
-  type NamesPlan,
-} from './files/batch-rename';
+export { rulesFrom, type NamedFile, type NamesPlan } from './files/batch-rename';
+export { batchRenameEngine, renamePlan } from './lazy-engines/batch-rename';
 export { takenDate } from './files/taken';
 export { trackEnds } from './video/merge-videos';
 export { fileChecksumEngine, type FileChecksumOptions } from './files/checksum';

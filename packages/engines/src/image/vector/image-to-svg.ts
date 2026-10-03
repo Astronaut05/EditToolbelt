@@ -6,6 +6,7 @@
 import type { TraceOptions } from '@etb/core/vectorize';
 
 import { EngineAbortError } from '../../dummy';
+import { TO_SVG_META } from '../../lazy-engines/image-to-svg';
 import type { Engine, EngineOutput } from '../../types';
 import { checkImage, ImageInputError } from '../image-codec';
 import type { VectorJob, VectorMessage } from './vector.worker';
@@ -79,14 +80,7 @@ function trace(job: VectorJob, signal: AbortSignal, progress: (f: number, stage:
 }
 
 export const imageToSvgEngine: Engine<ImageToSvgOptions> = {
-  capabilities: () => ({
-    supported:
-      typeof Worker !== 'undefined' &&
-      typeof OffscreenCanvas !== 'undefined' &&
-      typeof createImageBitmap === 'function',
-    reason: 'This browser can’t trace images here. Try a current Chrome, Edge, Firefox or Safari.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(1, Math.min(8, input.size / 1_500_000)) }),
+  ...TO_SVG_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const bytes = await input.arrayBuffer();
     const format = checkImage(new Uint8Array(bytes), input.size);

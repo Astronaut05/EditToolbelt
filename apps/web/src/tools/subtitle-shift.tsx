@@ -1,7 +1,6 @@
 'use client';
 
-import { readSubtitles, subtitleShiftEngine } from '@etb/engines';
-import { subtitles } from '@etb/core';
+import { loadSubtitleShift, subtitleShiftEngine } from '@etb/engines';
 import {
   ToolShell,
   type ProbeInfo,
@@ -99,8 +98,15 @@ const clip = (text: string) => {
   return line.length > 32 ? `${line.slice(0, 31)}…` : line;
 };
 
-/** Reads the file as it arrives: its cues, for the two-point pickers and their times. */
+/**
+ * Reads the file as it arrives: its cues, for the two-point pickers and their
+ * times. The reader and @etb/core's subtitle code load with the first file.
+ */
 async function probe(file: File): Promise<ProbeInfo> {
+  const [{ readSubtitles }, subtitles] = await Promise.all([
+    loadSubtitleShift(),
+    import('@etb/core/subtitles'),
+  ]);
   const read = readSubtitles(new Uint8Array(await file.arrayBuffer()), file.name);
   const parsed = subtitles.parseSubtitles(read.text, read.format).cues;
   // Cue text is looked up by start time: ASS files list events out of order.

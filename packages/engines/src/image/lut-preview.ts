@@ -6,11 +6,11 @@
  */
 import { LutError, parseCube, type Lut } from '@etb/core/lut';
 
+import { LUT_PREVIEW_META } from '../lazy-engines/lut-preview';
 import type { Engine, EngineOutput } from '../types';
 import {
   baseJob,
   checkImage,
-  imageCodecEngine,
   ImageInputError,
   runImageJob,
   type ImageCodecOptions,
@@ -53,8 +53,7 @@ export async function readLut(file: Blob): Promise<Lut> {
 }
 
 export const lutPreviewEngine: Engine<LutPreviewOptions> = {
-  capabilities: (caps) => imageCodecEngine.capabilities(caps),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 3_000_000) }),
+  ...LUT_PREVIEW_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     if (!opts.lut) throw new ImageInputError('Choose a .cube LUT.');
     const lut = await readLut(opts.lut);

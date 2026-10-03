@@ -5,12 +5,13 @@
  * browser (upright, as it shows it) and stored losslessly, deflated by
  * fflate, with its transparency kept. Every image's header is checked
  * first, so one over the 100 MP limit stops the run before any is decoded.
- * @etb/core writes the PDF.
+ * @etb/core writes the PDF. fflate loads with the first run, not with the
+ * page (docs/10).
  */
 import { pdf } from '@etb/core';
-import { zlibSync } from 'fflate';
 
 import { EngineAbortError } from '../dummy';
+import { IMAGES_TO_PDF_META } from '../lazy-engines/images-to-pdf';
 import type { Engine, EngineOutput } from '../types';
 import { ImageInputError } from './image-codec';
 import { checkDecoded, imageHeader } from './image-header';
@@ -33,8 +34,10 @@ export const MAX_PAGES = 100;
 const nameOf = (file: Blob, i: number) =>
   file instanceof File ? file.name : `Image ${String(i + 1)}`;
 
+type Deflate = typeof import('fflate').zlibSync;
+
 /** One image, ready for a page. */
-async function prepare(file: Blob, name: string): Promise<pdf.PdfImage> {
+async function prepare(file: Blob, name: string, zlibSync: Deflate): Promise<pdf.PdfImage> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const jpeg = pdf.jpegInfo(bytes);
   if (jpeg && jpeg.precision === 8 && (jpeg.components === 1 || jpeg.components === 3)) {
@@ -92,11 +95,7 @@ async function prepare(file: Blob, name: string): Promise<pdf.PdfImage> {
 }
 
 export const imagesToPdfEngine: Engine<ImagesToPdfOptions> = {
-  capabilities: () => ({
-    supported: typeof createImageBitmap === 'function' && typeof OffscreenCanvas !== 'undefined',
-    reason: 'This browser can’t read images here. Try a current Chrome, Edge, Safari or Firefox.',
-  }),
-  estimate: (input) => ({ seconds: Math.max(0.5, input.size / 20_000_000) }),
+  ...IMAGES_TO_PDF_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const files = opts.files?.length ? opts.files : [input];
     if (files.length > MAX_PAGES) {
@@ -114,6 +113,7 @@ export const imagesToPdfEngine: Engine<ImagesToPdfOptions> = {
       if (ctx.signal.aborted) throw new EngineAbortError();
       await imageHeader(file, nameOf(file, i));
     }
+    const { zlibSync } = await import('fflate');
     const pages: pdf.PdfPage[] = [];
     let copied = 0;
     for (const [i, file] of files.entries()) {
@@ -121,7 +121,7 @@ export const imagesToPdfEngine: Engine<ImagesToPdfOptions> = {
       ctx.progress(i / files.length, 'Adding the images', {
         step: `${String(i + 1)} of ${String(files.length)}`,
       });
-      const image = await prepare(file, nameOf(file, i));
+      const image = await prepare(file, nameOf(file, i), zlibSync);
       if (image.kind === 'jpeg') copied += 1;
       const upright = pdf.uprightSize(image);
       pages.push({

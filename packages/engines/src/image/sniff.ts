@@ -6,16 +6,7 @@
 
 export type ImageFormat = 'jpeg' | 'png' | 'gif' | 'webp' | 'avif' | 'heic' | 'bmp' | 'tiff';
 
-export const FORMAT_LABELS: Record<ImageFormat, string> = {
-  jpeg: 'JPG',
-  png: 'PNG',
-  gif: 'GIF',
-  webp: 'WebP',
-  avif: 'AVIF',
-  heic: 'HEIC',
-  bmp: 'BMP',
-  tiff: 'TIFF',
-};
+export { FORMAT_LABELS } from './format-labels';
 
 const ascii = (bytes: Uint8Array, start: number, length: number) =>
   String.fromCharCode(...bytes.subarray(start, start + length));

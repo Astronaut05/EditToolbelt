@@ -6,6 +6,7 @@
 import { subtitles } from '@etb/core';
 
 import { EngineAbortError } from './dummy';
+import { SUBTITLE_META } from './lazy-engines/subtitles';
 import type { Engine, EngineOutput } from './types';
 
 export interface SubtitleShiftOptions {
@@ -124,8 +125,7 @@ export function planShift(
 }
 
 export const subtitleShiftEngine: Engine<SubtitleShiftOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: (input) => ({ seconds: 0.1, outputBytes: input.size }),
+  ...SUBTITLE_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     ctx.progress(0.2, 'Reading');
     const bytes = new Uint8Array(await input.arrayBuffer());

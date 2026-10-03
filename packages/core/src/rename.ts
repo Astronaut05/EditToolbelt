@@ -6,6 +6,7 @@
  * use the same names. Names that would clash, or that a disk won't take, are
  * flagged before anything is written.
  */
+import { DATE_FORMATS, type DateFormat } from './rename-dates';
 
 export interface RenameFile {
   name: string;
@@ -21,16 +22,7 @@ export type CaseChange = 'keep' | 'lower' | 'upper' | 'title' | 'sentence' | 'ke
 
 export type DateSource = 'none' | 'today' | 'taken' | 'modified';
 
-export type DateFormat =
-  'YYYY-MM-DD' | 'YYYYMMDD' | 'YYYY-MM-DD_HH-mm-ss' | 'YYYYMMDD_HHmmss' | 'DD-MM-YYYY';
-
-export const DATE_FORMATS: readonly DateFormat[] = [
-  'YYYY-MM-DD',
-  'YYYYMMDD',
-  'YYYY-MM-DD_HH-mm-ss',
-  'YYYYMMDD_HHmmss',
-  'DD-MM-YYYY',
-];
+export { DATE_FORMATS, type DateFormat };
 
 export type Remove = 'spaces' | 'digits' | 'special' | 'brackets';
 
