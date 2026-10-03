@@ -154,7 +154,7 @@ export function TextBar({
             onChange={(event) => {
               change({ text: event.target.value });
             }}
-            className="min-h-11 w-full resize-y rounded-control border border-border bg-bg px-2.5 py-1.5 text-14 text-text lg:w-64"
+            className="min-h-11 w-full resize-y rounded-control border border-border-field bg-bg px-2.5 py-1.5 text-14 text-text hover:border-text focus-visible:border-text lg:w-64"
           />
           <Field label="Font" htmlFor={ids.font}>
             <Select

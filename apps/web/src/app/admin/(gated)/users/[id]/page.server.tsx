@@ -135,7 +135,7 @@ export default async function AdminUser({ params, searchParams }: Props) {
               <span className="font-strong">Grant or debit</span>
               <select
                 name="direction"
-                className="h-11 rounded-control border border-border bg-bg px-3 text-16"
+                className="h-11 rounded-control border border-border-field bg-bg px-3 text-16"
               >
                 <option value="grant">Grant</option>
                 <option value="debit">Debit</option>

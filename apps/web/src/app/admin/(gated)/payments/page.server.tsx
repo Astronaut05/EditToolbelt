@@ -115,7 +115,7 @@ function AmountField({ id, currency }: { id: string; currency: string }) {
         name="amount"
         required
         inputMode="decimal"
-        className="h-11 rounded-control border border-border bg-bg px-3 text-16"
+        className="h-11 rounded-control border border-border-field bg-bg px-3 text-16"
       />
     </label>
   );
@@ -312,7 +312,7 @@ export default async function AdminPayments({ searchParams }: Props) {
             <input
               name="user"
               defaultValue={filters.user}
-              className="h-11 rounded-control border border-border bg-bg px-3 text-16"
+              className="h-11 rounded-control border border-border-field bg-bg px-3 text-16"
             />
           </label>
           <Button type="submit" size="md">

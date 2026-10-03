@@ -6,6 +6,7 @@
 import { subtitles } from '@etb/core';
 
 import { EngineAbortError } from './dummy';
+import { SUBTITLE_META } from './lazy-engines/subtitles';
 import type { Engine, EngineOutput } from './types';
 
 export interface SubtitleEngineOptions {
@@ -38,8 +39,7 @@ function pick<T extends string>(value: string | undefined, allowed: readonly T[]
 }
 
 export const subtitleEngine: Engine<SubtitleEngineOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: (input) => ({ seconds: 0.1, outputBytes: input.size }),
+  ...SUBTITLE_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const to = pick(opts.to, TARGETS, 'srt');
     ctx.progress(0.2, 'Reading');
@@ -123,8 +123,7 @@ export async function readSubtitleFile(file: File): Promise<{
  * when it arrived; this doesn't read it again.
  */
 export const subtitleEditEngine: Engine<SubtitleEditOptions> = {
-  capabilities: () => ({ supported: true }),
-  estimate: (input) => ({ seconds: 0.1, outputBytes: input.size }),
+  ...SUBTITLE_META,
   run(_input, opts, ctx): Promise<EngineOutput> {
     const to = pick(opts.format, ['srt', 'vtt', 'ass', 'sbv'] as const, 'srt');
     const cues = cuesFromJson(opts.cues);

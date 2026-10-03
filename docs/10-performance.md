@@ -22,7 +22,7 @@ Speed is the selling point, so it has budgets, and CI fails when they're broken.
 | Time to result, trim 1-min 1080p video (keyframe-accurate mode) | ≤ 3 s desktop |
 | Server job queue wait p95 (normal load) | ≤ 10 s CPU tools; ≤ 30 s GPU tools incl. cold start |
 
-Measure: Lighthouse CI on every PR for 5 representative tool pages (budget file in repo); real-user Web Vitals sent as cookieless analytics events; Playwright timing tests for the processing budgets on a fixed CI machine (compare to baseline, fail on >20 % regression).
+Measure: Lighthouse CI on every PR for 5 representative tool pages (budget file in repo), and every page's script transfer against the same budgets in the end-to-end tests (`apps/web/e2e/script-budget.spec.ts`); real-user Web Vitals sent as cookieless analytics events; Playwright timing tests for the processing budgets on a fixed CI machine (compare to baseline, fail on >20 % regression).
 
 ## Loading strategy
 

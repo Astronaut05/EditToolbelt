@@ -1,6 +1,6 @@
 'use client';
 
-import { DATE_FORMATS } from '@etb/core/rename';
+import { DATE_FORMATS } from '@etb/core';
 import { batchRenameEngine, renamePlan } from '@etb/engines';
 import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
 

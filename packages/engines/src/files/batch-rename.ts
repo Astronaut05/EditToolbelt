@@ -21,6 +21,7 @@ import {
   type Where,
 } from '@etb/core/rename';
 
+import { BATCH_RENAME_META } from '../lazy-engines/batch-rename';
 import type { Engine, EngineOutput } from '../types';
 import { takenDate } from './taken';
 
@@ -148,8 +149,7 @@ function planFor(files: readonly File[], options: Record<string, string>): Promi
 }
 
 export const batchRenameEngine: Engine<Record<string, string>> = {
-  capabilities: () => ({ supported: true }),
-  estimate: () => ({ seconds: 0.1 }),
+  ...BATCH_RENAME_META,
   async run(input, options, ctx): Promise<EngineOutput> {
     const files = ctx.batch?.files ?? [input as File];
     const plan = await planFor(files, options);

@@ -40,6 +40,10 @@ describe('token contrast (WCAG 2.2 AA)', () => {
     ['light', 'danger', 'bg', 5.8],
     ['dark', 'warning', 'bg', 10.7],
     ['light', 'warning', 'bg', 5.9],
+    ['dark', 'border-field', 'bg', 3.7],
+    ['light', 'border-field', 'bg', 3.7],
+    ['dark', 'border-field', 'surface', 3.5],
+    ['light', 'border-field', 'surface', 3.4],
   ] as const)('%s --%s on --%s reproduces the handover (%s)', (theme, fg, bg, expected) => {
     expect(Math.abs(ratio(theme, fg, bg) - expected)).toBeLessThanOrEqual(0.15);
   });

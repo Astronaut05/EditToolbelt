@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { cn } from '../cn';
+import { MEDIA_FOCUS } from './media-focus';
 
 /** Dark media tag over the image ("Original", "Result"); always dark, both themes (rule 5). */
 export function MediaTag({ children, className }: { children: ReactNode; className?: string }) {
@@ -116,6 +117,7 @@ export function BeforeAfter({
         className={cn(
           'absolute top-1/2 z-10 flex -translate-1/2 cursor-ew-resize items-center justify-center rounded-full bg-media-text font-mono text-13 font-strong text-media-scrim',
           compact ? 'size-7.5' : 'size-9',
+          MEDIA_FOCUS,
         )}
         style={{ left: `${String(position)}%` }}
       >

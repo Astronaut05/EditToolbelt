@@ -6,7 +6,7 @@ import { forwardRef, useId, type ComponentProps, type ReactNode } from 'react';
 import { cn } from '../cn';
 
 const field =
-  'h-11 w-full rounded-control border border-border bg-bg px-3 text-14 text-text placeholder:text-text-muted transition-colors duration-(--dur-fast) hover:border-text focus-visible:border-text disabled:opacity-38';
+  'h-11 w-full rounded-control border border-border-field bg-bg px-3 text-14 text-text placeholder:text-text-muted transition-colors duration-(--dur-fast) hover:border-text focus-visible:border-text disabled:opacity-38';
 
 export const Input = forwardRef<HTMLInputElement, ComponentProps<'input'>>(function Input(
   { className, ...rest },
@@ -94,7 +94,9 @@ export function Switch({
       <span
         className={cn(
           'relative h-5 w-9 rounded-full border transition-colors duration-(--dur-fast)',
-          checked ? 'border-text bg-text' : 'border-border bg-surface group-hover:border-text',
+          checked
+            ? 'border-text bg-text'
+            : 'border-border-field bg-surface group-hover:border-text',
         )}
       >
         <span
@@ -130,7 +132,7 @@ export function ColorInput({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className="size-9 cursor-pointer rounded-control border border-border bg-bg p-0.5"
+        className="size-9 cursor-pointer rounded-control border border-border-field bg-bg p-0.5 hover:border-text"
       />
       <span className="font-mono text-12.5 uppercase text-text">{value}</span>
     </span>

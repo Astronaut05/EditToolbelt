@@ -15,7 +15,7 @@ Near-black (or white) ground, hairline dividers instead of boxes, and one lime a
 ## Rules that make it "Signal" (keep these when designing anything not drawn here)
 
 1. **The accent appears only in these places:** the primary button, the selected option's 2 px underline, status dots, the search-hit highlight and the text caret. No accent backgrounds on cards, no accent headings.
-2. **Hairlines over boxes.** Lists and settings are rows separated by 1 px `--border` lines. Panels with borders are the exception: the drop zone and the "Until then, try" list.
+2. **Hairlines over boxes.** Lists and settings are rows separated by 1 px `--border` lines. Panels with borders are the exception: the drop zone and the "Until then, try" list. Form fields (inputs, selects, text areas, switches, colour wells) are outlined in `--border-field`, which holds 3:1 against the page (WCAG 1.4.11).
 3. **Selection is never shown by colour alone.** The selected option is `--text` + weight 600 + a 2 px accent underline; unselected is `--text-muted` + weight 400.
 4. **Numbers are mono,** and so are units. Uppercase mono is for labels, not for sentences.
 5. **Overlays on images and video are always dark** (`--media-*` tokens), in both themes, because they sit on arbitrary pixels.
@@ -57,7 +57,7 @@ Near-black (or white) ground, hairline dividers instead of boxes, and one lime a
 
 ### Home (`home-*`)
 
-The search line **is** the hero: a mono question label, the query in 72 px type with an accent caret, a 2 px `--border-strong` rule, then the top 3 matches in one row (first match in accent). Below: "Most used" as two numbered mono lists (01–10), and Categories with mono counts plus the one-line product description. Search is instant and client-side over the registry. Before anything is typed, show the placeholder "What do you need to do?" in 72 px `--text-muted` at 45% opacity.
+The search line **is** the hero: a mono question label, the query in 72 px type with an accent caret, a 2 px `--border-strong` rule, then the top 3 matches in one row (first match in accent). Below: "Most used" as two numbered mono lists (01–10), and Categories with mono counts plus the one-line product description. Search is instant and client-side over the registry. Before anything is typed, show the placeholder "What do you need to do?" in 72 px `--text-muted` (full strength since 2026-10-02: 45% opacity was 1.9:1, below WCAG 1.4.3). While the input has focus, the 2 px rule under it turns `--focus-ring` and 4 px thick.
 
 ### Category hub (`hub-photo-*`)
 
@@ -78,7 +78,7 @@ Left: breadcrumb, H1, a mono `COMING SOON` tag, tagline, and a numbered "what it
 - **States:** hover (text goes to `--text`, underline on links), pressed, disabled (38% opacity, no pointer), error. For errors use `ErrorState` in the preview area with the same layout as the empty state: mono "COULDN'T READ THIS FILE", a 32 px heading saying what happened, one line on what to do, and a retry button. Don't use red backgrounds; only a `--danger` dot.
 - **Other shells:** `CanvasEditor`, `Timeline`, `BatchList`, calculator tools (inputs left, live results right in mono), server-tool `PriceConfirm` (same row style: "This will use 6 credits · you have 120").
 - **Other pages:** legal pages (single 720 px text column, 46 px H1, body 16/1.6), `/developers`, account, admin (dense, `D`=8, same tokens).
-- **Search overlay,** opened by `/` or the header search: a full-width sheet under the header with the 72 px input and the result list.
+- **Search overlay,** opened by Ctrl+K (⌘K on a Mac), the header search, or `/` while focus is in the header: a full-width sheet under the header with the 72 px input and the result list. (A bare `/` from anywhere was dropped on 2026-10-02: WCAG 2.1.4, see `docs/decisions/2026-10-02-search-and-tap-tempo-shortcuts.md`.)
 
 ## Changes to `docs/03-design-system.md` this implies
 
@@ -97,6 +97,7 @@ Left: breadcrumb, H1, a mono `COMING SOON` tag, tagline, and a numbered "what it
 | `--accent-contrast` on `--accent` | 13.0 | 5.8 |
 | `--accent` on `--bg` (UI, 3:1 needed) | 13.0 | 5.8 |
 | `--danger` / `--warning` on `--bg` | 7.1 / 10.7 | 5.8 / 5.9 |
+| `--border-field` on `--bg` / `--surface` (form fields, UI, 3:1 needed; added 2026-10-02) | 3.7 / 3.5 | 3.7 / 3.4 |
 
 All pairs pass. CI's contrast check on the token table should reproduce these numbers.
 
@@ -104,5 +105,5 @@ All pairs pass. CI's contrast check on the token table should reproduce these nu
 
 - [ ] Every screen in `screens/` is reproduced in Storybook/Ladle or on a real route, in light and dark, and matches at 1440 and 390 px.
 - [ ] Only the places listed in rule 1 use the accent.
-- [ ] Keyboard: everything reachable, focus visible, `Esc` cancels, `/` opens search.
+- [ ] Keyboard: everything reachable, focus visible, `Esc` cancels, Ctrl+K (⌘K) opens search.
 - [ ] No AI tells from `03` → "AI tells".

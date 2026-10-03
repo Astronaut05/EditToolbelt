@@ -5,12 +5,12 @@
  */
 import { socialLabel, socialPresetsOf } from '@etb/core';
 
+import { SOCIAL_META } from '../lazy-engines/social-resize';
 import { safeStem } from '../names';
 import type { Engine, EngineOutput } from '../types';
 import {
   baseJob,
   checkImage,
-  imageCodecEngine,
   ImageInputError,
   type ImageCodecOptions,
   runImageJob,
@@ -45,10 +45,7 @@ const FIT_LABELS: Record<SocialFit, string> = {
 };
 
 export const socialResizeEngine: Engine<SocialResizeOptions> = {
-  capabilities: (caps) => imageCodecEngine.capabilities(caps),
-  estimate: (input, opts) => ({
-    seconds: Math.max(0.5, (input.size / 3_000_000) * (1 + socialPresetsOf(opts.sizes).length)),
-  }),
+  ...SOCIAL_META,
   async run(input, opts, ctx): Promise<EngineOutput> {
     const sizes = socialPresetsOf(opts.sizes);
     if (sizes.length === 0) throw new ImageInputError('Pick at least one size');

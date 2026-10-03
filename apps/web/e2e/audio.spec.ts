@@ -303,3 +303,43 @@ test('tap tempo reads the taps, and the metronome starts and stops', async ({ pa
   await page.getByRole('button', { name: 'Stop' }).click();
   await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
 });
+
+test('T taps tempo only while focus is in the tempo panel (WCAG 2.1.4)', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/bpm-key-finder', { waitUntil: 'networkidle' });
+  await page.clock.pauseAt(Date.now() + 1000);
+  const pad = page.getByRole('button', { name: 'Tap', exact: true });
+  await expect(pad).toHaveAttribute('aria-keyshortcuts', 'T');
+  const tapSix = async () => {
+    for (let i = 0; i < 6; i += 1) {
+      await page.keyboard.press('t');
+      if (i < 5) await page.clock.runFor(400);
+    }
+  };
+
+  // Focus outside the panel: T does nothing.
+  await page.getByRole('link', { name: 'EditToolbelt home' }).focus();
+  await tapSix();
+  await page.locator('body').click({ position: { x: 2, y: 2 } });
+  await tapSix();
+  await expect(
+    page.getByText('Tap along 4 times or more, or focus the pad and press T.'),
+  ).toBeVisible();
+  await expect(page.getByText('150 BPM', { exact: true })).toBeHidden();
+
+  // Typing T in the metronome's tempo field types; it doesn't tap.
+  await page.clock.runFor(3000);
+  await page.getByRole('spinbutton', { name: 'Tempo' }).focus();
+  await tapSix();
+  await expect(page.getByText('150 BPM', { exact: true })).toBeHidden();
+
+  // Focus on the pad: T taps (and so does Space).
+  await page.clock.runFor(3000);
+  await pad.focus();
+  await tapSix();
+  await expect(page.getByText('150 BPM', { exact: true })).toBeVisible();
+  await expect(page.getByText('6 taps. Stop for 3 s to start over.')).toBeVisible();
+  await page.clock.runFor(400);
+  await page.keyboard.press('Space');
+  await expect(page.getByText('7 taps. Stop for 3 s to start over.')).toBeVisible();
+});

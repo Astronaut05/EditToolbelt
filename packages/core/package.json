@@ -18,6 +18,7 @@
     "./vectorize": "./src/image/vectorize.ts",
     "./subtitles": "./src/subtitles/index.ts"
   },
+  "sideEffects": false,
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

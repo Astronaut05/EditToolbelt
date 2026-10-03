@@ -126,7 +126,7 @@ export function ReasonField({ id = 'reason' }: { id?: string }) {
         required
         minLength={3}
         maxLength={500}
-        className="h-11 rounded-control border border-border bg-bg px-3 text-16"
+        className="h-11 rounded-control border border-border-field bg-bg px-3 text-16"
       />
     </label>
   );

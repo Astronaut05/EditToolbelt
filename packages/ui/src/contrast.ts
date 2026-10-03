@@ -56,6 +56,10 @@ export const PAIRS = [
   { fg: 'warning', bg: 'bg', min: 4.5 },
   { fg: 'focus-ring', bg: 'bg', min: 3 },
   { fg: 'border-strong', bg: 'bg', min: 3 },
+  // Form fields' outline is their only boundary (WCAG 1.4.11); they sit on all three grounds.
+  { fg: 'border-field', bg: 'bg', min: 3 },
+  { fg: 'border-field', bg: 'surface', min: 3 },
+  { fg: 'border-field', bg: 'surface-raised', min: 3 },
   { fg: 'media-text', bg: 'media-scrim-solid', min: 4.5 },
   { fg: 'media-text-muted', bg: 'media-scrim-solid', min: 4.5 },
   { fg: 'media-accent', bg: 'media-scrim-solid', min: 4.5 },
