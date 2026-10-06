@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@etb/registry": "workspace:*",
-    "pino": "^10.3.1",
+    "pino": "^10.4.0",
     "qrcode": "1.5.4",
     "zod": "^4.6.5"
   },
