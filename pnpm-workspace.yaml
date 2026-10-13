@@ -18,6 +18,11 @@ ignoredOptionalDependencies:
 # (already in the lockfile for drizzle-kit itself) loads files the same way.
 overrides:
   '@esbuild-kit/core-utils>esbuild': 0.25.12
+  # GHSA-68fv-2mgg-jv7q: source-map-js before 1.2.2. Tailwind's PostCSS
+  # plugin, Next's postcss and Vite's all ask for ^1.2.1 but the lockfile
+  # held 1.2.1; this lifts every copy to the fixed release. Remove once the
+  # lockfile resolves 1.2.2 or later on its own.
+  'source-map-js@<1.2.2': ^1.2.2
 
 # GHSA-vfj7-8cjw-p6xm (braces <= 3.0.3, stack exhaustion on deeply nested
 # patterns) has no fixed version yet. braces reaches us only through
