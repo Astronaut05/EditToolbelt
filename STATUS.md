@@ -172,6 +172,12 @@
 - Test fix: the isolation test lets each page settle before opening the next. WebKit had failed the navigation while the home page's prefetches were in flight, which cost two CI runs (#115).
 - Each tool's browser limit comes from the registry: the page checks it, the drop zone states it ("up to 1 GB each"), and 36 tool pages no longer repeat it. A test fails if a page sets its own size where the registry has one, or if an engine's limit drifts from the registry's (#116).
 - CI: the dependency audit ignores GHSA-vfj7-8cjw-p6xm until a fixed braces exists. braces reaches us only through Next's ESLint plugin at lint time, on our own patterns, and `pnpm audit --prod` is clean (#119).
+- Dependencies, from Dependabot's updates of 6 October (#121 to #129):
+  - Next 16.3.8, which fixes GHSA-cjq9-62q9-8jv4.
+  - Mediabunny 1.61.3 and its MP3 encoder 1.61.0. The encoder still bundles LAME 3.100, and its licence entry now points at the 1.61.0 build source.
+  - pino 10.4.0; ESLint 10.12, typescript-eslint 8.71 and Next's ESLint plugin 16.4.
+  - boto3, ruff and mypy for the worker, and Mailpit for the local stack.
+- Security: every copy of source-map-js is 1.2.2 (GHSA-68fv-2mgg-jv7q), held there by an override in `pnpm-workspace.yaml`. With Next 16.3.8 the dependency audit is clean again apart from the ignored braces advisory (#130).
 
 ## Next
 
@@ -183,6 +189,7 @@
    - Profile the batch list's remaining cost.
    - Read the time and pixel limits in the tools' copy ("4 h", "100 MP") from the registry too, as the sizes now are (#116).
    - Make the licence check say where a server-scoped package ships (audit nit 7; no GPL or LGPL package is installed today). Add an integrity check to ONNX Runtime's import, but only if the models move off our own origin (nit 5).
+   - Remove the source-map-js override from `pnpm-workspace.yaml` once the lockfile resolves 1.2.2 or later on its own (#130).
    - Remove the braces advisory's ignore from `pnpm-workspace.yaml` once a fixed braces is out (`docs/decisions/2026-10-03-braces-advisory.md`).
    - Merge Videos' server test failed once on Firefox in CI: the server offer didn't show for 90 s. It passed on re-run and on Chromium and WebKit. Look into it if it comes back.
 3. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then set each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover is likely about 20 credits a minute, `docs/05`). After that: P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), and Object Eraser in the browser (MI-GAN is 28 MB).
@@ -190,10 +197,9 @@
 
 ## Waiting for Astro's approval
 
-Railway's environment `railway` needs an approval for each apply and deploy (Actions → Railway → the run → Review deployments). Work goes on around them.
+Railway's environment `railway` needs an approval for each apply (Actions → Railway → the run → Review deployments). Deploys need none: once the services exist, Railway builds every commit on main that passes its checks. Work goes on around them.
 
-- **Railway: create Postgres, web and worker** (plan: 3 to add). Run 36946470385. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
-- **Railway: deploy main** (run 36985036224, from #66 at 08:36). Later merges deploy with the next approved run.
+- **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Run 38458277489, from main on 2026-10-13. The earlier run, 36946470385, came from a branch that never merged, without main's GPU settings, and was cancelled. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
 - **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: the GPU app's deploy and T4 check, then each GPU tool's first real run.
 
 ## Parked for Astro
