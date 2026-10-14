@@ -1,6 +1,6 @@
 # Status
 
-**Now:** Phase 2, the final pass, while Phase 1 waits on Astro (Railway approvals and the Modal token, below). **M8 and Wave 3 done:** 68 of the 75 tools work: the 26 Wave 1 tools live, and every other browser tool and every CPU server tool in beta. The six GPU tools are built and stay `soon` until the Modal token is in and an admin switches each on; Stem Splitter waits for its weights' licence (Parked for Astro). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal. **M6 done:** the public API. M1 to M4 done. **Final pass:** a fresh three-way audit of main (server and money, worker and privacy, browser and licences) found 4 blocking issues and 12 should-fixes. Every one is merged (#101 to #106, #109, #111 to #113, and the last nit in #116). A Lighthouse sweep of every page found one page over the layout-shift budget and the cause behind five near it, both fixed (#97). Every tool page is now under its script budget, and a test holds every page there (#111). What's left is the Playwright smoke against production through Access, once Railway has deployed (Waiting, below).
+**Now:** Phase 2, the final pass, while Phase 1 waits on Astro (Railway's shared variables and the Modal token, below). **M8 and Wave 3 done:** 68 of the 75 tools work: the 26 Wave 1 tools live, and every other browser tool and every CPU server tool in beta. The six GPU tools are built and stay `soon` until the Modal token is in and an admin switches each on; Stem Splitter waits for its weights' licence (Parked for Astro). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal. **M6 done:** the public API. M1 to M4 done. **Final pass:** a fresh three-way audit of main (server and money, worker and privacy, browser and licences) found 4 blocking issues and 12 should-fixes. Every one is merged (#101 to #106, #109, #111 to #113, and the last nit in #116). A Lighthouse sweep of every page found one page over the layout-shift budget and the cause behind five near it, both fixed (#97). Every tool page is now under its script budget, and a test holds every page there (#111). What's left is the Playwright smoke against production through Access, once Railway has deployed (Waiting, below).
 
 ## Done
 
@@ -178,6 +178,7 @@
   - pino 10.4.0; ESLint 10.12, typescript-eslint 8.71 and Next's ESLint plugin 16.4.
   - boto3, ruff and mypy for the worker, and Mailpit for the local stack.
 - Security: every copy of source-map-js is 1.2.2 (GHSA-68fv-2mgg-jv7q), held there by an override in `pnpm-workspace.yaml`. With Next 16.3.8 the dependency audit is clean again apart from the ignored braces advisory (#130).
+- Railway's first web build failed: `S3_ENDPOINT` was a build argument, and Railway fills it from a shared variable that wasn't set. The image now builds with a placeholder for every value Railway takes from shared variables (none other was missing). Storage's origin in the page CSP is read when the server starts, so the placeholder never reaches a page. CI builds the Dockerfile the way Railway does, with `SITE_URL` alone, and checks the pages name the storage the container started with (#132).
 
 ## Next
 
@@ -199,7 +200,11 @@
 
 Railway's environment `railway` needs an approval for each apply (Actions → Railway → the run → Review deployments). Deploys need none: once the services exist, Railway builds every commit on main that passes its checks. Work goes on around them.
 
-- **Railway: create Postgres, web and worker** (plan: 3 to add, 0 to change, 0 to destroy). Run 38458277489, from main on 2026-10-13. The earlier run, 36946470385, came from a branch that never merged, without main's GPU settings, and was cancelled. Waiting on it: the custom domains, then the first deploy (Phase 1 steps 2 and 9).
+- **Railway's shared variables (not an approval).** Postgres, web and worker exist: run 38458277489 was approved and applied on 2026-10-13. The web image now builds without these variables (#132), but neither service starts without them: the worker exits with "Invalid environment for worker". Set them in Railway → project `edittoolbelt` → Shared Variables:
+  - Both services: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (R2), `SMTP_URL`.
+  - Web: `BETTER_AUTH_SECRET`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`; optional `GOOGLE_CLIENT_ID` with `GOOGLE_CLIENT_SECRET`.
+  - Worker: `ALERT_EMAIL` (needs `SMTP_URL`); optional `TELEGRAM_BOT_TOKEN` with `TELEGRAM_CHAT_ID`, and `MODAL_TOKEN_ID` with `MODAL_TOKEN_SECRET`. A pair is set together or not at all, or the service won't start.
+  - Waiting on it: the first deploy that starts, the custom domains, then Smoke (Phase 1 steps 2 and 9). Until the worker runs, Watch fails every 30 minutes (`/readyz/worker` answered HTTP 401 on 2026-10-14). If it still says 401 once web is up, Access's Service Auth policy doesn't include CI's service token.
 - **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: the GPU app's deploy and T4 check, then each GPU tool's first real run.
 
 ## Parked for Astro
