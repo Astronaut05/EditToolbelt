@@ -18,20 +18,26 @@ RUN pnpm install --frozen-lockfile --filter @etb/web... --filter @etb/db...
 
 # Inlined into the pages at build time (next.config.ts), so they are build
 # arguments; none of them is a secret. Railway passes the service's variables
-# of these names.
+# of these names: SITE_URL and MODELS_BASE_URL are written in
+# .railway/railway.ts, the analytics pair is optional.
 ARG SITE_URL
-ARG S3_ENDPOINT
 ARG MODELS_BASE_URL=/models
 ARG ANALYTICS_URL
 ARG ANALYTICS_WEBSITE_ID
 
-# The build checks the whole server env (next.config.ts), so the secrets get
-# build-only placeholders here. They are never inlined anywhere: the real ones
-# are read when the server starts.
+# The build checks the whole server env (next.config.ts), so everything else
+# it requires gets a build-only placeholder here: the secrets, and the storage
+# settings, which Railway takes from shared variables that may not be set when
+# it builds. None is inlined anywhere; the real values are read when the
+# server starts (storage's origin for the CSP included: src/lib/csp.ts).
+# CI builds this file with SITE_URL alone, as Railway does before any shared
+# variable is set (.github/workflows/ci.yml), and src/dockerfile.test.ts
+# checks this list against the env schema.
 RUN APP_ENV=production \
     DATABASE_URL=postgresql://build:build@127.0.0.1:1/build \
     BETTER_AUTH_SECRET=build-only-placeholder-never-used-at-runtime \
     SMTP_URL=smtp://127.0.0.1:1 \
+    S3_ENDPOINT=http://127.0.0.1:1 \
     S3_BUCKET=build-only \
     S3_ACCESS_KEY_ID=build-only \
     S3_SECRET_ACCESS_KEY=build-only \
