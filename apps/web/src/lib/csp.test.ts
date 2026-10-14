@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildCsp } from './csp';
+import { buildCsp, storageOrigin } from './csp';
 import { PADDLE_CSP } from './paddle-js';
 
 const directive = (csp: string, name: string) =>
@@ -21,5 +21,26 @@ describe('buildCsp', () => {
     expect(directive(csp, 'frame-src')).toBe(`frame-src ${PADDLE_CSP.frames.join(' ')}`);
     expect(directive(csp, 'connect-src')).toBe(`connect-src 'self' ${PADDLE_CSP.connect[0]}`);
     expect(csp).toContain("object-src 'none'");
+  });
+});
+
+describe('storageOrigin', () => {
+  it('is the public endpoint’s origin, else the endpoint’s', () => {
+    expect(storageOrigin({ S3_ENDPOINT: 'https://acc.r2.example/bucket' })).toBe(
+      'https://acc.r2.example',
+    );
+    expect(
+      storageOrigin({
+        S3_ENDPOINT: 'http://storage:7070',
+        S3_PUBLIC_ENDPOINT: 'http://localhost:7070',
+      }),
+    ).toBe('http://localhost:7070');
+  });
+
+  it('treats an empty variable as unset, and none as no origin', () => {
+    expect(storageOrigin({ S3_ENDPOINT: 'https://acc.r2.example', S3_PUBLIC_ENDPOINT: ' ' })).toBe(
+      'https://acc.r2.example',
+    );
+    expect(storageOrigin({})).toBeNull();
   });
 });

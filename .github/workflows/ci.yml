@@ -277,13 +277,17 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The same Dockerfile Railway builds (.railway/railway.ts). Hosts are
-      # reserved test names; nothing here reaches a real service.
-      - name: Build
+      # The same Dockerfile Railway builds (.railway/railway.ts), the way it
+      # builds it: the repo root as context, and as build arguments only what
+      # the web service sets itself (SITE_URL; MODELS_BASE_URL has its
+      # default). Railway takes the rest from shared variables, which may not
+      # be set yet, so the build must need none of them (src/dockerfile.test.ts
+      # checks the placeholders). Hosts are reserved test names; nothing here
+      # reaches a real service.
+      - name: Build, as Railway does before any shared variable is set
         run: >
           docker build --file apps/web/Dockerfile --tag etb-web
-          --build-arg SITE_URL=https://site.example
-          --build-arg S3_ENDPOINT=https://storage.example .
+          --build-arg SITE_URL=https://site.example .
       - name: Starts, reports its version, and refuses pages until Access is set up
         run: |
           docker run --detach --name web --publish 8080:8080 \
@@ -334,6 +338,8 @@ jobs:
           E2E_BASE_URL: http://127.0.0.1:8080
           E2E_FAKE_ACCESS: '1'
           E2E_FAKE_ACCESS_AUD: ci-audience
+          # The image was built with the storage placeholder; its pages must name this one.
+          E2E_STORAGE_ORIGIN: https://storage.example
       - name: Show logs
         if: failure()
         run: docker logs web

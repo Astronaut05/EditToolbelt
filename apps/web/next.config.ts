@@ -61,8 +61,6 @@ const nextConfig: NextConfig = {
     MODELS_BASE_URL: env.MODELS_BASE_URL,
     ANALYTICS_URL: env.ANALYTICS_URL ?? '',
     ANALYTICS_WEBSITE_ID: env.ANALYTICS_WEBSITE_ID ?? '',
-    // Where browsers PUT upload parts and GET results (the CSP's connect-src).
-    STORAGE_ORIGIN: server ? new URL(server.S3_PUBLIC_ENDPOINT ?? server.S3_ENDPOINT).origin : '',
   },
 };
 

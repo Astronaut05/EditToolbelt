@@ -74,3 +74,13 @@ export function originOf(url: string | undefined): string | null {
     return null;
   }
 }
+
+/**
+ * Where browsers PUT upload parts and GET results (the CSP's connect-src):
+ * S3_PUBLIC_ENDPOINT, else S3_ENDPOINT. Read from the environment the server
+ * starts with, never baked in at build time, so the image's build-only
+ * placeholders can't reach a page's policy (apps/web/Dockerfile).
+ */
+export function storageOrigin(env: Partial<Record<string, string>> = process.env): string | null {
+  return originOf(env.S3_PUBLIC_ENDPOINT?.trim() || env.S3_ENDPOINT?.trim());
+}

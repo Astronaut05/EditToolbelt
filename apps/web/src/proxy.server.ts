@@ -19,7 +19,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import { themeScript } from '@etb/ui/theme';
 
-import { buildCsp, originOf } from './lib/csp';
+import { buildCsp, originOf, storageOrigin } from './lib/csp';
 import { headersForPath } from './lib/headers';
 import { PADDLE_CSP } from './lib/paddle-js';
 import { isPersonalPath } from './lib/personal';
@@ -46,7 +46,7 @@ const NOT_PAGE_FILES = new Set(['/favicon.ico', '/sw.js']);
 const connect = [
   originOf(process.env.MODELS_BASE_URL),
   originOf(process.env.ANALYTICS_URL),
-  originOf(process.env.STORAGE_ORIGIN),
+  storageOrigin(),
 ].filter((origin): origin is string => origin !== null);
 
 /** The root layout's one inline script of ours (the saved theme, before paint), allowed by hash. */

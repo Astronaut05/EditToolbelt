@@ -104,6 +104,17 @@ test.describe('CSP and headers', () => {
       expect(headers['content-security-policy']).toMatch(
         /^default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval';/,
       );
+      // Storage's origin comes from the env the server started with, not the
+      // build's placeholder (src/lib/csp.ts → storageOrigin; CI's image job).
+      const storage = process.env.E2E_STORAGE_ORIGIN;
+      if (storage) {
+        const connect = headers['content-security-policy']
+          ?.split(';')
+          .map((directive) => directive.trim().split(' '))
+          .find(([name]) => name === 'connect-src');
+        expect(connect).toContain(storage);
+        expect(headers['content-security-policy']).not.toContain('127.0.0.1:1');
+      }
       const signIn = (await request.get('/sign-in')).headers();
       expect(signIn['content-security-policy']).toMatch(
         /script-src 'self' 'nonce-[A-Za-z0-9+/=]+' 'strict-dynamic' 'sha256-[A-Za-z0-9+/=]+';/,
