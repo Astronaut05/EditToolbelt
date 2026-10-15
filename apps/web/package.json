@@ -34,7 +34,7 @@
     "nodemailer": "10.0.12",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@fontsource-variable/onest": "^5.3.1",
