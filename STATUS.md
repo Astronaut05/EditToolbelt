@@ -179,6 +179,7 @@
   - boto3, ruff and mypy for the worker, and Mailpit for the local stack.
 - Security: every copy of source-map-js is 1.2.2 (GHSA-68fv-2mgg-jv7q), held there by an override in `pnpm-workspace.yaml`. With Next 16.3.8 the dependency audit is clean again apart from the ignored braces advisory (#130).
 - Railway's first web build failed: `S3_ENDPOINT` was a build argument, and Railway fills it from a shared variable that wasn't set. The image now builds with a placeholder for every value Railway takes from shared variables (none other was missing). Storage's origin in the page CSP is read when the server starts, so the placeholder never reaches a page. CI builds the Dockerfile the way Railway does, with `SITE_URL` alone, and checks the pages name the storage the container started with (#132).
+- T09 Subtitle Generator (`/subtitle-generator`, beta), the 76th tool: speech in a video or recording to SRT, by Gemini (`gemini-3.5-flash`) with the person's own API key, from their browser to Google. Gemini groups the words into cues by meaning; our code holds them to the style (Instagram: 2 to 4 words, one line), snaps cue edges to the voice and closes pauses under 1.5 s. Uzbek in Latin or Cyrillic, a glossary for names. The key is kept on the device only when Remember is ticked. Gemini's API is in every page's `connect-src` (`docs/decisions/2026-10-15-subtitles-with-gemini.md`) (#149).
 
 ## Next
 
@@ -188,6 +189,7 @@
    - Move the GPU images to torch 2.13 or later with the first Modal deploy (`docs/decisions/2026-10-02-torch-alerts.md`).
    - Give `/readyz/worker` its own Access rule at Go public, as `/admin` will get.
    - Profile the batch list's remaining cost.
+   - T09 on real speech: check the timing and the splits on a few Uzbek Reels with a real Gemini key, and tune the prompt if Gemini 3.5 Flash groups words differently than asked.
    - Read the time and pixel limits in the tools' copy ("4 h", "100 MP") from the registry too, as the sizes now are (#116).
    - Make the licence check say where a server-scoped package ships (audit nit 7; no GPL or LGPL package is installed today). Add an integrity check to ONNX Runtime's import, but only if the models move off our own origin (nit 5).
    - Remove the source-map-js override from `pnpm-workspace.yaml` once the lockfile resolves 1.2.2 or later on its own (#130).
