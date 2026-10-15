@@ -96,6 +96,14 @@ export function relatedLinks(tool: ToolDef, max = 4): RelatedLink[] {
  */
 export function whyPoints(tool: ToolDef): string[] {
   const calculator = tool.ui === 'calculator';
+  // T09: the browser sends the file to a third party with the person's own key.
+  if (tool.sendsTo) {
+    return [
+      `Fast. Your browser sends the audio straight to ${tool.sendsTo}, with no queue of ours.`,
+      `Private to you. It goes from your browser to ${tool.sendsTo} with your own key, never to our servers.`,
+      `Free here, with no sign-up and no watermark. ${tool.sendsTo} bills your key, if at all.`,
+    ];
+  }
   const speed = calculator
     ? 'Instant. Results update as you type, with nothing to press.'
     : runsInBrowser(tool)

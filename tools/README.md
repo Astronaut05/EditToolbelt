@@ -8,7 +8,7 @@ Every tool the site will have. The code registry (`packages/registry`) must cont
 - **Cost:** credits for **server** runs only. Browser runs are always free. Numbers are placeholders (`docs/05-credits-and-payments.md`).
 - **Surfaces:** W = web (every tool is on web) · M = featured on mobile home · P = in the Premiere panel · A = available through the public API (server tools only; calculators ship in `packages/core`).
 
-Totals: 75 tools · Wave 1: 26 · Wave 2: 32 · Wave 3: 17.
+Totals: 76 tools · Wave 1: 26 · Wave 2: 33 · Wave 3: 17.
 
 ## Launch set (M2)
 
@@ -118,6 +118,7 @@ Totals: 75 tools · Wave 1: 26 · Wave 2: 32 · Wave 3: 17.
 | T06 | Bitrate & File Size Calculator | `bitrate-calculator` | 1 | client | text | — | W M P |
 | T07 | Shutter Angle Calculator | `shutter-angle-calculator` | 3 | client | text | — | W M |
 | T08 | Recording Storage Calculator | `storage-calculator` | 3 | client | text | — | W M |
+| T09 | Subtitle Generator | `subtitle-generator` | 2 | client | speech-gemini (the person's own Gemini key) | — | W |
 
 ## Utility — `tools/utility.md`
 

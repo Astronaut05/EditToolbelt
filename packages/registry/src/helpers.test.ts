@@ -26,7 +26,7 @@ describe('lookups', () => {
     for (const category of categories)
       expect(toolsInCategory(category.id).length).toBeGreaterThan(0);
     expect(categories.map((category) => toolsInCategory(category.id).length)).toEqual([
-      19, 21, 16, 7, 8, 4,
+      19, 21, 16, 7, 9, 4,
     ]);
   });
 
@@ -130,7 +130,7 @@ describe('search', () => {
     const pairs = index.filter((entry) => entry.kind === 'pair').map((entry) => entry.path);
     expect(pairs).toEqual(livePairs().map((pair) => `/convert/${pair.slug}`));
     expect(pairs).not.toContain('/convert/avi-to-mp4');
-    expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(75);
+    expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(76);
   });
 
   it('finds tools by half-typed words and by secondary queries', () => {

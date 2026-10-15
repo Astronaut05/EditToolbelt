@@ -70,6 +70,8 @@ const CanvasEditor = lazy(() =>
   import('./CanvasEditor').then((m) => ({ default: m.CanvasEditor })),
 );
 const ColorPicker = lazy(() => import('./ColorPicker').then((m) => ({ default: m.ColorPicker })));
+// T09's key field: only pages with a `secret` option load it (docs/10 → script budget).
+const SecretField = lazy(() => import('./SecretField').then((m) => ({ default: m.SecretField })));
 const SubtitleWorkspace = lazy(() =>
   import('./SubtitleEditor').then((m) => ({ default: m.SubtitleWorkspace })),
 );
@@ -138,7 +140,9 @@ export interface ShellOption {
    * several choices at once, grouped (P13's sizes), value the picked values
    * comma-separated. grid: one of nine spots on a 3 × 3 grid (a watermark's
    * place), the choices in reading order. textarea: several lines pasted
-   * in (U04's expected hashes).
+   * in (U04's expected hashes). secret: a key the person pastes (T09's Gemini
+   * key), masked, never shown back in a summary, kept in localStorage under
+   * `remember` only while they tick Remember on this device.
    */
   kind?:
     | 'choice'
@@ -151,7 +155,10 @@ export interface ShellOption {
     | 'file'
     | 'checklist'
     | 'grid'
-    | 'textarea';
+    | 'textarea'
+    | 'secret';
+  /** secret: the localStorage key it's remembered under, when the person asks. */
+  remember?: string;
   /** file: the types the picker offers (".srt,.vtt,.ass"). */
   accept?: string;
   /** text: an example shown while it's empty. */
@@ -185,6 +192,7 @@ export function optionSummary(option: ShellOption, value: string): string {
   if (option.kind === 'image') return value ? 'Chosen' : 'None';
   if (option.kind === 'file') return value ? fileOptionName(value) : 'None';
   if (option.kind === 'text') return value || 'None';
+  if (option.kind === 'secret') return value ? 'Set' : 'None';
   if (option.kind === 'textarea') {
     const lines = value.split('\n').filter((line) => line.trim()).length;
     return lines === 0 ? 'None' : plural(lines, 'line');
@@ -342,6 +350,14 @@ function OptionControl({
           }}
         />
       </span>
+    );
+  }
+  if (option.kind === 'secret') {
+    return (
+      // The field and its Remember line, held open while the code arrives.
+      <Suspense fallback={<span aria-hidden="true" className="block h-23 w-full sm:w-72" />}>
+        <SecretField option={option} value={value} onChange={onChange} />
+      </Suspense>
     );
   }
   if (option.kind === 'textarea') {
@@ -531,6 +547,11 @@ export interface ShellPreset {
    * reached the page after its first paint and pushed the drop zone down.
    */
   tempo?: ReactNode;
+  /**
+   * T09: where the file goes, when it's not "never leaves your device": the
+   * line under the H1, and the phone's shorter one.
+   */
+  privacy?: { line: string; short: string };
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
   result?: 'compare' | 'output';
   /** Why the run can't start with these settings, if it can't. */
@@ -1845,8 +1866,14 @@ export function ToolShell({
         noun={preset.noun}
         className="mt-4 px-4 lg:hidden"
         short
+        {...(preset.privacy && { text: preset.privacy.short })}
       />
-      <PrivacyBadge runtime={tool.runtime} noun={preset.noun} className="mt-4 hidden lg:flex" />
+      <PrivacyBadge
+        runtime={tool.runtime}
+        noun={preset.noun}
+        className="mt-4 hidden lg:flex"
+        {...(preset.privacy && { text: preset.privacy.line })}
+      />
       {tool.desktopBest && (
         <p className="mt-2 flex items-center gap-2 px-4 text-14 text-text-muted lg:hidden">
           <Monitor size={16} strokeWidth={1.75} aria-hidden="true" className="flex-none" />

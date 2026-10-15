@@ -25,9 +25,11 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   if (!tool) throw new Error(`No tool for ${slug}`);
   const status = !isAvailable(tool)
     ? 'Coming soon'
-    : runsInBrowser(tool)
-      ? 'Runs in your browser'
-      : 'Processed on our servers';
+    : tool.sendsTo
+      ? `Your browser and ${tool.sendsTo}`
+      : runsInBrowser(tool)
+        ? 'Runs in your browser'
+        : 'Processed on our servers';
   return ogImage({
     label: `${getCategory(tool.category).name} / ${tool.name}`,
     title: tool.seo.h1,

@@ -40,6 +40,7 @@ export const ENGINE_IDS = [
   'audio-ml-server',
   'media-probe',
   'file-hash',
+  'speech-gemini',
   'text',
 ] as const;
 export type EngineId = (typeof ENGINE_IDS)[number];
@@ -166,6 +167,12 @@ export const toolDefSchema = z
      * is a full page load (docs/01 → Cross-origin isolation).
      */
     crossOriginIsolated: z.boolean().optional(),
+    /**
+     * A browser tool that sends the file from the browser to a third-party
+     * API with the person's own key ("Google Gemini"): the page says so
+     * instead of "never leaves your device".
+     */
+    sendsTo: copy.max(40).optional(),
     seo: seoSchema,
     /** 3-6 tool ids. */
     related: z.array(kebab).min(3).max(6),
@@ -193,6 +200,13 @@ export const toolDefSchema = z
     }
     if ((tool.runtime === 'client' || tool.runtime === 'server-cpu') && tool.gpu) {
       ctx.addIssue({ code: 'custom', path: ['gpu'], message: 'only GPU server paths have a GPU' });
+    }
+    if (tool.sendsTo && tool.runtime !== 'client') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sendsTo'],
+        message: 'only browser tools send to a third party themselves',
+      });
     }
     if (tool.runtime === 'client' && tool.cost.kind !== 'free') {
       ctx.addIssue({ code: 'custom', path: ['cost'], message: 'browser tools are free' });

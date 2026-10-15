@@ -17,6 +17,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { BROWSER_API_ORIGINS } from '@etb/core/third-party';
 import { themeScript } from '@etb/ui/theme';
 
 import { buildCsp, originOf, storageOrigin } from './lib/csp';
@@ -47,6 +48,9 @@ const connect = [
   originOf(process.env.MODELS_BASE_URL),
   originOf(process.env.ANALYTICS_URL),
   storageOrigin(),
+  // Third-party APIs a tool calls from the browser (T09's Gemini): on every page,
+  // since a client-side navigation keeps the CSP of the page it started on.
+  ...BROWSER_API_ORIGINS,
 ].filter((origin): origin is string => origin !== null);
 
 /** The root layout's one inline script of ours (the saved theme, before paint), allowed by hash. */

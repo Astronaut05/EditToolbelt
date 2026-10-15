@@ -64,6 +64,13 @@ export const MEDIA_META = {
     capabilities: () => ({ supported: hasAudioDecoder(), reason: READ_AUDIO }),
     estimate: (input) => ({ seconds: Math.max(0.5, input.size / 60_000_000) }),
   },
+  // T09: decoding is the browser's; the rest is Gemini's, about a quarter of real time.
+  subtitleGenerator: {
+    capabilities: () => ({ supported: true }),
+    estimate: (input) => ({
+      seconds: Math.max(10, (input.durationSec ?? input.size / 32_000) * 0.25),
+    }),
+  },
   trimAudio: {
     capabilities: () => ({ supported: true }),
     estimate: (input) => ({ seconds: Math.max(0.5, input.size / 60_000_000) }),
