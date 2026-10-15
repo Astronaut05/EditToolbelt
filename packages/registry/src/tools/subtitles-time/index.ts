@@ -4,6 +4,7 @@ import shutterAngleCalculator from './shutter-angle-calculator';
 import storageCalculator from './storage-calculator';
 import subtitleConverter from './subtitle-converter';
 import subtitleEditor from './subtitle-editor';
+import subtitleGenerator from './subtitle-generator';
 import subtitleShift from './subtitle-shift';
 import timecodeCalculator from './timecode-calculator';
 
@@ -16,4 +17,5 @@ export default [
   bitrateCalculator,
   shutterAngleCalculator,
   storageCalculator,
+  subtitleGenerator,
 ];

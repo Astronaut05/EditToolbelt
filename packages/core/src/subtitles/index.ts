@@ -7,3 +7,5 @@ export * from './time';
 export * from './types';
 export * from './write';
 export * from './edit';
+export * from './caption-languages';
+export * from './captions';

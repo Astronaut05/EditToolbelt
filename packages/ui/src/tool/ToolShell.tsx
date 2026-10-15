@@ -138,7 +138,9 @@ export interface ShellOption {
    * several choices at once, grouped (P13's sizes), value the picked values
    * comma-separated. grid: one of nine spots on a 3 × 3 grid (a watermark's
    * place), the choices in reading order. textarea: several lines pasted
-   * in (U04's expected hashes).
+   * in (U04's expected hashes). secret: a key the person pastes (T09's Gemini
+   * key), masked, never shown back in a summary, kept in localStorage under
+   * `remember` only while they tick Remember on this device.
    */
   kind?:
     | 'choice'
@@ -151,7 +153,10 @@ export interface ShellOption {
     | 'file'
     | 'checklist'
     | 'grid'
-    | 'textarea';
+    | 'textarea'
+    | 'secret';
+  /** secret: the localStorage key it's remembered under, when the person asks. */
+  remember?: string;
   /** file: the types the picker offers (".srt,.vtt,.ass"). */
   accept?: string;
   /** text: an example shown while it's empty. */
@@ -185,6 +190,7 @@ export function optionSummary(option: ShellOption, value: string): string {
   if (option.kind === 'image') return value ? 'Chosen' : 'None';
   if (option.kind === 'file') return value ? fileOptionName(value) : 'None';
   if (option.kind === 'text') return value || 'None';
+  if (option.kind === 'secret') return value ? 'Set' : 'None';
   if (option.kind === 'textarea') {
     const lines = value.split('\n').filter((line) => line.trim()).length;
     return lines === 0 ? 'None' : plural(lines, 'line');
@@ -275,6 +281,98 @@ function ImagePick({
   );
 }
 
+/** A value kept in localStorage, or null when there is none or storage is off. */
+function stored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+const SECRET_CHANGE = 'etb:secret';
+
+function store(key: string, value: string | null): void {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // Storage off (a private window): the key lasts as long as the page.
+  }
+  window.dispatchEvent(new Event(SECRET_CHANGE));
+}
+
+function subscribeStored(onChange: () => void) {
+  window.addEventListener(SECRET_CHANGE, onChange);
+  window.addEventListener('storage', onChange);
+  return () => {
+    window.removeEventListener(SECRET_CHANGE, onChange);
+    window.removeEventListener('storage', onChange);
+  };
+}
+
+/**
+ * A key the person pastes (`secret` options): masked, and remembered on this
+ * device only while Remember is ticked. Unticking forgets it at once.
+ */
+function SecretField({
+  option,
+  value,
+  onChange,
+}: {
+  option: ShellOption;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const key = option.remember;
+  const kept = useSyncExternalStore(
+    subscribeStored,
+    () => (key ? stored(key) : null),
+    () => null,
+  );
+  // Ticked or not by the person; until then, ticked when a key is kept.
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const remember = choice ?? kept !== null;
+  // A kept key fills the field once, when the page opens.
+  const filled = useRef(false);
+  useEffect(() => {
+    if (filled.current || kept === null) return;
+    filled.current = true;
+    if (!value) onChange(kept);
+  }, [kept, value, onChange]);
+  return (
+    <span className="flex w-full min-w-0 flex-col gap-1 sm:w-72">
+      <Input
+        type="password"
+        aria-label={option.label}
+        placeholder={option.placeholder}
+        spellCheck={false}
+        autoComplete="off"
+        className="font-mono"
+        value={value}
+        onChange={(event) => {
+          const next = event.target.value.trim();
+          onChange(next);
+          if (key && remember) store(key, next);
+        }}
+      />
+      {key && (
+        <label className="inline-flex min-h-11 items-center gap-2 text-14">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(event) => {
+              setChoice(event.target.checked);
+              store(key, event.target.checked ? value : null);
+            }}
+          />
+          Remember on this device
+        </label>
+      )}
+    </span>
+  );
+}
+
 /** A settings row: label and control side by side, or stacked for a checklist. */
 function OptionLine({ option, children }: { option: ShellOption; children: ReactNode }) {
   return option.kind === 'checklist' ? (
@@ -343,6 +441,9 @@ function OptionControl({
         />
       </span>
     );
+  }
+  if (option.kind === 'secret') {
+    return <SecretField option={option} value={value} onChange={onChange} />;
   }
   if (option.kind === 'textarea') {
     return (
@@ -531,6 +632,11 @@ export interface ShellPreset {
    * reached the page after its first paint and pushed the drop zone down.
    */
   tempo?: ReactNode;
+  /**
+   * T09: where the file goes, when it's not "never leaves your device": the
+   * line under the H1, and the phone's shorter one.
+   */
+  privacy?: { line: string; short: string };
   /** Result view: before/after (default), or the output alone when its shape changes (crop). */
   result?: 'compare' | 'output';
   /** Why the run can't start with these settings, if it can't. */
@@ -1845,8 +1951,14 @@ export function ToolShell({
         noun={preset.noun}
         className="mt-4 px-4 lg:hidden"
         short
+        {...(preset.privacy && { text: preset.privacy.short })}
       />
-      <PrivacyBadge runtime={tool.runtime} noun={preset.noun} className="mt-4 hidden lg:flex" />
+      <PrivacyBadge
+        runtime={tool.runtime}
+        noun={preset.noun}
+        className="mt-4 hidden lg:flex"
+        {...(preset.privacy && { text: preset.privacy.line })}
+      />
       {tool.desktopBest && (
         <p className="mt-2 flex items-center gap-2 px-4 text-14 text-text-muted lg:hidden">
           <Monitor size={16} strokeWidth={1.75} aria-hidden="true" className="flex-none" />

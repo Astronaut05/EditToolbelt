@@ -51,3 +51,17 @@ Shutter angle ↔ shutter speed at a frame rate (180° rule), plus flicker-safe 
 
 ### T08 · Recording Storage Calculator — `storage-calculator` (Wave 3)
 Hours of footage from card/drive size and codec bitrate (and the reverse), with a small editable table of common camera codecs (values labelled "typical, check your camera's manual"). **SEO:** "video storage calculator", "how many hours of 4k on 1tb".
+
+### T09 · Subtitle Generator — `subtitle-generator` (Wave 2, beta)
+**Does:** Speech in a video or recording → SRT, by Gemini (default `gemini-3.5-flash`) with the person's own API key, called from their browser. Nothing goes through our servers; the key stays in the page (and in `localStorage` only if they tick Remember). Decision: `docs/decisions/2026-10-15-subtitles-with-gemini.md`.
+**Why not browser-only or V17:** no open model runs Uzbek well enough in a browser, and V17/A12 (Whisper on our GPUs) wait on Modal. Gemini is strong on Uzbek, and with the person's key it costs us nothing.
+**How (`packages/core/src/subtitles/captions.ts`, `packages/engines/src/audio/subtitle-generator.ts`):**
+- The levels are read once (every 10 ms, as A11). A recording over 110 s goes in clips of about 75 s, each cut in the longest pause available, so word times can't drift far.
+- Each clip goes as 16 kHz mono FLAC (inline, under Gemini's 20 MB request limit) with a prompt asking for every word with its start and end, grouped into cues by meaning, and JSON to a schema. The prompt carries the style, the language and script, Uzbek's apostrophe, the glossary, and the last words of the clip before.
+- What comes back is read tolerantly and checked, not trusted: times in order and inside the clip (milliseconds sent as seconds are caught); a cue over the style's limit is split at punctuation, then pauses, then the middle; a lone word joins the cue it runs into.
+- Cue edges next to a pause snap to where the voice starts or stops (±250 ms, from the levels). Pauses under **Close gaps** (default 1.5 s) are closed, so a cue stays up until the next; longer ones leave the screen empty 0.3 s after the voice stops. No overlaps; every cue at least 0.4 s where there's room.
+- A clip whose answer is cut off (MAX_TOKENS) or unreadable is split in two and sent again. Busy and rate-limited answers wait and retry; a request field the model doesn't take is dropped for the rest of the run.
+**Styles:** Instagram (default): 2 to 4 words, one line, no period or comma at a cue's end. Phrase: 4 to 7 words, one line. Two lines: up to 2 × 42 characters, punctuation kept.
+**Options:** API key (remember on this device), Style, Language (Auto, Uzbek Latin or Cyrillic, Russian, English and others), oʻ/gʻ apostrophe (plain ' or official ʻ), filler sounds (remove or keep), Close gaps under (s), names and terms, Model.
+**Tests:** the caption rules and the Gemini client in unit tests (no network); one Playwright test drops a recording, answers for Gemini from a fixture, and checks the SRT's cues, gaps and times.
+**SEO:** "subtitle generator" · "auto subtitles uzbek", "srt generator from audio".

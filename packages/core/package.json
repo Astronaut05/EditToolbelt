@@ -16,7 +16,9 @@
     "./api": "./src/api/index.ts",
     "./rename": "./src/rename.ts",
     "./vectorize": "./src/image/vectorize.ts",
-    "./subtitles": "./src/subtitles/index.ts"
+    "./subtitles": "./src/subtitles/index.ts",
+    "./third-party": "./src/third-party.ts",
+    "./caption-languages": "./src/subtitles/caption-languages.ts"
   },
   "sideEffects": false,
   "scripts": {

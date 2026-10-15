@@ -81,6 +81,7 @@ Shared processing implementations. Tools choose one and pass options.
 | `audio-ml-server` | server-gpu / cpu | stems, noise reduction, transcription |
 | `media-probe` | client, mediainfo.js; server ffprobe | video info / VFR check, EXIF viewer |
 | `file-hash` | client, hash-wasm in two workers, streamed (one read) | file checksums (MD5, SHA-1, SHA-256) |
+| `speech-gemini` | client: the browser sends audio to Google's Gemini API with the person's own key | subtitle generator (T09) |
 | `text` | client, `packages/core` | subtitle convert/shift, calculators, QR, color math |
 
 Engines live in `packages/engines/<engine-id>/` and expose a worker-friendly API:

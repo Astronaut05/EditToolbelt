@@ -43,6 +43,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Umami (self-hosted) | cookieless analytics | MIT | 🔍 |
 | Sentry SDKs / GlitchTip | error tracking | MIT / MIT | 🔍 |
 | Paddle.js | checkout | vendor terms | ⚠️ checkout route only |
+| Google Gemini API (a service, no package or weights installed) | T09 Subtitle Generator: the browser calls it with the person's own key; nothing of it is in our code or build | Gemini API terms, between Google and the key's owner (on the free tier Google may use what's sent to improve its products; the page and FAQ say so) | ⚠️ the person's own key only, checked 2026-10-15 |
 | Pillow | server image probe/ops; reads, resizes and writes images and frames in the GPU images (Upscale Image, Object Eraser, Video Background Remover) | HPND (MIT-style) | ✅ 12.3.0 in the GPU images, checked 2026-10-02 |
 
 ## Browser processing

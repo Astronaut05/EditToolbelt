@@ -49,6 +49,9 @@ const RESERVED_NAMES = /(^|\.)example\.(com|net|org)$/;
 const THIRD_PARTY_APIS = new Set([
   // Telegram's Bot API: the worker's alerts (docs/07 → Alerts).
   'api.telegram.org',
+  // Gemini's API: T09 Subtitle Generator calls it from the browser with the person's own key
+  // (packages/core/src/third-party.ts).
+  'generativelanguage.googleapis.com',
   // Cloudflare's API: the ops checks read R2, DNS and Access settings (scripts/ops/verify.ts).
   'api.cloudflare.com',
   // Paddle Billing's API, live and sandbox: checkout transactions, customers and refunds

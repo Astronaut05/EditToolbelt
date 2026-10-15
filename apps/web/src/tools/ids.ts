@@ -85,6 +85,7 @@ export const VIEW_IDS = {
     'storage-calculator',
     'subtitle-converter',
     'subtitle-editor',
+    'subtitle-generator',
     'subtitle-shift',
     'timecode-calculator',
   ],

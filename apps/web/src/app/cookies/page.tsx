@@ -41,6 +41,17 @@ export default function CookiesPage() {
                 <td>Until you clear it</td>
               </tr>
               <tr>
+                <td>
+                  <code>etb.gemini_key</code>
+                </td>
+                <td>localStorage</td>
+                <td>
+                  Subtitle Generator: your Gemini API key, only if you tick Remember on this device.
+                  It goes to Google with each request and never to us
+                </td>
+                <td>Until you untick Remember or clear it</td>
+              </tr>
+              <tr>
                 <td>Cache Storage</td>
                 <td>Browser cache</td>
                 <td>

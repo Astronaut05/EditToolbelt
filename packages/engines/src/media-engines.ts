@@ -32,3 +32,4 @@ export { probeAudio } from './audio/probe';
 export { detectSilences, removeSilenceEngine } from './audio/silence';
 export { audioPeaks, trimAudioEngine } from './audio/trim';
 export { detectSplits, splitAudioEngine } from './audio/split';
+export { subtitleGeneratorEngine } from './audio/subtitle-generator';

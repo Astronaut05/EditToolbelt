@@ -13,6 +13,8 @@ import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from '
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { BROWSER_API_ORIGINS } from '@etb/core/third-party';
+
 import { injectCsp, originOf } from './csp.ts';
 import { pngToIco } from './ico.ts';
 import { assetsIn, serviceWorker } from './sw.ts';
@@ -43,9 +45,13 @@ writeFileSync(
   pngToIco(readFileSync(join(OUT, 'icons/favicon-32.png')), 32),
 );
 
-const connect = [originOf(process.env.MODELS_BASE_URL), originOf(process.env.ANALYTICS_URL)].filter(
-  (origin): origin is string => origin !== null,
-);
+// Third-party APIs a tool calls from the browser go on every page: a client-side
+// navigation keeps the CSP of the page it started on (@etb/core/third-party).
+const connect = [
+  originOf(process.env.MODELS_BASE_URL),
+  originOf(process.env.ANALYTICS_URL),
+  ...BROWSER_API_ORIGINS,
+].filter((origin): origin is string => origin !== null);
 
 const shellPages = ['index.html', 'offline.html'].map((name) => join(OUT, name));
 const precache = [

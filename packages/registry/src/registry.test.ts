@@ -41,8 +41,8 @@ describe('registry entries', () => {
 });
 
 describe('registry ↔ tools/README.md', () => {
-  it('reads all 75 tools from the README', () => {
-    expect(readme).toHaveLength(75);
+  it('reads all 76 tools from the README', () => {
+    expect(readme).toHaveLength(76);
   });
 
   it('has exactly the codes in the README', () => {

@@ -28,13 +28,13 @@ test.describe('site', () => {
     expect(seen.size).toBeGreaterThan(15);
   });
 
-  test('all 75 tool pages and every pair page exist, noindex while soon', async ({ request }) => {
+  test('all 76 tool pages and every pair page exist, noindex while soon', async ({ request }) => {
     const index = (await (await request.get('/search-index.json')).json()) as {
       kind: 'tool' | 'pair';
       path: string;
       soon: boolean;
     }[];
-    expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(75);
+    expect(index.filter((entry) => entry.kind === 'tool')).toHaveLength(76);
     // Pair pages exist only while their converter works (docs/12 → M2).
     expect(index.filter((entry) => entry.kind === 'pair').length).toBeGreaterThan(0);
     for (const entry of index) {
