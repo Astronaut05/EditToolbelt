@@ -76,13 +76,33 @@ export function parseSeconds(value: unknown): number {
   return parts.reduce((total, part) => total * 60 + Number(part), 0);
 }
 
+/**
+ * What's inside a reply's first ``` fence, without its "json" tag, or null.
+ * Found by position: a pattern would backtrack on a long reply from the network.
+ */
+function fenced(text: string): string | null {
+  const open = text.indexOf('```');
+  const close = open < 0 ? -1 : text.indexOf('```', open + 3);
+  if (close < 0) return null;
+  return text
+    .slice(open + 3, close)
+    .replace(/^json/i, '')
+    .trim();
+}
+
+/** Characters at the end of `text` that are in `chars`, dropped (no backtracking pattern). */
+function trimEndOf(text: string, chars: string): string {
+  let end = text.length;
+  while (end > 0 && chars.includes(text.charAt(end - 1))) end -= 1;
+  return text.slice(0, end);
+}
+
 /** The JSON in a reply: as it is, inside a ``` fence, or the outermost {...} in it. */
 function jsonOf(reply: string): unknown {
   const text = reply.trim();
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)?.[1];
   for (const candidate of [
     text,
-    fenced,
+    fenced(text),
     text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1),
   ]) {
     if (!candidate) continue;
@@ -432,10 +452,11 @@ export function uzbekApostrophes(text: string, style: 'typewriter' | 'official')
 }
 
 function finishText(words: readonly TimedWord[], options: CueOptions): string {
+  // Words are joined by single spaces: one before punctuation goes.
   let text = cueText(words)
-    .replace(/\s+([,.;:!?…])/g, '$1')
+    .replace(/ ([,.;:!?…])/g, '$1')
     .trim();
-  if (options.style.bareEnds) text = text.replace(/[.,;:…]+$/, '');
+  if (options.style.bareEnds) text = trimEndOf(text, '.,;:…');
   if (options.uzbekApostrophe) text = uzbekApostrophes(text, options.uzbekApostrophe);
   return options.style.lines === 2 ? rewrap(text, options.style.lineChars) : text;
 }
