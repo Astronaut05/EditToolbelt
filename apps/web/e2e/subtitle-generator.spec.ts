@@ -8,6 +8,11 @@ import { cspViolations, expect, test } from './fixtures';
 // here with words a little off the voice; the SRT must keep the style, sit on the speech
 // and close the short pause but not the long one.
 
+// Gemini is answered from here with page.route. With the site's service worker
+// controlling the page, WebKit sends the page's requests past Playwright, so the
+// real API answered (and refused the test key); without it, every browser routes.
+test.use({ serviceWorkers: 'block' });
+
 const RATE = 48_000;
 const LENGTH = 7;
 /** Where the voice is, seconds: a tone at −9 dBFS; faint noise elsewhere. */
