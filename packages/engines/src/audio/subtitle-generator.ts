@@ -2,7 +2,7 @@
  * T09 Subtitle Generator (tools/subtitles-and-time.md): subtitles from speech,
  * by Gemini with the person's own API key. The recording's levels are read
  * once (as Remove Silence reads them); a long one is cut into clips in its
- * pauses; each clip goes from the browser to Gemini as 16 kHz mono FLAC, with
+ * pauses; each clip goes from the browser to Gemini as 16 kHz mono WAV, with
  * the last words of the clip before it, and comes back as words with times
  * grouped into cues by meaning. @etb/core then holds the cues to the style,
  * puts their edges on the speech, closes the short pauses and writes SRT.
@@ -24,12 +24,11 @@ import {
   type Clip,
   type WordCue,
 } from '@etb/core/subtitles';
-import { FlacOutputFormat, type Input, type InputAudioTrack } from 'mediabunny';
+import { WavOutputFormat, type Input, type InputAudioTrack } from 'mediabunny';
 
 import { MEDIA_META } from '../media-meta';
 import type { Engine, EngineOutput, RunContext } from '../types';
 import { encodeAudio } from '../video/encode-audio';
-import { ensureEncoder } from '../video/extract-audio';
 import { MediaInputError, openInput } from '../video/media';
 import { base64Of, GeminiClient, GeminiError, modelId } from './gemini';
 import { levelsOf } from './silence';
@@ -56,14 +55,18 @@ const RATE = 16_000;
 /** A clip that won't come back whole is split in two, down to this length. */
 const SHORTEST_SPLIT = 15;
 
-/** The clip as FLAC, base64, for an inline part. */
+/**
+ * The clip as 16-bit WAV, base64, for an inline part: built in everywhere, where
+ * the FLAC encoder's worker crashes in WebKit. 110 s is 3.5 MB, far under
+ * Gemini's 20 MB request limit.
+ */
 async function clipAudio(input: Input, track: InputAudioTrack, clip: Clip, signal: AbortSignal) {
   const out = await encodeAudio(
     {
       input,
       track,
-      format: new FlacOutputFormat(),
-      codec: 'flac',
+      format: new WavOutputFormat(),
+      codec: 'pcm-s16',
       sampleRate: RATE,
       numberOfChannels: 1,
       start: clip.start,
@@ -72,7 +75,7 @@ async function clipAudio(input: Input, track: InputAudioTrack, clip: Clip, signa
     signal,
     () => undefined,
   );
-  return { mimeType: 'audio/flac', base64: base64Of(new Uint8Array(out.bytes)) };
+  return { mimeType: 'audio/wav', base64: base64Of(new Uint8Array(out.bytes)) };
 }
 
 /** Halves of a clip, cut at its quietest pause. */
@@ -106,7 +109,6 @@ export const subtitleGeneratorEngine: Engine<SubtitleGeneratorOptions> = {
     if (duration <= 0) throw new MediaInputError('This file has no sound to transcribe');
     const plan = planClips(levels, duration);
 
-    await ensureEncoder('flac');
     const input = openInput(file);
     const cues: WordCue[] = [];
     let sentSeconds = 0;

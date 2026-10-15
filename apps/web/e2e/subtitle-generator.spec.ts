@@ -151,7 +151,7 @@ test('turns speech into one-line cues on the voice, closing the short pause only
   expect(file.suggestedFilename()).toBe('intro_subtitles.srt');
   const out = cues(readFileSync(await file.path(), 'utf8'));
 
-  // One request, the key in its header and nowhere in the URL, the audio as FLAC.
+  // One request, the key in its header and nowhere in the URL, the audio as 16 kHz mono WAV.
   expect(requests).toHaveLength(1);
   const [request] = requests;
   expect(request?.url()).toContain('/v1beta/models/gemini-3.5-flash:generateContent');
@@ -161,12 +161,12 @@ test('turns speech into one-line cues on the voice, closing the short pause only
     contents: { parts: { inlineData?: { mimeType: string; data: string }; text?: string }[] }[];
   };
   const audio = body.contents[0]?.parts[0]?.inlineData;
-  expect(audio?.mimeType).toBe('audio/flac');
+  expect(audio?.mimeType).toBe('audio/wav');
   expect(
     Buffer.from(audio?.data ?? '', 'base64')
       .subarray(0, 4)
       .toString(),
-  ).toBe('fLaC');
+  ).toBe('RIFF');
   expect(body.contents[0]?.parts[1]?.text).toContain('2 to 4 words');
 
   // Instagram: no period or comma at a cue's end; Uzbek's apostrophe typed plainly.

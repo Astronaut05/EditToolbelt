@@ -2,7 +2,7 @@
 
 **Decision:**
 - T09 Subtitle Generator (`/subtitle-generator`, beta) makes SRT from speech with Google's Gemini API. The default model is `gemini-3.5-flash`, and the person can type another.
-- The person pastes their own API key on the page. Their browser calls Gemini directly: the key goes in the `x-goog-api-key` header, and audio goes in as 16 kHz mono FLAC clips. Nothing passes through our servers, and the tool is free here.
+- The person pastes their own API key on the page. Their browser calls Gemini directly: the key goes in the `x-goog-api-key` header, and audio goes in as 16 kHz mono WAV clips. Nothing passes through our servers, and the tool is free here.
 - The key is kept in `localStorage` (`etb.gemini_key`) only while they tick Remember on this device. A new `secret` option kind in the ToolShell masks it and never shows it in a summary. Option values were already never sent to analytics.
 - Gemini does what code can't do well: it hears the words and groups them into cues by meaning, returned as JSON to a schema. `@etb/core` then checks the reply rather than trusting it:
   - it repairs word times;
