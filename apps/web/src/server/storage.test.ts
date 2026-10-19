@@ -24,7 +24,7 @@ describe('completeBody', () => {
 
 describe('storageReady', () => {
   const env = {
-    S3_ENDPOINT: 'https://acct.eu.r2.cloudflarestorage.com/',
+    S3_ENDPOINT: 'https://storage.example.test/',
     S3_BUCKET: 'edittoolbelt-files',
     S3_REGION: 'auto',
     S3_ACCESS_KEY_ID: 'id',
@@ -56,9 +56,7 @@ describe('storageReady', () => {
     if (!request) throw new Error('no request');
     const url = new URL(request.url);
     expect(request.method).toBe('GET');
-    expect(url.origin + url.pathname).toBe(
-      'https://acct.eu.r2.cloudflarestorage.com/edittoolbelt-files',
-    );
+    expect(url.origin + url.pathname).toBe('https://storage.example.test/edittoolbelt-files');
     expect(url.searchParams.get('list-type')).toBe('2');
     expect(url.searchParams.get('max-keys')).toBe('1');
     expect(url.searchParams.get('prefix')).toBe('.readyz/');
