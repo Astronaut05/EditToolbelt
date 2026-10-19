@@ -175,13 +175,30 @@ export async function presignDownload(key: string, filename?: string): Promise<s
   return signed.url;
 }
 
-/** For /readyz: the bucket answers. */
-export async function storageReady(): Promise<boolean> {
+/** What /readyz learns from storage: fine, or why not (status and S3 code, never keys). */
+export type StorageCheck = { ok: true } | { ok: false; detail: string };
+
+/**
+ * For /readyz: storage answers, with these keys, for this bucket. Lists at
+ * most one key under a prefix nothing writes to. That needs only object-level
+ * read, the most the production token has (R2: Object Read & Write on one
+ * bucket); a bucket-level HEAD can be refused for such a token even when every
+ * upload works. A missing bucket answers 404 NoSuchBucket and bad keys 403,
+ * so a wrong name or key still fails the check.
+ */
+export async function storageReady(): Promise<StorageCheck> {
   const env = serverEnv();
+  const url = new URL(`${env.S3_ENDPOINT.replace(/\/+$/, '')}/${env.S3_BUCKET}`);
+  url.searchParams.set('list-type', '2');
+  url.searchParams.set('max-keys', '1');
+  url.searchParams.set('prefix', '.readyz/');
   try {
-    await call('HEAD', new URL(`${env.S3_ENDPOINT.replace(/\/+$/, '')}/${env.S3_BUCKET}`));
-    return true;
-  } catch {
-    return false;
+    await call('GET', url);
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: error instanceof StorageError ? error.message : 'GET storage: failed',
+    };
   }
 }
