@@ -1996,3 +1996,9 @@ _What a call is billed, and the gate: superseded by "What a GPU call is billed" 
 **Why:** `10` → Budgets. The initial-JS budget read 149.9 KB on tools-e, and every view added about 42 B gzip to every hub and tool page, so the views still to come would have broken it.
 **Reverse:** one map of `next/dynamic` imports in `src/tools/index.tsx` again (git history before this entry): the view is preloaded with the page, and every tool's loader is on every hub and tool page.
 
+
+## 2026-10-19 · /readyz checks storage by listing, and logs why it fails
+
+**Decision:** `/readyz` checks storage with a ListObjectsV2 for at most one key under `.readyz/` instead of a HEAD on the bucket, and when any check fails it logs `readyz.not_ready` with the reason: the storage call's HTTP status and S3 error code, the database driver's error code and message (cut to 200 characters). The answer itself still only names the part that is down.
+**Why:** production's web service never passed Railway's health check: `/readyz` answered 503 on every attempt while the worker, on the same database and keys, ran. The production R2 token is Object Read & Write on one bucket; listing objects is within that, a bucket-level HEAD may not be. A wrong bucket name (404 NoSuchBucket) or wrong keys (403) still fail the check. Before this, `storageReady()` swallowed the error, so neither the logs nor Railway's diagnosis could say why.
+**Reverse:** HEAD on `<endpoint>/<bucket>` again in `storageReady()` (git history before this entry), only with a token that has bucket-level read.
