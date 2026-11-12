@@ -33,14 +33,15 @@ From here **Smoke** runs after every deploy and **Watch** every 30 minutes with 
 
 Each of these is independent.
 
-- **A contact address.** `/contact` says an address is on its way until this is set. Cloudflare → Email → Email Routing: route an address at the domain (for example `hello@`) to your inbox. Then Railway → Shared Variables → `CONTACT_EMAIL` = that address, and Actions → **Railway** → Run workflow → approve.
+- **A contact address.** `/contact` says an address is on its way until this is set. Cloudflare → Email → Email Routing: route an address at the domain (for example `hello@`) to your inbox. Then Railway → service `web` → Variables → New variable `CONTACT_EMAIL` = that address, and redeploy `web` (the address is built into the page).
 - **Sign-in email reaches inboxes.** The `dns` check says the domain has no SPF and no DMARC record, so sign-in links may land in spam. Add the SPF record your email provider gives you, and a DMARC record: TXT `_dmarc`, `v=DMARC1; p=quarantine; rua=mailto:<your address>`.
 - **Lock the origin.** Without it a request can skip Cloudflare by going straight to Railway's edge, and then choose the client address the rate limits count.
   1. Make a secret: `openssl rand -base64 48`.
   2. Cloudflare → Rules → Transform Rules → Modify Request Header → Create: all incoming requests, Set static, header `x-origin-auth`, value the secret. Deploy it **first**: the site ignores the header until step 3.
-  3. Railway → Shared Variables → `ORIGIN_AUTH_SECRET` = the secret. Then Actions → **Railway** → Run workflow → approve (the web service starts reading it).
-  4. Ops checks → `site` still passes. If every page answers 403, the two values differ: remove the Railway variable, apply, and start again.
+  3. Railway → service `web` → Variables → New variable `ORIGIN_AUTH_SECRET` = the secret. Railway restarts the service with it.
+  4. Ops checks → `site` still passes. If every page answers 403, the two values differ: remove the Railway variable and start again.
 - **A rate-limiting rule.** Cloudflare → Security → WAF → Rate limiting rules (one is free): requests to `/sign-in` and `/api/`, 100 in 10 seconds per IP, block for 10 seconds. The site has its own limits; this keeps a flood off Railway.
+- **A new Railway token for GitHub.** The `RAILWAY_TOKEN` secret is no longer valid (the Railway workflow's plan says "Invalid RAILWAY_TOKEN", seen 2026-11-12), so Actions → Railway can neither plan nor apply. Deploys don't use it: Railway builds `main` by itself. Railway → project `edittoolbelt` → Settings → Tokens → new project token, then GitHub → Settings → Secrets → Actions → `RAILWAY_TOKEN`. After that, `CONTACT_EMAIL` and `ORIGIN_AUTH_SECRET` can move into `.railway/railway.ts` as shared variables like the rest.
 - **Railway waits for CI.** Railway → `web` and `worker` → Settings → Source → Wait for CI. Today Railway deploys a commit as it lands on `main`. Only merged pull requests land there, and they have passed CI, so this is a second lock, not a missing first one.
 - **Search engines.** Google Search Console and Bing Webmaster Tools: verify the domain (DNS record) and submit `/sitemap.xml`.
 - **Tidy up.** GitHub → Settings → Secrets → Actions: `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` can be deleted. They name a service token that no longer exists.
@@ -52,4 +53,4 @@ Each of these is independent.
 
 ## Take it private again
 
-Set `SITE_ACCESS: 'private'` in the web service's `env` in `.railway/railway.ts` (a pull request), then Actions → Railway → Run workflow → approve, and give the Access application the whole domain again (remove `/admin` from its addresses). CI then needs a live Access service token in `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, in a Service Auth policy on the application.
+Railway → service `web` → Variables → `SITE_ACCESS` = `private` (or, once the Railway token works again, the same line in the web service's `env` in `.railway/railway.ts`), and give the Access application the whole domain again (remove `/admin` from its addresses). CI then needs a live Access service token in `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, in a Service Auth policy on the application.

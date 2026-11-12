@@ -30,8 +30,9 @@ The services reference these (`.railway/railway.ts`); a reference to one that is
 | `BETTER_AUTH_SECRET` | web | 32 random bytes, base64 |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | web | Google Cloud → the OAuth client for the site |
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | web | Zero Trust → the team domain (with or without `https://`), and the Access application's audience tag. Both set: `/admin` must carry Access's token |
-| `ORIGIN_AUTH_SECRET` | web | Optional, the origin lock: the value of the `x-origin-auth` header a Cloudflare Transform Rule adds ([go-public.md](go-public.md)) |
-| `CONTACT_EMAIL` | web | Optional: the address `/contact` publishes |
+| `ORIGIN_AUTH_SECRET` | web | Optional, the origin lock: the value of the `x-origin-auth` header a Cloudflare Transform Rule adds ([go-public.md](go-public.md)). Set on the `web` service's own Variables for now: `.railway/railway.ts` doesn't reference it yet |
+| `CONTACT_EMAIL` | web | Optional: the address `/contact` publishes. On the `web` service's own Variables too; it is built into the page, so redeploy after setting it |
+| `SITE_ACCESS` | web | Unset means `public`. `private` puts every path behind Access again |
 | `ALERT_EMAIL` | worker | Where alert emails go |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | worker | The alert bot (optional; email alone works) |
 | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | worker | Modal → a token for the workspace |
