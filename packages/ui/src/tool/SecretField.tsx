@@ -77,7 +77,11 @@ export function SecretField({
         onChange={(event) => {
           const next = event.target.value.trim();
           onChange(next);
-          if (key && remember) store(key, next);
+          if (key && remember) {
+            // Remember stays as it is: an emptied field forgets the key, not the choice.
+            setChoice(true);
+            store(key, next);
+          }
         }}
       />
       {key && (

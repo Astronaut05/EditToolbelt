@@ -38,11 +38,14 @@ function subscribe(listener: () => void): () => void {
 }
 
 function write(search: string): void {
-  memory = { path: window.location.pathname, search };
+  const path = window.location.pathname;
+  memory = { path, search };
   for (const listener of listeners) listener();
   clearTimeout(timer);
   timer = setTimeout(() => {
     const { pathname, hash } = window.location;
+    // The page was left before typing paused: its state isn't for the next page's address.
+    if (pathname !== path) return;
     window.history.replaceState(
       window.history.state,
       '',
