@@ -163,38 +163,43 @@ export const replaceAudioEngine: Engine<ReplaceAudioOptions> = {
               channels,
             )
           : null;
-        for (let at = 0; at < total; at += BLOCK) {
-          if (ctx.signal.aborted) throw new EngineAbortError();
-          const n = Math.min(BLOCK, total - at);
-          const planes = await bed.take(n);
-          const under = original ? await original.take(n) : null;
-          for (let i = 0; i < n; i += 1) {
-            const g = musicGain((at + i) / MIX_RATE, gain);
-            for (let c = 0; c < channels; c += 1) {
-              const plane = planes[c];
-              if (!plane) continue;
-              let v = (plane[i] ?? 0) * g + (under?.[c]?.[i] ?? 0) * videoGain;
-              if (v > 1 || v < -1) {
-                clipped += 1;
-                v = v > 1 ? 1 : -1;
+        try {
+          for (let at = 0; at < total; at += BLOCK) {
+            if (ctx.signal.aborted) throw new EngineAbortError();
+            const n = Math.min(BLOCK, total - at);
+            const planes = await bed.take(n);
+            const under = original ? await original.take(n) : null;
+            for (let i = 0; i < n; i += 1) {
+              const g = musicGain((at + i) / MIX_RATE, gain);
+              for (let c = 0; c < channels; c += 1) {
+                const plane = planes[c];
+                if (!plane) continue;
+                let v = (plane[i] ?? 0) * g + (under?.[c]?.[i] ?? 0) * videoGain;
+                if (v > 1 || v < -1) {
+                  clipped += 1;
+                  v = v > 1 ? 1 : -1;
+                }
+                plane[i] = v;
               }
-              plane[i] = v;
             }
+            const data = new Float32Array(n * channels);
+            planes.forEach((plane, c) => {
+              data.set(plane, c * n);
+            });
+            const sample = new AudioSample({
+              data,
+              format: 'f32-planar',
+              numberOfChannels: channels,
+              sampleRate: MIX_RATE,
+              timestamp: at / MIX_RATE,
+            });
+            await audio.add(sample);
+            sample.close();
+            ctx.progress((at + n) / total, mix ? 'Mixing the sound' : 'Adding the sound');
           }
-          const data = new Float32Array(n * channels);
-          planes.forEach((plane, c) => {
-            data.set(plane, c * n);
-          });
-          const sample = new AudioSample({
-            data,
-            format: 'f32-planar',
-            numberOfChannels: channels,
-            sampleRate: MIX_RATE,
-            timestamp: at / MIX_RATE,
-          });
-          await audio.add(sample);
-          sample.close();
-          ctx.progress((at + n) / total, mix ? 'Mixing the sound' : 'Adding the sound');
+        } finally {
+          // Done, stopped or failed: both decoders are let go.
+          await Promise.all([bed.close(), original?.close()]);
         }
         audio.close();
       };

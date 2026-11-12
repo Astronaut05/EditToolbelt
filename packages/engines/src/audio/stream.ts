@@ -130,4 +130,18 @@ export class Frames {
     }
     return out;
   }
+
+  /**
+   * Ends the stream where it stands. `take` stops pulling once it has what
+   * was asked for, which leaves the source waiting inside its decoder's loop:
+   * only the source's `return()` stops that loop and lets go of what it had
+   * decoded ahead (Held.close does the same for pictures). Whoever makes a
+   * Frames closes it, however the run ends. Safe twice, and after the end.
+   */
+  async close(): Promise<void> {
+    const source = this.source;
+    this.source = null;
+    this.block = null;
+    await source?.return(undefined).catch(() => undefined);
+  }
 }
