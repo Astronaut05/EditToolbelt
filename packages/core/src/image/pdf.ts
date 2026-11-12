@@ -154,7 +154,9 @@ export function jpegInfo(bytes: Uint8Array): JpegInfo | null {
         ...(icc && { icc }),
       };
     }
-    if (marker === 0xe1) orientation = exifOrientation(bytes.subarray(at + 4, at + 2 + length));
+    // XMP is an APP1 too, and usually follows the EXIF one: it must not undo what EXIF said.
+    if (marker === 0xe1)
+      orientation = exifOrientation(bytes.subarray(at + 4, at + 2 + length)) ?? orientation;
     if (marker === 0xe2) {
       // "ICC_PROFILE\0", the piece's number, how many pieces, then the piece.
       const segment = bytes.subarray(at + 4, at + 2 + length);
@@ -200,8 +202,9 @@ function iccProfile(
   return profile.length >= 132 && text(36) === 'acsp' && text(16) === space ? profile : undefined;
 }
 
-function exifOrientation(app1: Uint8Array): number {
-  if (String.fromCharCode(...app1.subarray(0, 6)) !== 'Exif\0\0') return 1;
+/** The orientation an EXIF block gives; null for an APP1 segment that isn't EXIF. */
+function exifOrientation(app1: Uint8Array): number | null {
+  if (String.fromCharCode(...app1.subarray(0, 6)) !== 'Exif\0\0') return null;
   const tiff = app1.subarray(6);
   const little = tiff[0] === 0x49;
   const u16 = (i: number) =>

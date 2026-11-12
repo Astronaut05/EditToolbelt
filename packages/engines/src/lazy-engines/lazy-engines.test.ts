@@ -81,3 +81,28 @@ describe('engines that load with their first run', () => {
     expect(typeof readSubtitles).toBe('function');
   });
 });
+
+describe('lazyEngine after a failed load', () => {
+  it('asks for the code again on the next run', async () => {
+    const { lazyEngine } = await import('../lazy');
+    let loads = 0;
+    const engine = lazyEngine(
+      () => {
+        loads += 1;
+        return loads === 1
+          ? Promise.reject(new Error('chunk failed to load'))
+          : Promise.resolve({
+              capabilities: () => ({ supported: true }),
+              estimate: () => ({ seconds: 0 }),
+              run: () => Promise.resolve({ blob: new Blob(['ok']), ext: 'txt', path: 'test' }),
+            });
+      },
+      { capabilities: () => ({ supported: true }), estimate: () => ({ seconds: 0 }) },
+    );
+    const input = new Blob(['x']);
+    const context = { signal: new AbortController().signal, progress: () => undefined };
+    await expect(engine.run(input, {}, context)).rejects.toThrow('chunk failed to load');
+    await expect(engine.run(input, {}, context)).resolves.toMatchObject({ ext: 'txt' });
+    expect(loads).toBe(2);
+  });
+});

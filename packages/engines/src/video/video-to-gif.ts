@@ -53,6 +53,35 @@ export function gifSize(source: { width: number; height: number }, wanted: strin
 
 export { estimateGifBytes, gifFrameCount };
 
+/**
+ * The times to read frames at: `count` of them from `start`, speed ÷ fps
+ * seconds apart, none before the track's first frame. Nothing is on screen
+ * before it (screen recordings and MediaRecorder WebM start a little after 0),
+ * so those times show the first frame.
+ */
+export function gifTimes(
+  start: number,
+  count: number,
+  fps: number,
+  speed: number,
+  first = 0,
+): number[] {
+  return Array.from({ length: count }, (_, i) => Math.max(first, start + (i * speed) / fps));
+}
+
+/**
+ * A frame for every time asked, so the count and the length stay right: a time
+ * the decoder had no frame for (null) shows the one before it, or the first.
+ * Each copy is its own buffer: the worker takes them over one by one.
+ */
+export function fillFrames(frames: readonly (ArrayBuffer | null)[]): ArrayBuffer[] {
+  const first = frames.find((frame) => frame !== null);
+  if (!first) return [];
+  const filled: ArrayBuffer[] = [];
+  for (const frame of frames) filled.push(frame ?? (filled.at(-1) ?? first).slice(0));
+  return filled;
+}
+
 function runWorker(job: GifJob, signal: AbortSignal, progress: (fraction: number) => void) {
   return new Promise<ArrayBuffer>((resolve, reject) => {
     const worker = new Worker(new URL('./gif/gif.worker.ts', import.meta.url), { type: 'module' });
@@ -118,8 +147,9 @@ export const videoToGifEngine: Engine<VideoToGifOptions> = {
         fit: 'fill',
         poolSize: 2,
       });
-      const times = Array.from({ length: count }, (_, i) => start + (i * speed) / fps);
-      const frames: ArrayBuffer[] = [];
+      const times = gifTimes(start, count, fps, speed, await track.getFirstTimestamp());
+      // null where the decoder has no frame for a time: filled in below.
+      const read: (ArrayBuffer | null)[] = [];
       for await (const frame of sink.canvasesAtTimestamps(times)) {
         if (ctx.signal.aborted) throw new EngineAbortError();
         const canvas = frame?.canvas;
@@ -127,10 +157,12 @@ export const videoToGifEngine: Engine<VideoToGifOptions> = {
           canvas instanceof OffscreenCanvas
             ? canvas.getContext('2d')
             : (canvas?.getContext('2d') ?? null);
-        if (!g) throw new Error('No 2D canvas for the frames');
-        frames.push(g.getImageData(0, 0, size.width, size.height).data.buffer.slice(0));
-        ctx.progress((0.45 * frames.length) / count, 'Reading frames');
+        if (canvas && !g) throw new Error('No 2D canvas for the frames');
+        read.push(g ? g.getImageData(0, 0, size.width, size.height).data.buffer.slice(0) : null);
+        ctx.progress((0.45 * read.length) / count, 'Reading frames');
       }
+      const frames = fillFrames(read);
+      if (frames.length === 0) throw new MediaInputError('No frames could be read there.');
 
       const format = opts.format === 'webp' ? 'webp' : 'gif';
       const plays =

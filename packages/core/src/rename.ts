@@ -244,7 +244,11 @@ export function planRenames(
     const file = files[index] as RenameFile;
     let [stem, ext] = splitName(file.name);
     const problems: Problem[] = [];
-    if (pattern) stem = stem.replace(pattern, rules.replaceWith);
+    // Only a regex replacement has "$1" and "$&"; plain text goes in as typed, "$$" included.
+    if (pattern)
+      stem = rules.regex
+        ? stem.replace(pattern, rules.replaceWith)
+        : stem.replace(pattern, () => rules.replaceWith);
     for (const what of rules.remove) stem = stem.replace(REMOVERS[what], '');
     stem = changeCase(stem, rules.case);
     stem = `${rules.prefix}${stem}${rules.suffix}`;

@@ -258,6 +258,49 @@ describe('PNG and WebP, rewritten chunk by chunk', () => {
     ]);
   });
 
+  it('PNG, location only: text that can’t be read for a place goes too', () => {
+    // GPS can sit where a search for its name finds nothing: EXIF as hex text
+    // (ImageMagick's "Raw profile") and deflated text.
+    const png = Uint8Array.from([
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+      ...pngChunk('IHDR', Uint8Array.from([...u32be(4), ...u32be(4), 8, 6, 0, 0, 0])),
+      ...pngChunk('tEXt', text('Raw profile type exif\0\nexif\n      24\n4578696600004d4d002a')),
+      ...pngChunk('zTXt', text('Raw profile type APP1\0\0deflated-bytes')),
+      ...pngChunk('iTXt', text('XML:com.adobe.xmp\0\x01\0\0\0deflated-xmp')),
+      ...pngChunk('zTXt', text('Comment\0\0deflated-comment')),
+      ...pngChunk('tEXt', text('Author\0Ann Example')),
+      ...pngChunk('tEXt', text('Place\0<photoshop:Country>Uzbekistan</photoshop:Country>')),
+      ...pngChunk('IDAT', text('pixels')),
+      ...pngChunk('IEND', new Uint8Array()),
+    ]);
+    const report = inspectMetadata(png, 'png', 'location');
+    const out = report.bytes ?? new Uint8Array();
+    // Plain text that names no place stays; the pixels are untouched.
+    expect(checkPngCrcs(out)).toEqual(['IHDR', 'tEXt', 'IDAT', 'IEND']);
+    expect(has(out, 'Ann Example')).toBe(true);
+    expect(has(out, 'pixels')).toBe(true);
+    for (const gone of ['4578696600004d4d002a', 'deflated-bytes', 'deflated-xmp', 'Uzbekistan']) {
+      expect(has(out, gone), gone).toBe(false);
+    }
+    expect(report.extras.map((e) => [e.label, e.removed])).toEqual([
+      ['Text “Raw profile type exif”', true],
+      ['Text “Raw profile type APP1”', true],
+      ['XMP', true],
+      ['Text “Comment”', true],
+      ['Text “Author”', false],
+      ['Text “Place”', true],
+    ]);
+    // Asked to remove nothing, nothing is rewritten.
+    expect(inspectMetadata(png, 'png', 'none').bytes).toBeNull();
+  });
+
   it('WebP: EXIF and XMP go, and VP8X says so', () => {
     const exif = phoneExif(1);
     const chunk = (type: string, data: Uint8Array) => [

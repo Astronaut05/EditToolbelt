@@ -71,4 +71,34 @@ describe('timecode', () => {
     expect(frames('00:00:01:00', customRate(12))).toBe(12);
     expect(() => customRate(0)).toThrow();
   });
+
+  it('counts at least 1 frame per timecode second at a custom rate under 0.5 fps', () => {
+    // 0.4 rounds to 0 frames per second, which printed "Infinity:NaN:NaN:NaN".
+    const slow = customRate(0.4);
+    expect(slow.nominal).toBe(1);
+    expect(formatTimecode(0, slow)).toBe('00:00:00:00');
+    expect(formatTimecode(90, slow)).toBe('00:01:30:00');
+    expect(frames('00:01:30:00', slow)).toBe(90);
+    // Real time still comes from the rate as typed: 90 frames at 0.4 fps are 225 s.
+    expect(framesToSeconds(90, slow)).toBeCloseTo(225, 9);
+    expect(formatTimecode(convertFrames(90, slow, getFrameRate('25')), getFrameRate('25'))).toBe(
+      '00:03:45:00',
+    );
+  });
+
+  it('never prints NaN or Infinity, whatever the custom rate', () => {
+    for (const fps of [0.4, 0.004, 0, Number.NaN, -24, Number.POSITIVE_INFINITY]) {
+      let printed = '';
+      try {
+        const fr = customRate(fps);
+        printed = [0, 1, 90, -90, 3_600_000].map((n) => formatTimecode(n, fr)).join(' ');
+      } catch {
+        // Turned away, so no timecode is made.
+      }
+      expect(printed).not.toMatch(/NaN|Infinity/);
+    }
+    // Rates that aren't a positive number never give a rate at all.
+    for (const fps of [0, Number.NaN, -24, Number.POSITIVE_INFINITY])
+      expect(() => customRate(fps)).toThrow();
+  });
 });

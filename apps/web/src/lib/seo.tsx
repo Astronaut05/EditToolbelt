@@ -5,7 +5,7 @@
  */
 import type { Metadata } from 'next';
 
-import { isAvailable, type Category, type ToolDef } from '@etb/registry';
+import { isAvailable, runsInBrowser, type Category, type ToolDef } from '@etb/registry';
 
 import { absoluteUrl } from './urls';
 
@@ -106,9 +106,19 @@ export function toolJsonLd(tool: ToolDef, category: Category): Json[] {
     name: tool.seo.h1,
     path: `/${tool.slug}`,
     description: tool.seo.description,
-    free: tool.cost.kind === 'free',
+    free: isFree(tool),
   });
   return [app, crumbs, ...faqJsonLd(tool.seo.faq)];
+}
+
+/**
+ * Free to use: no cost at all, or free in the browser with credits only for
+ * the optional server path (Remove Background, Compress Video, Video
+ * Converter, Merge Videos). A tool that runs only on our servers for credits
+ * is not.
+ */
+export function isFree(tool: Pick<ToolDef, 'cost' | 'runtime'>): boolean {
+  return tool.cost.kind === 'free' || runsInBrowser(tool);
 }
 
 /** A conversion pair page: its own WebApplication, breadcrumb through the converter, FAQ. */
@@ -123,7 +133,7 @@ export function pairJsonLd(
       name: copy.h1,
       path: pair.path,
       description: copy.description,
-      free: tool.cost.kind === 'free',
+      free: isFree(tool),
     }),
     breadcrumbJsonLd([
       { name: 'Home', path: '/' },

@@ -173,11 +173,17 @@ const ENTITIES: Record<string, string> = {
   apos: "'",
 };
 
+/** The character with this number, or null when there is none: past U+10FFFF, or half a surrogate pair. */
+function character(code: number): string | null {
+  return code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : null;
+}
+
 function decodeEntities(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
+    // A number that is no character stays as it was written.
     if (name.startsWith('#x') || name.startsWith('#X'))
-      return String.fromCodePoint(parseInt(name.slice(2), 16));
-    if (name.startsWith('#')) return String.fromCodePoint(Number(name.slice(1)));
+      return character(parseInt(name.slice(2), 16)) ?? whole;
+    if (name.startsWith('#')) return character(Number(name.slice(1))) ?? whole;
     return ENTITIES[name.toLowerCase()] ?? whole;
   });
 }

@@ -76,6 +76,88 @@ describe('retime in place', () => {
     expect(out.cues).toBeGreaterThan(0);
     expect(out.changed).toBe(out.cues);
   });
+
+  it('moves a cue whose arrow has no spaces round it, and keeps the arrow as written', () => {
+    const srt =
+      '1\n00:00:05,000 --> 00:00:06,000\nOne\n\n' +
+      '2\n00:00:07,000-->00:00:08,000\nTwo\n\n' +
+      '3\n00:00:09,000 --> 00:00:10,000\nThree\n';
+    const out = retimeText(srt, 'srt', shiftBy(-4000));
+    expect(out).toMatchObject({ cues: 3, changed: 3, clamped: 0 });
+    expect(out.text).toBe(
+      '1\n00:00:01,000 --> 00:00:02,000\nOne\n\n' +
+        '2\n00:00:03,000-->00:00:04,000\nTwo\n\n' +
+        '3\n00:00:05,000 --> 00:00:06,000\nThree\n',
+    );
+  });
+
+  it('moves SBV cues with spaces round the comma, or comma milliseconds', () => {
+    const sbv = '0:00:01.000 , 0:00:02.000\nOne\n\n0:00:03,000,0:00:04,500\nTwo\n';
+    const out = retimeText(sbv, 'sbv', shiftBy(500));
+    expect(out).toMatchObject({ cues: 2, changed: 2, clamped: 0 });
+    expect(out.text).toBe('0:00:01.500 , 0:00:02.500\nOne\n\n0:00:03.500,0:00:05.000\nTwo\n');
+  });
+});
+
+describe('the same cues the Converter reads', () => {
+  type Sample = [name: string, format: 'srt' | 'vtt' | 'sbv', text: string];
+  // Timing lines written every way parse.ts accepts.
+  const written: Sample[] = [
+    [
+      'SRT, one arrow without spaces',
+      'srt',
+      '1\n00:00:05,000 --> 00:00:06,000\nOne\n\n2\n00:00:07,000-->00:00:08,000\nTwo\n',
+    ],
+    [
+      'SRT, no arrow with spaces',
+      'srt',
+      '1\n00:00:05,000-->00:00:06,000\nOne\n\n2\n00:00:07,000-->00:00:08,000\nTwo\n',
+    ],
+    [
+      'SRT, tabs and a space on one side only',
+      'srt',
+      '1\n  00:00:05,000\t-->\t00:00:06,000\nOne\n\n2\n00:00:07,000 -->00:00:08,000  \nTwo\n',
+    ],
+    [
+      'VTT, no spaces, cue settings',
+      'vtt',
+      'WEBVTT\n\nintro\n00:05.000-->00:06.000 line:10% align:center\nOne\n\n00:00:07.000-->00:00:08.000\nTwo\n',
+    ],
+    [
+      'SBV, spaces round the comma',
+      'sbv',
+      '0:00:05.000 , 0:00:06.000\nOne\n\n0:00:07.000,  0:00:08.000\nTwo\n',
+    ],
+    [
+      'SBV, comma milliseconds',
+      'sbv',
+      '0:00:05,000,0:00:06,000\nOne\n\n0:00:07,000 , 0:00:08,000 \nTwo\n',
+    ],
+  ];
+  const files: Sample[] = [
+    ['roundtrip.srt', 'srt', fixture('roundtrip.srt')],
+    ['drifted.srt', 'srt', fixture('drifted.srt')],
+    ['messy.srt', 'srt', fixture('messy.srt')],
+    ['features.vtt', 'vtt', fixture('features.vtt')],
+    ['basic.sbv', 'sbv', fixture('basic.sbv')],
+  ];
+  const TIME = /\d+:\d{1,2}(?::\d{1,2})?[.,]\d{1,3}/g;
+
+  it.each([...written, ...files])('finds every cue in %s', (_, format, text) => {
+    const { cues, dropped } = parseSubtitles(text, format);
+    // A cue with times and no text is still in the file, so it moves too.
+    expect(cueTimes(text, format)).toHaveLength(cues.length + (dropped.emptyCues ?? 0));
+  });
+
+  it.each(written)('moves every cue in %s and nothing else', (_, format, text) => {
+    const times = cueTimes(text, format);
+    const out = retimeText(text, format, shiftBy(1000));
+    expect(out).toMatchObject({ cues: 2, changed: 2, clamped: 0 });
+    expect(cueTimes(out.text, format)).toEqual(
+      times.map((t) => ({ number: t.number, start: t.start + 1000, end: t.end + 1000 })),
+    );
+    expect(out.text.replace(TIME, '#')).toBe(text.replace(TIME, '#'));
+  });
 });
 
 describe('sync modes', () => {

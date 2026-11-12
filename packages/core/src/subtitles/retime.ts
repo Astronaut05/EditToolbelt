@@ -26,8 +26,11 @@ export interface RetimeResult {
   clamped: number;
 }
 
-const ARROW = /^(\s*)(\S+)(\s+-->\s+)(\S+)(.*)$/;
-const SBV = /^(\s*)(\d+:\d{1,2}:\d{1,2}\.\d{1,3}),(\d+:\d{1,2}:\d{1,2}\.\d{1,3})(\s*)$/;
+// The timing lines parse.ts reads (no spaces round the arrow, spaces round
+// the SBV comma, comma or dot milliseconds), so no cue the Converter finds is
+// left where it was. The separator is captured to be written back as it came.
+const ARROW = /^(\s*)(\S+)(\s*-->\s*)(\S+)(.*)$/;
+const SBV = /^(\s*)(\d+:\d{1,2}:\d{1,2}[.,]\d{1,3})(\s*,\s*)(\d+:\d{1,2}:\d{1,2}[.,]\d{1,3})(\s*)$/;
 /** VTT karaoke timestamps inside cue text: <00:01:02.500>. */
 const VTT_INLINE = /<((?:\d+:)?\d{1,2}:\d{1,2}\.\d{3})>/g;
 
@@ -128,12 +131,12 @@ export function retimeText(
     if (format === 'sbv') {
       const match = SBV.exec(line);
       if (!match) return line;
-      const [, lead = '', a = '', b = '', tail = ''] = match;
+      const [, lead = '', a = '', comma = ',', b = '', tail = ''] = match;
       const start = parseTime(a);
       const end = parseTime(b);
       if (start === null || end === null) return line;
       const next = apply(start, end);
-      return `${lead}${write(next.start, a)},${write(next.end, b)}${tail}`;
+      return `${lead}${write(next.start, a)}${comma}${write(next.end, b)}${tail}`;
     }
     const match = ARROW.exec(line);
     if (match) {
