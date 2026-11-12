@@ -40,7 +40,10 @@ export function useSearch(
     let live = true;
     loadSearchIndex()
       .then((loaded) => {
-        if (live) setEntries(loaded);
+        if (!live) return;
+        setEntries(loaded);
+        // An earlier try may have failed (offline): its message goes once the index is in.
+        setFailed(false);
       })
       .catch(() => {
         if (live) setFailed(true);
