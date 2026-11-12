@@ -20,9 +20,11 @@ and GPU claims stop while today's GPU budget is spent (gpu/budget.py).
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import threading
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -112,7 +114,12 @@ class JobRunner:
         self.gpu = gpu
         #: Which jobs this slot claims: CPU jobs, or GPU jobs (under the daily budget).
         self.pool = pool
-        self.worker_id = worker_id or f"{socket.gethostname()}:{threading.get_ident()}"
+        # One of its own for every slot. The queue tells a job's runner from
+        # anyone else by this id (heartbeat, finish, "runs elsewhere"); the
+        # thread's id used to be part of it, but every slot is built on the
+        # main thread, so all of a worker's slots shared one, and a slot could
+        # claim and finish a job its sibling was still running.
+        self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
         self.heartbeat_sec = heartbeat_sec
         self.stopping = threading.Event()
         self._current: threading.Event | None = None
