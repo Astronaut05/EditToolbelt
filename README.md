@@ -139,13 +139,8 @@ No domain or host is written into the code. Every absolute URL (canonical, sitem
 
 Check the license first. Add a row to [`docs/13-licenses.md`](docs/13-licenses.md) and a matching entry to [`licenses.json`](licenses.json), then install. CI fails on unregistered dependencies, on a license that changes with an upgrade, and on any transitive package under a copyleft or unknown license.
 
-## Go public (later)
+## Go public
 
-Nothing is public until you decide to go public (the Go public step in [`docs/12-milestones.md`](docs/12-milestones.md)). CI already has a Cloudflare Pages deploy job for `main`; it's skipped while the `CLOUDFLARE_API_TOKEN` secret doesn't exist. When the time comes:
+Production is the Next.js server build on Railway, behind Cloudflare ([`docs/01-architecture.md`](docs/01-architecture.md) → Hosting). The site's code is public by default; what opens it to everyone is one change to the Cloudflare Access application, and [`docs/runbooks/go-public.md`](docs/runbooks/go-public.md) lists that and what follows it.
 
-1. Buy the domain (open question 1 in [`docs/14-open-questions.md`](docs/14-open-questions.md)).
-2. In Cloudflare, create a Pages project using **Direct Upload** (not "Connect to Git"), named `edittoolbelt` or anything you like, and add the domain under its _Custom domains_. Create an API token with _Account → Cloudflare Pages → Edit_.
-3. In GitHub (repo → Settings → Secrets and variables → Actions), add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the variable `SITE_URL` (`https://` plus your domain), and, if the project isn't called `edittoolbelt`, the variable `CF_PAGES_PROJECT`.
-4. Once models exist (M2): an R2 bucket on a `models.` subdomain, and the variable `MODELS_BASE_URL` pointing at it.
-
-The next push to `main` then deploys, after lint, typecheck, tests and the smoke tests pass.
+The older plan, a static export on Cloudflare Pages, is not used. Its deploy job is still in `ci.yml` and stays asleep while the `CLOUDFLARE_API_TOKEN` secret doesn't exist: don't set that secret, or the static export (no accounts, no API) would take the domain.

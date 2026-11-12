@@ -32,24 +32,40 @@ export interface CompletedPart {
   etag: string;
 }
 
-let signer: AwsClient | undefined;
+/**
+ * How often a failed call is tried again. aws4fetch's own default is 10
+ * tries with a growing wait, which is close to a minute before a call says
+ * storage is down. Twice is enough for a blip. `once` is for calls that must
+ * not be repeated blindly (joining an upload's parts: a second try after a
+ * lost answer finds the upload gone) or must answer quickly (readiness).
+ */
+const signers: { retried?: AwsClient; once?: AwsClient } = {};
 
-function aws(): AwsClient {
+function aws(retry: 'retried' | 'once' = 'retried'): AwsClient {
   const env = serverEnv();
-  signer ??= new AwsClient({
+  signers[retry] ??= new AwsClient({
     accessKeyId: env.S3_ACCESS_KEY_ID,
     secretAccessKey: env.S3_SECRET_ACCESS_KEY,
     service: 's3',
     region: env.S3_REGION,
+    retries: retry === 'once' ? 0 : 2,
   });
-  return signer;
+  return signers[retry];
+}
+
+/**
+ * The endpoint's origin. R2's dashboard shows the S3 address with the bucket
+ * on the end; pasted like that, every address here would name the bucket
+ * twice and storage would answer as if the keys were missing.
+ */
+export function endpointOrigin(endpoint: string): string {
+  return new URL(endpoint).origin;
 }
 
 /** `<endpoint>/<bucket>/<key>`, each key segment encoded. */
 function objectUrl(key: string, endpoint = serverEnv().S3_ENDPOINT): URL {
-  const base = endpoint.replace(/\/+$/, '');
   const path = key.split('/').map(encodeURIComponent).join('/');
-  return new URL(`${base}/${serverEnv().S3_BUCKET}/${path}`);
+  return new URL(`${endpointOrigin(endpoint)}/${serverEnv().S3_BUCKET}/${path}`);
 }
 
 function publicEndpoint(): string {
@@ -57,10 +73,15 @@ function publicEndpoint(): string {
   return env.S3_PUBLIC_ENDPOINT ?? env.S3_ENDPOINT;
 }
 
-async function call(method: string, url: URL, init: RequestInit = {}): Promise<Response> {
+async function call(
+  method: string,
+  url: URL,
+  init: RequestInit = {},
+  retry: 'retried' | 'once' = 'retried',
+): Promise<Response> {
   let response: Response;
   try {
-    response = await aws().fetch(url.toString(), { ...init, method });
+    response = await aws(retry).fetch(url.toString(), { ...init, method });
   } catch {
     throw new StorageError(`${method} storage: unreachable`, 0);
   }
@@ -125,10 +146,12 @@ export async function completeMultipart(
 ): Promise<void> {
   const url = objectUrl(key);
   url.searchParams.set('uploadId', uploadId);
-  const response = await call('POST', url, {
-    headers: { 'Content-Type': 'application/xml' },
-    body: completeBody(parts),
-  });
+  const response = await call(
+    'POST',
+    url,
+    { headers: { 'Content-Type': 'application/xml' }, body: completeBody(parts) },
+    'once',
+  );
   // S3 can answer 200 and still report an error in the body.
   const text = await response.text();
   const code = /<Error>[\s\S]*?<Code>([^<]+)<\/Code>/.exec(text)?.[1];
@@ -157,8 +180,13 @@ export async function headObject(key: string): Promise<{ bytes: number } | null>
   }
 }
 
+/** Deletes the object; one that is already gone is fine (S3 answers 204, some gateways 404). */
 export async function deleteObject(key: string): Promise<void> {
-  await call('DELETE', objectUrl(key));
+  try {
+    await call('DELETE', objectUrl(key));
+  } catch (error) {
+    if (!(error instanceof StorageError && error.status === 404)) throw error;
+  }
 }
 
 /** A GET URL for 10 minutes; `filename` sets the download name the browser offers. */
@@ -188,12 +216,13 @@ export type StorageCheck = { ok: true } | { ok: false; detail: string };
  */
 export async function storageReady(): Promise<StorageCheck> {
   const env = serverEnv();
-  const url = new URL(`${env.S3_ENDPOINT.replace(/\/+$/, '')}/${env.S3_BUCKET}`);
+  const url = new URL(`${endpointOrigin(env.S3_ENDPOINT)}/${env.S3_BUCKET}`);
   url.searchParams.set('list-type', '2');
   url.searchParams.set('max-keys', '1');
   url.searchParams.set('prefix', '.readyz/');
   try {
-    await call('GET', url);
+    // One try, three seconds: a health check that waits is no health check.
+    await call('GET', url, { signal: AbortSignal.timeout(3000) }, 'once');
     return { ok: true };
   } catch (error) {
     return {

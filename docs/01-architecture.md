@@ -102,9 +102,9 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 
 ## Hosting
 
-### Production, private until Go public (decided 2026-10-01)
+### Production (decided 2026-10-01; public from 2026-11-12)
 
-The site runs at its real domain from now on, behind Cloudflare Access, so only Astro can open it. Go public (below) takes Access off; nothing else about hosting changes then.
+The site runs at its real domain. Until Go public it sat behind Cloudflare Access, so only Astro could open it. Go public (below, `docs/decisions/2026-11-12-go-public.md`) narrowed Access to `/admin`; nothing else about hosting changed.
 
 ```
  Astro ──► Cloudflare (DNS, TLS, Access) ──► Railway, EU West (Amsterdam)
@@ -119,13 +119,13 @@ The site runs at its real domain from now on, behind Cloudflare Access, so only 
   - **worker**: `apps/worker`. It reaches Postgres over Railway's private network and storage over HTTPS. Its disk holds one job's input and output at a time per job slot, sized against the largest upload allowed (`config/business.ts`), with a volume where the container's own disk is too small.
   - **Postgres 18** (UUIDv7 ids need 18, see `04`): Railway's template if it's 18, else the official `postgres:18` image with a volume. Private network only, with no public TCP proxy. One-off commands (`pnpm admin:promote`) run inside the web service with `railway ssh`.
   - **Deploys:** Railway builds and deploys every merge to `main` once CI has passed on it. Migrations run as the web service's pre-deploy command, so a failed migration stops the deploy, and migrations stay backward-compatible with the release before. The health check is `/readyz` (database and storage).
-  - **After each deploy** CI waits for the new commit to answer, then smoke-tests the live site through Access with a service token: pages, headers, `/readyz`, sign-in, and the API.
-  - Only the custom domain is public. The web service accepts a request only when it carries a valid Cloudflare Access token (`Cf-Access-Jwt-Assertion`, checked against the team's keys and the app's audience), so Railway's own hostname and direct hits on Railway's edge can't bypass Access. The health check, which Railway sends on its private network, is the one exception.
+  - **After each deploy** CI waits for the new commit to answer, then smoke-tests the live site from outside: pages, headers, `/readyz`, and that `/admin` stays shut.
+  - Only the custom domain is public. On `/admin` (on a private site, `SITE_ACCESS=private`: on every path) the web service accepts a request only when it carries a valid Cloudflare Access token (`Cf-Access-Jwt-Assertion`, checked against the team's keys and the app's audience), so direct hits on Railway's edge can't get around Access there. The health check, which Railway sends on its private network, is the one exception. With the origin lock (`ORIGIN_AUTH_SECRET`) the service refuses every request that didn't come through Cloudflare.
 - **Cloudflare:**
   - DNS for edittoolbelt.com, proxied, SSL mode Full (strict). `www` redirects to the apex.
-  - **Access** (Zero Trust, free plan): one self-hosted application for edittoolbelt.com and www. One policy allows Astro's email only, with a one-time PIN by email or Google. A Service Auth policy lets CI's service token through. Paths that payment providers must reach (their webhooks) get a bypass only when payments are turned on (`docs/runbooks/turn-on-payments.md`).
+  - **Access** (Zero Trust, free plan): one self-hosted application, for `/admin` on the public site. One policy allows Astro's email only, with a one-time PIN by email or Google. Before Go public it covered edittoolbelt.com and www whole, with a Service Auth policy for CI's service token.
   - **R2:** the bucket `edittoolbelt-files` in the EU jurisdiction. Lifecycle: every object deleted after 1 day, multipart uploads aborted after 1 day (see Retention). CORS: the site's origin may `GET`, `PUT` and `HEAD`, and `ETag` is exposed. The app's key is an R2 token limited to this bucket's objects.
-  - Models and WASM files are served by the web service itself (`MODELS_BASE_URL=/models`), the same origin as the pages, so Access covers them and COEP needs no extra headers.
+  - Models and WASM files are served by the web service itself (`MODELS_BASE_URL=/models`), the same origin as the pages, so COEP needs no extra headers.
 - **GPU: Modal**, serverless and billed per second, scaling to zero, with a $20 monthly spend limit. This is `ServerlessGpu` (see GPU backend):
   - The worker calls Modal's functions and polls them. Modal never calls us.
   - Inputs and outputs move through R2 presigned URLs, and nothing is kept on Modal.
@@ -143,9 +143,9 @@ The site runs at its real domain from now on, behind Cloudflare Access, so only 
 - **No host is hard-coded.** Every absolute URL (canonical, sitemap, OG, JSON-LD, robots.txt) is built from `SITE_URL` (default `http://localhost:3000`). Model and WASM files load from `MODELS_BASE_URL` (default `/models`, a local path under `apps/web/public/models/`, not committed). CI fails on a hard-coded domain or host in code (`pnpm hosts:check`); workflows read the domain from the `SITE_URL` repository variable.
 - **Phones** reach the PC over USB (Android, port forwarding: `localhost` is a secure context) or over Wi-Fi with local HTTPS (mkcert). Plain `http://192.168.x.x` is not a secure context, so service workers, WebGPU and `crossOriginIsolated` all fail there. See README → Testing on phones. The private live site works on phones too, after the Access login.
 
-### Go public (when Astro decides)
+### Go public (decided 2026-11-12)
 
-- **Take Access off** (or narrow it to `/admin`), and turn on the public parts that wait for it: Search Console and Bing verification, sitemap submission, and Paddle's live onboarding (Paddle reviews the live website).
+- **Access narrows to `/admin`** (`docs/runbooks/go-public.md` has the steps; the web service is public by default, `docs/decisions/2026-11-12-go-public.md`). Then the public parts that waited for it: Search Console and Bing verification, sitemap submission, and Paddle's live onboarding (Paddle reviews the live website).
 - **Revisit Cloudflare Pages** for the static pages. The static export and its dormant deploy job (`CLOUDFLARE_API_TOKEN`, Pages' 25 MiB per-file and 20,000-file limits, models from an R2 `models.` subdomain) are still in the repo. The alternative is to keep serving everything from Railway behind Cloudflare's cache.
 - Legal pages carry their final text before money is taken.
 

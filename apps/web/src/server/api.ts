@@ -25,6 +25,7 @@ import type { z } from 'zod';
 import { log } from '../lib/log';
 import { currentUser, type CurrentUser } from './account';
 import { keyCaller, type Scope } from './api-keys';
+import { addressKey } from './address';
 import { serverEnv } from './env';
 import { ApiError, problem } from './problem';
 import { countCall, rateLimit } from './rate-limit';
@@ -222,13 +223,19 @@ export async function readJson<S extends z.ZodType>(
 
 /**
  * Where a call comes from, for its rate limit: the address Cloudflare or a
- * reverse proxy passes. Only compared, never kept or logged.
+ * reverse proxy passes, an IPv6 address by its /64 (src/server/address.ts).
+ * Only compared, never kept or logged. The header is only as honest as the
+ * path the request took: once the origin lock is on (ORIGIN_AUTH_SECRET,
+ * src/server/access.ts) every request has come through Cloudflare, which
+ * sets it; until then a caller that reaches Railway's edge directly can
+ * choose it, so the limits that must hold either way count per account, per
+ * key or globally as well.
  */
 export function addressOf(headers: Pick<Headers, 'get'>): string {
-  return (
+  return addressKey(
     headers.get('cf-connecting-ip') ??
-    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    'direct'
+      headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+      'direct',
   );
 }
 

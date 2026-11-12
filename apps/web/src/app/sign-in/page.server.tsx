@@ -21,6 +21,8 @@ const ERRORS: Record<string, string> = {
   invalid_email: 'Enter your email address, like name@example.com.',
   send_failed: 'We couldn’t send the email just now. Try again in a minute.',
   TOO_MANY_LINKS: 'That’s three links in 15 minutes. Use the newest one, or try again later.',
+  TOO_MANY_REQUESTS: 'Too many sign-in links were asked for from here. Try again in 15 minutes.',
+  LINKS_PAUSED: 'Sign-in links are paused for a few minutes. Try again soon.',
   INVALID_TOKEN: 'That link has expired or was already used. Ask for a new one below.',
   EXPIRED_TOKEN: 'That link has expired or was already used. Ask for a new one below.',
   ACCOUNT_DISABLED: 'This account is disabled. Write to us if you think that’s a mistake.',

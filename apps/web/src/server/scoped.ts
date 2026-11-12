@@ -7,6 +7,7 @@
 import type { Job, Quote } from '@etb/core/api';
 
 import { holds, type Caller } from './api';
+import { ApiError } from './problem';
 
 type Scoped = Pick<Caller, 'scopes'>;
 
@@ -26,4 +27,29 @@ export function quoteFor(caller: Scoped, quote: Quote): Quote {
   delete shown.balance;
   delete shown.balance_after;
   return shown;
+}
+
+/** What a problem answer may say about the account only to a caller with account:read. */
+const ACCOUNT_FIELDS = ['balance', 'balance_after', 'shortfall', 'free_jobs_left'];
+
+/**
+ * A refusal to start a job, as this caller may see it. The 402 and the 409
+ * carry the balance and the free jobs left, for the website's own offer; a
+ * key with jobs:write alone gets them without those numbers, in the fields
+ * and in the sentence, or it could read the balance by asking for a job it
+ * knows will be refused.
+ */
+export function errorFor(caller: Scoped, error: ApiError): ApiError {
+  if (holds(caller, 'account:read')) return error;
+  if (!ACCOUNT_FIELDS.some((field) => field in error.extra)) return error;
+  const extra = Object.fromEntries(
+    Object.entries(error.extra).filter(([field]) => !ACCOUNT_FIELDS.includes(field)),
+  );
+  const detail =
+    error.code === 'INSUFFICIENT_CREDITS'
+      ? 'This job costs more credits than the account has.'
+      : error.code === 'CONFLICT'
+        ? 'Confirm the new quote.'
+        : error.detail;
+  return new ApiError(error.status, error.code, error.title, detail, extra, error.headers);
 }

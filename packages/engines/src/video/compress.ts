@@ -15,7 +15,7 @@ import {
 
 import type { Engine, EngineOutput } from '../types';
 import { codecLabel, convert, MediaInputError, openInput, pickOutput } from './media';
-import { containerFormat } from './trim';
+import { containerFormat, sourceFamily } from './trim';
 import { MEDIA_META } from '../media-meta';
 
 export interface CompressOptions {
@@ -151,6 +151,19 @@ async function audioBitrate(input: Input): Promise<number> {
 
 const CODECS: readonly string[] = ['avc', 'hevc', 'av1', 'vp9'];
 
+/** Video extensions a file keeps when it is handed back as it is. */
+const VIDEO_EXTS: readonly string[] = ['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ts', 'mts', 'm2ts'];
+
+/**
+ * The extension for the original file when it is the result: its own, or the
+ * format it was read as when its name has no video extension. Never the
+ * re-encode's: Matroska or WebM bytes named .mp4 don't open everywhere.
+ */
+export function originalExt(name: string | undefined, family: string): string {
+  const own = name ? /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() : undefined;
+  return own && VIDEO_EXTS.includes(own) ? own : family;
+}
+
 export const compressEngine: Engine<CompressOptions> = {
   ...MEDIA_META.compress,
   async run(file, opts, ctx): Promise<EngineOutput> {
@@ -283,7 +296,7 @@ export const compressEngine: Engine<CompressOptions> = {
       if (!plan.targetBytes && out.bytes.byteLength >= before) {
         return {
           blob: file,
-          ext: out.ext,
+          ext: originalExt(file instanceof File ? file.name : undefined, await sourceFamily(input)),
           durationSec,
           path: 'Browser · WebCodecs',
           notes: ['Already smaller than this setting makes it: this is your original file'],

@@ -66,8 +66,14 @@ def is_sensitive_key(key: str) -> bool:
     return normalised in SENSITIVE_KEYS or any(part in normalised for part in SENSITIVE_KEY_PARTS)
 
 
+#: A failed query's bound values, on a line "params: …" (the web's Drizzle
+#: errors end with one); kept in step with packages/core/src/redact.ts.
+_QUERY_PARAMS = re.compile(r"(^|\n)params:[^\n]*")
+
+
 def redact_string(value: str) -> str:
-    """Scrub signed URL queries, bearer tokens, API keys and email addresses from free text."""
+    """Scrub signed URL queries, bearer tokens, API keys, emails and bound query values."""
+    value = _QUERY_PARAMS.sub(r"\1params: [redacted]", value)
     value = _URL_WITH_QUERY.sub(r"\1?[redacted]", value)
     value = _BEARER.sub("Bearer [redacted]", value)
     value = _API_KEY.sub("[redacted-key]", value)

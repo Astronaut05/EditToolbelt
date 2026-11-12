@@ -2,8 +2,9 @@
  * U02: renaming files where they are, in a folder the user opened (File
  * System Access, desktop Chromium). Every file is first moved to a temporary
  * name, then to its new one, so names that swap or only change case never
- * meet. If a move fails, the files moved so far go back. The moves that were
- * made are kept, so the whole rename can be undone while the page is open.
+ * meet. If a move fails, the files moved so far go back, in the same two
+ * steps. The moves that were made are kept, so the whole rename can be undone
+ * while the page is open.
  */
 
 /** The part of a file handle a rename needs (a real handle, or a test's). */
@@ -43,7 +44,11 @@ export function zipLimit(
 
 const tempName = (index: number, stamp: string) => `.etb-rename-${stamp}-${String(index)}.tmp`;
 
-/** Each `from` → `to`, in two steps; the list of what was done, or an error with everything put back. */
+/**
+ * Each `from` → `to`, in two steps; the list of what was done, or an error
+ * with everything put back. If a file can't be put back, the error says under
+ * which name it is now.
+ */
 export async function renameAll(
   pairs: readonly { handle: MovableFile; to: string }[],
   progress?: (fraction: number) => void,
@@ -68,16 +73,40 @@ export async function renameAll(
       progress?.((done += 1) / total);
     }
   } catch (error) {
-    // Put back what moved, newest first; a file that can't go back keeps its temporary name.
-    for (const step of moved.reverse()) {
+    // Back the way they came. A file on its new name goes to its temporary
+    // name first: a new name can be another file's old one (clip_1 → clip_2,
+    // clip_2 → clip_3), and a move onto a taken name fails or overwrites.
+    const held = new Set<string>();
+    for (const [index, step] of moved.entries()) {
+      const temp = tempName(index, stamp);
+      if (step.at === temp) continue;
       try {
-        await step.handle.move(step.from);
+        await step.handle.move(temp);
+        step.at = temp;
       } catch {
-        // Reported below with the first error.
+        // It keeps its new name. Lower case, as most folders ignore case.
+        held.add(step.at.toLowerCase());
       }
     }
+    const left: string[] = [];
+    for (const [index, step] of moved.entries()) {
+      // Only from a temporary name, and never onto a name a stuck file holds.
+      if (step.at === tempName(index, stamp) && !held.has(step.from.toLowerCase())) {
+        try {
+          await step.handle.move(step.from);
+          continue;
+        } catch {
+          // Named in the error below.
+        }
+      }
+      left.push(`“${step.from}” is now “${step.at}”`);
+    }
     const reason = error instanceof Error ? error.message : String(error);
-    throw new RenameInPlaceError(`A file couldn’t be renamed, so none were: ${reason}`);
+    throw new RenameInPlaceError(
+      left.length === 0
+        ? `A file couldn’t be renamed, so none were: ${reason}`
+        : `A file couldn’t be renamed, and not every file could be put back: ${left.join(', ')}. The other files are named as before. The error: ${reason}`,
+    );
   }
   return moved.map((step) => ({ handle: step.handle, from: step.from, to: step.at }));
 }

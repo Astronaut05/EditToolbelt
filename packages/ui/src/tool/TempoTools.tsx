@@ -143,7 +143,16 @@ export function TempoTools({ className }: { className?: string }) {
     }, TICK_MS);
   }, []);
 
-  useEffect(() => stop, [stop]);
+  // Leaving the page stops the clicks and gives the audio device back: a
+  // context left open holds it for as long as the tab lives.
+  useEffect(
+    () => () => {
+      stop();
+      void audio.current?.close();
+      audio.current = null;
+    },
+    [stop],
+  );
 
   return (
     // A click anywhere in the panel focuses it, so T works after a mouse tap

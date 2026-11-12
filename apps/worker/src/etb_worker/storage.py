@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import boto3
+from boto3.exceptions import Boto3Error
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -51,10 +53,21 @@ def new_output_key() -> str:
     return f"out/{uuid.uuid4()}"
 
 
+def endpoint_origin(endpoint: str) -> str:
+    """The endpoint's scheme and host, without a path.
+
+    R2's dashboard shows the S3 address with the bucket on the end. Pasted like
+    that, every key would be written under the bucket's name inside the bucket,
+    where the web, which reads the same variable, never looks.
+    """
+    parts = urlsplit(endpoint)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 def s3_client(settings: Settings) -> Any:  # boto3 ships no types
     return boto3.client(
         "s3",
-        endpoint_url=str(settings.s3_endpoint),
+        endpoint_url=endpoint_origin(str(settings.s3_endpoint)),
         region_name=settings.s3_region,
         aws_access_key_id=settings.s3_access_key_id.get_secret_value(),
         aws_secret_access_key=settings.s3_secret_access_key.get_secret_value(),
@@ -66,6 +79,13 @@ def s3_client(settings: Settings) -> Any:  # boto3 ships no types
             read_timeout=60,
         ),
     )
+
+
+#: What a transfer can raise. boto3's transfer manager has errors of its own
+#: beside botocore's: RetriesExceededError after a download's stream failed
+#: five times, S3UploadFailedError around any upload error. Unwrapped, a
+#: storage brownout read as a broken file (the probe) or a bug (a job).
+TRANSFER_ERRORS = (BotoCoreError, ClientError, Boto3Error)
 
 
 def _code(error: Exception) -> str:
@@ -85,7 +105,7 @@ class Storage:
         """Writes the object to ``dest``; returns its size in bytes."""
         try:
             self._client.download_file(self.bucket, key, str(dest))
-        except (BotoCoreError, ClientError) as error:
+        except TRANSFER_ERRORS as error:
             raise StorageError(_code(error), f"download failed: {_code(error)}") from None
         return dest.stat().st_size
 
@@ -100,7 +120,7 @@ class Storage:
             self._client.upload_file(
                 str(source), self.bucket, key, ExtraArgs={"ContentType": content_type}
             )
-        except (BotoCoreError, ClientError) as error:
+        except TRANSFER_ERRORS as error:
             raise StorageError(_code(error), f"upload failed: {_code(error)}") from None
         return key
 
@@ -167,16 +187,23 @@ class Storage:
 
     def open_uploads(self) -> list[OpenUpload]:
         """Multipart uploads that were started and never completed or aborted."""
+        found: list[OpenUpload] = []
         try:
-            answer = self._client.list_multipart_uploads(Bucket=self.bucket)
+            # Every page: one answer holds 1000 at most, and the old ones the
+            # sweeper is after can sort behind a thousand new ones.
+            pages = self._client.get_paginator("list_multipart_uploads")
+            for page in pages.paginate(Bucket=self.bucket):
+                for item in page.get("Uploads") or []:
+                    found.append(
+                        OpenUpload(
+                            key=str(item["Key"]),
+                            upload_id=str(item["UploadId"]),
+                            started=item["Initiated"],
+                        )
+                    )
         except (BotoCoreError, ClientError) as error:
             raise StorageError(_code(error), f"list uploads failed: {_code(error)}") from None
-        return [
-            OpenUpload(
-                key=str(item["Key"]), upload_id=str(item["UploadId"]), started=item["Initiated"]
-            )
-            for item in answer.get("Uploads", [])
-        ]
+        return found
 
     def lifecycle(self) -> dict[str, Any] | None:
         """The bucket's lifecycle rules; None where the storage doesn't support them."""

@@ -22,7 +22,12 @@ export function lazyEngine<Opts>(
   return {
     ...meta,
     async run(input, opts, ctx) {
-      loaded ??= load();
+      // A load that failed (the network dropped, a deploy replaced the file)
+      // is forgotten, so the next run asks again instead of failing for good.
+      loaded ??= load().catch((error: unknown) => {
+        loaded = null;
+        throw error;
+      });
       return (await loaded).run(input, opts, ctx);
     },
   };

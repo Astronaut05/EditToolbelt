@@ -18,7 +18,7 @@ import {
   route,
 } from '../../../../server/api';
 import { createJob, jobView, listJobs } from '../../../../server/jobs';
-import { jobFor } from '../../../../server/scoped';
+import { errorFor, jobFor } from '../../../../server/scoped';
 
 export const dynamic = 'force-dynamic';
 export const OPTIONS = preflight;
@@ -45,7 +45,10 @@ export const POST = route('jobs.create', async (request) => {
     },
     key,
     keyId ? 'api' : 'web',
-  );
+  ).catch((error: unknown) => {
+    // A refusal names the balance only to a caller that may read the account.
+    throw error instanceof ApiError ? errorFor(caller, error) : error;
+  });
   // A repeat answers a job that may have finished: its result needs jobs:read.
   const answer: JobEnvelope = { job: jobFor(caller, await jobView(job)) };
   return json(answer, { status: created ? 201 : 200 });

@@ -63,9 +63,19 @@ export function isSensitiveKey(key: string): boolean {
   );
 }
 
-/** Scrubs signed URL queries, bearer tokens, API keys and email addresses from free text. */
+/**
+ * A failed query's bound values: Drizzle ends its error with a line
+ * "params: …" holding every one (email addresses, session tokens, keys).
+ */
+const QUERY_PARAMS = /(^|\n)params:[^\n]*/g;
+
+/**
+ * Scrubs signed URL queries, bearer tokens, API keys, email addresses and a
+ * failed query's bound values from free text.
+ */
 export function redactString(value: string): string {
   return value
+    .replace(QUERY_PARAMS, '$1params: [redacted]')
     .replace(URL_WITH_QUERY, '$1?[redacted]')
     .replace(BEARER, 'Bearer [redacted]')
     .replace(API_KEY, '[redacted-key]')

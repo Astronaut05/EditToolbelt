@@ -1,15 +1,16 @@
 /**
- * The browser tests (e2e/) against a running production web service, through
- * Cloudflare Access: `E2E_BASE_URL=https://… pnpm --filter @etb/web e2e:prod`.
+ * The browser tests (e2e/) against a running production web service:
+ * `E2E_BASE_URL=https://… pnpm --filter @etb/web e2e:prod`.
  *
- * - After a deploy (.github/workflows/smoke.yml): the live site, with CI's
- *   Access service token (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET).
+ * - After a deploy (.github/workflows/smoke.yml): the live site. Public, it
+ *   needs nothing; private, CI's Access service token (CF_ACCESS_CLIENT_ID,
+ *   CF_ACCESS_CLIENT_SECRET).
  * - In CI (the "Production web image" job): the image Railway runs, started
- *   with a stand-in Access team (E2E_FAKE_ACCESS=1), so the token check runs
- *   for real on every request.
+ *   private with a stand-in Access team (E2E_FAKE_ACCESS=1), so the token
+ *   check runs for real on every request.
  *
- * Either way e2e-prod/global-setup.ts gets a CF_Authorization cookie and every
- * page, worker and asset request carries it. Tests that need the local
+ * e2e-prod/global-setup.ts works out which, and when a session is needed every
+ * page, worker and asset request carries its cookie. Tests that need the local
  * workshop skip themselves (e2e/fixtures.ts → remote). Chromium by default;
  * PW_BROWSERS picks others.
  */

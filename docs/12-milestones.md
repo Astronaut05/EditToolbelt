@@ -62,8 +62,8 @@ V03 Video Converter (+ `video-ffmpeg-wasm`, video pair pages), V05 GIF to MP4, V
 
 **Done when:** all 26 Wave 1 tools are `live`.
 
-## Go public (when Astro decides; required before M5)
-Nothing was public before this, so there is nothing to redirect.
+## Go public (decided 2026-11-12; required before M5)
+Nothing was public before this, so there is nothing to redirect. **This section's first three steps are superseded:** hosting moved to Railway behind Cloudflare on 2026-10-01 (`docs/01-architecture.md` → Hosting), and going public is now `docs/runbooks/go-public.md`. Do not set `CLOUDFLARE_API_TOKEN`: it would wake the Cloudflare Pages deploy described below.
 
 - Buy the domain (open question 1) and connect it to a Cloudflare Pages project.
 - Set the GitHub secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and the variable `SITE_URL`; the deploy job in CI starts deploying `main`.

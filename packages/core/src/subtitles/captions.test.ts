@@ -105,6 +105,26 @@ describe('repairClipTimes', () => {
     expect(cues[0]?.words[0]).toEqual({ text: 'a', start: 1.2, end: 1.6 });
   });
 
+  it('leaves seconds as they are when one stray time runs past the clip', () => {
+    const cues = repairClipTimes(
+      [
+        {
+          words: [
+            { text: 'a', start: 1.2, end: 2.1 },
+            { text: 'b', start: 6, end: 6.9 },
+            { text: 'c', start: 12, end: 31 },
+          ],
+        },
+      ],
+      20,
+    );
+    expect(cues[0]?.words).toEqual([
+      { text: 'a', start: 1.2, end: 2.1 },
+      { text: 'b', start: 6, end: 6.9 },
+      { text: 'c', start: 12, end: 20 },
+    ]);
+  });
+
   it('keeps words in order, inside the clip and a little long', () => {
     const cues = repairClipTimes(
       [
@@ -240,6 +260,48 @@ describe('finishCues', () => {
     expect(cues[0]?.end).toBe(2100);
     expect(cues[1]?.start).toBe(2960);
     expect(cues[1]?.end).toBe(3900);
+  });
+
+  it('keeps a short cue after a pause when the voice starts later than the cue ends', () => {
+    const spoken: WordCue[] = [
+      { words: [{ text: 'Hello.', start: 8, end: 8.5 }] },
+      { words: [{ text: 'Yes.', start: 10, end: 10.14 }] },
+      { words: words('We start now.', 10.16) },
+    ];
+    const settings = { ...options, closeGapsUnder: 1.5 };
+    const expected = [
+      { start: 8000, end: 8800, text: 'Hello' },
+      { start: 10_000, end: 10_160, text: 'Yes' },
+      { start: 10_160, end: 11_360, text: 'We start now' },
+    ];
+    expect(finishCues(spoken, settings)).toEqual(expected);
+    // Silence until 10.20 s: starting "Yes." there would put its start after its end.
+    expect(finishCues(spoken, { ...settings, levels: levels(20, [[10.2, 20]]) })).toEqual(expected);
+  });
+
+  it('still moves a start later onto the voice when the cue keeps some length', () => {
+    const [cue] = finishCues([{ words: [{ text: 'Yes.', start: 10, end: 10.4 }] }], {
+      ...options,
+      levels: levels(20, [[10.2, 10.6]]),
+    });
+    expect(cue).toEqual({ start: 10_160, end: 10_900, text: 'Yes' });
+  });
+
+  it('gives the words of a cue left no time to the cue next to it', () => {
+    // "Ha," starts with the cue after it; "Xayr!" starts where the file ends.
+    const cues = finishCues(
+      [
+        { words: [{ text: 'Ha,', start: 5, end: 5.2 }] },
+        { words: words('albatta boramiz.', 5) },
+        { words: words('Rahmat sizga.', 19) },
+        { words: [{ text: 'Xayr!', start: 20, end: 20.3 }] },
+      ],
+      options,
+    );
+    expect(cues).toEqual([
+      { start: 5000, end: 5900, text: 'Ha, albatta boramiz' },
+      { start: 19_000, end: 20_000, text: 'Rahmat sizga. Xayr!' },
+    ]);
   });
 
   it('never overlaps, never runs past the file and gives a short cue room to read', () => {

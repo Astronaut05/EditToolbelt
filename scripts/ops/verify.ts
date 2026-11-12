@@ -1,9 +1,13 @@
 /**
  * Checks the production setup from outside, in GitHub Actions (`.github/workflows/ops.yml`):
- * storage, Cloudflare's settings, the site and the worker through Cloudflare Access. Each check
- * runs when its secrets are set and is skipped otherwise; OPS_CHECKS picks some
- * by name (`r2,cloudflare`). Smoke (`smoke.yml`) runs `site` after each deploy, and
- * Watch (`watch.yml`) runs `worker` every 30 minutes. Run locally with the same variables:
+ * storage, Cloudflare's settings, the site and the worker. Each check runs when
+ * its secrets are set and is skipped otherwise; the site's own checks need only
+ * SITE_URL. OPS_CHECKS picks some by name (`r2,cloudflare`). The site says
+ * whether it is public (`/healthz`, docs/runbooks/go-public.md): a public site
+ * must answer anyone and keep `/admin` shut; a private one must show strangers
+ * the Access login, and is then checked with CI's Access service token. Smoke
+ * (`smoke.yml`) runs `site` after each deploy, and Watch (`watch.yml`) runs
+ * `worker` every 30 minutes. Run locally with the same variables:
  *
  *   OPS_CHECKS=r2 R2_ENDPOINT=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… node scripts/ops/verify.ts
  *
@@ -446,23 +450,7 @@ export const ACME_PATH = '/.well-known/acme-challenge/';
 export function pathBypassProblems(apps: AccessApp[], host: string): string[] {
   const problems: string[] = [];
   for (const app of apps) {
-    const paths = [
-      app.domain,
-      ...(app.self_hosted_domains ?? []),
-      ...(app.destinations ?? []).map((d) => d.uri),
-    ]
-      .filter((d): d is string => typeof d === 'string')
-      .flatMap((d) => {
-        const slash = d.indexOf('/');
-        const name = slash < 0 ? d : d.slice(0, slash);
-        const path = slash < 0 ? '' : d.slice(slash);
-        return (name === host || name === `www.${host}`) &&
-          path !== '' &&
-          path !== '/' &&
-          path !== '/*'
-          ? [path]
-          : [];
-      });
+    const paths = appPaths(app, host);
     if (paths.length === 0) continue;
     const open = (app.policies ?? []).some(
       (p) =>
@@ -481,12 +469,80 @@ export function pathBypassProblems(apps: AccessApp[], host: string): string[] {
   return problems;
 }
 
+/** The paths under the site an application's addresses name (`host/admin` → `/admin`); none for the whole host. */
+function appPaths(app: AccessApp, host: string): string[] {
+  return [
+    app.domain,
+    ...(app.self_hosted_domains ?? []),
+    ...(app.destinations ?? []).map((d) => d.uri),
+  ]
+    .filter((d): d is string => typeof d === 'string')
+    .flatMap((d) => {
+      const slash = d.indexOf('/');
+      const name = slash < 0 ? d : d.slice(0, slash);
+      const path = slash < 0 ? '' : d.slice(slash);
+      return (name === host || name === `www.${host}`) &&
+        path !== '' &&
+        path !== '/' &&
+        path !== '/*'
+        ? [path]
+        : [];
+    });
+}
+
+/**
+ * Access on a public site (docs/runbooks/go-public.md): no application may
+ * cover the whole host any more, or visitors get the Access login. One on
+ * `/admin` is the plan; none at all is allowed too (the admin has its own
+ * sign-in and two-factor check). Returns the problems, and the paths that
+ * are behind Access.
+ */
+export function publicAccessProblems(
+  apps: AccessApp[],
+  host: string,
+): { problems: string[]; behind: string[] } {
+  const open = (app: AccessApp) =>
+    (app.policies ?? []).some(
+      (p) =>
+        p.decision === 'bypass' ||
+        (p.decision === 'allow' && (p.include ?? []).some((r) => r.everyone !== undefined)),
+    );
+  const problems: string[] = [];
+  if (apps.some((app) => (appCovers(app, host) || appCovers(app, `www.${host}`)) && !open(app))) {
+    problems.push(
+      `the site says it is public, but an Access application still covers all of ${host}: visitors get the Access login. Change its address to ${host}/admin (docs/runbooks/go-public.md)`,
+    );
+  }
+  const behind = [
+    ...new Set(apps.filter((app) => !open(app)).flatMap((app) => appPaths(app, host))),
+  ].sort();
+  const admin = apps.filter(
+    (app) => !open(app) && appPaths(app, host).some((path) => /^\/admin(\/|\*|$)/.test(path)),
+  );
+  for (const app of admin) {
+    const allow = (app.policies ?? [])
+      .filter((p) => p.decision === 'allow')
+      .flatMap((p) => p.include ?? []);
+    if (allow.some((r) => r.everyone !== undefined || r.email_domain !== undefined)) {
+      problems.push("the /admin application's allow policy lets in more than named people");
+    }
+  }
+  return { problems, behind };
+}
+
 async function checkAccess(env: Env, site: string): Promise<string> {
   const host = new URL(site).hostname;
   const apps = await cloudflare<AccessApp[]>(
     env,
     `/accounts/${env.CF_ACCOUNT_ID ?? ''}/access/apps`,
   );
+  if ((await siteMode(site)) === 'public') {
+    const { problems, behind } = publicAccessProblems(apps, host);
+    expect(problems.length === 0, problems.join('; '));
+    return behind.length > 0
+      ? `public site; behind Access: ${behind.join(', ')}`
+      : 'public site; no Access application on it (the admin has its own sign-in and two-factor check)';
+  }
   const problems = accessProblems(apps, host);
   // CI's own token against the policy: only when CI has one, and only as far
   // as the read-only token can list service tokens (Access: Service Tokens Read).
@@ -515,10 +571,13 @@ async function checkAccess(env: Env, site: string): Promise<string> {
  * After a merge, Railway builds and deploys the commit once its checks pass.
  * Waits until `/healthz` reports that commit, polling every `everyMs`, for at
  * most `waitMs`; returns the last version seen (null when it never answered).
+ * Several commits may be right: Railway rebuilds the web service only for
+ * commits that touch it, so after a worker-only merge the site still runs the
+ * last commit that did (.github/workflows/smoke.yml lists them).
  */
 export async function waitForVersion(
   health: () => Promise<Response>,
-  expected: string,
+  expected: string | readonly string[],
   {
     waitMs,
     everyMs = 20_000,
@@ -531,6 +590,7 @@ export async function waitForVersion(
     clock?: () => number;
   },
 ): Promise<{ ok: boolean; seen: string | null }> {
+  const wanted = typeof expected === 'string' ? [expected] : expected;
   const deadline = clock() + waitMs;
   let seen: string | null = null;
   for (;;) {
@@ -539,7 +599,7 @@ export async function waitForVersion(
       if (response.ok) {
         const { version } = (await response.json()) as { version?: unknown };
         seen = typeof version === 'string' ? version : null;
-        if (seen === expected) return { ok: true, seen };
+        if (seen !== null && wanted.includes(seen)) return { ok: true, seen };
       }
     } catch {
       // Mid-deploy the edge may answer with an error page or drop the connection: try again.
@@ -574,7 +634,10 @@ export function answeredBy(response: Response): string {
       return "answered by Railway's edge: no service is running behind this domain (is the custom domain on the web service, port 8080?)";
     }
     if (has('x-railway-request-id') || has('x-railway-edge')) {
-      return 'answered by the web service on Railway';
+      // Railway's edge marks its own 502 and 503 as well as the service's answers.
+      return response.status >= 500
+        ? 'answered by Railway (its edge, or the web service): the service is down or still starting; see its logs in Railway'
+        : 'answered by the web service on Railway';
     }
     if (response.status === 401 || response.status === 403) {
       return "answered by Cloudflare Access, before Railway: it refused CI's service token (run the `access` check; a token that is in the policy and not expired means CF_ACCESS_CLIENT_SECRET is not that token's secret)";
@@ -583,26 +646,104 @@ export function answeredBy(response: Response): string {
       return "answered by Cloudflare Access with its login page: CI's service token is not in a Service Auth policy";
     }
     return has('cf-ray')
-      ? 'answered by Cloudflare, before Railway (521 to 526 mean Cloudflare cannot reach Railway: check the DNS target and SSL mode Full (strict))'
+      ? 'answered by Cloudflare, before Railway (521 to 526 mean Cloudflare cannot reach Railway: check the DNS target and the SSL mode, Full (strict), or Full if Railway refuses strict)'
       : 'answered by neither Cloudflare nor Railway';
   };
   return who() + seen;
 }
 
+/** CI's Access service token as request headers; none when it isn't set (a public site needs none). */
+function tokenHeaders(env: Env): Record<string, string> {
+  return env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET
+    ? {
+        'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
+        'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET,
+      }
+    : {};
+}
+
+/**
+ * Whether the site is public, asked of the site itself with no credentials:
+ * `/healthz` says `access: "public"` (SITE_ACCESS) and anyone can read it. A
+ * private site never gets that far: Access answers first. Anything else,
+ * including a site that can't be reached, counts as private, so its checks
+ * are the strict ones.
+ */
+export async function siteMode(
+  site: string,
+  get: (url: string) => Promise<Response> = (url) => fetch(url, { redirect: 'manual' }),
+): Promise<'public' | 'private'> {
+  try {
+    const response = await get(`${site}/healthz`);
+    if (!response.ok) return 'private';
+    const { access } = (await response.json()) as { access?: unknown };
+    return access === 'public' ? 'public' : 'private';
+  } catch {
+    return 'private';
+  }
+}
+
+/**
+ * What stands in front of `/admin` on a public site, from its answer to a
+ * request with no credentials: Access (its login, or a refusal Cloudflare
+ * sent), the admin's own sign-in, or a problem to report.
+ */
+export function adminDoor(
+  response: Response,
+  site: string,
+): { door: 'access' | 'sign-in'; problem?: undefined } | { door?: undefined; problem: string } {
+  const { status } = response;
+  const viaRailway =
+    response.headers.get('x-railway-request-id') !== null ||
+    response.headers.get('x-railway-edge') !== null;
+  if (status >= 300 && status < 400) {
+    const to = new URL(response.headers.get('location') ?? '', site);
+    if (to.hostname.endsWith('.cloudflareaccess.com')) return { door: 'access' };
+    return to.origin === new URL(site).origin
+      ? { door: 'sign-in' }
+      : { problem: `/admin redirects to another site (HTTP ${String(status)})` };
+  }
+  if (status === 401 || status === 403) {
+    return viaRailway
+      ? {
+          problem:
+            '/admin is refused by the site itself, not by Access: no Access application covers /admin, but the site still expects its token. Give the Access application the address <site>/admin, or unset CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD in Railway',
+        }
+      : { door: 'access' };
+  }
+  // The admin answers a stranger with its sign-in page or a 404, never its content.
+  if (status === 200 || status === 404) return { door: 'sign-in' };
+  return { problem: `/admin answered HTTP ${String(status)} (${answeredBy(response)})` };
+}
+
+const SECURITY_HEADERS = [
+  'content-security-policy',
+  'strict-transport-security',
+  'x-content-type-options',
+  'x-frame-options',
+  'referrer-policy',
+  'permissions-policy',
+];
+
 async function checkSite(env: Env, site: string): Promise<string> {
-  const outside = await fetch(`${site}/`, { redirect: 'manual' });
-  const location = outside.headers.get('location') ?? '';
-  expect(
-    (outside.status >= 300 &&
-      outside.status < 400 &&
-      new URL(location, site).hostname.endsWith('.cloudflareaccess.com')) ||
-      outside.status === 403,
-    `without Access the home page answered HTTP ${String(outside.status)}, not the Access login`,
-  );
-  const token = {
-    'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID ?? '',
-    'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
-  };
+  const mode = await siteMode(site);
+  const token = tokenHeaders(env);
+  const through = mode === 'public' ? '' : ' through Access';
+  if (mode === 'private') {
+    const outside = await fetch(`${site}/`, { redirect: 'manual' });
+    const location = outside.headers.get('location') ?? '';
+    expect(
+      (outside.status >= 300 &&
+        outside.status < 400 &&
+        new URL(location, site).hostname.endsWith('.cloudflareaccess.com')) ||
+        outside.status === 403,
+      `the site is not public (/healthz does not say so to a stranger), yet without Access the home page answered HTTP ${String(outside.status)}, not the Access login (${answeredBy(outside)})`,
+    );
+    expect(
+      Object.keys(token).length > 0,
+      'the site is private (Cloudflare Access answers before it) and CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET are not set, so it cannot be checked. To make it public: docs/runbooks/go-public.md',
+    );
+  }
   const get = (path: string) => fetch(`${site}${path}`, { headers: token, redirect: 'manual' });
   // After a deploy (.github/workflows/smoke.yml): first wait for the new commit.
   if (env.EXPECT_VERSION) {
@@ -610,35 +751,34 @@ async function checkSite(env: Env, site: string): Promise<string> {
     const first = await get('/healthz').catch(() => null);
     expect(
       first?.status !== 401 && first?.status !== 403,
-      `/healthz answered HTTP ${String(first?.status)} through Access (${first ? answeredBy(first) : ''})`,
+      `/healthz answered HTTP ${String(first?.status)}${through} (${first ? answeredBy(first) : ''})`,
     );
+    const wanted = env.EXPECT_VERSION.split(',')
+      .map((version) => version.trim())
+      .filter(Boolean);
     const minutes = Number(env.EXPECT_WAIT_MINUTES || '30');
-    const { ok, seen } = await waitForVersion(() => get('/healthz'), env.EXPECT_VERSION, {
+    const { ok, seen } = await waitForVersion(() => get('/healthz'), wanted, {
       waitMs: minutes * 60_000,
     });
     expect(
       ok,
-      `after ${String(minutes)} minutes the site still runs ${seen ? seen.slice(0, 12) : 'nothing that answers'}, not ${env.EXPECT_VERSION.slice(0, 12)}`,
+      `after ${String(minutes)} minutes the site still runs ${seen ? seen.slice(0, 12) : 'nothing that answers'}, not ${(wanted[0] ?? '').slice(0, 12)}`,
     );
   }
   const health = await get('/healthz');
   expect(
     health.ok,
-    `/healthz answered HTTP ${String(health.status)} through Access (${answeredBy(health)})`,
+    `/healthz answered HTTP ${String(health.status)}${through} (${answeredBy(health)})`,
   );
   const { version } = (await health.json()) as { version?: string };
   const ready = await get('/readyz');
   expect(ready.ok, `/readyz answered HTTP ${String(ready.status)}: ${await ready.text()}`);
   const home = await get('/');
-  expect(home.ok, `the home page answered HTTP ${String(home.status)} through Access`);
-  const missing = [
-    'content-security-policy',
-    'strict-transport-security',
-    'x-content-type-options',
-    'x-frame-options',
-    'referrer-policy',
-    'permissions-policy',
-  ].filter((name) => !home.headers.get(name));
+  expect(
+    home.ok,
+    `the home page answered HTTP ${String(home.status)}${through} (${answeredBy(home)})`,
+  );
+  const missing = SECURITY_HEADERS.filter((name) => !home.headers.get(name));
   expect(missing.length === 0, `the home page lacks ${missing.join(', ')}`);
   const www = await fetch(`${site.replace('://', '://www.')}/convert?x=1`, {
     headers: token,
@@ -648,7 +788,18 @@ async function checkSite(env: Env, site: string): Promise<string> {
     www.status === 308 && www.headers.get('location') === `${site}/convert?x=1`,
     `www answered HTTP ${String(www.status)}, not a redirect to the site`,
   );
-  return `private (Access login without a token); through Access: version ${version ?? '?'}, ready, security headers, www redirects`;
+  const checked = `version ${version ?? '?'}, ready, security headers, www redirects`;
+  if (mode === 'private') {
+    return `private (Access login without a token); through Access: ${checked}`;
+  }
+  // Public: anyone reads the pages, and nobody reads the admin without getting past its door.
+  const admin = adminDoor(await fetch(`${site}/admin`, { redirect: 'manual' }), site);
+  expect(admin.door, admin.problem ?? '');
+  return `public (the pages answer anyone): ${checked}; /admin is behind ${
+    admin.door === 'access'
+      ? 'Cloudflare Access, then its own sign-in'
+      : 'its own sign-in and two-factor check only (no Access application on it)'
+  }`;
 }
 
 // ── The worker, seen from outside, through Access ────────────────────────────
@@ -671,7 +822,8 @@ function describeWorker(checks: Record<string, WorkerCheck> | undefined): string
 
 /**
  * A dead worker can't alert (its own alert rules run inside it): this reads
- * `/readyz/worker` from outside, through Access, and fails when the worker's
+ * `/readyz/worker` from outside (anyone can on the public site; a private
+ * one needs CI's Access token) and fails when the worker's
  * heartbeat or the retention sweeper's last pass is too old. The Watch
  * workflow (.github/workflows/watch.yml) runs it every 30 minutes, and GitHub
  * emails about a failed run. Only when named: right after a deploy the
@@ -679,10 +831,7 @@ function describeWorker(checks: Record<string, WorkerCheck> | undefined): string
  */
 async function checkWorker(env: Env, site: string): Promise<string> {
   const response = await fetch(`${site}/readyz/worker`, {
-    headers: {
-      'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID ?? '',
-      'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
-    },
+    headers: tokenHeaders(env),
     redirect: 'manual',
   });
   const body = (await response.json().catch(() => ({}))) as {
@@ -720,8 +869,7 @@ interface JobView {
 async function checkJob(env: Env, site: string): Promise<string> {
   const headers = {
     Authorization: `Bearer ${env.ETB_SMOKE_API_KEY ?? ''}`,
-    'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID ?? '',
-    'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET ?? '',
+    ...tokenHeaders(env),
   };
   const api = async <T>(path: string, body?: unknown, extra: Record<string, string> = {}) => {
     const response = await fetch(`${site}/api/v1${path}`, {
@@ -911,23 +1059,12 @@ export const CHECKS: Check[] = [
   { name: 'cloudflare-r2', needs: ['CF_READ_TOKEN', 'CF_ACCOUNT_ID'], run: checkCloudflareR2 },
   { name: 'dns', needs: ['CF_READ_TOKEN', 'SITE_URL'], run: checkDns },
   { name: 'access', needs: ['CF_READ_TOKEN', 'CF_ACCOUNT_ID', 'SITE_URL'], run: checkAccess },
-  {
-    name: 'site',
-    needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
-    run: checkSite,
-  },
-  {
-    name: 'worker',
-    needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
-    run: checkWorker,
-    named: true,
-  },
-  {
-    name: 'job',
-    needs: ['SITE_URL', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET', 'ETB_SMOKE_API_KEY'],
-    run: checkJob,
-    named: true,
-  },
+  // The site's own checks need only its address: a public site answers
+  // anyone, and a private one says what is missing (the Access token) rather
+  // than skipping, which used to read as a pass.
+  { name: 'site', needs: ['SITE_URL'], run: checkSite },
+  { name: 'worker', needs: ['SITE_URL'], run: checkWorker, named: true },
+  { name: 'job', needs: ['SITE_URL', 'ETB_SMOKE_API_KEY'], run: checkJob, named: true },
 ];
 
 export async function runChecks(raw: Env): Promise<Outcome[]> {

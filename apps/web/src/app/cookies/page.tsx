@@ -99,7 +99,7 @@ export default function CookiesPage() {
                   <code>CF_Authorization</code>
                 </td>
                 <td>Cookie, set by Cloudflare Access</td>
-                <td>While the site is private: proves you passed Access’s sign-in</td>
+                <td>Admin pages only: proves the admin passed Access’s sign-in</td>
                 <td>Access’s session, set in Cloudflare</td>
               </tr>
             </tbody>

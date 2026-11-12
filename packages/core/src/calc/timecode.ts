@@ -48,7 +48,8 @@ export function getFrameRate(id: string): FrameRate {
 export function customRate(fps: number): FrameRate {
   if (!Number.isFinite(fps) || fps <= 0 || fps > 1000)
     throw new Error('Frame rate must be between 0 and 1000');
-  const nominal = Math.round(fps);
+  // At least 1: under 0.5 fps this rounds to 0, and a timecode can't count 0 frames to the second.
+  const nominal = Math.max(1, Math.round(fps));
   return rate(`custom-${String(fps)}`, String(fps), nominal, fps);
 }
 

@@ -4,13 +4,14 @@
  * retention sweeper last finished a pass (every 5 min). The worker alerts on
  * both itself, but a dead worker can't alert: `/readyz/worker` answers 503
  * when either is too old, and the scheduled Watch workflow
- * (.github/workflows/watch.yml) fails on that, through Cloudflare Access.
+ * (.github/workflows/watch.yml) fails on that.
  * It says only ages in seconds: no instance names, versions, counts or
  * anything about files.
  */
 import { sql } from '@etb/db';
 
 import { db } from './db';
+import { remembered } from './remember';
 
 /** Older than this and the outside check fails; loose enough to ride out a deploy. */
 export const WORKER_LIMITS_SEC = { heartbeat: 10 * 60, sweeper: 30 * 60 } as const;
@@ -66,6 +67,31 @@ export async function workerAges(): Promise<WorkerAges> {
     value === null || value === undefined ? null : Number(value);
   return { heartbeatSec: seconds(row?.heartbeat_sec), sweeperSec: seconds(row?.sweeper_sec) };
 }
+
+/** How long one reading answers every caller: the endpoint is public, the query is not free. */
+export const WORKER_HEALTH_TTL_MS = 15_000;
+
+/**
+ * The reading `/readyz/worker` answers with: at most one query per
+ * `WORKER_HEALTH_TTL_MS`, shared by everyone asking meanwhile. A failed read
+ * (null: no database) is not remembered, so recovery shows at once.
+ */
+export function workerHealthReader(
+  read: () => Promise<WorkerAges> = workerAges,
+  clock: () => number = Date.now,
+): () => Promise<WorkerHealth | null> {
+  return remembered(
+    () =>
+      read().then(
+        (ages): WorkerHealth | null => workerHealth(ages),
+        () => null,
+      ),
+    { goodMs: WORKER_HEALTH_TTL_MS, badMs: 0, good: (health) => health !== null },
+    clock,
+  );
+}
+
+export const freshWorkerHealth = workerHealthReader();
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 

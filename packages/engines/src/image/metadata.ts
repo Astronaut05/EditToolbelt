@@ -68,7 +68,7 @@ const kb = (n: number) => (n < 1024 ? `${String(n)} bytes` : `${(n / 1024).toFix
 /** Text that names a place: XMP with GPS or city fields. */
 const placeIn = (bytes: Uint8Array) => {
   const s = new TextDecoder('latin1').decode(bytes);
-  return /GPS(Latitude|Longitude)|photoshop:City|Iptc4xmpCore:Location|LocationShown|LocationCreated/.test(
+  return /GPS(Latitude|Longitude)|photoshop:(City|State|Country)|Iptc4xmpCore:Location|LocationShown|LocationCreated/.test(
     s,
   );
 };
@@ -285,6 +285,19 @@ function app1(tiff: Uint8Array): Uint8Array {
 
 const PNG_TEXT = new Set(['tEXt', 'zTXt', 'iTXt']);
 
+/**
+ * A PNG text chunk that can't be read for a place here: an ImageMagick "Raw
+ * profile" (EXIF, IPTC or XMP written as hex text) or deflated text (zTXt,
+ * or iTXt with its compression flag set). Either may hold GPS or a city, so
+ * "location only" removes it rather than say the photo names no place.
+ */
+function opaqueText(type: string, keyword: string, data: Uint8Array): boolean {
+  if (keyword.startsWith('Raw profile type')) return true;
+  if (type === 'zTXt') return true;
+  // iTXt: keyword, 0, compression flag, compression method, …
+  return type === 'iTXt' && data[data.indexOf(0) + 1] === 1;
+}
+
 function pngChunk(type: string, data: Uint8Array): Uint8Array {
   const out = new Uint8Array(12 + data.length);
   const view = new DataView(out.buffer);
@@ -315,7 +328,8 @@ function rewritePng(png: Uint8Array, removal: Removal, report: MetadataReport): 
       else if (plan.out) out.push(pngChunk('eXIf', plan.out));
     } else if (PNG_TEXT.has(type)) {
       const keyword = ascii(data, 0, Math.min(79, data.indexOf(0) < 0 ? 79 : data.indexOf(0)));
-      const drop = removal !== 'none' && (strict || placeIn(data));
+      const drop =
+        removal !== 'none' && (strict || placeIn(data) || opaqueText(type, keyword, data));
       report.extras.push({
         label: keyword === 'XML:com.adobe.xmp' ? 'XMP' : `Text “${keyword}”`,
         value: kb(length),

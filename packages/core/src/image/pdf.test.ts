@@ -70,6 +70,21 @@ describe('jpegInfo', () => {
     expect(jpegInfo(jpegHead(10, 20, 1, 1))?.components).toBe(1);
     expect(jpegInfo(Uint8Array.from([0x89, 0x50, 0x4e, 0x47]))).toBeNull();
   });
+
+  it('keeps the EXIF orientation when an XMP block is there too', () => {
+    // XMP shares EXIF's marker (APP1); phones and Lightroom write it right after the EXIF block.
+    const body = Array.from('http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>', (c) => c.charCodeAt(0));
+    const xmp = [0xff, 0xe1, ((body.length + 2) >> 8) & 0xff, (body.length + 2) & 0xff, ...body];
+    const head = jpegHead(4000, 3000, 6);
+    const sof = head.findIndex((b, i) => b === 0xff && head[i + 1] === 0xc0);
+    const exifThenXmp = Uint8Array.from([...head.subarray(0, sof), ...xmp, ...head.subarray(sof)]);
+    expect(jpegInfo(exifThenXmp)?.orientation).toBe(6);
+    const xmpThenExif = Uint8Array.from([...head.subarray(0, 2), ...xmp, ...head.subarray(2)]);
+    expect(jpegInfo(xmpThenExif)?.orientation).toBe(6);
+    // XMP alone says nothing about which way is up.
+    const xmpOnly = Uint8Array.from([0xff, 0xd8, ...xmp, ...head.subarray(sof)]);
+    expect(jpegInfo(xmpOnly)?.orientation).toBe(1);
+  });
 });
 
 /** A made-up ICC profile: a 132-byte header for `space` ("RGB " or "GRAY"), version `major`, no tags. */

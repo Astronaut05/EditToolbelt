@@ -134,6 +134,23 @@ describe('planRenames', () => {
     expect(names([file('a.b(1).wav')], { find: '(1)', replaceWith: '' })).toEqual(['a.b.wav']);
   });
 
+  it('puts "$" in the replacement in as typed, unless regex is on', () => {
+    expect(names([file('Invoice 100 USD.pdf')], { find: ' USD', replaceWith: '$$' })).toEqual([
+      'Invoice 100$$.pdf',
+    ]);
+    expect(names([file('a_b.txt')], { find: '_', replaceWith: "$'" })).toEqual(["a$'b.txt"]);
+    expect(names([file('a_b.txt')], { find: '_', replaceWith: '$&$1$`' })).toEqual([
+      'a$&$1$`b.txt',
+    ]);
+    // With regex on, "$$" is still one dollar and "$&" the match.
+    expect(
+      names([file('Invoice 100 USD.pdf')], { find: ' USD', replaceWith: '$$', regex: true }),
+    ).toEqual(['Invoice 100$.pdf']);
+    expect(names([file('a_b.txt')], { find: '_', replaceWith: '$&$&', regex: true })).toEqual([
+      'a__b.txt',
+    ]);
+  });
+
   it('removes spaces, digits, other characters and brackets', () => {
     expect(names([file('My Clip 2 (old) [cut] #1!.mov')], { remove: ['brackets'] })).toEqual([
       'My Clip 2 #1!.mov',

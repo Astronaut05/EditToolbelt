@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   accessConfig,
   accessExempt,
+  accessGated,
+  healthCheckPath,
+  originAllowed,
+  originSecret,
+  siteAccess,
   teamKeys,
   verifyAccessToken,
   type AccessConfig,
@@ -174,9 +179,113 @@ describe('accessConfig and accessExempt', () => {
     expect(accessExempt('/healthz')).toBe(true);
     expect(accessExempt('/api/webhooks/paddle')).toBe(true);
     expect(accessExempt('/readyz/x')).toBe(false);
-    // The worker's ages are for Astro and CI's service token only.
+    // On a private site the worker's ages are for Astro and CI's service token only.
     expect(accessExempt('/readyz/worker')).toBe(false);
     expect(accessExempt('/api/v1/me')).toBe(false);
     expect(accessExempt('/')).toBe(false);
+  });
+
+  it('takes the team domain as Cloudflare shows it, a bare host', () => {
+    expect(
+      accessConfig({ CF_ACCESS_TEAM_DOMAIN: 'team.cloudflareaccess.example', CF_ACCESS_AUD: 'a' }),
+    ).toEqual({ teamDomain: 'https://team.cloudflareaccess.example', audience: 'a' });
+    // The stand-in team CI's image job runs on.
+    expect(
+      accessConfig({ CF_ACCESS_TEAM_DOMAIN: 'http://127.0.0.1:9797', CF_ACCESS_AUD: 'a' }),
+    ).toEqual({ teamDomain: 'http://127.0.0.1:9797', audience: 'a' });
+  });
+
+  it('reads a team domain that is not a host as not set up, without throwing', () => {
+    // It used to throw while the server started, which took the health checks down too.
+    for (const team of ['https://', 'not a host', '://x', 'https://exa mple.com']) {
+      expect(accessConfig({ CF_ACCESS_TEAM_DOMAIN: team, CF_ACCESS_AUD: 'a' }), team).toBeNull();
+    }
+  });
+});
+
+// docs/decisions/2026-11-12-go-public.md
+describe('the site, public or private', () => {
+  it('is public unless SITE_ACCESS says private', () => {
+    expect(siteAccess({})).toBe('public');
+    expect(siteAccess({ SITE_ACCESS: '' })).toBe('public');
+    expect(siteAccess({ SITE_ACCESS: 'public' })).toBe('public');
+    expect(siteAccess({ SITE_ACCESS: ' Private ' })).toBe('private');
+    expect(siteAccess({ SITE_ACCESS: 'closed' })).toBe('public');
+  });
+
+  it('keeps every path of a private site behind Access, bar the open ones', () => {
+    for (const path of ['/', '/photo', '/api/v1/tools', '/_next/static/a.js', '/readyz/worker']) {
+      expect(accessGated(path, 'private'), path).toBe(true);
+    }
+    for (const path of ['/healthz', '/readyz', '/api/webhooks/paddle']) {
+      expect(accessGated(path, 'private'), path).toBe(false);
+    }
+  });
+
+  it('keeps only /admin of a public site behind Access', () => {
+    for (const path of ['/admin', '/admin/', '/admin/users/1', '/admin/two-factor']) {
+      expect(accessGated(path, 'public'), path).toBe(true);
+    }
+    for (const path of [
+      '/',
+      '/photo',
+      '/account',
+      '/sign-in',
+      '/api/v1/tools',
+      '/_next/static/a.js',
+      '/readyz/worker',
+      '/administrator',
+      '/admins',
+      '/blog/admin',
+    ]) {
+      expect(accessGated(path, 'public'), path).toBe(false);
+    }
+  });
+
+  it('is not fooled by another spelling of /admin', () => {
+    for (const path of [
+      '/%61dmin',
+      '/Admin',
+      '/ADMIN/users',
+      '//admin',
+      '/admin//users',
+      '/%2Fadmin',
+      '/admin%2Fusers',
+      '\\admin',
+    ]) {
+      expect(accessGated(path, 'public'), path).toBe(true);
+    }
+    // Not valid percent-encoding: compared as sent, and not a crash.
+    expect(accessGated('/%E0%A4%A', 'public')).toBe(false);
+    expect(accessGated('/admin/%E0%A4%A', 'public')).toBe(true);
+  });
+});
+
+// docs/runbooks/go-public.md → Lock the origin
+describe('the origin lock', () => {
+  const secret = 'origin-secret-of-at-least-32-characters';
+
+  it('is off without ORIGIN_AUTH_SECRET', () => {
+    expect(originSecret({})).toBeNull();
+    expect(originSecret({ ORIGIN_AUTH_SECRET: '   ' })).toBeNull();
+    expect(originSecret({ ORIGIN_AUTH_SECRET: ` ${secret} ` })).toBe(secret);
+  });
+
+  it('lets through only the exact header', () => {
+    expect(originAllowed(secret, secret)).toBe(true);
+    expect(originAllowed(null, secret)).toBe(false);
+    expect(originAllowed('', secret)).toBe(false);
+    expect(originAllowed(secret.slice(0, -1), secret)).toBe(false);
+    expect(originAllowed(`${secret}x`, secret)).toBe(false);
+    expect(originAllowed(secret.toUpperCase(), secret)).toBe(false);
+  });
+
+  it('leaves Railway’s health checks out, and nothing else', () => {
+    expect(healthCheckPath('/healthz')).toBe(true);
+    expect(healthCheckPath('/readyz')).toBe(true);
+    // Webhooks come through Cloudflare like every other request.
+    expect(healthCheckPath('/api/webhooks/paddle')).toBe(false);
+    expect(healthCheckPath('/readyz/worker')).toBe(false);
+    expect(healthCheckPath('/')).toBe(false);
   });
 });

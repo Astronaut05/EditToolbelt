@@ -19,11 +19,13 @@ RUN pnpm install --frozen-lockfile --filter @etb/web... --filter @etb/db...
 # Inlined into the pages at build time (next.config.ts), so they are build
 # arguments; none of them is a secret. Railway passes the service's variables
 # of these names: SITE_URL and MODELS_BASE_URL are written in
-# .railway/railway.ts, the analytics pair is optional.
+# .railway/railway.ts; the analytics pair and the contact address are optional
+# variables of the web service.
 ARG SITE_URL
 ARG MODELS_BASE_URL=/models
 ARG ANALYTICS_URL
 ARG ANALYTICS_WEBSITE_ID
+ARG CONTACT_EMAIL
 
 # The build checks the whole server env (next.config.ts), so everything else
 # it requires gets a build-only placeholder here: the secrets, and the storage

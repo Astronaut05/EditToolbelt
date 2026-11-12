@@ -66,6 +66,12 @@ const webShape = {
    */
   ANALYTICS_URL: z.url({ protocol: /^https?$/ }).optional(),
   ANALYTICS_WEBSITE_ID: z.uuid().optional(),
+  /**
+   * The address /contact publishes, for questions, abuse reports and privacy
+   * requests. Unset: the page says an address is on its way. Inlined at build
+   * time like SITE_URL; a public address, not a secret.
+   */
+  CONTACT_EMAIL: z.email().optional(),
 };
 
 type WebShared = Shared & {
@@ -139,6 +145,29 @@ export const webServerEnvSchema = z
     MAIL_FROM: z.string().trim().min(3).optional(),
     /** local and test only: write each email as JSON into this folder instead of sending it. */
     MAIL_OUTBOX_DIR: z.string().trim().min(1).optional(),
+    /**
+     * `public` (the default): every page answers anyone, and Cloudflare Access
+     * stays on `/admin` only. `private`: the whole site sits behind Access, and
+     * production answers 503 until Access is set up (apps/web/src/server/access.ts).
+     */
+    SITE_ACCESS: z.enum(['public', 'private']).default('public'),
+    /**
+     * Cloudflare Access: the team domain (`<team>.cloudflareaccess.com`, with
+     * or without `https://`) and the Access application's audience tag. With
+     * both set, `/admin` (on a private site: every page) must carry a valid
+     * Access token. One without the other, or a team domain that isn't a
+     * host, counts as not set up and the server says so when it starts; it
+     * doesn't stop the start, which would leave the previous deploy running
+     * with no sign of why (apps/web/src/server/access.ts).
+     */
+    CF_ACCESS_TEAM_DOMAIN: z.string().trim().min(1).optional(),
+    CF_ACCESS_AUD: z.string().trim().min(1).optional(),
+    /**
+     * The origin lock: a secret request header a Cloudflare Transform Rule
+     * adds (`x-origin-auth`), so requests that skip Cloudflare are refused
+     * (docs/runbooks/go-public.md → Lock the origin). 32+ characters.
+     */
+    ORIGIN_AUTH_SECRET: z.string().trim().min(32, 'must be at least 32 characters').optional(),
     /** Optional: only these client IPs (comma-separated) reach /admin; anyone else gets a 404. */
     ADMIN_IP_ALLOWLIST: z
       .string()

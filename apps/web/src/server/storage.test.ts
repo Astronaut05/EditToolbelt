@@ -82,3 +82,15 @@ describe('storageReady', () => {
     expect(result).toEqual({ ok: false, detail: 'GET storage: unreachable' });
   });
 });
+
+describe('the storage endpoint', () => {
+  it('is its origin, however it was pasted', async () => {
+    const { endpointOrigin } = await import('./storage');
+    // R2's dashboard shows the address with the bucket on the end.
+    expect(endpointOrigin('https://account.eu.r2.example/edittoolbelt-files')).toBe(
+      'https://account.eu.r2.example',
+    );
+    expect(endpointOrigin('https://account.eu.r2.example/')).toBe('https://account.eu.r2.example');
+    expect(endpointOrigin('http://storage:7070')).toBe('http://storage:7070');
+  });
+});

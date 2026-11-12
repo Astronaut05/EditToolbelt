@@ -188,7 +188,16 @@ const MIN_WORD = 0.08;
 export function repairClipTimes(cues: readonly WordCue[], clipSec: number): WordCue[] {
   const all = cues.flatMap((cue) => cue.words);
   const latest = Math.max(0, ...all.map((w) => w.end).filter(Number.isFinite));
-  const scale = latest > clipSec * 1.5 && latest / 1000 <= clipSec * 1.1 ? 1 / 1000 : 1;
+  // Milliseconds show in the words themselves: a typical word then lasts
+  // hundreds, not a fraction of one. A reply that only runs past the clip
+  // (one made-up end time) is still in seconds, and is clamped below.
+  const lengths = all
+    .map((w) => w.end - w.start)
+    .filter((length) => Number.isFinite(length) && length > 0)
+    .sort((a, b) => a - b);
+  const typical = lengths[Math.floor(lengths.length / 2)] ?? 0;
+  const scale =
+    latest > clipSec * 1.5 && typical > 20 && latest / 1000 <= clipSec * 1.1 ? 1 / 1000 : 1;
   let previous = 0;
   return cues
     .map((cue) => ({
@@ -474,6 +483,7 @@ export function finishCues(cues: readonly WordCue[], options: CueOptions): Cue[]
     .map((cue) => ({
       start: cue.words[0]?.start ?? 0,
       end: cue.words[cue.words.length - 1]?.end ?? 0,
+      words: cue.words,
       text: finishText(cue.words, options),
     }))
     .filter((cue) => cue.text)
@@ -487,7 +497,12 @@ export function finishCues(cues: readonly WordCue[], options: CueOptions): Cue[]
       const after = timed[i + 1];
       if (!before || cue.start - before.end >= 0.15) {
         const onset = nearestEdge(mask, cue.start, SNAP_REACH, true);
-        if (onset !== null) cue.start = Math.max(before?.end ?? 0, onset - LEAD, 0);
+        // The voice can start after the model's cue ends (its times run a little
+        // early): the start moves only while the cue keeps some length.
+        const room = Math.min(cue.end, after?.start ?? Infinity) - MIN_WORD;
+        if (onset !== null && onset - LEAD < room) {
+          cue.start = Math.max(before?.end ?? 0, onset - LEAD, 0);
+        }
       }
       if (!after || after.start - cue.end >= 0.15) {
         const offset = nearestEdge(mask, cue.end, SNAP_REACH, false);
@@ -507,13 +522,29 @@ export function finishCues(cues: readonly WordCue[], options: CueOptions): Cue[]
     if (cue.end - cue.start < MIN_CUE) cue.end = Math.min(cue.start + MIN_CUE, room);
     cue.end = Math.min(cue.end, room);
   });
-  return timed
-    .map((cue) => ({
-      start: Math.round(cue.start * 1000),
-      end: Math.round(cue.end * 1000),
-      text: cue.text,
-    }))
-    .filter((cue) => cue.end > cue.start);
+  // A cue left no time (it starts with the next one, or where the file ends)
+  // would vanish with its words: they go to the cue after it, or the last one.
+  const ms = (seconds: number) => Math.round(seconds * 1000);
+  const kept: typeof timed = [];
+  let waiting: WordCue['words'] = [];
+  for (const cue of timed) {
+    if (ms(cue.end) <= ms(cue.start)) {
+      waiting = [...waiting, ...cue.words];
+      continue;
+    }
+    if (waiting.length > 0) {
+      cue.words = [...waiting, ...cue.words];
+      cue.text = finishText(cue.words, options);
+      waiting = [];
+    }
+    kept.push(cue);
+  }
+  const last = kept[kept.length - 1];
+  if (last && waiting.length > 0) {
+    last.words = [...last.words, ...waiting];
+    last.text = finishText(last.words, options);
+  }
+  return kept.map((cue) => ({ start: ms(cue.start), end: ms(cue.end), text: cue.text }));
 }
 
 // ── Asking ───────────────────────────────────────────────────────────────────

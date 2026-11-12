@@ -2,17 +2,22 @@
  * docs/07 → Health endpoints: ready to serve. The database and storage
  * answer, and the registry is loaded. Errors are RFC 9457 problem details and
  * say which part is down, never why in detail.
+ *
+ * Open to anyone (Railway's health check has no credentials), so the checks
+ * run at most once in 10 seconds, 2 while something is down, whoever asks:
+ * a loop on this URL can't become a query and a billed storage call each time.
  */
 import { sql } from '@etb/db';
 import { tools } from '@etb/registry';
 
 import { log } from '../../lib/log';
 import { db } from '../../server/db';
+import { remembered } from '../../server/remember';
 import { storageReady } from '../../server/storage';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+async function check() {
   const [database, storage] = await Promise.all([
     db()
       .execute(sql`select 1`)
@@ -35,6 +40,17 @@ export async function GET() {
       'readyz.not_ready',
     );
   }
+  return { ready, checks };
+}
+
+const readiness = remembered(check, {
+  goodMs: 10_000,
+  badMs: 2_000,
+  good: (result) => result.ready,
+});
+
+export async function GET() {
+  const { ready, checks } = await readiness();
   if (ready) {
     return Response.json({ status: 'ready', checks }, { headers: { 'Cache-Control': 'no-store' } });
   }

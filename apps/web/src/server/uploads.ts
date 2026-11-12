@@ -268,7 +268,10 @@ export async function completeUpload(user: CurrentUser, id: string, parts: Compl
         'Upload them again.',
       );
     }
-    storageDown(error);
+    // 404: storage no longer knows this upload. It may have joined the parts
+    // on an earlier try whose answer was lost, so the size check below
+    // decides; a file that isn't there fails it.
+    if (!(error instanceof StorageError && error.status === 404)) storageDown(error);
   }
   let stored: { bytes: number } | null = null;
   try {
@@ -277,11 +280,18 @@ export async function completeUpload(user: CurrentUser, id: string, parts: Compl
     storageDown(error);
   }
   if (stored?.bytes !== upload.bytes) {
-    await deleteObject(upload.storageKey).catch(() => undefined);
-    await db()
-      .update(uploads)
-      .set({ multipartId: null, deletedAt: new Date() })
-      .where(eq(uploads.id, upload.id));
+    // Marked gone only once it is: a file that couldn't be deleted keeps its
+    // row as it was, so the sweeper still finds it (CLAUDE.md rule 4).
+    const gone = await deleteObject(upload.storageKey).then(
+      () => true,
+      () => false,
+    );
+    if (gone) {
+      await db()
+        .update(uploads)
+        .set({ multipartId: null, deletedAt: new Date() })
+        .where(eq(uploads.id, upload.id));
+    }
     throw new ApiError(
       400,
       'UPLOAD_INCOMPLETE',
@@ -290,14 +300,24 @@ export async function completeUpload(user: CurrentUser, id: string, parts: Compl
     );
   }
   const now = new Date();
-  await db()
+  // Only while it's still wanted: a cancel may have landed while storage was
+  // joining the parts, and its abort found nothing to abort.
+  const recorded = await db()
     .update(uploads)
     .set({
       completedAt: now,
       multipartId: null,
       expiresAt: new Date(now.getTime() + UPLOAD_TTL_MS),
     })
-    .where(eq(uploads.id, upload.id));
+    .where(and(eq(uploads.id, upload.id), isNull(uploads.deletedAt)))
+    .returning({ id: uploads.id });
+  if (recorded.length === 0) {
+    // Cancelled meanwhile: the file must not outlive its row.
+    await deleteObject(upload.storageKey).catch((error: unknown) => {
+      log.warn({ err: error, upload_id: upload.id }, 'upload.cancelled_file_left');
+    });
+    throw new ApiError(410, 'NOT_FOUND', 'Upload cancelled', 'Start the upload again.');
+  }
   // Wakes a worker to probe it (docs/11 → File intake); workers also poll.
   await db().execute(sql`select pg_notify('etb_uploads', ${upload.id})`);
   log.info(
@@ -313,8 +333,12 @@ export async function cancelUpload(user: CurrentUser, id: string): Promise<void>
   if (upload.deletedAt) return;
   try {
     if (upload.multipartId) await abortMultipart(upload.storageKey, upload.multipartId);
-    else if (upload.completedAt) await deleteObject(upload.storageKey);
+    // The file too, whatever the row says: storage may have joined the parts
+    // while the web failed to record it, or be joining them right now, and an
+    // abort then finds nothing. Deleting a key that isn't there is not an error.
+    await deleteObject(upload.storageKey);
   } catch (error) {
+    // The row stays as it was, so the sweeper still finds whatever is left.
     storageDown(error);
   }
   await db()

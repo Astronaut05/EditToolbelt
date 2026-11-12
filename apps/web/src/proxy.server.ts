@@ -1,9 +1,15 @@
 /**
  * The server build's proxy (Next's middleware), in front of every request:
  * - `www.` goes to the site's own host (SITE_URL).
- * - Cloudflare Access: in production every request must carry a valid Access
- *   token (src/server/access.ts), except the health checks and the payment
- *   webhooks. Without the Access settings, production answers 503.
+ * - The origin lock, when ORIGIN_AUTH_SECRET is set: a request that didn't
+ *   come through Cloudflare (no secret header) is refused, except Railway's
+ *   health checks (src/server/access.ts).
+ * - Cloudflare Access (src/server/access.ts). The site is public: only
+ *   `/admin` must carry a valid Access token, and only while an Access
+ *   application is set up for it; the admin's own sign-in and two-factor
+ *   check stand behind that either way. With SITE_ACCESS=private every
+ *   request must carry one, except the health checks and the payment
+ *   webhooks, and production answers 503 until Access is set up.
  * - The headers the static site gets from `_headers` (src/lib/headers.ts):
  *   the security headers everywhere, caching for hashed assets, COOP/COEP on
  *   the routes that need them.
@@ -24,7 +30,17 @@ import { buildCsp, originOf, storageOrigin } from './lib/csp';
 import { headersForPath } from './lib/headers';
 import { PADDLE_CSP } from './lib/paddle-js';
 import { isPersonalPath } from './lib/personal';
-import { accessConfig, accessExempt, teamKeys, verifyAccessToken } from './server/access';
+import {
+  accessConfig,
+  accessGated,
+  healthCheckPath,
+  ORIGIN_AUTH_HEADER,
+  originAllowed,
+  originSecret,
+  siteAccess,
+  teamKeys,
+  verifyAccessToken,
+} from './server/access';
 
 /** The one page that may load Paddle.js, for its overlay checkout (docs/11 → Web app). */
 const CHECKOUT_PAGE = '/credits/buy';
@@ -80,15 +96,27 @@ function adminAllowed(request: NextRequest): boolean {
   return ip !== null && list.split(',').some((allowed) => allowed.trim() === ip);
 }
 
+const mode = siteAccess(process.env);
 const access = accessConfig(process.env);
 const keys = access ? teamKeys(access) : null;
 const production = process.env.APP_ENV === 'production';
+const origin = originSecret(process.env);
 
 /** null when the request may go on; otherwise the answer that stops it. */
 async function accessDenied(request: NextRequest): Promise<NextResponse | null> {
-  if (accessExempt(request.nextUrl.pathname)) return null;
+  const { pathname } = request.nextUrl;
+  if (
+    origin &&
+    !healthCheckPath(pathname) &&
+    !originAllowed(request.headers.get(ORIGIN_AUTH_HEADER), origin)
+  ) {
+    return new NextResponse('Forbidden', { status: 403 });
+  }
+  if (!accessGated(pathname, mode)) return null;
   if (!access || !keys) {
-    return production
+    // A private site must never open because a setting is missing. A public
+    // site's /admin still has its own sign-in and two-factor check.
+    return mode === 'private' && production
       ? new NextResponse('Cloudflare Access is not configured.', { status: 503 })
       : null;
   }

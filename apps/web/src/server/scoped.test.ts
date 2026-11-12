@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Job, Quote } from '@etb/core/api';
 
-import { jobFor, quoteFor } from './scoped';
+import { ApiError } from './problem';
+import { errorFor, jobFor, quoteFor } from './scoped';
 
 vi.mock('./db', () => ({ db: () => ({}) }));
 
@@ -70,5 +71,51 @@ describe('what a caller sees', () => {
     expect(quoteFor({ scopes: ['jobs:write'] }, { status: 'probing' })).toEqual({
       status: 'probing',
     });
+  });
+});
+
+// docs/06: balance, shortfall and free_jobs_left need account:read, in a refusal too.
+describe('a refusal to start a job', () => {
+  const short = new ApiError(
+    402,
+    'INSUFFICIENT_CREDITS',
+    'Not enough credits',
+    'This needs 12 credits; you have 5.',
+    { credits: 12, balance: 5, shortfall: 7, buy_url: 'https://site.test/credits/buy' },
+  );
+  const changed = new ApiError(
+    409,
+    'CONFLICT',
+    'What pays for this job changed',
+    'Today’s free server jobs are used up, so this one costs 2 credits. Confirm the new quote.',
+    { credits: 2, funding: 'credits', free_jobs_left: 0, balance: 40 },
+  );
+  const quota = new ApiError(
+    429,
+    'QUOTA_EXCEEDED',
+    'No free jobs left today',
+    'They come back tomorrow (UTC).',
+  );
+
+  it('keeps the account’s numbers from a key with jobs:write alone', () => {
+    const key = { scopes: ['jobs:write'] } as const;
+    const a = errorFor(key, short);
+    expect(a.status).toBe(402);
+    expect(a.code).toBe('INSUFFICIENT_CREDITS');
+    expect(a.extra).toEqual({ credits: 12, buy_url: 'https://site.test/credits/buy' });
+    expect(a.detail).not.toMatch(/\d/);
+    const b = errorFor(key, changed);
+    expect(b.status).toBe(409);
+    expect(b.extra).toEqual({ credits: 2, funding: 'credits' });
+    expect(b.detail).toBe('Confirm the new quote.');
+    // Nothing about the account in it: left as it is.
+    expect(errorFor(key, quota)).toBe(quota);
+  });
+
+  it('shows them to the website and to a key with account:read', () => {
+    expect(errorFor({ scopes: ['jobs:write', 'account:read'] }, short)).toBe(short);
+    expect(errorFor({ scopes: ['jobs:read', 'jobs:write', 'account:read'] }, changed)).toBe(
+      changed,
+    );
   });
 });
