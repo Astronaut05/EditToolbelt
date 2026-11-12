@@ -1,6 +1,6 @@
 # Status
 
-**Now:** Phase 2, the final pass, while Phase 1 waits on Astro (Railway's shared variables and the Modal token, below). **M8 and Wave 3 done:** 68 of the 75 tools work: the 26 Wave 1 tools live, and every other browser tool and every CPU server tool in beta. The six GPU tools are built and stay `soon` until the Modal token is in and an admin switches each on; Stem Splitter waits for its weights' licence (Parked for Astro). **M5 done:** payments built complete and switched off (Paddle, Click with its fiscal receipts, Payme), and the GPU tools on Modal. **M6 done:** the public API. M1 to M4 done. **Final pass:** a fresh three-way audit of main (server and money, worker and privacy, browser and licences) found 4 blocking issues and 12 should-fixes. Every one is merged (#101 to #106, #109, #111 to #113, and the last nit in #116). A Lighthouse sweep of every page found one page over the layout-shift budget and the cause behind five near it, both fixed (#97). Every tool page is now under its script budget, and a test holds every page there (#111). What's left is the Playwright smoke against production through Access, once Railway has deployed (Waiting, below).
+**Now:** the site's code is public by default and deployed; **one change in Cloudflare opens it** (`docs/runbooks/go-public.md`, step 1: the Access application's address goes from the whole domain to `/admin`). Until then Access still answers before Railway, as before. A full review of the code on 2026-11-12 (server and money, worker, deploy path, core logic and engines, front end) found about 45 issues; the launch blockers and 20 more are fixed and merged (#162, #163), the rest are listed under Next. **M8 and Wave 3 done:** 69 of the 76 tools work; the six GPU tools stay `soon` until the Modal token is in; Stem Splitter waits for its weights' licence. **M5 done:** payments built complete and switched off. **M6 done:** the public API. M1 to M4 done.
 
 ## Done
 
@@ -180,14 +180,30 @@
 - Security: every copy of source-map-js is 1.2.2 (GHSA-68fv-2mgg-jv7q), held there by an override in `pnpm-workspace.yaml`. With Next 16.3.8 the dependency audit is clean again apart from the ignored braces advisory (#130).
 - Railway's first web build failed: `S3_ENDPOINT` was a build argument, and Railway fills it from a shared variable that wasn't set. The image now builds with a placeholder for every value Railway takes from shared variables (none other was missing). Storage's origin in the page CSP is read when the server starts, so the placeholder never reaches a page. CI builds the Dockerfile the way Railway does, with `SITE_URL` alone, and checks the pages name the storage the container started with (#132).
 - T09 Subtitle Generator (`/subtitle-generator`, beta), the 76th tool: speech in a video or recording to SRT, by Gemini (`gemini-3.5-flash`) with the person's own API key, from their browser to Google. Gemini groups the words into cues by meaning; our code holds them to the style (Instagram: 2 to 4 words, one line), snaps cue edges to the voice and closes pauses under 1.5 s. Uzbek in Latin or Cyrillic, a glossary for names. The key is kept on the device only when Remember is ticked. Gemini's API is in every page's `connect-src` (`docs/decisions/2026-10-15-subtitles-with-gemini.md`) (#149).
+- The dependency audit is clean again (#162). It had failed on every pull request since 2026-11-03, so nothing could merge or deploy, and production ran a Next.js with two critical advisories. Next 16.4.6, better-auth 1.7.20, nodemailer 10.5.0, zod 4.6.7; Pillow 13.0.0 in the GPU images; aiohttp and certifi in the worker. Lighthouse stays at 13.5.0: 13.6.0 pulls a package under a licence that is not open source (`docs/decisions/2026-11-12-dependency-audit.md`).
+- Next 16.4.6's framework is about 1 KB larger, which put Batch Rename over its script budget: it now loads its folder code when files arrive (#162). Every page is under 180,000 bytes, the heaviest by about 340.
+- Why production looked dead from outside (#162): the ops checks now say who answered a failed request. Cloudflare Access was answering 401 before Railway, because the Access service token in GitHub's secrets is none of the account's tokens. The web service itself has very likely been healthy since mid-October.
+- Go public (#163, `docs/decisions/2026-11-12-go-public.md`):
+  - The web service is public unless `SITE_ACCESS=private`. Only `/admin` asks for an Access token, while Access is set up; the admin's own sign-in and two-factor check stand behind that either way.
+  - Sign-in links are limited per caller, per email address and in all; over HTTP `/api/auth` answers only where an emailed link and Google's redirect land (it used to mail anyone without limit once Access was off).
+  - `/readyz` and `/readyz/worker` remember their answers for a few seconds; `/readyz/worker` is open on the public site, so Watch needs no token.
+  - Optional origin lock (`ORIGIN_AUTH_SECRET`): requests that skip Cloudflare are refused.
+  - The ops checks ask the site whether it is public; Smoke and Watch fail and say why when they cannot run, instead of skipping green.
+- From the review, in the tools (#163): photos with XMP land upright in Images to PDF; Subtitle Sync moves every cue the Converter reads; the Subtitle Generator no longer drops a short cue or reads one stray time as milliseconds; a failed folder rename is rolled back without losing files; Photo Metadata Remover's location mode removes PNG text it can't read (it could hold GPS while the report said none); Compress Video's original keeps its extension; Video to GIF with a late first frame; Timecode under 0.5 fps; structured data says free for free tools.
+- From the review, on the servers (#163): no file outlives a cancelled upload (it could stay until the one-day lifecycle rule); a refused job no longer shows the balance to a key without `account:read`; a failed query's bound values are cut from logs; every worker slot has its own id (they shared one, so a slot could finish a job its sibling was running); storage trouble is no longer read as a broken file; open uploads are listed past the first 1000.
 
 ## Next
 
-1. The final pass's last step: once Railway has deployed (Waiting, below), the Playwright smoke against production through Access.
+1. **The rest of the 2026-11-12 review**, each as its own pull request:
+   - The tool shell's run lifecycle: leaving a page mid-run aborts nothing (a paid server job keeps running and its result is lost); Cancel while a file is being read doesn't cancel; a new file can run with the last one's brush strokes; a setting changed during a redo, or after a batch finished, is not applied; a file dropped beside the drop zone opens in the tab. These need script-budget room first: load the search overlay on first use.
+   - The worker: a file's header can understate its frame rate, so a job decodes far more than it was priced for (count packets in the probe); an ended job's input can stay up to an hour on three paths (make the cleanup state-driven); uploads are probed only between jobs; the time limit applies per ffmpeg run, not per job; an alert is marked sent when no channel delivered it; ffprobe's output is collected without a bound; no statement or lock timeouts.
+   - Engines: silence levels ignore the sound's own timestamps (a track that starts late is cut early); Merge Audio, Merge Videos and Replace Audio never close their sample readers.
+   - Speed: every progress tick re-renders the whole shell; the Subtitle Editor re-renders every cue on each frame of playback.
+   - Smaller: an error page with Reload for a tab left open across a deploy; Remove Background's image background under the CSP; three small UI bugs.
 2. Follow-ups:
    - Load the MP3 and FLAC encoders in a worker from a URL, so no page needs `'wasm-unsafe-eval'` (`docs/decisions/2026-10-02-server-build-csp.md`). Use hashes instead of `'unsafe-inline'` on the server build's public pages; both are to settle at Go public.
    - Move the GPU images to torch 2.13 or later with the first Modal deploy (`docs/decisions/2026-10-02-torch-alerts.md`).
-   - Give `/readyz/worker` its own Access rule at Go public, as `/admin` will get.
+   - Let the web service alert when the worker's heartbeat or the sweeper goes stale: GitHub runs Watch about 5 times a day, not every 30 minutes.
    - Profile the batch list's remaining cost.
    - T09 on real speech: check the timing and the splits on a few Uzbek Reels with a real Gemini key, and tune the prompt if Gemini 3.5 Flash groups words differently than asked.
    - Read the time and pixel limits in the tools' copy ("4 h", "100 MP") from the registry too, as the sizes now are (#116).
@@ -198,16 +214,20 @@
 3. Once the Modal token is in: Actions → Modal → Run workflow with "smoke", then set each GPU tool to beta in Admin → Tools, repriced from its measured GPU seconds (Video Background Remover is likely about 20 credits a minute, `docs/05`). After that: P07's hi-res server path, free previews for P08, P17 and V20 (the mechanism is in #76), and Object Eraser in the browser (MI-GAN is 28 MB).
 4. M7, the Premiere panel, comes last (not in this run).
 
-## Waiting for Astro's approval
+## Waiting for Astro
 
-Railway's environment `railway` needs an approval for each apply (Actions → Railway → the run → Review deployments). Deploys need none: once the services exist, Railway builds every commit on main that passes its checks. Work goes on around them.
+In order; `docs/runbooks/go-public.md` has each step in full.
 
-- **Railway's shared variables (not an approval).** Postgres, web and worker exist: run 38458277489 was approved and applied on 2026-10-13. The web image now builds without these variables (#132), but neither service starts without them: the worker exits with "Invalid environment for worker". Set them in Railway → project `edittoolbelt` → Shared Variables:
-  - Both services: `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (R2), `SMTP_URL`.
-  - Web: `BETTER_AUTH_SECRET`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`; optional `GOOGLE_CLIENT_ID` with `GOOGLE_CLIENT_SECRET`.
-  - Worker: `ALERT_EMAIL` (needs `SMTP_URL`); optional `TELEGRAM_BOT_TOKEN` with `TELEGRAM_CHAT_ID`, and `MODAL_TOKEN_ID` with `MODAL_TOKEN_SECRET`. A pair is set together or not at all, or the service won't start.
-  - Waiting on it: the first deploy that starts, the custom domains, then Smoke (Phase 1 steps 2 and 9). Until the worker runs, Watch fails every 30 minutes (`/readyz/worker` answered HTTP 401 on 2026-10-14). If it still says 401 once web is up, Access's Service Auth policy doesn't include CI's service token.
-- **Modal (Phase 1 step 3, not an approval):** the account, its $20 monthly budget, and `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and in Railway's shared variables. Waiting on it: the GPU app's deploy and T4 check, then each GPU tool's first real run.
+1. **Open the site (Cloudflare, 2 minutes).** Zero Trust → Access → Applications → the EditToolbelt application → Edit: change its addresses from the whole domain to `/admin` (domain and `www`). Edit it, don't delete it. The site is public from that moment.
+2. **Check it.** Actions → Ops checks → Run workflow, checks `site,access,worker`.
+3. **Soon after, each on its own:**
+   - A contact address: `/contact` says one is on its way until `CONTACT_EMAIL` is set on Railway's `web` service.
+   - SPF and DMARC records: the `dns` check says both are missing, so sign-in links may land in spam.
+   - The origin lock (`ORIGIN_AUTH_SECRET` and a Cloudflare Transform Rule).
+   - A new `RAILWAY_TOKEN` secret in GitHub: the present one is invalid, so Actions → Railway can neither plan nor apply. Deploys don't use it.
+   - Railway → each service → Source → Wait for CI. Railway deploys a commit as it lands on `main`, whatever `.railway/railway.ts` says.
+   - The privacy, terms and refunds pages are still marked Draft: their final text is yours.
+4. **Modal (not an approval):** the account, its $20 monthly budget, and `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in GitHub's Actions secrets and on Railway. Waiting on it: the GPU app's deploy and T4 check, then each GPU tool's first real run.
 
 ## Parked for Astro
 
