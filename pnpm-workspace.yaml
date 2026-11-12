@@ -23,6 +23,10 @@ overrides:
   # held 1.2.1; this lifts every copy to the fixed release. Remove once the
   # lockfile resolves 1.2.2 or later on its own.
   'source-map-js@<1.2.2': ^1.2.2
+  # GHSA-g3hv-75wg-m249: minimatch before 11.0.1. ESLint 10.14 still asks
+  # for ^10.2.6, and the 10 line has no fixed release. minimatch reaches us
+  # only through ESLint, at lint time. Remove once ESLint asks for 11.
+  'minimatch@>=10.0.0 <11.0.1': ^11.0.1
 
 # GHSA-vfj7-8cjw-p6xm (braces <= 3.0.3, stack exhaustion on deeply nested
 # patterns) has no fixed version yet. braces reaches us only through
