@@ -127,5 +127,18 @@
         "b": { "c": { "d": { "e": { "f": { "g": { "h": { "i": { "j": "[truncated]" } } } } } } } }
       }
     }
+  },
+  {
+    "name": "cuts a failed query's bound values",
+    "input": {
+      "event": "api.failed",
+      "detail": "Failed query: select \"id\" from \"sessions\" where \"token\" = $1 and \"user\" = $2\nparams: 9f2c-session-token,someone@example.org",
+      "note": "bad params: width"
+    },
+    "expected": {
+      "event": "api.failed",
+      "detail": "Failed query: select \"id\" from \"sessions\" where \"token\" = $1 and \"user\" = $2\nparams: [redacted]",
+      "note": "bad params: width"
+    }
   }
 ]
