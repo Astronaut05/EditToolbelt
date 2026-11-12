@@ -458,36 +458,41 @@ async function encodeJoin(
         : null,
     );
     const end = Math.round((total / fps) * RATE);
-    for (let start = 0; start < end; start += AUDIO_BLOCK) {
-      if (signal.aborted) throw new EngineAbortError();
-      const n = Math.min(AUDIO_BLOCK, end - start);
-      const planes = [new Float32Array(n), new Float32Array(n)];
-      for (const [i, p] of audioPlaced.entries()) {
-        const from = Math.max(start, p.at);
-        const to = Math.min(start + n, p.at + p.length);
-        const reader = readers[i];
-        if (to <= from || !reader) continue;
-        const got = await reader.take(to - from);
-        for (let j = 0; j < to - from; j += 1) {
-          const g = placedGain(p, from - p.at + j);
-          for (let c = 0; c < 2; c += 1) {
-            const plane = planes[c] as Float32Array;
-            plane[from - start + j] = (plane[from - start + j] ?? 0) + (got[c]?.[j] ?? 0) * g;
+    try {
+      for (let start = 0; start < end; start += AUDIO_BLOCK) {
+        if (signal.aborted) throw new EngineAbortError();
+        const n = Math.min(AUDIO_BLOCK, end - start);
+        const planes = [new Float32Array(n), new Float32Array(n)];
+        for (const [i, p] of audioPlaced.entries()) {
+          const from = Math.max(start, p.at);
+          const to = Math.min(start + n, p.at + p.length);
+          const reader = readers[i];
+          if (to <= from || !reader) continue;
+          const got = await reader.take(to - from);
+          for (let j = 0; j < to - from; j += 1) {
+            const g = placedGain(p, from - p.at + j);
+            for (let c = 0; c < 2; c += 1) {
+              const plane = planes[c] as Float32Array;
+              plane[from - start + j] = (plane[from - start + j] ?? 0) + (got[c]?.[j] ?? 0) * g;
+            }
           }
         }
+        const data = new Float32Array(n * 2);
+        data.set(planes[0] as Float32Array, 0);
+        data.set(planes[1] as Float32Array, n);
+        const sample = new AudioSample({
+          data,
+          format: 'f32-planar',
+          numberOfChannels: 2,
+          sampleRate: RATE,
+          timestamp: start / RATE,
+        });
+        await audioSource.add(sample);
+        sample.close();
       }
-      const data = new Float32Array(n * 2);
-      data.set(planes[0] as Float32Array, 0);
-      data.set(planes[1] as Float32Array, n);
-      const sample = new AudioSample({
-        data,
-        format: 'f32-planar',
-        numberOfChannels: 2,
-        sampleRate: RATE,
-        timestamp: start / RATE,
-      });
-      await audioSource.add(sample);
-      sample.close();
+    } finally {
+      // Done, stopped or failed: every clip's sound decoder is let go, as its pictures are.
+      for (const reader of readers) await reader?.close();
     }
     audioSource.close();
   };

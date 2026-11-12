@@ -5,10 +5,17 @@ import {
   lazyEngine,
   modelCached,
   SEGMENT_MODELS,
+  type Engine,
   type RemoveBackgroundOptions,
   type SegmentModel,
 } from '@etb/engines';
-import { ToolShell, type ShellOption, type ShellPreset, type ShellTool } from '@etb/ui';
+import {
+  fileOptionFile,
+  ToolShell,
+  type ShellOption,
+  type ShellPreset,
+  type ShellTool,
+} from '@etb/ui';
 import { useEffect, useMemo, useState } from 'react';
 
 import { trackUnknown } from '../lib/analytics';
@@ -73,7 +80,7 @@ const MODEL_OPTION: ShellOption = {
 };
 
 /** The engine loads when the first photo arrives, not with the page (docs/10). */
-const engine = lazyEngine<RemoveBackgroundOptions>(
+const loaded = lazyEngine<RemoveBackgroundOptions>(
   () => import('@etb/engines/remove-background').then((m) => m.removeBackgroundEngine),
   {
     capabilities: () => ({
@@ -87,6 +94,14 @@ const engine = lazyEngine<RemoveBackgroundOptions>(
     estimate: () => ({ seconds: 3 }),
   },
 );
+
+/** The shell's options as the engine takes them: the chosen background as its file. */
+const engine: Engine<Record<string, string>> = {
+  capabilities: (caps) => loaded.capabilities(caps),
+  estimate: (input) => loaded.estimate(input, {}),
+  run: (file, { backgroundImage, ...rest }, ctx) =>
+    loaded.run(file, { ...rest, backgroundImage: fileOptionFile(backgroundImage ?? '') }, ctx),
+};
 
 const MODELS_BASE = modelUrl('');
 

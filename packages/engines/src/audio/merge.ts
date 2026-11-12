@@ -122,27 +122,32 @@ async function* render(
       ),
   );
   const total = placedLength(placed);
-  for (let start = 0; start < total; start += BLOCK) {
-    if (signal.aborted) throw new EngineAbortError();
-    const n = Math.min(BLOCK, total - start);
-    const planes = Array.from({ length: channels }, () => new Float32Array(n));
-    for (const [i, p] of placed.entries()) {
-      const from = Math.max(start, p.at);
-      const to = Math.min(start + n, p.at + p.length);
-      const reader = readers[i];
-      if (to <= from || !reader) continue;
-      const frames = await reader.take(to - from);
-      for (let j = 0; j < to - from; j += 1) {
-        const gain = placedGain(p, from - p.at + j);
-        for (let c = 0; c < channels; c += 1) {
-          const target = planes[c];
-          if (target)
-            target[from - start + j] =
-              (target[from - start + j] ?? 0) + (frames[c]?.[j] ?? 0) * gain;
+  try {
+    for (let start = 0; start < total; start += BLOCK) {
+      if (signal.aborted) throw new EngineAbortError();
+      const n = Math.min(BLOCK, total - start);
+      const planes = Array.from({ length: channels }, () => new Float32Array(n));
+      for (const [i, p] of placed.entries()) {
+        const from = Math.max(start, p.at);
+        const to = Math.min(start + n, p.at + p.length);
+        const reader = readers[i];
+        if (to <= from || !reader) continue;
+        const frames = await reader.take(to - from);
+        for (let j = 0; j < to - from; j += 1) {
+          const gain = placedGain(p, from - p.at + j);
+          for (let c = 0; c < channels; c += 1) {
+            const target = planes[c];
+            if (target)
+              target[from - start + j] =
+                (target[from - start + j] ?? 0) + (frames[c]?.[j] ?? 0) * gain;
+          }
         }
       }
+      yield { planes, start };
     }
-    yield { planes, start };
+  } finally {
+    // Done, stopped or failed: every file's decoder is let go.
+    await Promise.all(readers.map((reader) => reader.close()));
   }
 }
 

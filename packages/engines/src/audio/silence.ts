@@ -27,6 +27,42 @@ export interface SilenceOptions {
   keep?: string;
 }
 
+const QUIET = new Float32Array(4096);
+
+/**
+ * Decoded blocks read into levels on the track's own timeline, the one the
+ * cut is made on (encode-audio → seamless; loudness.ts → scanFile keeps the
+ * same one). Blocks laid end to end are not that timeline: a track that
+ * starts half a second in, or has a gap, would have every silence, cut and
+ * split point that much early. So a block that starts after the last one
+ * ended has silence before it, and frames that overlap what was read are
+ * dropped; two frames either way are rounding. The rate is the decoder's:
+ * a track can declare another (HE-AAC declares half).
+ */
+export function timedLevels() {
+  let scan: LevelScan | undefined;
+  let next = 0;
+  return {
+    push(planes: Float32Array[], timestamp: number, rate: number): void {
+      scan ??= new LevelScan(rate, planes.length);
+      const gap = Math.round(timestamp * rate) - next;
+      let block = planes;
+      if (gap > 2) {
+        // A plane the scan isn't given counts as silence, so one quiet plane does for all.
+        for (let left = gap; left > 0; left -= QUIET.length) {
+          scan.push([QUIET.subarray(0, Math.min(left, QUIET.length))]);
+        }
+        next += gap;
+      } else if (gap < -2) {
+        block = planes.map((plane) => plane.subarray(Math.min(plane.length, -gap)));
+      }
+      scan.push(block);
+      next += block[0]?.length ?? 0;
+    },
+    finish: (): Float32Array => scan?.finish() ?? new Float32Array(0),
+  };
+}
+
 /** Levels already read, by file: changing a setting finds again without decoding again (A11, A14). */
 const read = new WeakMap<Blob, Promise<{ levels: Float32Array; duration: number }>>();
 
@@ -43,18 +79,20 @@ export function levelsOf(file: Blob) {
         if (!track || !(await track.canDecode())) {
           throw new MediaInputError('This browser can’t decode the audio in this file.');
         }
-        const scan = new LevelScan(await track.getSampleRate(), await track.getNumberOfChannels());
+        const timed = timedLevels();
         for await (const sample of new AudioSampleSink(track).samples()) {
-          scan.push(
+          timed.push(
             Array.from({ length: sample.numberOfChannels }, (_, planeIndex) => {
               const plane = new Float32Array(sample.numberOfFrames);
               sample.copyTo(plane, { planeIndex, format: 'f32-planar' });
               return plane;
             }),
+            sample.timestamp,
+            sample.sampleRate,
           );
           sample.close();
         }
-        return { levels: scan.finish(), duration: await track.computeDuration() };
+        return { levels: timed.finish(), duration: await track.computeDuration() };
       } finally {
         input.dispose();
       }
