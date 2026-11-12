@@ -7,7 +7,8 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
 import { log } from '../../lib/log';
-import { auth } from '../../server/auth';
+import { addressOf } from '../../server/api';
+import { auth, signInLinkRefused } from '../../server/auth';
 import { field } from '../../server/form';
 import { safeNext } from '../../server/next-path';
 
@@ -23,15 +24,19 @@ export async function sendSignInLink(formData: FormData): Promise<void> {
   });
   if (!parsed.success) redirect('/sign-in?error=invalid_email');
   const next = safeNext(parsed.data.next);
+  const sent = await headers();
+  // Counted before Better Auth writes or sends anything for this request.
+  const refused = signInLinkRefused(parsed.data.email, addressOf(sent));
+  if (refused) redirect(`/sign-in?error=${refused}`);
   let outcome = 'sent=1';
   try {
     await auth().api.signInMagicLink({
       body: { email: parsed.data.email, callbackURL: next, errorCallbackURL: '/sign-in' },
-      headers: await headers(),
+      headers: sent,
     });
   } catch (error) {
     const code = isAPIError(error) ? error.body?.code : undefined;
-    if (code === 'TOO_MANY_LINKS' || code === 'ACCOUNT_DISABLED') {
+    if (code === 'ACCOUNT_DISABLED') {
       outcome = `error=${code}`;
     } else {
       log.error({ err: error }, 'auth.link_failed');

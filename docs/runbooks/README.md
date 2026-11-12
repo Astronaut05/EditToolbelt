@@ -1,10 +1,11 @@
 # Runbooks
 
-What to do when something goes wrong (`docs/11` → Backups and recovery, Incident basics). Each page is short, in the order you'd do things, with the commands to run. The commands are for the local stack (`docker compose`); [production.md](production.md) says where each thing lives on the private live site and how to run the same commands there.
+What to do when something goes wrong (`docs/11` → Backups and recovery, Incident basics). Each page is short, in the order you'd do things, with the commands to run. The commands are for the local stack (`docker compose`); [production.md](production.md) says where each thing lives on the live site and how to run the same commands there.
 
 | When | Read |
 |---|---|
 | Deploying, rolling back, or finding a production setting | [production.md](production.md) |
+| Opening the site to the public, or taking it private again | [go-public.md](go-public.md) |
 | An alert arrives (Telegram or email) | [alerts.md](alerts.md) |
 | The GPU budget alert (80 % or 100 % of the day's GPU budget) | [gpu-budget.md](gpu-budget.md) |
 | A tool misbehaves and must stop now | [disable-a-tool.md](disable-a-tool.md) |

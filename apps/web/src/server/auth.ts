@@ -2,7 +2,10 @@
  * Accounts (docs/11 → Auth and accounts, docs/04 → Identity): Better Auth
  * with email magic links and, when configured, Google. No passwords.
  *
- * - Magic links last 15 minutes, work once, and are stored hashed.
+ * - Magic links last 15 minutes, work once, and are stored hashed. Asking for
+ *   one is limited per caller, per email address and in all.
+ * - Over HTTP only the landings answer (an emailed link, Google's redirect);
+ *   everything else is called on the server.
  * - Sessions last 30 days, refreshed daily; the cookie is httpOnly, SameSite=Lax,
  *   Secure on https. No IP address or user agent is kept (docs/08).
  * - Google's tokens and avatar are not kept: sign-in is all we use it for.
@@ -31,26 +34,93 @@ import { db } from './db';
 import { serverEnv } from './env';
 import { sendMail, signInMail } from './mail';
 import { ApiError, problem } from './problem';
+import { countCall } from './rate-limit';
 import { claimWelcomeGrant, grantSecret } from './welcome';
 
 const DAY = 24 * 60 * 60;
 
-/** Magic links per email address in a window: the endpoint takes no IP, so it's limited per address. */
-const LINKS_PER_WINDOW = 3;
-const LINK_WINDOW_MS = 15 * 60 * 1000;
-const recentLinks = new Map<string, number[]>();
+/**
+ * Sign-in links are limited three ways, before anything is written or sent:
+ * per caller (so one visitor can't mail a list of addresses), per email
+ * address (so nobody's inbox is filled), and in all (so no number of callers
+ * can spend the mail quota or the domain's reputation). Better Auth's own
+ * limiter is off: it counts by IP address, which we don't keep
+ * (`disableIpTracking`). Counted in src/server/rate-limit.ts, whose store is
+ * bounded.
+ */
+export const LINK_LIMITS = {
+  windowSec: 15 * 60,
+  perAddress: 10,
+  perEmail: 3,
+  allWindowSec: 60 * 60,
+  all: 300,
+} as const;
 
-function linkAllowed(email: string, now = Date.now()): boolean {
-  // Keyed by a hash: the map never holds an address.
-  const key = createHash('sha256').update(email.toLowerCase()).digest('hex');
-  const recent = (recentLinks.get(key) ?? []).filter((at) => now - at < LINK_WINDOW_MS);
-  if (recent.length >= LINKS_PER_WINDOW) {
-    recentLinks.set(key, recent);
-    return false;
+export type LinkRefusal = 'TOO_MANY_REQUESTS' | 'TOO_MANY_LINKS' | 'LINKS_PAUSED';
+
+let pauseLoggedAt = -Infinity;
+
+/**
+ * A caller this machine itself, or one no proxy named: only off production
+ * (the local stack, the end-to-end tests), where every visitor arrives as
+ * the loopback address and would share one count. Behind Cloudflare and
+ * Railway every request names a real one. The keys are addressOf's: `::1`
+ * counts by its /64.
+ */
+const localCaller = (address: string): boolean =>
+  address === 'direct' || address === '0:0:0:0::/64' || /^127\.\d+\.\d+\.\d+$/.test(address);
+
+/**
+ * Counts one request for a sign-in link; null when it may go ahead, or why
+ * not. `address` is the caller's (src/server/api.ts → addressOf).
+ */
+export function signInLinkRefused(
+  email: string,
+  address: string,
+  now = Date.now(),
+): LinkRefusal | null {
+  if (
+    !localCaller(address) &&
+    countCall(`link:address:${address}`, LINK_LIMITS.perAddress, LINK_LIMITS.windowSec, now)
+      .exceeded
+  ) {
+    return 'TOO_MANY_REQUESTS';
   }
-  recentLinks.set(key, [...recent, now]);
-  return true;
+  // Keyed by a hash: the limiter never holds an email address.
+  const hash = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+  if (countCall(`link:email:${hash}`, LINK_LIMITS.perEmail, LINK_LIMITS.windowSec, now).exceeded) {
+    return 'TOO_MANY_LINKS';
+  }
+  if (countCall('link:all', LINK_LIMITS.all, LINK_LIMITS.allWindowSec, now).exceeded) {
+    // Said once in ten minutes: under a flood every request would say it.
+    if (now - pauseLoggedAt > 10 * 60 * 1000) {
+      pauseLoggedAt = now;
+      log.warn({ limit: LINK_LIMITS.all }, 'auth.links_paused');
+    }
+    return 'LINKS_PAUSED';
+  }
+  return null;
 }
+
+/**
+ * Better Auth's endpoints that answer over HTTP: where an emailed link and
+ * Google's redirect land, and its error page. Everything else it offers
+ * (asking for a link, changing the profile, listing sessions…) the site
+ * calls on the server (`auth().api`), behind its own checks and limits, so
+ * over HTTP it answers 404: with the library's limiter off, an open
+ * `POST /api/auth/sign-in/magic-link` would mail anyone without limit, and
+ * `update-user` would store a name of any size.
+ */
+const HTTP_AUTH_PATHS = ['/magic-link/verify', '/callback/google', '/error'];
+
+export function authPathAllowed(method: string, pathname: string): boolean {
+  if (method.toUpperCase() !== 'GET') return false;
+  const path = pathname.replace(/\/+$/, '');
+  return HTTP_AUTH_PATHS.some((allowed) => path === `/api/auth${allowed}`);
+}
+
+/** The longest display name kept (src/app/account/actions.ts holds the form to it too). */
+export const MAX_DISPLAY_NAME = 80;
 
 /** Google's tokens are never needed after sign-in, so none are stored. */
 const withoutTokens = <T extends object>(account: T) => ({
@@ -136,9 +206,36 @@ function createAuth() {
       useSecureCookies: env.SITE_URL.startsWith('https://'),
     },
     telemetry: { enabled: false },
+    logger: {
+      // Through our logger, so nothing skips its redaction. Only the message:
+      // the arguments are errors that carry a failed query's bound values
+      // (email addresses, session tokens), which are never logged (docs/07).
+      log: (level, message, ...args: unknown[]) => {
+        const first = args[0];
+        log[level](
+          { source: 'better-auth', ...(first instanceof Error && { err_name: first.name }) },
+          // A failed query's message ends in its bound values: cut there.
+          message.split(/\n?params:/)[0] ?? '',
+        );
+      },
+    },
     databaseHooks: {
       user: {
         create: { before: (user) => Promise.resolve({ data: { ...user, image: null } }) },
+        // Whatever path an update takes: no avatar URL is kept (docs/08), and
+        // a display name stays as short as the account form allows.
+        update: {
+          before: (user) =>
+            Promise.resolve({
+              data: {
+                ...user,
+                ...('image' in user && { image: null }),
+                ...(typeof user.name === 'string' && {
+                  name: user.name.trim().slice(0, MAX_DISPLAY_NAME),
+                }),
+              },
+            }),
+        },
       },
       session: {
         create: {
@@ -193,12 +290,8 @@ function createAuth() {
               code: 'ACCOUNT_DISABLED',
             });
           }
-          if (!linkAllowed(email)) {
-            throw new APIError('TOO_MANY_REQUESTS', {
-              message: 'Too many sign-in links for this address. Try again in 15 minutes.',
-              code: 'TOO_MANY_LINKS',
-            });
-          }
+          // The limits were counted before this request wrote anything
+          // (signInLinkRefused, called by the sign-in form's action).
           await sendMail(signInMail(email, url));
         },
       }),

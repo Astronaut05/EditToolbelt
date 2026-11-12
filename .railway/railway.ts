@@ -61,19 +61,27 @@ export default defineRailway((ctx) => {
     healthcheckTimeout: 300,
     regions: { [REGION]: 1 },
     // The custom domains (the site's host and www, port 8080) are added in
-    // Railway's dashboard: its configuration can't register them. No Railway
-    // hostname is generated, so Access can't be bypassed.
+    // Railway's dashboard. No Railway hostname is generated: the site is
+    // reached through Cloudflare, at its own domain.
     deploy: { restartPolicyType: 'ON_FAILURE', restartPolicyMaxRetries: 10, drainingSeconds: 30 },
     env: {
       ...common,
       PORT: '8080',
       SITE_URL: site.origin,
       MODELS_BASE_URL: '/models',
+      // The address /contact publishes; the page says one is on its way until it is set.
+      CONTACT_EMAIL: shared('CONTACT_EMAIL'),
       BETTER_AUTH_SECRET: shared('BETTER_AUTH_SECRET'),
       GOOGLE_CLIENT_ID: shared('GOOGLE_CLIENT_ID'),
       GOOGLE_CLIENT_SECRET: shared('GOOGLE_CLIENT_SECRET'),
+      // The site is public (SITE_ACCESS defaults to public). Access stays on
+      // /admin: these two name the Access application the web service checks
+      // /admin's token against; unset, /admin has its own sign-in only.
       CF_ACCESS_TEAM_DOMAIN: shared('CF_ACCESS_TEAM_DOMAIN'),
       CF_ACCESS_AUD: shared('CF_ACCESS_AUD'),
+      // The origin lock: the secret header a Cloudflare Transform Rule adds, so
+      // requests that skip Cloudflare are refused (docs/runbooks/go-public.md).
+      ORIGIN_AUTH_SECRET: shared('ORIGIN_AUTH_SECRET'),
     },
   });
 

@@ -61,6 +61,7 @@ const nextConfig: NextConfig = {
     MODELS_BASE_URL: env.MODELS_BASE_URL,
     ANALYTICS_URL: env.ANALYTICS_URL ?? '',
     ANALYTICS_WEBSITE_ID: env.ANALYTICS_WEBSITE_ID ?? '',
+    CONTACT_EMAIL: env.CONTACT_EMAIL ?? '',
   },
 };
 

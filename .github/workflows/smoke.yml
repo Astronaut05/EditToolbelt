@@ -1,16 +1,23 @@
-# After every production deploy: the live site, through Cloudflare Access.
+# After every production deploy: the live site, from outside.
 # Railway reports each deploy to GitHub as a deployment; when one succeeds:
-# 1. site: waits until /healthz reports that commit, then checks the site
-#    (scripts/ops/verify.ts → site): private without a token, ready, security
-#    headers, www.
+# 1. site: waits until /healthz reports the commit the web service should run,
+#    then checks the site (scripts/ops/verify.ts → site). A public site
+#    (docs/runbooks/go-public.md) must answer anyone, be ready, send its
+#    security headers, redirect www, and keep /admin shut. A private one must
+#    show strangers the Access login, and is checked through Access with CI's
+#    service token (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET).
 # 2. browser: the browser tests (apps/web/e2e/) against the live site, the
-#    deployed commit's own tests, with an Access session from the service
-#    token (apps/web/playwright.prod.config.ts). Chromium.
-# Both skip cleanly until the Access service token is set (CF_ACCESS_CLIENT_ID,
-# CF_ACCESS_CLIENT_SECRET). Run it by hand from Actions → Smoke → Run workflow.
+#    deployed commit's own tests (apps/web/playwright.prod.config.ts). Chromium.
+# Nothing here skips: a check that cannot run fails and says what is missing.
+# Run it by hand from Actions → Smoke → Run workflow.
 #
-# Not on `push` or `workflow_run`: Railway deploys a commit only once its check
-# suites pass, so a check that waits for the deploy would wait for itself.
+# Railway rebuilds the web service only for commits that touch it
+# (.railway/railway.ts → watchPatterns), but reports a deploy for every
+# commit, the worker's included. So the version to wait for is any commit from
+# the last one that touched the web service up to the deployed one.
+#
+# Not on `push` or `workflow_run`: Railway deploys a commit as it lands, so a
+# check started by the push would race the deploy it is meant to check.
 name: Smoke
 
 on:
@@ -30,58 +37,61 @@ concurrency:
 
 jobs:
   site:
-    name: Production · the live site through Access
+    name: Production · the live site, from outside
     if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The history, to find the last commit that touched the web service.
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
+      - name: Which commits the web service may be running
+        id: versions
+        run: |
+          if [ -z "$SHA" ]; then exit 0; fi
+          # The same paths as the web service's watchPatterns in .railway/railway.ts.
+          last=$(git log -1 --format=%H "$SHA" -- apps/web packages config models.json \
+            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json)
+          if [ -n "$last" ] && git rev-parse --quiet --verify "$last^" > /dev/null; then
+            list=$(git rev-list "$last^..$SHA" | paste -sd, -)
+          else
+            list=$SHA
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+        env:
+          SHA: ${{ github.event.deployment.sha || inputs.version }}
       - name: Site checks
         run: node scripts/ops/verify.ts
         env:
-          # Only the site check's variables: the others skip themselves.
+          OPS_CHECKS: site
           SITE_URL: ${{ vars.SITE_URL }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-          EXPECT_VERSION: ${{ github.event.deployment.sha || inputs.version }}
+          EXPECT_VERSION: ${{ steps.versions.outputs.list }}
           EXPECT_WAIT_MINUTES: '20'
 
   browser:
-    name: Production · every tool in the browser, through Access
+    name: Production · every tool in the browser
     needs: site
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Is the service token set?
-        id: token
-        run: |
-          if [ -n "$ID" ] && [ -n "$SECRET" ]; then
-            echo "set=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::No Access service token yet (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET): browser tests skipped."
-          fi
-        env:
-          ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.token.outputs.set == 'true'
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        if: steps.token.outputs.set == 'true'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: steps.token.outputs.set == 'true'
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - if: steps.token.outputs.set == 'true'
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - name: Install Playwright's Chromium
-        if: steps.token.outputs.set == 'true'
         run: pnpm exec playwright install chromium
+      # A public site needs no session; a private one gets one from CI's
+      # Access service token (apps/web/e2e-prod/global-setup.ts decides).
       - name: Browser tests against the live site
-        if: steps.token.outputs.set == 'true'
         run: pnpm --filter @etb/web e2e:prod
         env:
           E2E_BASE_URL: ${{ vars.SITE_URL }}

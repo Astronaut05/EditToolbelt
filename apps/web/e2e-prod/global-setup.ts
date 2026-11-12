@@ -1,10 +1,13 @@
 /**
- * A Cloudflare Access session for the browser tests (playwright.prod.config.ts),
- * saved as Playwright storage state: one CF_Authorization cookie for the site.
+ * What the browser tests (playwright.prod.config.ts) need to get in, saved as
+ * Playwright storage state.
  *
- * - With CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (the live site): one
- *   request with the service token; Access answers with the cookie, which
- *   then stands in for the token on every later request.
+ * - A public site (`/healthz` says `access: "public"` to anyone;
+ *   docs/runbooks/go-public.md): nothing. The state is empty.
+ * - A private site, with CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET: one
+ *   CF_Authorization cookie. One request with the service token; Access
+ *   answers with the cookie, which then stands in for the token on every
+ *   later request.
  * - With E2E_FAKE_ACCESS=1 (CI, the production image): a stand-in Access team
  *   on 127.0.0.1. It serves its signing key where Access serves the team's
  *   (`/cdn-cgi/access/certs`) and signs the cookie itself. Start the web
@@ -111,10 +114,27 @@ async function fakeAccess(
   };
 }
 
+/** Whether the site itself tells a stranger it is public (src/app/healthz). */
+async function isPublic(site: URL): Promise<boolean> {
+  try {
+    const response = await fetch(new URL('/healthz', site), { redirect: 'manual' });
+    if (!response.ok) return false;
+    return ((await response.json()) as { access?: unknown }).access === 'public';
+  } catch {
+    return false;
+  }
+}
+
 export default async function globalSetup(): Promise<(() => Promise<void>) | undefined> {
   const site = new URL(process.env.E2E_BASE_URL ?? '');
   const id = process.env.CF_ACCESS_CLIENT_ID?.trim();
   const secret = process.env.CF_ACCESS_CLIENT_SECRET?.trim();
+  // The stand-in Access team is asked for by name; otherwise a public site needs no session.
+  if (process.env.E2E_FAKE_ACCESS !== '1' && (await isPublic(site))) {
+    mkdirSync(dirname(STATE), { recursive: true });
+    writeFileSync(STATE, JSON.stringify({ cookies: [], origins: [] }));
+    return undefined;
+  }
   if (id && secret) {
     saveCookie(site, await serviceTokenCookie(site, id, secret));
     return undefined;
@@ -140,6 +160,6 @@ export default async function globalSetup(): Promise<(() => Promise<void>) | und
     return access.close;
   }
   throw new Error(
-    'No Access session: set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (the live site) or E2E_FAKE_ACCESS=1 (a local image).',
+    'The site is private and there is no Access session: set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (the live site) or E2E_FAKE_ACCESS=1 (a local image started with SITE_ACCESS=private).',
   );
 }

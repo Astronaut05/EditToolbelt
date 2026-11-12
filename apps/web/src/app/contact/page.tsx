@@ -10,14 +10,21 @@ export const metadata: Metadata = pageMetadata({
   path: '/contact',
 });
 
+/** Inlined at build time (next.config.ts); empty until the address is set. */
+const address = process.env.CONTACT_EMAIL;
+
 export default function ContactPage() {
   return (
     <SiteFrame>
       <LegalPage title="Contact" label="Contact">
-        <p>
-          EditToolbelt isn’t public yet. The contact address is published here when the site goes
-          live on its own domain.
-        </p>
+        {address ? (
+          <p>
+            Write to <a href={`mailto:${address}`}>{address}</a> with questions, problems or ideas.
+            We read every message.
+          </p>
+        ) : (
+          <p>The contact address is being set up and will be published on this page.</p>
+        )}
         <h2 id="abuse">Report abuse</h2>
         <p>
           Reports about illegal content or misuse go to the same address, with “Abuse” in the

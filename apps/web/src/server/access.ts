@@ -1,9 +1,17 @@
 /**
- * Cloudflare Access in front of the site (docs/01-architecture.md → Hosting).
- * Access lets only Astro (and CI's service token) through, and adds a signed
- * token to every request it passes on: `Cf-Access-Jwt-Assertion`. The web
- * service checks that token itself, so Railway's own hostname, or a request
- * sent straight to Railway's edge, can't get around Access.
+ * Cloudflare Access and the site (docs/01-architecture.md → Hosting).
+ *
+ * The site is public (docs/decisions/2026-11-12-go-public.md): every page and
+ * the API answer anyone. Access stays in front of `/admin` only, as a second
+ * lock before the admin's own sign-in and two-factor check. With
+ * `SITE_ACCESS=private` the whole site sits behind Access instead, as it did
+ * until Go public (a staging copy, or taking the site private again).
+ *
+ * Where Access covers a path it lets only its allowed people (and service
+ * tokens) through, and adds a signed token to every request it passes on:
+ * `Cf-Access-Jwt-Assertion`. The web service checks that token itself on the
+ * gated paths, so a request sent straight to Railway's edge can't get around
+ * Access.
  *
  * The token is an RS256 JWT signed with the team's keys
  * (`<team domain>/cdn-cgi/access/certs`), for this application's audience tag.
@@ -28,12 +36,83 @@ export function accessExempt(pathname: string): boolean {
   return OPEN_PATHS.includes(pathname) || OPEN_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-/** The config from env, or null when Access isn't set up (local, test). */
+/** Railway's own health check: it reaches the service on the private network, not through Cloudflare. */
+export function healthCheckPath(pathname: string): boolean {
+  return OPEN_PATHS.includes(pathname);
+}
+
+/** `public`: only `/admin` is behind Access. `private`: every path is. */
+export type SiteAccess = 'public' | 'private';
+
+/** SITE_ACCESS, public unless it says private. */
+export function siteAccess(env: Record<string, string | undefined>): SiteAccess {
+  return env.SITE_ACCESS?.trim().toLowerCase() === 'private' ? 'private' : 'public';
+}
+
+/**
+ * The path as the router will read it, for comparing with `/admin`: decoded
+ * once, slashes collapsed, lower case. `/%61dmin` and `//admin/` must not
+ * slip past a check that `/admin` would meet; gating a path too many is
+ * harmless (its page doesn't exist).
+ */
+function comparable(pathname: string): string {
+  let path = pathname;
+  try {
+    path = decodeURIComponent(pathname);
+  } catch {
+    // Not valid percent-encoding: compare it as sent.
+  }
+  return path.replace(/[\\/]+/g, '/').toLowerCase();
+}
+
+/** Whether a request for this path must carry a valid Access token. */
+export function accessGated(pathname: string, mode: SiteAccess): boolean {
+  if (accessExempt(pathname)) return false;
+  if (mode === 'private') return true;
+  const path = comparable(pathname);
+  return path === '/admin' || path.startsWith('/admin/');
+}
+
+/**
+ * The config from env, or null when Access isn't set up (local, test, or a
+ * public site with no Access application on `/admin`). The team domain may be
+ * a bare host, as Cloudflare's dashboard shows it. One that isn't a URL at
+ * all reads as not set up: the caller decides what that means, and nothing
+ * throws while the server starts.
+ */
 export function accessConfig(env: Record<string, string | undefined>): AccessConfig | null {
   const team = env.CF_ACCESS_TEAM_DOMAIN?.trim();
   const audience = env.CF_ACCESS_AUD?.trim();
   if (!team || !audience) return null;
-  return { teamDomain: new URL(team).origin, audience };
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(team) ? team : `https://${team}`);
+    return { teamDomain: url.origin, audience };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The origin lock (docs/runbooks/go-public.md → Lock the origin): a secret
+ * request header that a Cloudflare Transform Rule adds, so the web service
+ * can tell a request that came through Cloudflare from one sent straight to
+ * Railway's edge with the site's Host. Unset: no lock (local, and production
+ * until the rule exists). Compared in constant time.
+ */
+export const ORIGIN_AUTH_HEADER = 'x-origin-auth';
+
+export function originSecret(env: Record<string, string | undefined>): string | null {
+  return env.ORIGIN_AUTH_SECRET?.trim() || null;
+}
+
+/** Whether `sent` is the secret, without leaking where they differ. */
+export function originAllowed(sent: string | null, secret: string): boolean {
+  if (sent === null) return false;
+  const a = new TextEncoder().encode(sent);
+  const b = new TextEncoder().encode(secret);
+  let difference = a.length ^ b.length;
+  for (let i = 0; i < b.length; i += 1) difference |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return difference === 0;
 }
 
 function base64url(text: string): Uint8Array<ArrayBuffer> {

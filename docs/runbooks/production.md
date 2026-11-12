@@ -1,6 +1,6 @@
 # Production
 
-The private live site (`docs/01-architecture.md` → Hosting): only Astro, through Cloudflare Access. This page names every setting and where it lives. It never holds a value: secrets live only in Railway's variables and GitHub's secrets.
+The live site (`docs/01-architecture.md` → Hosting). Its code is public by default; Cloudflare Access decides who reaches it, and [go-public.md](go-public.md) is how that changes. This page names every setting and where it lives. It never holds a value: secrets live only in Railway's variables and GitHub's secrets.
 
 ## What runs where
 
@@ -10,7 +10,7 @@ The private live site (`docs/01-architecture.md` → Hosting): only Astro, throu
 | Worker (jobs, alerts, sweeper) | Railway, service `worker` | `apps/worker/Dockerfile`, 2 job slots, container disk only (100 GB: the largest input is 10 GiB, and a Merge Videos job holds up to 10 GiB of clips and a result about as large). |
 | Postgres 18 | Railway, service `postgres` | Private network only. Restoring: [restore-database.md](restore-database.md). |
 | Files | Cloudflare R2, bucket `edittoolbelt-files`, EU jurisdiction | Lifecycle: delete after 1 day, abort multipart after 1 day (the backstop; the sweeper deletes outputs after 60 min). CORS: the site's origin only. |
-| DNS, TLS, Access | Cloudflare | Access (Zero Trust, free) covers the site and `www`: one email allowed, plus CI's service token. |
+| DNS, TLS, Access | Cloudflare | Access (Zero Trust, free): one email allowed. Public: it covers `/admin` only. Before Go public it covered the whole domain, with CI's service token in a Service Auth policy. |
 | GPU jobs | Modal, app `edittoolbelt-gpu` | Per-second, scales to zero. The worker calls it; files move through presigned R2 URLs. |
 | Email | The SMTP provider (`SMTP_URL`) | Sign-in links and alert emails. SPF, DKIM and DMARC in Cloudflare DNS. |
 
@@ -29,7 +29,9 @@ The services reference these (`.railway/railway.ts`); a reference to one that is
 | `SMTP_URL` | web, worker | The email provider's SMTP URL |
 | `BETTER_AUTH_SECRET` | web | 32 random bytes, base64 |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | web | Google Cloud → the OAuth client for the site |
-| `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | web | Zero Trust → the team domain, and the Access application's audience tag |
+| `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | web | Zero Trust → the team domain (with or without `https://`), and the Access application's audience tag. Both set: `/admin` must carry Access's token |
+| `ORIGIN_AUTH_SECRET` | web | Optional, the origin lock: the value of the `x-origin-auth` header a Cloudflare Transform Rule adds ([go-public.md](go-public.md)) |
+| `CONTACT_EMAIL` | web | Optional: the address `/contact` publishes |
 | `ALERT_EMAIL` | worker | Where alert emails go |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | worker | The alert bot (optional; email alone works) |
 | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | worker | Modal → a token for the workspace |
@@ -45,7 +47,7 @@ Everything else the services read is set in `.railway/railway.ts` itself (no sec
 | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | secrets | Modal (deploy on merge) |
 | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | secrets | Ops checks → `r2` |
 | `CF_READ_TOKEN`, `CF_ACCOUNT_ID` | secrets | Ops checks → `cloudflare-r2`, `dns`, `access` (a read-only Cloudflare token) |
-| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secrets | Ops checks → `site`, `worker`, Smoke, Watch (the Access service token) |
+| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secrets | Only while the site is private: the Access service token for Ops checks → `site`, `worker`, Smoke, Watch. A public site needs neither |
 | `ETB_SMOKE_API_KEY` | secret | Ops checks → `job` (an API key made on Astro's account at `/account`, after the first deploy) |
 
 GitHub → Settings → Environments → `railway`: Astro is the required reviewer, so nothing changes Railway's setup without Astro's approval.
@@ -53,8 +55,8 @@ GitHub → Settings → Environments → `railway`: Astro is the required review
 ## Deploying
 
 1. A PR merges to `main`.
-2. Railway sees the commit, waits for its GitHub checks, builds both images, runs the migrations (pre-deploy), and swaps in the web service once `/readyz` answers. A failed migration or health check keeps the old version running.
-3. Railway reports the deploy to GitHub as a deployment; **Smoke** waits until `/healthz` names the new commit, then checks the site through Access (private without a token, ready, security headers, `www` redirect) and runs the browser tests against it (every tool page, CSP, axe; `apps/web/playwright.prod.config.ts`). A red Smoke run is fixed first, before any other work.
+2. Railway sees the commit, builds both images, runs the migrations (pre-deploy), and swaps in the web service once `/readyz` answers. A failed migration or health check keeps the old version running. It does not wait for the commit's checks unless Wait for CI is on in each service's Source settings (seen 2026-10-19: deployed 39 minutes before CI ended); only pull requests that passed CI reach `main`, so the code has been checked either way.
+3. Railway reports the deploy to GitHub as a deployment; **Smoke** waits until `/healthz` names the commit the web service should run (the last one that touched it), then checks the site from outside (public: answers anyone, ready, security headers, `www` redirect, `/admin` shut; private: the Access login for strangers, then the same through Access) and runs the browser tests against it (every tool page, CSP, axe; `apps/web/playwright.prod.config.ts`). A red Smoke run is fixed first, before any other work.
 4. A merge that touches the GPU app also deploys it to Modal (Actions → **Modal**).
 
 Changing Railway's setup (services, variables, regions) is a PR to `.railway/railway.ts`: CI shows the plan. Applying it: Actions → **Railway** → Run workflow on `main` → Astro approves → it plans again and applies that plan. It never removes anything.
@@ -72,7 +74,7 @@ Custom domains are added in Railway's dashboard (its configuration can't registe
 - The first admin: sign in once on the site, then Railway → service `web` → the deployment's shell (or `railway ssh --service web` from a terminal) → `pnpm admin:promote <email>`. Then set up two-factor at `/admin/two-factor`.
 - Logs: Railway → service → Logs. They never contain file names, file contents or secrets.
 - Checks from outside: Actions → **Ops checks** → Run workflow (empty runs every check whose secrets are set; `site` checks the live site; `r2` round-trips a test file through storage).
-- The worker, from outside: **Watch** runs every 30 minutes (and by hand: Actions → Watch → Run workflow). It reads `/readyz/worker` through Access and fails when the worker's heartbeat or the sweeper's last pass is too old; GitHub emails about a failed run (Settings → Notifications → Actions). Until `SITE_URL` and the service token are set it skips. GitHub turns schedules off in a repository with no activity for 60 days; Actions → Watch shows a banner to turn it back on. When it fails: [alerts.md](alerts.md) → Watch.
-- A server job end to end: Ops checks → Run workflow → checks `job`. It runs Compress Video on a small fixture through Access and spends one small job. With retention-minutes `61` it then waits and checks that the output has left storage, which proves the one-hour rule.
-- Access: one application covers the whole domain (Astro's email, plus a Service Auth policy for the service token). A second application opens only `/.well-known/acme-challenge/` (Bypass), so Railway can renew certificates. The `access` check fails if any other path is opened.
+- The worker, from outside: **Watch** is scheduled every 30 minutes (GitHub runs it less often: about 5 times a day in October) and by hand: Actions → Watch → Run workflow. It reads `/readyz/worker` and fails when the worker's heartbeat or the sweeper's last pass is too old; GitHub emails about a failed run (Settings → Notifications → Actions). Until `SITE_URL` is set it skips. GitHub turns schedules off in a repository with no activity for 60 days; Actions → Watch shows a banner to turn it back on. When it fails: [alerts.md](alerts.md) → Watch.
+- A server job end to end: Ops checks → Run workflow → checks `job`. It runs Compress Video on a small fixture and spends one small job. With retention-minutes `61` it then waits and checks that the output has left storage, which proves the one-hour rule.
+- Access, public site: one application covers `/admin` (Astro's email). The `access` check fails if an application still covers the whole domain. Private site: one application covers the whole domain (Astro's email, plus a Service Auth policy for the service token), and a second opens only `/.well-known/acme-challenge/` (Bypass), so Railway can renew certificates; the check fails if any other path is opened.
 - Draining the worker before maintenance: [drain-workers.md](drain-workers.md).
