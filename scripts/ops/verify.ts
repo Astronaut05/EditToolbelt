@@ -349,20 +349,69 @@ interface AccessApp {
   policies?: AccessPolicy[];
 }
 
+interface ServiceToken {
+  id?: string;
+  client_id?: string;
+  expires_at?: string;
+}
+
+/** Whether an application's addresses include `name` (the bare host, or the host with every path). */
+function appCovers(app: AccessApp, name: string): boolean {
+  const domains = [
+    app.domain,
+    ...(app.self_hosted_domains ?? []),
+    ...(app.destinations ?? []).map((d) => d.uri),
+  ].filter((d): d is string => typeof d === 'string');
+  return domains.some((d) => d === name || d === `${name}/` || d === `${name}/*`);
+}
+
+/**
+ * Is the service token CI sends (CF_ACCESS_CLIENT_ID) one the site's Service
+ * Auth policy lets in? A token that was re-created, has expired, or was never
+ * added to the policy is refused by Access before the site sees the request,
+ * and every check through Access then fails with the same 401 or 403. Says
+ * which of those it is; ids and dates only, never a secret.
+ */
+export function serviceTokenProblems(
+  apps: AccessApp[],
+  host: string,
+  tokens: ServiceToken[],
+  clientId: string,
+  now = Date.now(),
+): string[] {
+  const app = apps.find((a) => appCovers(a, host));
+  if (!app) return [];
+  const token = tokens.find((t) => t.client_id === clientId);
+  if (!token) {
+    return [
+      "CF_ACCESS_CLIENT_ID is not a service token of this account (deleted or re-created?): set both of CI's secrets from a current token",
+    ];
+  }
+  const problems: string[] = [];
+  const expires = token.expires_at ? Date.parse(token.expires_at) : NaN;
+  if (Number.isFinite(expires) && expires <= now) {
+    problems.push(
+      `CI's service token expired on ${new Date(expires).toISOString().slice(0, 10)}: refresh it in Zero Trust → Service Auth`,
+    );
+  }
+  const rules = (app.policies ?? [])
+    .filter((p) => p.decision === 'non_identity')
+    .flatMap((p) => p.include ?? []);
+  const named = rules.some((r) => r.service_token?.token_id === token.id);
+  if (!named && !rules.some((r) => r.any_valid_service_token !== undefined)) {
+    problems.push(
+      "the Service Auth policy names a different service token than CI's: add CI's token to the policy's Include",
+    );
+  }
+  return problems;
+}
+
 /** One self-hosted app covering the site and www: one email allowed, CI's service token, nobody else. */
 export function accessProblems(apps: AccessApp[], host: string): string[] {
-  const covers = (app: AccessApp, name: string) => {
-    const domains = [
-      app.domain,
-      ...(app.self_hosted_domains ?? []),
-      ...(app.destinations ?? []).map((d) => d.uri),
-    ].filter((d): d is string => typeof d === 'string');
-    return domains.some((d) => d === name || d === `${name}/` || d === `${name}/*`);
-  };
-  const app = apps.find((a) => covers(a, host));
+  const app = apps.find((a) => appCovers(a, host));
   if (!app) return ['no Access application covers the site'];
   const problems: string[] = [];
-  if (!covers(app, `www.${host}`)) problems.push('the Access application does not cover www');
+  if (!appCovers(app, `www.${host}`)) problems.push('the Access application does not cover www');
   const policies = app.policies ?? [];
   const rules = (decision: string) =>
     policies.filter((p) => p.decision === decision).flatMap((p) => p.include ?? []);
@@ -432,8 +481,25 @@ async function checkAccess(env: Env, site: string): Promise<string> {
     `/accounts/${env.CF_ACCOUNT_ID ?? ''}/access/apps`,
   );
   const problems = accessProblems(apps, host);
+  // CI's own token against the policy: only when CI has one, and only as far
+  // as the read-only token can list service tokens (Access: Service Tokens Read).
+  let ci = '';
+  if (env.CF_ACCESS_CLIENT_ID) {
+    try {
+      const tokens = await cloudflare<ServiceToken[]>(
+        env,
+        `/accounts/${env.CF_ACCOUNT_ID ?? ''}/access/service_tokens`,
+      );
+      const mine = serviceTokenProblems(apps, host, tokens, env.CF_ACCESS_CLIENT_ID);
+      problems.push(...mine);
+      if (mine.length === 0) ci = "; CI's service token is in it and has not expired";
+    } catch (error) {
+      if (!(error instanceof Failed)) throw error;
+      ci = "; CI's own token not compared (the read-only token cannot list service tokens)";
+    }
+  }
   expect(problems.length === 0, problems.join('; '));
-  return 'one application covers the site and www; one email allowed; a Service Auth policy for CI';
+  return `one application covers the site and www; one email allowed; a Service Auth policy for CI${ci}`;
 }
 
 // ── The live site, from outside and through Access ───────────────────────────
@@ -476,6 +542,46 @@ export async function waitForVersion(
   }
 }
 
+/**
+ * Who answered a request that did not get through, read from the response's
+ * headers: Railway's edge marks everything it passes on, so an answer without
+ * its mark came from Cloudflare (Access refused the request, or Cloudflare
+ * could not reach Railway) and never reached the site. So a failed check says
+ * where to look. Header names and a status only; the body is not printed.
+ */
+export function answeredBy(response: Response): string {
+  const has = (name: string) => response.headers.get(name) !== null;
+  // What the guess below rests on, so a wrong guess can be seen: the server's
+  // name and which of these headers the answer carries.
+  const marks = [
+    'cf-ray',
+    'cf-mitigated',
+    'www-authenticate',
+    'x-railway-request-id',
+    'x-railway-edge',
+    'x-railway-fallback',
+  ].filter(has);
+  const seen = ` [server: ${response.headers.get('server') ?? 'none'}; headers: ${marks.join(', ') || 'none of the known ones'}]`;
+  const who = (): string => {
+    if (response.headers.get('x-railway-fallback') === 'true') {
+      return "answered by Railway's edge: no service is running behind this domain (is the custom domain on the web service, port 8080?)";
+    }
+    if (has('x-railway-request-id') || has('x-railway-edge')) {
+      return 'answered by the web service on Railway';
+    }
+    if (response.status === 401 || response.status === 403) {
+      return "answered by Cloudflare Access, before Railway: it refused CI's service token (run the `access` check; a token that is in the policy and not expired means CF_ACCESS_CLIENT_SECRET is not that token's secret)";
+    }
+    if (response.status >= 300 && response.status < 400) {
+      return "answered by Cloudflare Access with its login page: CI's service token is not in a Service Auth policy";
+    }
+    return has('cf-ray')
+      ? 'answered by Cloudflare, before Railway (521 to 526 mean Cloudflare cannot reach Railway: check the DNS target and SSL mode Full (strict))'
+      : 'answered by neither Cloudflare nor Railway';
+  };
+  return who() + seen;
+}
+
 async function checkSite(env: Env, site: string): Promise<string> {
   const outside = await fetch(`${site}/`, { redirect: 'manual' });
   const location = outside.headers.get('location') ?? '';
@@ -493,6 +599,12 @@ async function checkSite(env: Env, site: string): Promise<string> {
   const get = (path: string) => fetch(`${site}${path}`, { headers: token, redirect: 'manual' });
   // After a deploy (.github/workflows/smoke.yml): first wait for the new commit.
   if (env.EXPECT_VERSION) {
+    // A refusal by Access is the same now as in 20 minutes: say so at once.
+    const first = await get('/healthz').catch(() => null);
+    expect(
+      first?.status !== 401 && first?.status !== 403,
+      `/healthz answered HTTP ${String(first?.status)} through Access (${first ? answeredBy(first) : ''})`,
+    );
     const minutes = Number(env.EXPECT_WAIT_MINUTES || '30');
     const { ok, seen } = await waitForVersion(() => get('/healthz'), env.EXPECT_VERSION, {
       waitMs: minutes * 60_000,
@@ -503,7 +615,10 @@ async function checkSite(env: Env, site: string): Promise<string> {
     );
   }
   const health = await get('/healthz');
-  expect(health.ok, `/healthz answered HTTP ${String(health.status)} through Access`);
+  expect(
+    health.ok,
+    `/healthz answered HTTP ${String(health.status)} through Access (${answeredBy(health)})`,
+  );
   const { version } = (await health.json()) as { version?: string };
   const ready = await get('/readyz');
   expect(ready.ok, `/readyz answered HTTP ${String(ready.status)}: ${await ready.text()}`);
@@ -568,9 +683,11 @@ async function checkWorker(env: Env, site: string): Promise<string> {
     checks?: Record<string, WorkerCheck>;
   };
   const seen = describeWorker(body.checks);
+  // 503 with its checks is the worker's own answer; anything else never got that far.
+  const from = response.ok || seen ? '' : ` (${answeredBy(response)})`;
   expect(
     response.ok,
-    `/readyz/worker answered HTTP ${String(response.status)}${body.detail ? `: ${body.detail}` : ''}${seen ? ` (${seen})` : ''}. See docs/runbooks/alerts.md → Watch`,
+    `/readyz/worker answered HTTP ${String(response.status)}${body.detail ? `: ${body.detail}` : ''}${seen ? ` (${seen})` : ''}${from}. See docs/runbooks/alerts.md → Watch`,
   );
   return `worker alive: ${seen}`;
 }
