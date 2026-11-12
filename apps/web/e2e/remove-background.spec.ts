@@ -117,6 +117,46 @@ test('a new background reuses the cut-out: color, then WebP', async ({ page, isM
   expect([webp.width, webp.height]).toEqual([W, H]);
 });
 
+test('Background: Image puts the chosen picture behind the subject', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'The same option in a sheet on phones; the engine path is the same');
+  await drop(page);
+  await expect(downloadButton(page)).toBeEnabled({ timeout: 60_000 });
+  await choose(page, isMobile, 'Background', 'Image');
+  const blue = await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(64, 64);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no canvas');
+    ctx.fillStyle = '#1040e0';
+    ctx.fillRect(0, 0, 64, 64);
+    const bytes = new Uint8Array(
+      await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer(),
+    );
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  });
+  await page
+    .getByRole('region', { name: 'Settings' })
+    .getByLabel('New background', { exact: true })
+    .setInputFiles({ name: 'sky.png', mimeType: 'image/png', buffer: Buffer.from(blue, 'base64') });
+  await expect(page.getByText('sky.png').first()).toBeVisible();
+  // The redo for the new background: wait for it before saving.
+  await expect
+    .poll(
+      async () => {
+        const out = await inspect(page, await save(page), [CENTRE, CORNER]);
+        return out.pixels[1];
+      },
+      { timeout: 60_000 },
+    )
+    .toEqual([16, 64, 224, 255]);
+  const out = await inspect(page, await save(page), [CENTRE]);
+  // The disc is still in front, still red.
+  expect(out.pixels[0]?.[0]).toBeGreaterThan(out.pixels[0]?.[2] ?? 255);
+  // The page's CSP lets nothing fetch an object URL: the picture is read as the file.
+  expect(await cspViolations(page)).toEqual([]);
+});
+
 test('Refine by hand erases what the brush covers', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Painting is covered on desktop; the phone runs the same component');
   await drop(page);

@@ -88,6 +88,23 @@ const WIDE = '(min-width: 64rem)';
 /** How often a running batch redraws its rows. */
 const BATCH_DRAW_MS = 120;
 
+/**
+ * Whether a single run's progress report is drawn. Engines report far more
+ * often than anyone reads, and each one drawn is a render of the whole shell:
+ * one per BATCH_DRAW_MS is enough, plus every new stage and the end.
+ */
+function drawGate() {
+  let at = 0;
+  let last: string | undefined;
+  return (stage: string | undefined, fraction: number | undefined) => {
+    const now = performance.now();
+    if (stage === last && now - at < BATCH_DRAW_MS && (fraction ?? 0) < 1) return false;
+    at = now;
+    last = stage;
+    return true;
+  };
+}
+
 function subscribeWide(onChange: () => void) {
   const query = matchMedia(WIDE);
   query.addEventListener('change', onChange);
@@ -209,7 +226,7 @@ export function optionSummary(option: ShellOption, value: string): string {
   return option.choices?.find((choice) => choice.value === value)?.label ?? value;
 }
 
-/** The files behind `file` options' values, so a run can take the file itself. */
+/** The files behind `file` and `image` options' values, so a run can take the file itself. */
 const OPTION_FILES = new Map<string, File>();
 
 /**
@@ -222,7 +239,7 @@ export function fileOptionValue(file: File): string {
   return value;
 }
 
-/** The file a `file` option holds (no fetch of its object URL, which the CSP may not allow). */
+/** The file a `file` or `image` option holds (no fetch of its object URL, which the CSP doesn't allow). */
 export function fileOptionFile(value: string): File | undefined {
   return OPTION_FILES.get(value);
 }
@@ -277,7 +294,8 @@ function ImagePick({
           if (value.startsWith('blob:')) URL.revokeObjectURL(value.split('#')[0] ?? value);
           OPTION_FILES.delete(value);
           setName(file.name);
-          onChange(named ? fileOptionValue(file) : URL.createObjectURL(file));
+          // Both kinds keep the file: the page's CSP lets nothing fetch an object URL.
+          onChange(fileOptionValue(file));
         }}
       />
     </span>
@@ -852,9 +870,17 @@ export function ToolShell({
   // A free preview of a snippet, played A/B (server.preview).
   const [snippet, setSnippet] = useState<PreviewState>({ kind: 'idle' });
   const previewAbort = useRef<AbortController | null>(null);
-  const [options, setOptions] = useState<Record<string, string>>(
+  const [options, showOptions] = useState<Record<string, string>>(
     initialOptions ?? defaults(preset.options),
   );
+  // The settings as last set, a render ahead of `options`. A file being read
+  // and a run about to start take them from here: the ones they began with
+  // may have changed since (a new file clears the last one's brush strokes).
+  const latest = useRef(options);
+  const setOptions = useCallback((next: Record<string, string>) => {
+    latest.current = next;
+    showOptions(next);
+  }, []);
   // The timeline's ranges and the selected one change together. `found` counts the
   // times a file or a search set them, so an edit can tell it was made from older ones
   // (see changeRanges).
@@ -1010,6 +1036,22 @@ export function ToolShell({
   const autoBatch = useRef(false);
   const [sheet, setSheet] = useState<number | null>(null);
   const controller = useRef<AbortController | null>(null);
+  // Which file is in. A new file, Cancel and leaving the page end the session:
+  // the run is aborted, a redo waiting on its timer doesn't start, and whatever
+  // is still reading the old file finds the number changed and says nothing.
+  const session = useRef(0);
+  /**
+   * How many times a setting was changed. A run that ends with more than it
+   * began with made something for older settings, so it runs once more.
+   */
+  const edits = useRef(0);
+  /** `run` as of the last render: the redo starts with the editor, range and files as they are by then. */
+  const again = useRef<((input: InputInfo, file: File) => Promise<void>) | null>(null);
+  const endSession = useCallback(() => {
+    session.current += 1;
+    controller.current?.abort();
+    if (rerunTimer.current) clearTimeout(rerunTimer.current);
+  }, []);
   const urls = useRef<string[]>([]);
   // Canvas editor tools: the edit (crop box, turns) the engine applies.
   const ratioOf = preset.editor?.ratio;
@@ -1040,19 +1082,33 @@ export function ToolShell({
     [onEvent, tool.id],
   );
 
-  // Leaving the page ends the work, not only the files. A run and a preview
-  // are aborted, which cancels a job on our servers and gives its credits
-  // back: left running, it was charged and its result went nowhere. A search
-  // or a redo waiting on its timer doesn't start.
+  // Leaving the page ends the work, not only the files: a run and a preview
+  // are aborted (which cancels a server job), and a search or a redo waiting
+  // on its timer doesn't start.
   useEffect(() => {
     const owned = urls.current;
     return () => {
-      // The run of the moment the page is left, not of when it was opened.
-      controller.current?.abort();
+      endSession();
       previewAbort.current?.abort();
-      if (rerunTimer.current) clearTimeout(rerunTimer.current);
       if (detectTimer.current) clearTimeout(detectTimer.current);
       for (const url of owned) URL.revokeObjectURL(url);
+    };
+  }, [endSession]);
+
+  // A file dropped beside the drop zone would make the browser open it in
+  // place of the page, and the work here would be gone. Drops a zone takes
+  // have been handled by the time they reach the window.
+  useEffect(() => {
+    const guard = (event: DragEvent) => {
+      if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files')) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'none';
+    };
+    window.addEventListener('dragover', guard);
+    window.addEventListener('drop', guard);
+    return () => {
+      window.removeEventListener('dragover', guard);
+      window.removeEventListener('drop', guard);
     };
   }, []);
 
@@ -1073,12 +1129,17 @@ export function ToolShell({
   }, [resultUrl]);
 
   const run = useCallback(
-    async (input: InputInfo, file: File, values: Record<string, string> = options) => {
+    async (dropped: InputInfo, file: File, values: Record<string, string> = latest.current) => {
       if (!engine) return;
+      // Several files into one: named after the first as they are ordered now, not as they arrived.
+      const first = preset.combine && queue[0]?.file.name;
+      const input = first ? { ...dropped, name: first } : dropped;
       controller.current?.abort();
       const abort = new AbortController();
       controller.current = abort;
+      const before = edits.current;
       const started = performance.now();
+      const draw = drawGate();
       track('tool_run_started', { path: 'client' });
       setOnServer(false);
       setState({ kind: 'running', input, fraction: 0, elapsedSec: 0 });
@@ -1113,6 +1174,8 @@ export function ToolShell({
           {
             signal: abort.signal,
             progress: (fraction, stage, detail) => {
+              // Stopped (Cancel, a newer run, a new file): it says no more.
+              if (abort.signal.aborted || !draw(stage, fraction)) return;
               setState({
                 kind: 'running',
                 input,
@@ -1125,13 +1188,24 @@ export function ToolShell({
             },
           },
         );
-        const url = URL.createObjectURL(out.blob);
-        urls.current.push(url);
         const text =
           out.report ??
           (preset.preview === 'text'
             ? (await out.blob.text()).slice(0, TEXT_PREVIEW_CHARS)
             : undefined);
+        // An engine that didn't hear the stop still finishes: its result isn't shown.
+        if (abort.signal.aborted) return;
+        // A setting changed while it ran: this is for the older ones, so it runs once more.
+        if (
+          edits.current !== before &&
+          (preset.autoRun || preset.rerun) &&
+          !preset.blocked?.(latest.current, 1)
+        ) {
+          void again.current?.(input, file);
+          return;
+        }
+        const url = URL.createObjectURL(out.blob);
+        urls.current.push(url);
         const seconds = (performance.now() - started) / 1000;
         track('tool_run_succeeded', {
           engine_path: out.path,
@@ -1161,10 +1235,8 @@ export function ToolShell({
           },
         });
       } catch (error) {
-        if (abort.signal.aborted) {
-          setState({ kind: 'empty' });
-          return;
-        }
+        // Whatever stopped it has already set what shows now, which may be a newer file or run.
+        if (abort.signal.aborted) return;
         track('tool_run_failed', { error_code: 'engine', engine_path: 'client' });
         setState({
           kind: 'error',
@@ -1183,7 +1255,6 @@ export function ToolShell({
       editor.natural,
       engine,
       engineOptions,
-      options,
       preset,
       queue,
       range,
@@ -1193,6 +1264,10 @@ export function ToolShell({
       track,
     ],
   );
+
+  useEffect(() => {
+    again.current = run;
+  }, [run]);
 
   /**
    * The same file on our servers, once the person has pressed the button that
@@ -1206,6 +1281,7 @@ export function ToolShell({
       const abort = new AbortController();
       controller.current = abort;
       const started = performance.now();
+      const draw = drawGate();
       track('tool_run_started', { path: 'server' });
       setOnServer(true);
       setState({ kind: 'running', input, stage: 'Uploading', fraction: 0, elapsedSec: 0 });
@@ -1222,6 +1298,7 @@ export function ToolShell({
           ...(joined && { files: joined.files }),
           offered: { credits, free },
           progress: ({ stage, fraction, amount, step }) => {
+            if (abort.signal.aborted || !draw(stage, fraction)) return;
             setState({
               kind: 'running',
               input,
@@ -1248,13 +1325,15 @@ export function ToolShell({
               });
             }),
         });
-        const url = URL.createObjectURL(out.blob);
-        urls.current.push(url);
         // Text results (subtitles, transcripts) show their start, as browser ones do.
         const text =
           preset.preview === 'text'
             ? (await out.blob.text()).slice(0, TEXT_PREVIEW_CHARS)
             : undefined;
+        // Stopped as it came back: its result isn't shown.
+        if (abort.signal.aborted) return;
+        const url = URL.createObjectURL(out.blob);
+        urls.current.push(url);
         const seconds = (performance.now() - started) / 1000;
         track('tool_run_succeeded', {
           engine_path: 'server',
@@ -1376,6 +1455,9 @@ export function ToolShell({
   const inspect = useCallback(
     async (input: InputInfo, file: File, files: File[], offer: string | null) => {
       if (!preset.probe) return;
+      // Cancel, a newer file or leaving the page while this one is read: what it finds is dropped.
+      const mine = session.current;
+      const stale = () => mine !== session.current;
       setMedia(null);
       setThumbs([]);
       setPeaks([]);
@@ -1384,6 +1466,7 @@ export function ToolShell({
       try {
         info = await preset.probe(file);
       } catch (error) {
+        if (stale()) return;
         if (server) {
           // Our servers read more than any browser: offer them instead of a dead end.
           setServerReason(
@@ -1401,12 +1484,13 @@ export function ToolShell({
         });
         return;
       }
+      if (stale()) return;
       setMedia(info);
       // A choice made while the file was being read stands (A13: Split picked before the check ends).
       const suggested = info.values
         ? Object.fromEntries(Object.entries(info.values).filter(([id]) => !touched.current.has(id)))
         : undefined;
-      if (suggested) setOptions((current) => ({ ...current, ...suggested }));
+      if (suggested) setOptions({ ...latest.current, ...suggested });
       // A search a setting change was about to start would read the file before this one.
       if (detectTimer.current) clearTimeout(detectTimer.current);
       setTimeline((current) => ({
@@ -1414,7 +1498,8 @@ export function ToolShell({
         active: 0,
         found: current.found + 1,
       }));
-      if (preset.detect) void detectRanges(file, { ...options, ...suggested });
+      // With the settings as they are now: one changed while the file was being read counts (A11).
+      if (preset.detect) void detectRanges(file, latest.current);
       const probed = { ...input, durationSec: info.durationSec };
       setServerReason(offer);
       setState({ kind: 'ready', input: probed, files });
@@ -1423,16 +1508,19 @@ export function ToolShell({
       void info
         .thumbnails?.(12)
         .then((frames) => {
+          // Kept either way, so they are let go with the rest.
           urls.current.push(...frames.filter(Boolean));
-          setThumbs(frames);
+          if (!stale()) setThumbs(frames);
         })
         .catch(() => undefined);
       void info
         .waveform?.(160)
-        .then(setPeaks)
+        .then((found) => {
+          if (!stale()) setPeaks(found);
+        })
         .catch(() => undefined);
     },
-    [preset, run, server, options, detectRanges],
+    [preset, run, server, setOptions, detectRanges],
   );
 
   const intake = useCallback(
@@ -1440,6 +1528,7 @@ export function ToolShell({
       const file = files[0];
       if (!file) return;
       arrived.current = true;
+      endSession();
       touched.current.clear();
       resetEditor();
       setRefining(false);
@@ -1447,13 +1536,12 @@ export function ToolShell({
       setFolder(null);
       setRenamed(null);
       setRenameError(null);
-      // Refine strokes and a focal point belong to the last image.
-      const refineId = preset.editor?.refine;
-      if (refineId) setOptions((current) => ({ ...current, [refineId]: '' }));
-      const focusId = preset.focus?.option;
-      if (focusId) setOptions((current) => ({ ...current, [focusId]: '' }));
-      const maskId = preset.mask?.option;
-      if (maskId) setOptions((current) => ({ ...current, [maskId]: '' }));
+      // Refine strokes, a focal point and a mask belong to the last image. A run
+      // that starts below takes the settings from `latest`, so without them.
+      const cleared = { ...latest.current };
+      for (const id of [preset.editor?.refine, preset.focus?.option, preset.mask?.option])
+        if (id) cleared[id] = '';
+      setOptions(cleared);
       if (preset.maxFiles && files.length > preset.maxFiles) {
         setState({
           kind: 'error',
@@ -1515,6 +1603,7 @@ export function ToolShell({
     [
       addToQueue,
       dropPreview,
+      endSession,
       engine,
       inspect,
       maxBytes,
@@ -1522,6 +1611,7 @@ export function ToolShell({
       resetEditor,
       run,
       server,
+      setOptions,
       tool.ui,
       track,
     ],
@@ -1542,8 +1632,11 @@ export function ToolShell({
 
   async function trySample() {
     if (!preset.sampleUrl) return;
+    const mine = session.current;
     const response = await fetch(preset.sampleUrl);
     const blob = await response.blob();
+    // A file chosen meanwhile stays, and no run starts on a page that was left.
+    if (mine !== session.current) return;
     intake([new File([blob], preset.sampleName ?? 'sample', { type: blob.type })]);
   }
 
@@ -1591,6 +1684,8 @@ export function ToolShell({
             },
           },
         );
+        // An engine that didn't hear the stop: its file isn't part of what's made now.
+        if (abort.signal.aborted) return;
         batchOutputs.current.set(id, {
           blob: out.blob,
           name: out.name ?? outputName(file.name, out.nameSuffix ?? preset.outputSuffix, out.ext),
@@ -1721,7 +1816,7 @@ export function ToolShell({
   }, [intake, loadRenaming]);
 
   const cancel = useCallback(() => {
-    controller.current?.abort();
+    endSession();
     dropPreview();
     setServerReason(null);
     setState({ kind: 'empty' });
@@ -1737,7 +1832,7 @@ export function ToolShell({
     setMedia(null);
     setThumbs([]);
     setPeaks([]);
-  }, [dropPreview, resetEditor]);
+  }, [dropPreview, endSession, resetEditor]);
 
   const removeQueued = useCallback(
     (index: number) => {
@@ -1756,7 +1851,8 @@ export function ToolShell({
    */
   const changeOption = (id: string, value: string) => {
     touched.current.add(id);
-    const next = { ...options, [id]: value };
+    edits.current += 1;
+    const next = { ...latest.current, [id]: value };
     setOptions(next);
     if (ratioOf) editor.applyRatio(ratioOf(next));
     // A11: what's found depends on these options; look again once typing stops.
@@ -1771,15 +1867,30 @@ export function ToolShell({
         void detectRanges(readyFile, next);
       }, 300);
     }
+    // A batch made, or being made, with the older settings: its files go, and it
+    // starts over (or waits for Start), so a download never carries what the panel
+    // no longer says. Not where settings only shape the list (U04), nor in a folder
+    // renamed in place.
+    if (!preset.batchList && !folder && batch.some((item) => item.status !== 'queued')) {
+      controller.current?.abort();
+      batchOutputs.current.clear();
+      setBatchDone(false);
+      setBatch((items) =>
+        items.map(({ id, name, size }) => ({ id, name, size, status: 'queued' })),
+      );
+      autoBatch.current = preset.autoRun === true;
+    }
     if (preset.autoRun && state.kind === 'result' && state.file) {
       void run(state.input, state.file, next);
     }
-    if (preset.rerun && state.kind === 'result' && state.file && !preset.blocked?.(next, 1)) {
+    if (preset.rerun && state.kind === 'result' && state.file) {
       const { input, file } = state;
+      // A redo waiting for older settings doesn't start, also when these can't run.
       if (rerunTimer.current) clearTimeout(rerunTimer.current);
-      rerunTimer.current = setTimeout(() => {
-        void run(input, file, next);
-      }, 250);
+      if (!preset.blocked?.(next, 1))
+        rerunTimer.current = setTimeout(() => {
+          void run(input, file, next);
+        }, 250);
     }
   };
 

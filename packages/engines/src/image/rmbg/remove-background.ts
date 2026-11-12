@@ -21,8 +21,8 @@ export interface RemoveBackgroundOptions {
   background?: string;
   /** "#rrggbb" for the Color background. */
   color?: string;
-  /** Object URL of the image to put behind the subject. */
-  backgroundImage?: string;
+  /** The image to put behind the subject, as the file itself: the page's CSP lets nothing fetch an object URL. */
+  backgroundImage?: Blob;
   edges?: string;
   format?: string;
   /** "light" asks for light mode even where quality mode runs. */
@@ -137,9 +137,9 @@ export function parseHex(value: string | undefined): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-async function backdropImage(url: string | undefined) {
-  if (!url) return null;
-  const bytes = await (await fetch(url)).arrayBuffer();
+async function backdropImage(image: Blob | undefined) {
+  if (!image) return null;
+  const bytes = await image.arrayBuffer();
   const format = sniffImage(new Uint8Array(bytes));
   if (!format) throw new ImageInputError('The background image isn’t an image this tool can open');
   return { bytes, format };
