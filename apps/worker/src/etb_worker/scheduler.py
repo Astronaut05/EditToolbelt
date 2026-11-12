@@ -2,12 +2,16 @@
 
 Every 30 seconds each worker writes its heartbeat. One worker at a time (a
 Postgres advisory lock) then looks after the job queue (jobs whose worker
-went quiet, and the GPU calls they left running; jobs queued too long),
+went quiet, and the GPU calls they left running; jobs queued too long; the
+inputs of ended jobs that no runner was left to delete),
 sweeps storage every 5 minutes, checks the alert rules and runs whatever
 daily job is due: the ledger check, account scrub, retention purges and the
 bucket's lifecycle rules at 03:00 Tashkent, the digest at 09:00. When a job
 last ran lives in ``system_checks``, so restarts don't repeat a job and
-missed ones catch up.
+missed ones catch up. An alert or a digest that no channel delivered is still
+owed: the alert is sent again when its rule next finds it (the next tick),
+the digest every 10 minutes. A tick gives the sends that reach nobody 20 s in
+all, then leaves the rest of what's owed to the next tick.
 The job slots (runner.py) run beside this in the same process.
 """
 
@@ -19,13 +23,14 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
+from time import monotonic
 
 import psycopg
 
 from etb_worker import jobqueue
-from etb_worker.alerts import DATABASE_RULES, Alert, disk_space, raise_alert
+from etb_worker.alerts import DATABASE_RULES, Alert, disk_space, in_turn, raise_alert
 from etb_worker.clock import is_daily_due
-from etb_worker.db import Conn, connect
+from etb_worker.db import Conn, connect, long_statements
 from etb_worker.gpu.backend import GpuBackend
 from etb_worker.gpu.budget import budget_alerts
 from etb_worker.logs import get_logger
@@ -49,6 +54,11 @@ LOCK_KEY = 0x45544253
 NIGHTLY = time(3, 0)
 DIGEST_AT = time(9, 0)
 RETRY_AFTER = timedelta(minutes=10)
+# A tick stops sending alerts once sends that reached nobody have cost it this long (two of
+# notify's time-outs) and leaves the rest to the next tick: the reaper, queue expiry and the
+# input deletes share its loop. A channel that refuses at once costs nothing, so one alert
+# it won't take can't hold back those behind it.
+FAILED_SENDS_SEC = 20
 SERVICE = "worker"
 
 Task = Callable[[Conn, TaskContext], None]
@@ -89,6 +99,8 @@ class Scheduler:
     storage: Storage | None = None
     # Cancels GPU calls whose worker died (GPU_BACKEND); None: they're charged to their limit.
     gpu: GpuBackend | None = None
+    # Seconds on a clock that never jumps: what a tick's failed sends cost it.
+    timer: Callable[[], float] = monotonic
     # A job that raised waits this long before its next try, in this process.
     _retry_at: dict[str, datetime] = field(default_factory=dict)
 
@@ -143,11 +155,17 @@ class Scheduler:
 
     def maintain(self, conn: Conn) -> None:
         """The queue's upkeep every tick, and the retention sweep every 5 minutes."""
-        reaped = jobqueue.reap(conn)
-        for call in reaped.calls:
-            self._cancel_call(conn, call)
-        for job in [*reaped.failed, *jobqueue.expire(conn)]:
-            self._drop_input(conn, job)
+        try:
+            reaped = jobqueue.reap(conn)
+            for call in reaped.calls:
+                self._cancel_call(conn, call)
+            jobqueue.expire(conn)
+        except (psycopg.errors.LockNotAvailable, psycopg.errors.QueryCanceled) as error:
+            # The connection's limits (db.py): a job or user row someone else holds, or a
+            # statement out of time. That upkeep waits for the next tick. The deletes below
+            # don't wait with it: they keep a person's files from outliving their job.
+            _log_failure("scheduler.step_failed", error, step="queue")
+        self._drop_inputs(conn)
         if self.storage is None:
             return
         row = conn.execute(
@@ -180,20 +198,50 @@ class Scheduler:
         )
         raise_alert(conn, alert, self.notifier)
 
-    def _drop_input(self, conn: Conn, job: jobqueue.Job) -> None:
-        """A job that ended outside a worker (reaped, expired): its inputs go now, each tried."""
-        keys = jobqueue.input_keys(job)
-        if self.storage is None or not keys:
+    def _drop_inputs(self, conn: Conn) -> None:
+        """Ended jobs that still hold an input, with no runner left to delete it, lose it now.
+
+        Those the steps above just ended (reaped for good, expired), and those
+        an earlier tick or a runner left behind: cancelled while its worker
+        was dead, or the worker killed between marking a job and deleting its
+        input. They are read from the rows every tick, not handed on in
+        memory, so an error or a kill at any point only delays the delete to
+        the next tick. The first delete storage refuses ends the pass: storage
+        is down, and a timeout for every job would hold up the heartbeat and
+        the reaper, which share this loop.
+        """
+        if self.storage is None:
             return
-        gone = []
-        for key in keys:
-            try:
-                self.storage.delete(key)
-            except StorageError as error:
-                get_logger().warning("retention.input_not_deleted", error_code=error.code)
-                continue
-            gone.append(key)
-        jobqueue.input_gone(conn, job, gone)
+        for job_id in jobqueue.ended_with_inputs(conn):
+            if not self._drop_input(conn, self.storage, job_id):
+                return
+
+    def _drop_input(self, conn: Conn, storage: Storage, job_id: str) -> bool:
+        """Deletes one ended job's inputs; False as soon as storage refuses one.
+
+        Those that went are recorded; the rest stay on the job, for the next tick.
+        The job's row is locked meanwhile, so nobody queues it again half-way.
+        """
+        log = get_logger(job_id=job_id)
+        with conn.transaction():
+            job = jobqueue.lock_ended(conn, job_id)
+            if job is None:
+                # Queued again since it was read (an admin's retry): it needs its inputs.
+                # Or its row is held just now: the next tick finds it again.
+                return True
+            keys = jobqueue.input_keys(job)
+            gone = []
+            for key in keys:
+                try:
+                    storage.delete(key)
+                except StorageError as error:
+                    log.warning("retention.input_not_deleted", error_code=error.code)
+                    break
+                gone.append(key)
+            jobqueue.input_gone(conn, job, gone)
+        if gone:
+            log.info("retention.input_deleted", inputs=len(gone))
+        return len(gone) == len(keys)
 
     def check_alerts(self, conn: Conn) -> None:
         log = get_logger()
@@ -207,17 +255,32 @@ class Scheduler:
             found += disk_space(self.disk_path, self.instance)
         except OSError as error:
             log.warning("alert.rule_failed", rule="disk", detail=type(error).__name__)
-        for alert in found:
-            raise_alert(conn, alert, self.notifier)
+        # An alert no channel delivered is found again on every tick, and a channel that is
+        # down may take its whole time-out to say so, once for each of them.
+        failed_sec = 0.0
+        for at, alert in enumerate(in_turn(conn, found)):
+            if failed_sec >= FAILED_SENDS_SEC:
+                log.warning("alert.sends_put_off", alerts=len(found) - at)
+                break
+            started = self.timer()
+            if not raise_alert(conn, alert, self.notifier):
+                # Nobody was told. (Or it is cooling down, which took one query: no time.)
+                failed_sec += self.timer() - started
 
     def run_due(self, conn: Conn) -> None:
         now = self.clock()
-        rows = conn.execute("select name, ran_at from system_checks").fetchall()
+        rows = conn.execute("select name, ran_at, ok from system_checks").fetchall()
         last = {row["name"]: row["ran_at"] for row in rows}
+        not_ok = {row["name"] for row in rows if not row["ok"]}
         for name, (at, _task) in DAILY.items():
             if self._retry_at.get(name, now) > now:
                 continue
-            if is_daily_due(last.get(name), now, at):
+            due = is_daily_due(last.get(name), now, at)
+            # A digest no channel delivered is recorded as not ok (tasks.daily_digest) and is
+            # still owed: it goes out again every 10 minutes until one does.
+            if name == "daily_digest" and name in not_ok and now - last[name] >= RETRY_AFTER:
+                due = True
+            if due:
                 self.run(conn, name)
 
     def run(self, conn: Conn, name: str) -> bool:
@@ -226,7 +289,10 @@ class Scheduler:
         log = get_logger(task=name)
         now = self.clock()
         try:
-            task(conn, TaskContext(notifier=self.notifier, now=now, storage=self.storage))
+            # These read whole tables (the ledger check sums every ledger row), so a
+            # statement gets longer here than anywhere else in the tick.
+            with long_statements(conn):
+                task(conn, TaskContext(notifier=self.notifier, now=now, storage=self.storage))
         # One job's failure, a database error or a bug, mustn't stop the others
         # or the heartbeat: log it, alert, and try again in 10 minutes.
         except Exception as error:  # noqa: BLE001

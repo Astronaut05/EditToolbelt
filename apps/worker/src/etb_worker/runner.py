@@ -10,6 +10,10 @@ their job. Only a job that will run again keeps its input: one whose worker
 dies mid-job (the reaper hands it to another worker), one handed back on a
 clean stop, or one reaped while its worker stalled.
 
+The job's time limit (``jobs.timeout_sec``) runs once, from the moment the job
+starts here: the download and every run of the tool share it, and a job past
+it uploads nothing. It fails as TIMEOUT, with its credits back.
+
 GPU jobs (remote processors) skip the download and upload: the GPU function
 reads the input and writes the output through presigned URLs. They run in
 their own slots (``pool="gpu"``, WORKER_GPU_SLOTS), which claim only GPU
@@ -24,6 +28,7 @@ import os
 import shutil
 import socket
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -93,6 +98,11 @@ class _Heartbeat(threading.Thread):
         self._stop.set()
 
 
+def _time_limit(job: jobqueue.Job) -> float:
+    """The job's time limit in seconds (``jobs.timeout_sec``, from the registry)."""
+    return float(job.get("timeout_sec") or 900)
+
+
 class JobRunner:
     """One job slot: claims and runs jobs of its pool, CPU or GPU, one at a time."""
 
@@ -146,6 +156,8 @@ class JobRunner:
         job_id = str(job["id"])
         log = get_logger(job_id=job_id, tool_id=job["tool_id"])
         log.info("job.started", attempt=job["attempts"])
+        # One limit for the whole job, from here: not a new one for each run of its tool.
+        deadline = time.monotonic() + _time_limit(job)
         workdir = new_dir("etb-job-")
         cancel = threading.Event()
         self._current = cancel
@@ -155,7 +167,7 @@ class JobRunner:
         try:
             self._settle_stale_call(job)
             self._drop_stale_output(job)
-            output_key, output_meta = self._process(job, workdir, cancel, progress)
+            output_key, output_meta = self._process(job, workdir, cancel, progress, deadline)
             with self.connect() as conn:
                 done = jobqueue.succeed(conn, job, self.worker_id, output_key, output_meta)
             if done:
@@ -188,7 +200,12 @@ class JobRunner:
                 self._delete_input(job)
 
     def _process(
-        self, job: jobqueue.Job, workdir: Path, cancel: threading.Event, progress: _Progress
+        self,
+        job: jobqueue.Job,
+        workdir: Path,
+        cancel: threading.Event,
+        progress: _Progress,
+        deadline: float,
     ) -> tuple[str, dict[str, Any]]:
         processor = self.processors.get(job["tool_id"])
         if processor is None:
@@ -212,10 +229,11 @@ class JobRunner:
             workdir=workdir,
             options=dict(job.get("options") or {}),
             meta=dict(job.get("input_meta") or {}),
-            limits=Limits(timeout_sec=float(job.get("timeout_sec") or 900)),
+            limits=Limits(timeout_sec=_time_limit(job)),
             cancel=cancel,
             progress=progress.set,
             extra_paths=extras,
+            deadline=deadline,
             input_key=str(job["input_key"]),
             storage=self.storage if remote else None,
             gpu=self.gpu if remote else None,
@@ -232,6 +250,10 @@ class JobRunner:
             if output.key:
                 self.storage.delete(output.key)
             raise ToolError("CANCELLED", "cancelled")
+        if not remote:
+            # Past its time limit a job uploads nothing: TIMEOUT, like a run stopped at the
+            # limit. (A GPU job's one call has the whole limit to itself: remote.py.)
+            ctx.time_left()
         key, size = self._store(job_id, output, progress)
         meta = {
             **output.meta,

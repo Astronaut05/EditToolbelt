@@ -11,7 +11,7 @@ import os
 import random
 import re
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -24,12 +24,14 @@ from etb_worker.alerts import (
     raise_alert,
     stale_heartbeats,
     tool_failure_rates,
+    undelivered_once,
     webhook_errors,
 )
 from etb_worker.clock import day_bounds
 from etb_worker.db import Conn, connect_url
-from etb_worker.notify import Notifier
-from etb_worker.scheduler import DAILY, LOCK_KEY, Scheduler
+from etb_worker.gpu import budget
+from etb_worker.notify import TIMEOUT_SEC, DeliveryError, Notifier
+from etb_worker.scheduler import DAILY, LOCK_KEY, NIGHTLY, Scheduler
 from etb_worker.settings import Settings
 from etb_worker.tasks import (
     TaskContext,
@@ -46,12 +48,26 @@ pytestmark = pytest.mark.skipif(not URL, reason="TEST_DATABASE_URL not set")
 
 
 class Outbox:
-    """A notifier whose Telegram channel records messages instead of sending them."""
+    """A notifier whose Telegram channel records messages instead of sending them.
+
+    While ``down`` it fails as Telegram does when it times out, and no email
+    is set up behind it. ``tried`` holds every message, delivered or not.
+    A failure takes ``failure_sec`` on ``seconds``, the timer a scheduler can
+    be given: a time-out's 10 s pass without the test waiting for them.
+    """
 
     def __init__(self, settings: Settings) -> None:
         self.sent: list[tuple[str, str]] = []
+        self.tried: list[str] = []
+        self.down = False
+        self.failure_sec = 0.0
+        self.seconds = 0.0
 
         def record(_: Settings, text: str) -> None:
+            self.tried.append(text)
+            if self.down:
+                self.seconds += self.failure_sec
+                raise DeliveryError("TELEGRAM_FAILED", "TimeoutError")
             self.sent.append(("telegram", text))
 
         configured = settings.model_copy(
@@ -133,6 +149,53 @@ def test_immediate_alerts_skip_the_cool_down(db: Conn, outbox: Outbox) -> None:
     assert len(outbox.sent) == 2
 
 
+def sent_by(db: Conn, rule: str, subject: str) -> list[list[str]]:
+    """The channels of every alert recorded for this rule and subject."""
+    rows = db.execute(
+        "select channels from alerts where rule = %s and subject = %s order by created_at",
+        (rule, subject),
+    ).fetchall()
+    return [row["channels"] for row in rows]
+
+
+def test_an_alert_no_channel_delivered_is_tried_again_on_the_next_tick(
+    db: Conn, outbox: Outbox
+) -> None:
+    alert = Alert("test_undelivered", uuid.uuid4().hex, "something is wrong")
+    outbox.down = True
+    assert not raise_alert(db, alert, outbox.notifier)
+    # The next tick: a try that reached nobody starts no cool-down.
+    assert not raise_alert(db, alert, outbox.notifier)
+    assert len(outbox.tried) == 2
+    assert outbox.sent == []
+    # One row however many tries, and it says nobody was told.
+    assert sent_by(db, alert.rule, alert.subject) == [["undelivered"]]
+
+    outbox.down = False
+    assert raise_alert(db, alert, outbox.notifier)
+    assert outbox.sent == [("telegram", "Alert: something is wrong")]
+    assert sent_by(db, alert.rule, alert.subject) == [["telegram"]]
+    # Delivered: from now on it cools down like any other.
+    assert not raise_alert(db, alert, outbox.notifier)
+    assert len(outbox.tried) == 3
+
+
+def test_with_no_channel_set_up_an_alert_is_recorded_once(db: Conn, settings: Settings) -> None:
+    """Local development: there is nobody to tell, so nothing is owed or tried again."""
+    nobody = Notifier(settings)
+    alert = Alert("test_no_channel", uuid.uuid4().hex, "something is wrong")
+    assert raise_alert(db, alert, nobody)
+    assert not raise_alert(db, alert, nobody)  # cooling down
+    assert sent_by(db, alert.rule, alert.subject) == [[]]
+    event = webhook_event(db, "no purchase has this transaction")
+    try:
+        [error] = [found for found in webhook_errors(db) if found.subject == event]
+        assert raise_alert(db, error, nobody)
+        assert event not in {found.subject for found in webhook_errors(db)}
+    finally:
+        db.execute("delete from webhook_events where id = %s", (event,))
+
+
 def webhook_event(db: Conn, error: str | None, age: timedelta = timedelta(0)) -> str:
     """A Paddle event processed ``age`` ago, with ``error``."""
     row = db.execute(
@@ -195,6 +258,63 @@ def test_the_scheduler_raises_webhook_errors(settings: Settings, db: Conn) -> No
     assert row["n"] == 1
 
 
+def owing(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, count: int
+) -> tuple[Scheduler, Outbox]:
+    """A scheduler whose rules find ``count`` alerts of this test's on every tick, and no others.
+
+    Its timer is the outbox's, so a send that fails takes the outbox's ``failure_sec``.
+    """
+    found = [Alert("test_owed", uuid.uuid4().hex, f"owed {n}") for n in range(count)]
+    monkeypatch.setattr("etb_worker.scheduler.DATABASE_RULES", (("test_owed", lambda _: found),))
+    monkeypatch.setattr("etb_worker.scheduler.budget_alerts", lambda _: [])
+    monkeypatch.setattr("etb_worker.scheduler.disk_space", lambda _path, _instance: [])
+    outbox = Outbox(settings)
+    scheduler = Scheduler(
+        settings,
+        outbox.notifier,
+        instance=f"test-{uuid.uuid4().hex[:8]}",
+        connect=lambda _: connect_url(URL),
+        timer=lambda: outbox.seconds,
+    )
+    return scheduler, outbox
+
+
+def test_a_channel_that_times_out_costs_a_tick_20_seconds_however_many_alerts_are_owed(
+    settings: Settings, db: Conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tick also reaps, expires and deletes inputs: five 10 s time-outs would hold it 50 s."""
+    scheduler, outbox = owing(settings, monkeypatch, 5)
+    outbox.down = True
+    outbox.failure_sec = TIMEOUT_SEC
+    for tick in (1, 2, 3):
+        scheduler.check_alerts(db)
+        assert len(outbox.tried) == 2 * tick  # two time-outs, then the rest wait a tick
+    # Each had its turn before any had a second: none waits behind two that never get through.
+    assert outbox.tried[:5] == [f"Alert: owed {n}" for n in range(5)]
+    assert outbox.tried[5] == "Alert: owed 0"
+    assert outbox.sent == []
+
+    # The channel is back: everyone is told on that tick, once.
+    outbox.down = False
+    scheduler.check_alerts(db)
+    assert sorted(text for _, text in outbox.sent) == [f"Alert: owed {n}" for n in range(5)]
+    scheduler.check_alerts(db)
+    assert len(outbox.sent) == 5
+
+
+def test_a_channel_that_refuses_at_once_holds_no_alert_back(
+    settings: Settings, db: Conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refusal (HTTP 400, 429) costs milliseconds: every owed alert still gets a try a tick."""
+    scheduler, outbox = owing(settings, monkeypatch, 5)
+    outbox.down = True
+    scheduler.check_alerts(db)
+    scheduler.check_alerts(db)
+    assert len(outbox.tried) == 10
+    assert sorted(outbox.tried[5:]) == [f"Alert: owed {n}" for n in range(5)]
+
+
 def fiscal_receipt(
     db: Conn, *, status: str, attempts: int, age: timedelta, error: str | None = None
 ) -> str:
@@ -253,6 +373,85 @@ def test_an_unsent_fiscal_receipt_alerts_once(db: Conn, outbox: Outbox) -> None:
     subjects = {alert.subject for alert in fiscal_receipts_unsent(db)}
     assert tried not in subjects
     assert stuck not in subjects
+
+
+def check(db: Conn, outbox: Outbox, rule: Callable[[Conn], list[Alert]], subject: str) -> int:
+    """One tick's check of ``rule``, for one subject; how many alerts it had for it."""
+    found = [alert for alert in rule(db) if alert.subject == subject]
+    for alert in found:
+        raise_alert(db, alert, outbox.notifier)
+    return len(found)
+
+
+def once_it_can_be_delivered(
+    db: Conn, outbox: Outbox, rule: Callable[[Conn], list[Alert]], name: str, subject: str
+) -> None:
+    """A once-only alert while every channel is down, then with Telegram back.
+
+    It is owed until someone was told: tried again on each tick, once, and
+    never again after the try that got through.
+    """
+    outbox.down = True
+    assert check(db, outbox, rule, subject) == 1
+    assert check(db, outbox, rule, subject) == 1  # the next tick: still owed
+    assert len(outbox.tried) == 2
+    assert outbox.sent == []
+    assert sent_by(db, name, subject) == [["undelivered"]]
+
+    outbox.down = False
+    assert check(db, outbox, rule, subject) == 1
+    assert len(outbox.sent) == 1
+    assert sent_by(db, name, subject) == [["telegram"]]
+    assert check(db, outbox, rule, subject) == 0  # told: not a second time
+    assert check(db, outbox, rule, subject) == 0
+    assert len(outbox.tried) == 3
+
+
+def test_a_webhook_error_no_channel_delivered_stays_owed(db: Conn, outbox: Outbox) -> None:
+    event = webhook_event(db, "not credited: the transaction total is 400, not 500")
+    try:
+        once_it_can_be_delivered(db, outbox, webhook_errors, "webhook_error", event)
+        assert "not credited" in outbox.sent[0][1]
+    finally:
+        db.execute("delete from webhook_events where id = %s", (event,))
+
+
+def test_an_unsent_fiscal_receipt_no_channel_delivered_stays_owed(db: Conn, outbox: Outbox) -> None:
+    receipt = fiscal_receipt(db, status="failed", attempts=6, age=timedelta(minutes=31))
+    try:
+        once_it_can_be_delivered(
+            db, outbox, fiscal_receipts_unsent, "fiscal_receipt_unsent", receipt
+        )
+    finally:
+        db.execute("delete from fiscal_receipts where id = %s", (receipt,))
+
+
+def test_a_gpu_budget_alert_no_channel_delivered_stays_owed(db: Conn, outbox: Outbox) -> None:
+    before = one(db, "select daily_usd from gpu_budget where id = 1")["daily_usd"]
+    today = budget.state(db).day.isoformat()
+    # Another test's scheduler may have alerted today already (a reused database).
+    db.execute("delete from alerts where rule = 'gpu_budget' and subject like %s", (f"{today}/%",))
+    user = new_user(db)
+    db.execute(
+        "insert into jobs (tool_id, user_id, source, status, started_at, finished_at,"
+        " gpu_rate_usd, gpu_cost_usd) values ('test-gpu', %s, 'web', 'succeeded', now(), now(),"
+        " 0.0002, 0.85)",
+        (user,),
+    )
+    try:
+        # 85 % of the budget, whatever else ran today.
+        db.execute(
+            "update gpu_budget set daily_usd = %s where id = 1",
+            (budget.state(db).spent_usd / 0.85,),
+        )
+        once_it_can_be_delivered(db, outbox, budget.budget_alerts, "gpu_budget", f"{today}/80")
+        assert "85 %" in outbox.sent[0][1]
+    finally:
+        db.execute("update gpu_budget set daily_usd = %s where id = 1", (before,))
+        db.execute("delete from jobs where user_id = %s", (user,))
+        db.execute(
+            "delete from alerts where rule = 'gpu_budget' and subject like %s", (f"{today}/%",)
+        )
 
 
 def test_a_ledger_mismatch_is_recorded_and_alerts(db: Conn, outbox: Outbox) -> None:
@@ -350,6 +549,54 @@ def test_connect_codes_are_purged_a_day_after_they_expire(db: Conn, outbox: Outb
     assert [row["device_hash"] for row in left] == [fresh]
     check = one(db, "select detail from system_checks where name = 'retention_purge'")
     assert check["detail"]["device_codes"] >= 1
+
+
+def test_a_ledger_mismatch_alert_that_reached_nobody_is_sent_on_a_later_tick(
+    db: Conn, outbox: Outbox
+) -> None:
+    """The check runs once a night and no rule finds a mismatch again: its row is what's owed."""
+    user = new_user(db, credit_balance=5)  # a balance with no ledger rows behind it
+    try:
+        outbox.down = True
+        ledger_check(db, ctx(outbox))
+        assert len(outbox.tried) == 1
+        assert sent_by(db, "ledger_mismatch", "")[-1] == ["undelivered"]
+        assert check(db, outbox, undelivered_once, "") == 1  # the next tick: still down
+        assert len(outbox.tried) == 2
+
+        outbox.down = False
+        assert check(db, outbox, undelivered_once, "") == 1
+        assert len(outbox.sent) == 1
+        assert "Ledger check:" in outbox.sent[0][1]
+        assert sent_by(db, "ledger_mismatch", "")[-1] == ["telegram"]
+        assert check(db, outbox, undelivered_once, "") == 0  # told: not a second time
+        assert len(outbox.tried) == 3
+    finally:
+        db.execute("update users set credit_balance = 0 where id = %s", (user,))
+
+
+def test_a_gpu_call_alert_that_reached_nobody_is_sent_on_a_later_tick(
+    db: Conn, outbox: Outbox
+) -> None:
+    call = f"fc-{uuid.uuid4().hex}"
+    alert = Alert(
+        "gpu_call_not_cancelled",
+        call,
+        f"A GPU call couldn't be cancelled ({call}).",
+        immediate=True,
+    )
+    outbox.down = True
+    assert not raise_alert(db, alert, outbox.notifier)  # where it happened, once
+    try:
+        assert check(db, outbox, undelivered_once, call) == 1
+        assert len(outbox.tried) == 2
+        outbox.down = False
+        assert check(db, outbox, undelivered_once, call) == 1
+        assert outbox.sent == [("telegram", f"Alert: {alert.message}")]
+        assert sent_by(db, alert.rule, call) == [["telegram"]]
+        assert check(db, outbox, undelivered_once, call) == 0
+    finally:
+        db.execute("delete from alerts where rule = %s and subject = %s", (alert.rule, call))
 
 
 def add_jobs(db: Conn, user: str, tool: str, statuses: list[str], **times: Any) -> None:
@@ -538,3 +785,71 @@ def test_the_scheduler_runs_each_daily_job_once(settings: Settings, db: Conn) ->
     digests = [text for _, text in outbox.sent if "daily digest" in text]
     assert len(digests) == 1
     scheduler.leave()
+
+
+def test_a_digest_no_channel_delivered_goes_out_once_one_does(settings: Settings, db: Conn) -> None:
+    outbox = Outbox(settings)
+    started = datetime.now(UTC)
+    now = [started]
+    scheduler = Scheduler(
+        settings,
+        outbox.notifier,
+        instance=f"test-{uuid.uuid4().hex[:8]}",
+        connect=lambda _: connect_url(URL),
+        clock=lambda: now[0],
+    )
+
+    def digests(texts: list[str]) -> int:
+        return sum("daily digest" in text for text in texts)
+
+    def delivered() -> bool:
+        return bool(one(db, "select ok from system_checks where name = 'daily_digest'")["ok"])
+
+    db.execute("delete from system_checks where name = 'daily_digest'")
+    outbox.down = True
+    scheduler.run_due(db)
+    assert digests(outbox.tried) == 1
+    assert not delivered()
+    # The next tick: still owed, but tried every 10 minutes, not every 30 seconds.
+    scheduler.run_due(db)
+    assert digests(outbox.tried) == 1
+    now[0] = started + timedelta(minutes=11)
+    scheduler.run_due(db)
+    assert digests(outbox.tried) == 2
+    assert not delivered()
+
+    outbox.down = False
+    now[0] = started + timedelta(minutes=22)
+    scheduler.run_due(db)
+    assert digests([text for _, text in outbox.sent]) == 1
+    assert delivered()
+    # Delivered: not again today.
+    now[0] = started + timedelta(minutes=33)
+    scheduler.run_due(db)
+    assert digests(outbox.tried) == 3
+
+
+def test_a_daily_job_may_run_a_long_statement_and_nothing_after_it(
+    settings: Settings, db: Conn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ledger check sums the whole ledger; the tick's other statements keep 30 s."""
+    seen: list[str] = []
+
+    def limit(conn: Conn) -> str:
+        return str(one(conn, "show statement_timeout")["statement_timeout"])
+
+    def reads_everything(conn: Conn, _ctx: TaskContext) -> None:
+        seen.append(limit(conn))
+
+    def breaks(conn: Conn, _ctx: TaskContext) -> None:
+        seen.append(limit(conn))
+        raise RuntimeError("a bug")
+
+    monkeypatch.setitem(DAILY, "test_long", (NIGHTLY, reads_everything))
+    monkeypatch.setitem(DAILY, "test_broken", (NIGHTLY, breaks))
+    scheduler = Scheduler(settings, Outbox(settings).notifier, connect=lambda _: connect_url(URL))
+    assert scheduler.run(db, "test_long")
+    assert limit(db) == "30s"
+    assert not scheduler.run(db, "test_broken")
+    assert limit(db) == "30s"
+    assert seen == ["5min", "5min"]

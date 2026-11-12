@@ -2,8 +2,9 @@
 
 Validate env, configure logging, clear the job folders a killed worker left
 (workdir.py), run the hello-world job (retrying while Postgres and storage
-start up), then until SIGTERM/SIGINT run the job slots
-(slots.py: CPU slots probe uploads and run CPU jobs, GPU slots run GPU jobs)
+start up), then until SIGTERM/SIGINT run the job slots and the probe loop
+(slots.py: CPU slots run CPU jobs, GPU slots run GPU jobs, and one thread
+probes uploads whatever the slots are doing)
 beside the scheduler (scheduler.py: heartbeats, queue upkeep, the retention
 sweep, alerts, the daily jobs).
 ``--task NAME`` runs one daily job now and exits.
@@ -26,7 +27,7 @@ from etb_worker.runner import JobRunner
 from etb_worker.sandbox import hide_from_tools
 from etb_worker.scheduler import DAILY, TICK_SEC, Scheduler
 from etb_worker.settings import Settings, load_settings
-from etb_worker.slots import listen, run_gpu_slot, run_slot
+from etb_worker.slots import listen, run_gpu_slot, run_probes, run_slot
 from etb_worker.storage import Storage
 from etb_worker.workdir import clear_leftovers
 
@@ -133,10 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for _ in range(settings.worker_gpu_slots)
     ]
     runners = [*cpu_runners, *gpu_runners]
-    slots = [
-        threading.Thread(target=run_slot, args=(settings, storage, runner, wake, stop))
-        for runner in cpu_runners
-    ] + [threading.Thread(target=run_gpu_slot, args=(runner, wake, stop)) for runner in gpu_runners]
+    slots = slot_threads(settings, storage, runners, wake, stop)
     for slot in slots:
         slot.start()
     log.info("slots.started", slots=len(cpu_runners), gpu_slots=len(gpu_runners))
@@ -155,6 +153,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         scheduler.leave()
     log.info("worker.stopped")
     return 0
+
+
+def slot_threads(
+    settings: Settings,
+    storage: Storage,
+    runners: Sequence[JobRunner],
+    wake: threading.Event,
+    stop: threading.Event,
+) -> list[threading.Thread]:
+    """The threads that work beside the scheduler, not yet started.
+
+    A slot for each runner, and one thread that only probes uploads: a slot
+    probes between jobs at best, and with every slot inside a long job
+    nothing would be probed, so no new job of any tool could be quoted.
+    It stops and is waited for like a slot.
+    """
+    return [
+        *(
+            threading.Thread(target=run_gpu_slot, args=(runner, wake, stop))
+            if runner.pool == "gpu"
+            else threading.Thread(target=run_slot, args=(settings, storage, runner, wake, stop))
+            for runner in runners
+        ),
+        threading.Thread(target=run_probes, args=(settings, storage, wake, stop)),
+    ]
 
 
 def run_scheduler(scheduler: Scheduler, stop: threading.Event, every: float = TICK_SEC) -> None:

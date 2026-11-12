@@ -7,7 +7,9 @@ the same settings give the same picture size either way:
   resolution steps the size down until it looks right again;
 - a quality level is a CRF.
 Two passes put a size target within a few percent; if the result still
-overshoots, the second pass runs again with the bitrate scaled down.
+overshoots, the second pass runs again with the bitrate scaled down, where
+the job's time limit has room for it. Where not, the result stands, with a
+note of its size.
 """
 
 from __future__ import annotations
@@ -26,6 +28,9 @@ MIN_VIDEO_BPS = 50_000
 AUDIO_BPS = {"aac": 128_000, "opus": 96_000}
 #: Copied audio whose container didn't say its bitrate.
 UNKNOWN_AUDIO_BPS = 192_000
+#: A second try at a size target starts only when the job's time limit leaves this many
+#: times what the first took: it is the same work again, on a machine other jobs share.
+RETRY_MARGIN = 1.25
 
 CODECS: dict[str, dict[str, Any]] = {
     "h264": {
@@ -266,11 +271,16 @@ class CompressVideo:
                 on_line=report,
             )
 
+        before = ctx.seconds_left()
         encode(p.video_bps, 0, 90)
         if p.target_bytes and p.video_bps and out.stat().st_size > p.target_bytes:
-            # Overshot: once more, with the bitrate scaled by how far it went over.
-            over = out.stat().st_size / p.target_bytes
-            encode(int(p.video_bps / over * 0.97), 90, 98)
+            # Overshot: once more, with the bitrate scaled by how far it went over. Not when
+            # the job's time limit leaves too little for it: stopped at the limit, the second
+            # try would end the job with nothing, where this result is only just over.
+            left = ctx.seconds_left()
+            if before is None or left is None or left >= (before - left) * RETRY_MARGIN:
+                over = out.stat().st_size / p.target_bytes
+                encode(int(p.video_bps / over * 0.97), 90, 98)
             if out.stat().st_size > p.target_bytes:
                 size_mb = out.stat().st_size / MB
                 p.notes.append(f"Came out at {size_mb:.1f} MB, just over the target")

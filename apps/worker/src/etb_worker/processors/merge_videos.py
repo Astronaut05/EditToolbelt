@@ -50,7 +50,7 @@ from etb_worker.processors import (
     Output,
     ffmpeg_progress,
 )
-from etb_worker.sandbox import ToolError, ffmpeg, ffprobe
+from etb_worker.sandbox import Answer, ToolError, ffmpeg, ffprobe
 
 MAX_CLIPS = 20
 SAMPLE_RATE = 48_000
@@ -221,18 +221,33 @@ class Clip:
         )
 
 
+#: What ffprobe is asked for: the fields read here, no others. Asked for everything, it
+#: prints every tag the uploader wrote, megabytes of them, into the worker's own memory.
+ENTRIES = (
+    "format=start_time"
+    ":stream=index,codec_type,codec_name,codec_tag_string,profile,width,height,pix_fmt"
+    ",sample_aspect_ratio,field_order,r_frame_rate,avg_frame_rate,sample_rate,channels"
+    ",channel_layout,extradata_hash"
+    ":stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation"
+)
+
+
 def _streams(ctx: JobContext, name: str) -> dict[str, Any]:
-    """ffprobe's streams and format, with a hash of each codec's parameter sets."""
-    lines: list[str] = []
+    """ffprobe's streams and format, with a hash of each codec's parameter sets.
+
+    An answer too long to keep (``Answer``; the ``rotate`` tag is as long as the uploader
+    likes) is a clip that can't be read, as the probe has it.
+    """
+    answer = Answer()
     ctx.run(
         ffprobe(
-            *("-print_format", "json", "-show_format", "-show_streams"),
+            *("-print_format", "json", "-show_entries", ENTRIES),
             *("-show_data_hash", "sha256", "-i", name),
         ),
-        on_line=lines.append,
+        on_line=answer,
     )
     try:
-        data = json.loads("\n".join(lines))
+        data = None if answer.too_long.is_set() else json.loads(answer.text())
     except json.JSONDecodeError:
         data = None
     if not isinstance(data, dict):

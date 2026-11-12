@@ -6,7 +6,10 @@ Every run:
 - runs under ``prlimit``: address space, file size, open files and no core dumps;
 - runs in its own process group, killed as a whole on timeout or cancel;
 - has stdin closed. Its stdout is read line by line (ffmpeg's ``-progress``),
-  and the tail of stderr is kept for error reports.
+  and the tail of stderr is kept for error reports. A line is read at most
+  ``MAX_LINE`` characters at a time, and a whole answer (ffprobe's JSON) is
+  kept only up to ``MAX_ANSWER``: what a tool prints can be the file's own
+  text, and the worker holds it outside the tool's limits.
 
 ffmpeg itself is always started through ``ffmpeg()``, which puts
 ``-protocol_whitelist file,pipe`` before every input, so no user file can
@@ -28,11 +31,19 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 GIB = 1024**3
+#: The most of one line of a tool's output read at a time. The tools' own lines (progress,
+#: packet times, errors) are far shorter; a longer one quotes the file (a tag), and comes
+#: in pieces of this length, so no file chooses how much the worker reads at once.
+MAX_LINE = 64 * 1024
+#: The most of a tool's stdout kept as one answer (``Answer``), in characters. ffprobe's
+#: JSON for the fields the worker reads is a few hundred a stream.
+MAX_ANSWER = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -85,6 +96,37 @@ def _kill_group(proc: subprocess.Popen[str]) -> None:
         os.killpg(proc.pid, signal.SIGKILL)
 
 
+def _lines(stream: IO[str]) -> Iterator[str]:
+    """The stream's lines, one longer than ``MAX_LINE`` in pieces of that length."""
+    return iter(lambda: stream.readline(MAX_LINE), "")
+
+
+class Answer:
+    """A tool's whole stdout, kept for a short answer (ffprobe's JSON): ``run``'s ``on_line``.
+
+    The file decides how long the answer is (a tag as long as it likes, thousands of
+    streams), and it is held in the worker's own memory. So ``limit`` characters are kept
+    at most: past that ``too_long`` is set and the rest is dropped. Given to ``run`` as
+    ``cancel`` too, ``too_long`` stops the tool there.
+    """
+
+    def __init__(self, limit: int = MAX_ANSWER) -> None:
+        self.limit = limit
+        self.too_long = threading.Event()
+        self._lines: list[str] = []
+        self._size = 0
+
+    def __call__(self, line: str) -> None:
+        self._size += len(line) + 1
+        if self._size > self.limit:
+            self.too_long.set()
+        else:
+            self._lines.append(line)
+
+    def text(self) -> str:
+        return "\n".join(self._lines)
+
+
 def run(
     args: Sequence[str],
     *,
@@ -121,13 +163,13 @@ def run(
 
     def read_stdout() -> None:
         assert proc.stdout is not None  # noqa: S101  # PIPE above
-        for line in proc.stdout:
+        for line in _lines(proc.stdout):
             if on_line is not None:
                 on_line(line.rstrip("\n"))
 
     def read_stderr() -> None:
         assert proc.stderr is not None  # noqa: S101  # PIPE above
-        for line in proc.stderr:
+        for line in _lines(proc.stderr):
             tail.append(line.rstrip("\n"))
 
     readers = [

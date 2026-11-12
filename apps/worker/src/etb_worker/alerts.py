@@ -3,7 +3,13 @@
 Each rule is a query that returns what's wrong right now. ``raise_alert``
 sends an alert unless the same rule and subject alerted in the last 30
 minutes (immediate alerts, like a ledger mismatch, skip the cool-down), and
-records it in the ``alerts`` table either way it's sent.
+records it in the ``alerts`` table either way it's sent. One that no channel
+delivered, with a channel set up, is recorded as ``undelivered``: nobody was
+told, so it starts no cool-down and marks no once-only alert as sent. It is
+raised again when its rule next finds it, or by ``undelivered_once`` when no
+rule would: at most once a tick, until a channel delivers it. A tick whose
+failed sends have cost it 20 s leaves the rest to the next one, each alert
+in its turn (``in_turn``, scheduler.check_alerts).
 
 Tool margin (the digest, once jobs have costs) arrives with job costs. The
 sweeper's storage checks and the lifecycle rules are raised by retention.py.
@@ -37,6 +43,15 @@ WEBHOOK_ALERTS_PER_CHECK = 10
 FISCAL_ALERT_TRIES = 6
 FISCAL_ALERT_AGE = timedelta(hours=1)
 FISCAL_ALERTS_PER_CHECK = 10
+#: An alert's ``channels`` when a channel is set up and none delivered it. Such a row is
+#: not a sent alert: the cool-down and the once-only rules (here and in gpu/budget.py)
+#: leave it out, so the alert is still owed. With no channel set up the row holds none,
+#: and counts as sent: there is nobody to tell.
+UNDELIVERED = ["undelivered"]
+#: Alerts raised once, where the thing happens, that no rule finds again: the nightly ledger
+#: check's and the reaper's. Undelivered, they are sent again from their rows.
+RAISED_ONCE = ["ledger_mismatch", "gpu_call_not_cancelled"]
+UNDELIVERED_PER_CHECK = 10
 
 
 @dataclass(frozen=True)
@@ -48,24 +63,42 @@ class Alert:
 
 
 def raise_alert(conn: Conn, alert: Alert, notifier: Notifier) -> bool:
-    """Send and record ``alert`` unless it's cooling down. Returns whether it was raised."""
+    """Send and record ``alert`` unless it's cooling down. Returns whether it was raised.
+
+    Not raised either when a channel is set up and none delivered it (Telegram
+    timed out, no email behind it): it is recorded as ``UNDELIVERED`` and
+    stays owed. The rule that found it finds it again on its next check
+    (``undelivered_once`` does for an alert no rule finds again), so that is
+    at most one more try a tick for as long as it lasts, and one row, which
+    the try that gets through replaces.
+    """
     if not alert.immediate:
         recent = conn.execute(
             """
             select 1 from alerts
-            where rule = %s and subject = %s and created_at > now() - %s
+            where rule = %s and subject = %s and created_at > now() - %s and channels <> %s
             limit 1
             """,
-            (alert.rule, alert.subject, COOL_DOWN),
+            (alert.rule, alert.subject, COOL_DOWN, UNDELIVERED),
         ).fetchone()
         if recent is not None:
             return False
     channels = notifier.send(f"EditToolbelt alert: {alert.rule}", f"Alert: {alert.message}")
-    conn.execute(
-        "insert into alerts (rule, subject, message, channels) values (%s, %s, %s, %s)",
-        (alert.rule, alert.subject, alert.message, channels),
-    )
-    get_logger().warning("alert.raised", rule=alert.rule, subject=alert.subject, channels=channels)
+    delivered = bool(channels) or not notifier.configured
+    with conn.transaction():
+        conn.execute(
+            "delete from alerts where rule = %s and subject = %s and channels = %s",
+            (alert.rule, alert.subject, UNDELIVERED),
+        )
+        conn.execute(
+            "insert into alerts (rule, subject, message, channels) values (%s, %s, %s, %s)",
+            (alert.rule, alert.subject, alert.message, channels if delivered else UNDELIVERED),
+        )
+    log = get_logger()
+    if not delivered:
+        log.warning("alert.undelivered", rule=alert.rule, subject=alert.subject)
+        return False
+    log.warning("alert.raised", rule=alert.rule, subject=alert.subject, channels=channels)
     return True
 
 
@@ -229,8 +262,8 @@ def webhook_errors(conn: Conn) -> list[Alert]:
     wasn't credited, a refund for a purchase in the wrong state, a store
     failure. Once per event: its row in ``alerts`` (rule ``webhook_error``,
     subject the event's id) marks it alerted, so a provider's retries that
-    fail the same way don't alert again. The error text is ours, never the
-    payload.
+    fail the same way don't alert again. An ``UNDELIVERED`` row doesn't: the
+    event is still owed. The error text is ours, never the payload.
     """
     rows = conn.execute(
         """
@@ -239,12 +272,13 @@ def webhook_errors(conn: Conn) -> list[Alert]:
         where e.error is not null
           and e.processed_at > now() - %s
           and not exists (
-            select 1 from alerts a where a.rule = 'webhook_error' and a.subject = e.id::text
+            select 1 from alerts a
+            where a.rule = 'webhook_error' and a.subject = e.id::text and a.channels <> %s
           )
         order by e.processed_at
         limit %s
         """,
-        (WEBHOOK_WINDOW, WEBHOOK_ALERTS_PER_CHECK),
+        (WEBHOOK_WINDOW, UNDELIVERED, WEBHOOK_ALERTS_PER_CHECK),
     ).fetchall()
     return [
         Alert(
@@ -264,8 +298,9 @@ def fiscal_receipts_unsent(conn: Conn) -> list[Alert]:
     The web server keeps retrying it until Click accepts it; this tells a
     person once, like ``webhook_errors``: the receipt's row in ``alerts``
     (rule ``fiscal_receipt_unsent``, subject the receipt's id) marks it
-    alerted. The message names the purchase and the last error, which holds
-    our words or Click's code and note, never the receipt's body.
+    alerted, unless that row is ``UNDELIVERED``. The message names the purchase
+    and the last error, which holds our words or Click's code and note, never
+    the receipt's body.
     """
     rows = conn.execute(
         """
@@ -276,11 +311,12 @@ def fiscal_receipts_unsent(conn: Conn) -> list[Alert]:
           and not exists (
             select 1 from alerts a
             where a.rule = 'fiscal_receipt_unsent' and a.subject = r.id::text
+              and a.channels <> %s
           )
         order by r.created_at
         limit %s
         """,
-        (FISCAL_ALERT_TRIES, FISCAL_ALERT_AGE, FISCAL_ALERTS_PER_CHECK),
+        (FISCAL_ALERT_TRIES, FISCAL_ALERT_AGE, UNDELIVERED, FISCAL_ALERTS_PER_CHECK),
     ).fetchall()
     alerts = []
     for row in rows:
@@ -297,6 +333,52 @@ def fiscal_receipts_unsent(conn: Conn) -> list[Alert]:
     return alerts
 
 
+def undelivered_once(conn: Conn) -> list[Alert]:
+    """An alert raised once that no channel delivered, with the message it was raised with.
+
+    A rule finds what it alerts about again on its next check. Nothing finds
+    a ledger mismatch again before the next night's check, or a GPU call that
+    couldn't be cancelled ever, so their ``UNDELIVERED`` rows are what's
+    owed. Immediate, like the alerts themselves; the try that gets through
+    replaces the row, and that ends it.
+    """
+    rows = conn.execute(
+        """
+        select rule, subject, message from alerts
+        where rule = any(%s) and channels = %s
+        order by created_at
+        limit %s
+        """,
+        (RAISED_ONCE, UNDELIVERED, UNDELIVERED_PER_CHECK),
+    ).fetchall()
+    return [Alert(row["rule"], row["subject"], row["message"], immediate=True) for row in rows]
+
+
+def in_turn(conn: Conn, found: list[Alert]) -> list[Alert]:
+    """``found`` in the order to send it: first what was never tried, in the rules' order,
+    then what no channel delivered, the one tried longest ago first.
+
+    A check stops sending once its failed sends have cost it 20 s
+    (scheduler.check_alerts). In the rules' own order it would then try the
+    same first few alerts on every tick for as long as a channel is down,
+    and one behind them, an uncredited payment say, would get no try and no
+    ``UNDELIVERED`` row, which is what shows it in Admin, System. A failed
+    try writes that row anew, so the oldest row is the alert whose turn it is.
+    """
+    if not found:
+        return []
+    rows = conn.execute(
+        """
+        select rule, subject from alerts
+        where channels = %s and (rule, subject) in (select * from unnest(%s::text[], %s::text[]))
+        order by created_at, id
+        """,
+        (UNDELIVERED, [alert.rule for alert in found], [alert.subject for alert in found]),
+    ).fetchall()
+    turn = {(row["rule"], row["subject"]): at for at, row in enumerate(rows)}
+    return sorted(found, key=lambda alert: turn.get((alert.rule, alert.subject), -1))
+
+
 Rule = Callable[[Conn], list[Alert]]
 
 DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
@@ -307,4 +389,5 @@ DATABASE_RULES: tuple[tuple[str, Rule], ...] = (
     ("sweeper_stale", sweeper_stale),
     ("webhook_error", webhook_errors),
     ("fiscal_receipt_unsent", fiscal_receipts_unsent),
+    ("undelivered_once", undelivered_once),
 )

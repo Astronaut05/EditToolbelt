@@ -7,6 +7,11 @@ sizes are capped against decompression bombs. The result, container,
 streams, duration and size, never a filename, goes into ``uploads.probe``;
 a refusal goes into ``uploads.probe_error`` as an API code. The web checks
 the tool's own limits against the probe when it quotes a job.
+
+The header is the uploader's word, so what prices and limits a job is checked
+against the packets: a length the header doesn't really give is measured
+(``packet_span``), and the picture's packets are counted over the whole file,
+so a header can't understate the frame rate (``_frame_rate``).
 """
 
 from __future__ import annotations
@@ -26,7 +31,8 @@ from psycopg.types.json import Jsonb
 
 from etb_worker.db import Conn
 from etb_worker.logs import get_logger
-from etb_worker.sandbox import Limits, ToolError, ffprobe, run
+from etb_worker.processors import CAP_RATIO, CAP_SLACK_SEC
+from etb_worker.sandbox import Answer, Limits, ToolError, ffprobe, run
 from etb_worker.storage import Storage, StorageError
 from etb_worker.workdir import new_dir
 
@@ -67,8 +73,26 @@ FRAME_TIMES_SPAN = "%+60"
 MAX_FRAME_TIMES = 7200
 MAX_DURATION_MS = 24 * 60 * 60 * 1000
 PROBE_LIMITS = Limits(timeout_sec=60, memory_bytes=2 * 1024**3)
-#: Reading every packet of a file whose header has no length: a 4 GB upload, I/O bound.
+#: Reading every packet of a file (to count its picture's, or to measure a length its
+#: header doesn't give): a 4 GB upload, I/O bound.
 MEASURE_LIMITS = Limits(timeout_sec=300, memory_bytes=2 * 1024**3)
+#: Frames a file may hold past its header's rate (``_frame_rate``) and still be taken at it:
+#: ``LEAD_IN_SEC`` of them at that rate, ``LEAD_IN_FRAMES`` at least.
+#: A cut made without re-encoding starts at the keyframe before it (an MP4's edit list hides
+#: those frames, and they are decoded to show the first): a GOP at most. That is 250 frames by
+#: x264's default, whatever the rate, and 10 s by HandBrake's (ten times the rate: 600 frames
+#: at 60 fps, where 250 read 2 s cut from such a file as 330 fps).
+LEAD_IN_SEC = 10.0
+LEAD_IN_FRAMES = 250
+#: What ffprobe is asked for: the fields ``summarize`` and ``probe_json`` read, no others.
+#: Asked for everything, it prints every tag the uploader wrote, megabytes of them, and
+#: its answer is held in the worker's own memory.
+ENTRIES = (
+    "format=format_name,duration,bit_rate"
+    ":stream=index,codec_type,codec_name,width,height,pix_fmt,r_frame_rate,avg_frame_rate"
+    ",sample_rate,channels,bit_rate"
+    ":stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation"
+)
 
 
 class ProbeRefused(Exception):
@@ -129,6 +153,8 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
             raise ProbeRefused("FILE_TOO_LARGE", f"{width}x{height} is over 100 MP")
         real = _rate(video.get("r_frame_rate"))
         average = _rate(video.get("avg_frame_rate"))
+        header = average or real
+        fps = _frame_rate(header, raw.get("picture_packets"), duration_ms)
         # The frames' own clock says for sure; different "real" and average
         # rates in the header are the usual sign when it can't be read.
         vfr = variable_frame_rate(raw.get("frame_times") or [])
@@ -137,12 +163,16 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
             "codec": video.get("codec_name"),
             "width": width,
             "height": height,
-            "fps": average or real,
+            "fps": fps,
             "vfr": vfr,
             "maybe_vfr": header_hint if vfr is None else vfr,
             "pix_fmt": video.get("pix_fmt"),
             "rotation": _rotation(video),
         }
+        if fps != header:
+            # The GPU function makes its frames at a rate from the header
+            # (gpu/video.pick_fps), so its frame cap still counts at this one.
+            record["video"]["header_fps"] = header
     if audio is not None:
         record["audio"] = {
             "codec": audio.get("codec_name"),
@@ -152,6 +182,31 @@ def summarize(raw: dict[str, Any], mime: str) -> dict[str, Any]:
             "bit_rate": _int_or_none(audio.get("bit_rate")),
         }
     return record
+
+
+def _frame_rate(header: float | None, packets: object, duration_ms: int) -> float | None:
+    """The picture's rate: the header's, unless the file holds clearly more frames than
+    that rate shows in its length; then the frames it holds, over its length.
+
+    The header's rate is the uploader's word (Matroska's DefaultDuration): 3 s at 1000 fps
+    that say 60 would be priced, limited and capped by time as 60 fps, and decode 17 times
+    the frames. An honest file's count runs over its rate times its length too: a length
+    rounded down to the millisecond (240.04 fps is refused where 240 isn't), a last frame
+    past it, a cut's lead-in. So the header stands while the file holds no more frames
+    than its rate gives over the read a job is capped to (``processors.priced_seconds``:
+    a job may decode that much of any file), and a lead-in more (``LEAD_IN_SEC`` at its
+    rate, ``LEAD_IN_FRAMES`` at least). What a header can hide that way stays small: 2 % of
+    the file's frames and 11 s of them at its own rate, never a multiple of the file.
+    ``packets`` is None when they weren't counted.
+    """
+    if isinstance(packets, bool) or not isinstance(packets, int) or duration_ms <= 0:
+        return header
+    seconds = duration_ms / 1000
+    if header:
+        lead_in = max(LEAD_IN_FRAMES, header * LEAD_IN_SEC)
+        if packets <= header * (seconds * CAP_RATIO + CAP_SLACK_SEC) + lead_in:
+            return header
+    return round(packets / seconds, 3) or header
 
 
 def variable_frame_rate(times: list[float]) -> bool | None:
@@ -192,37 +247,52 @@ def _degrees(value: object) -> int:
 
 
 def probe_json(path: Path) -> dict[str, Any]:
-    """ffprobe's JSON for ``path`` (stdout), under the sandbox."""
-    lines: list[str] = []
+    """ffprobe's JSON for ``path`` (stdout), under the sandbox: the fields in ``ENTRIES``.
+
+    An answer too long to keep (``Answer``) stops ffprobe and refuses the file: the one
+    tag read, ``rotate``, is as long as the uploader likes. One longer than the sandbox
+    reads of a line at once comes in pieces, which aren't JSON: refused the same.
+    """
+    answer = Answer()
     try:
         run(
-            ffprobe("-print_format", "json", "-show_format", "-show_streams", "-i", path.name),
+            ffprobe("-print_format", "json", "-show_entries", ENTRIES, "-i", path.name),
             cwd=path.parent,
             limits=PROBE_LIMITS,
-            on_line=lines.append,
+            cancel=answer.too_long,
+            on_line=answer,
         )
     except ToolError as error:
         code = "TIMEOUT" if error.code == "TIMEOUT" else "UNSUPPORTED_FORMAT"
         raise ProbeRefused(code, "ffprobe could not read it") from None
+    if answer.too_long.is_set():  # ffprobe ended on its own just as it was being stopped
+        raise ProbeRefused("UNSUPPORTED_FORMAT", "ffprobe's answer is too long")
     try:
-        data = json.loads("\n".join(lines))
+        data = json.loads(answer.text())
     except json.JSONDecodeError:
         raise ProbeRefused("UNSUPPORTED_FORMAT", "ffprobe gave no answer") from None
     if not isinstance(data, dict):
         raise ProbeRefused("UNSUPPORTED_FORMAT", "ffprobe gave no answer")
     streams = data.get("streams") or []
     fmt = data.get("format") or {}
+    picture = next((stream for stream in streams if _picture(stream)), None)
+    counted: int | None = None
     if _timed(fmt, streams) and (not _positive(fmt.get("duration")) or _estimated(fmt)):
         # The length sets the price, the limits and how far a job reads. When the header has
         # none (a browser's MediaRecorder WebM writes none), or one that rounds to nothing, or
         # ffprobe would only guess it from the bitrate (MP3 without a Xing header, raw AAC),
         # it is measured from the packets.
-        span = packet_span(path)
+        index = None if picture is None else picture.get("index")
+        span, counted = packet_span(path, index if isinstance(index, int) else None)
         if span is None:
             raise ProbeRefused("UNSUPPORTED_FORMAT", "its length can't be read")
         data["format"] = {**fmt, "duration": f"{span:.6f}"}
         data["duration_from_packets"] = True
-    if any(_picture(stream) for stream in streams):
+    if picture is not None:
+        if _positive((data.get("format") or {}).get("duration")):
+            # A rate is frames over a length: a still image has none. Measuring the length
+            # read every packet, so the picture's were counted there; otherwise they are now.
+            data["picture_packets"] = picture_packets(path) if counted is None else counted
         data["frame_times"] = frame_times(path)
     return data
 
@@ -264,14 +334,24 @@ def _estimated(fmt: dict[str, Any]) -> bool:
     return bool(set(str(fmt.get("format_name", "")).split(",")) & ESTIMATED)
 
 
-def packet_span(path: Path) -> float | None:
-    """Seconds from the first packet to the end of the last, in any stream; None if none."""
+def packet_span(path: Path, picture: int | None = None) -> tuple[float | None, int | None]:
+    """Seconds from the first packet to the end of the last, in any stream; None if none.
+
+    Every packet is read for that, so the packets of the stream numbered ``picture`` are
+    counted on the way (what ``picture_packets`` reads the whole file for): the second
+    value, None without a ``picture``.
+    """
     first: float | None = None
     end = 0.0
+    wanted = None if picture is None else str(picture)
+    counted = 0
 
     def on_line(line: str) -> None:
-        nonlocal first, end
-        pts, _, duration = line.strip().rstrip(",").partition(",")
+        nonlocal first, end, counted
+        index, _, times = line.strip().rstrip(",").partition(",")
+        if index == wanted:
+            counted += 1  # with or without a time: a job would decode it
+        pts, _, duration = times.partition(",")
         try:
             start = float(pts)
         except ValueError:
@@ -286,7 +366,7 @@ def packet_span(path: Path) -> float | None:
     try:
         run(
             ffprobe(
-                *("-show_entries", "packet=pts_time,duration_time"),
+                *("-show_entries", "packet=stream_index,pts_time,duration_time"),
                 *("-of", "csv=p=0", "-i", path.name),
             ),
             cwd=path.parent,
@@ -296,10 +376,46 @@ def packet_span(path: Path) -> float | None:
     except ToolError as error:
         if error.code == "TIMEOUT":
             raise ProbeRefused("TIMEOUT", "measuring its length took too long") from None
-        return None
+        return None, None
     if first is None or end <= first:
-        return None
-    return end - first
+        return None, None
+    return end - first, None if wanted is None else counted
+
+
+def picture_packets(path: Path) -> int:
+    """How many packets the picture has in the whole file: the frames a job would decode,
+    whatever rate the header gives.
+
+    Demuxed only, nothing decoded, and all of them: the frames can be packed in anywhere,
+    past the first minute ``frame_times`` reads. ``V:0`` is the picture, never cover art.
+    A file whose frames can't be counted is refused: its rate would be the header's word.
+    """
+    count: int | None = None
+
+    def on_line(line: str) -> None:
+        nonlocal count
+        if count is None:
+            try:
+                count = int(line.strip().rstrip(","))
+            except ValueError:
+                return  # not the number
+
+    try:
+        run(
+            ffprobe(
+                *("-count_packets", "-select_streams", "V:0"),
+                *("-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", "-i", path.name),
+            ),
+            cwd=path.parent,
+            limits=MEASURE_LIMITS,
+            on_line=on_line,
+        )
+    except ToolError as error:
+        code = "TIMEOUT" if error.code == "TIMEOUT" else "UNSUPPORTED_FORMAT"
+        raise ProbeRefused(code, "its frames couldn't be counted") from None
+    if count is None or count < 0:
+        raise ProbeRefused("UNSUPPORTED_FORMAT", "its frames couldn't be counted")
+    return count
 
 
 def frame_times(path: Path) -> list[float]:
