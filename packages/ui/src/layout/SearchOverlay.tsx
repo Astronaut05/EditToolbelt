@@ -63,6 +63,32 @@ function warm() {
 }
 
 /**
+ * Keys typed after search was asked for and before the sheet's input can take
+ * them. Its file is fetched on first use, so someone who presses Ctrl+K and
+ * types at once would lose their first letters: they are kept here instead
+ * (and kept out of whatever field had focus), and the sheet opens with them.
+ */
+let early = '';
+let fetched = false;
+
+function keepKey(event: globalThis.KeyboardEvent) {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+  if (event.key.length === 1) early += event.key;
+  else if (event.key === 'Backspace') early = early.slice(0, -1);
+  else return;
+  event.preventDefault();
+}
+
+/** What was typed while the sheet loaded. */
+export const earlyKeys = () => early;
+
+/** The sheet's input has focus: keys go there from now on. */
+export function stopKeeping() {
+  window.removeEventListener('keydown', keepKey, true);
+  early = '';
+}
+
+/**
  * Search from any page: Ctrl+K (⌘K), the header button, or `/` from the
  * header opens the search sheet (SearchDialog). On the home page the shortcut
  * focuses the hero search instead. This part is in every page's first load,
@@ -77,11 +103,14 @@ export function SearchOverlay() {
   useEffect(() => {
     function show() {
       setOpen(true);
+      if (!fetched) window.addEventListener('keydown', keepKey, true);
       loadDialog().then(
         (loaded) => {
+          fetched = true;
           setDialog(() => loaded.SearchDialog);
         },
         () => {
+          stopKeeping();
           setOpen(false);
         },
       );

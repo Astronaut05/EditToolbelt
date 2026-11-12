@@ -1,10 +1,11 @@
 'use client';
 
 import { Search, X } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import { cn } from '../cn';
 import { AppLink } from '../primitives/AppLink';
+import { earlyKeys, stopKeeping } from './SearchOverlay';
 import { useGo, useSearch } from './useSearch';
 
 /**
@@ -20,7 +21,8 @@ export function SearchDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [query, setQuery] = useState('');
+  // It opens with what was typed while this file was on its way (SearchOverlay → keepKey).
+  const [query, setQuery] = useState(earlyKeys);
   const [active, setActive] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -28,12 +30,15 @@ export function SearchDialog({
   const go = useGo();
   const { hits, ready, failed } = useSearch(query, { enabled: open });
 
-  useEffect(() => {
+  // Before the browser takes another key: from the first render to the input
+  // having focus nothing is typed in between, so no letter falls in the gap.
+  useLayoutEffect(() => {
     const node = dialog.current;
     if (!node) return;
     if (open && !node.open) {
       node.showModal();
       input.current?.focus();
+      stopKeeping();
     }
     if (!open && node.open) node.close();
   }, [open]);
