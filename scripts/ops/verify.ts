@@ -383,8 +383,15 @@ export function serviceTokenProblems(
   if (!app) return [];
   const token = tokens.find((t) => t.client_id === clientId);
   if (!token) {
+    // Cloudflare shows the id as `<32 hex>.access`; the ending is part of it.
+    const bare = (id: string | undefined) => id?.replace(/\.access$/, '');
+    if (tokens.some((t) => bare(t.client_id) === bare(clientId))) {
+      return [
+        'CF_ACCESS_CLIENT_ID lacks (or doubles) the `.access` ending: paste the Client ID exactly as Cloudflare shows it',
+      ];
+    }
     return [
-      "CF_ACCESS_CLIENT_ID is not a service token of this account (deleted or re-created?): set both of CI's secrets from a current token",
+      `CF_ACCESS_CLIENT_ID is none of this account's ${String(tokens.length)} service tokens (deleted or re-created?). Its value: ${shapeOf(clientId)}. To fix: make a new service token, add it to the site's Service Auth policy, and set both of CI's secrets from it`,
     ];
   }
   const problems: string[] = [];
