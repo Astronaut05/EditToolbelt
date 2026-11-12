@@ -39,6 +39,7 @@ import { DropZone } from './DropZone';
 import type { GridFact } from './FactGrid';
 import type { OrderedFile } from './FileOrder';
 import type * as FolderRename from './FolderRename';
+import type * as OpenFolder from './OpenFolder';
 import type { Renamed } from './in-place';
 import type { SwatchInfo } from './Swatches';
 import { accepts, handOff, takeHandoff } from './handoff';
@@ -965,31 +966,45 @@ export function ToolShell({
   const [batchDone, setBatchDone] = useState(false);
   /**
    * U02: the new names for the files as they are now, the folder they came
-   * from, if any, and what was renamed in it. Its checks, folder picker and
-   * renames in place load with the tools that rename (`names`).
+   * from, if any, and what was renamed in it. The folder button loads with
+   * the tools that rename in place; the names' checks, the folder picker and
+   * the renames load when files arrive or the button is about to be used.
    */
   const [renaming, setRenaming] = useState<typeof FolderRename | null>(null);
+  const [opener, setOpener] = useState<typeof OpenFolder | null>(null);
   const [namesPlan, setNamesPlan] = useState<NamesPlan | null>(null);
   const [folder, setFolder] = useState<FolderRename.Folder | null>(null);
   const [renamed, setRenamed] = useState<Renamed[] | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
   const planRound = useRef(0);
+  const inPlace = Boolean(preset.names?.inPlace);
   useEffect(() => {
-    if (!preset.names) return;
+    if (!inPlace) return;
     let live = true;
-    void import('./FolderRename').then((loaded) => {
+    void import('./OpenFolder').then((loaded) => {
       // A transition, so settings the server rendered (the checklist) stay on
       // screen until their own code has loaded.
       if (live)
         startTransition(() => {
-          setRenaming(loaded);
+          setOpener(loaded);
         });
     });
     return () => {
       live = false;
     };
-  }, [preset.names]);
-  const folderable = Boolean(preset.names?.inPlace && renaming?.canRenameInPlace());
+  }, [inPlace]);
+  /** The rest of U02's code, once: asked for by the first files, or by the folder button. */
+  const renamingLoad = useRef<Promise<typeof FolderRename> | null>(null);
+  const loadRenaming = useCallback(() => {
+    renamingLoad.current ??= import('./FolderRename').then((loaded) => {
+      startTransition(() => {
+        setRenaming(loaded);
+      });
+      return loaded;
+    });
+    return renamingLoad.current;
+  }, []);
+  const folderable = Boolean(inPlace && opener?.canRenameInPlace());
   const batchOutputs = useRef(new Map<string, { blob: Blob; name: string }>());
   /** U04: a batch that starts as soon as its files arrive (`preset.autoRun`). */
   const autoBatch = useRef(false);
@@ -1661,6 +1676,9 @@ export function ToolShell({
   const namer = preset.names;
   const planFiles = state.kind === 'ready' ? state.files : undefined;
   useEffect(() => {
+    if (namer && planFiles) void loadRenaming();
+  }, [loadRenaming, namer, planFiles]);
+  useEffect(() => {
     if (!namer || !planFiles || renamed) return;
     const round = (planRound.current += 1);
     const timer = setTimeout(() => {
@@ -1678,16 +1696,20 @@ export function ToolShell({
 
   /** U02: a folder's files, to rename where they are. */
   const openFolder = useCallback(() => {
-    void renaming?.openFolder(
-      (files, opened) => {
-        intake(files);
-        setFolder(opened);
-      },
-      (error) => {
-        setState({ kind: 'error', ...error });
-      },
+    // Its code is asked for as the pointer reaches the button, so it's usually
+    // here already; the picker only opens straight after the click.
+    void loadRenaming().then((loaded) =>
+      loaded.openFolder(
+        (files, opened) => {
+          intake(files);
+          setFolder(opened);
+        },
+        (error) => {
+          setState({ kind: 'error', ...error });
+        },
+      ),
     );
-  }, [intake, renaming]);
+  }, [intake, loadRenaming]);
 
   const cancel = useCallback(() => {
     controller.current?.abort();
@@ -2413,7 +2435,12 @@ export function ToolShell({
         });
       }}
       onSample={preset.sampleUrl ? () => void trySample() : undefined}
-      folder={folderable && renaming && <renaming.OpenFolderButton onClick={openFolder} />}
+      folder={
+        folderable &&
+        opener && (
+          <opener.OpenFolderButton onClick={openFolder} onIntent={() => void loadRenaming()} />
+        )
+      }
       active
     />
   );

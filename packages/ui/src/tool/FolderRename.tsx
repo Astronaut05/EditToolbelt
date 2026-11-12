@@ -3,11 +3,13 @@
 /**
  * U02's part of the ToolShell: the new names' checks, the folder picker, and
  * renaming a folder's files where they are, with undo. The shell loads this
- * only for a preset with `names`, so other tool pages don't carry it
- * (docs/10 → Budgets: script transfer on a tool page).
+ * only for a preset with `names`, and only once files arrive or the folder
+ * button is about to be used (./OpenFolder is the button), so neither other
+ * tool pages nor U02's own first load carry it (docs/10 → Budgets: script
+ * transfer on a tool page).
  */
 import type { NamesPlan } from '@etb/engines';
-import { FolderOpen, Undo2 } from 'lucide-react';
+import { Undo2 } from 'lucide-react';
 import { useState, type Dispatch, type SetStateAction } from 'react';
 
 import { Button } from '../primitives/Button';
@@ -15,7 +17,6 @@ import { Dialog } from '../primitives/overlays';
 import type { BatchItem } from './BatchList';
 import { plural } from './format';
 import {
-  canRenameInPlace,
   renameAll,
   RenameInPlaceError,
   undoRenames,
@@ -23,8 +24,6 @@ import {
   type MovableFile,
   type Renamed,
 } from './in-place';
-
-export { canRenameInPlace };
 
 /** A file in a folder the user opened: a handle that can be renamed, and its file. */
 interface FolderFile extends MovableFile {
@@ -101,15 +100,6 @@ export async function openFolder(
     name: dir.name,
     handles,
   });
-}
-
-/** The drop zone's way in for a folder (desktop Chromium). */
-export function OpenFolderButton({ onClick }: { onClick: () => void }) {
-  return (
-    <Button onClick={onClick} icon={<FolderOpen aria-hidden="true" size={18} strokeWidth={1.75} />}>
-      Open a folder
-    </Button>
-  );
 }
 
 /** What a rename in place changes in the shell: the list, the result and its analytics. */

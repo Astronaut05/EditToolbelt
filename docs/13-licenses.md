@@ -44,7 +44,7 @@ Status legend: ✅ approved · ⚠️ approved with condition · ❌ banned · �
 | Sentry SDKs / GlitchTip | error tracking | MIT / MIT | 🔍 |
 | Paddle.js | checkout | vendor terms | ⚠️ checkout route only |
 | Google Gemini API (a service, no package or weights installed) | T09 Subtitle Generator: the browser calls it with the person's own key; nothing of it is in our code or build | Gemini API terms, between Google and the key's owner (on the free tier Google may use what's sent to improve its products; the page and FAQ say so) | ⚠️ the person's own key only, checked 2026-10-15 |
-| Pillow | server image probe/ops; reads, resizes and writes images and frames in the GPU images (Upscale Image, Object Eraser, Video Background Remover) | HPND (MIT-style) | ✅ 12.3.0 in the GPU images, checked 2026-10-02 |
+| Pillow | server image probe/ops; reads, resizes and writes images and frames in the GPU images (Upscale Image, Object Eraser, Video Background Remover) | HPND (MIT-style) | ✅ 13.0.0 in the GPU images (12.3.0 has eight advisories), checked 2026-11-12 |
 
 ## Browser processing
 
@@ -132,7 +132,7 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | typescript-eslint | TypeScript lint rules | MIT | ✅ 8.70.1, checked 2026-09-29 |
 | ESLint plugins: Next.js, React Hooks, Prettier config (`@next/eslint-plugin-next`, `eslint-plugin-react-hooks`, `eslint-config-prettier`) | lint rules | MIT | ✅ checked 2026-09-29. `eslint-config-next` is **not** used: its react/import/jsx-a11y plugins don't support ESLint 10 yet |
 | Prettier | formatting | MIT | ✅ 3.9.9, checked 2026-09-29 |
-| Vitest | unit tests | MIT | ✅ 5.0.2, checked 2026-09-29 |
+| Vitest | unit tests; Vite is the runner under it, named in `package.json` so the lockfile holds a fixed release | MIT | ✅ 5.1.0 (Vite 8.3.7, MIT), checked 2026-11-12 |
 | drizzle-kit | generates SQL migrations from the Drizzle schema | MIT | ✅ 0.31.11, checked 2026-09-30 |
 | Railway SDK (`railway`) | describes the production project; Railway's CLI plans and applies it from CI (`.railway/railway.ts`) | MIT | ✅ 3.12.0, checked 2026-10-01 |
 | Railway CLI (`@railway/cli`) | plans and applies `.railway/railway.ts`, deploy logs, one-off commands; installed in CI at a pinned version | ISC | ✅ 5.63.1, checked 2026-10-01 |
@@ -144,7 +144,7 @@ Build, lint, test and deploy tooling. Not distributed, but the rules still apply
 | pip-audit | Python vulnerability audit in CI | Apache-2.0 | ✅ 2.10.1, checked 2026-09-29 |
 | Playwright (`@playwright/test`) | end-to-end tests, screenshots, design comparison | Apache-2.0 | ✅ 1.63.0, checked 2026-09-30 |
 | axe-core for Playwright (`@axe-core/playwright`) | accessibility checks in e2e tests | MPL-2.0 | ✅ 4.13.0, checked 2026-09-30 (never shipped) |
-| Lighthouse (`lighthouse`) | Lighthouse budgets against the local production build (`scripts/lighthouse.ts`; replaced `@lhci/cli`, whose Lighthouse 12 pulled audited-vulnerable `extract-zip` and `tmp`) | Apache-2.0 | ✅ 13.5.0, checked 2026-09-30 (never shipped) |
+| Lighthouse (`lighthouse`) | Lighthouse budgets against the local production build (`scripts/lighthouse.ts`; replaced `@lhci/cli`, whose Lighthouse 12 pulled audited-vulnerable `extract-zip` and `tmp`) | Apache-2.0 | ✅ 13.5.0, checked 2026-09-30 (never shipped). Held at 13.5.0: 13.6.0 pulls `sentry` 0.49.0 under FSL-1.1-Apache-2.0, which is not an open-source licence (`docs/decisions/2026-11-12-dependency-audit.md`) |
 | Wrangler | Cloudflare Pages deploy from CI after Go public (run with npx, pinned version) | MIT OR Apache-2.0 | ✅ 4.143.0, checked 2026-09-29 |
 | mkcert | local HTTPS certificates for testing on phones (installed on the dev machine, see README) | BSD-3-Clause | ✅ v1.4.4, checked 2026-09-29 |
 | GitHub Actions: checkout, setup-node, upload/download-artifact | CI | MIT | ✅ pinned by commit, checked 2026-09-29 |

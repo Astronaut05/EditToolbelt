@@ -304,9 +304,9 @@
       "license": "MIT-CMU",
       "scope": "server",
       "status": "approved",
-      "version": "12.3.0",
+      "version": "13.0.0",
       "source": "https://github.com/python-pillow/Pillow/blob/main/LICENSE",
-      "checked": "2026-10-02"
+      "checked": "2026-11-12"
     },
     {
       "label": "Mediabunny",
@@ -1051,12 +1051,12 @@
       "label": "Vitest",
       "section": "Development, build and CI",
       "ecosystem": "npm",
-      "packages": ["vitest"],
-      "use": "unit tests",
+      "packages": ["vitest", "vite"],
+      "use": "unit tests; Vite is the runner under it, named in package.json so the lockfile holds a release past GHSA-587h-7wmj-h5pm",
       "license": "MIT",
       "scope": "dev",
       "status": "approved",
-      "version": "5.0.2",
+      "version": "5.1.0",
       "source": "https://github.com/vitest-dev/vitest/blob/main/LICENSE",
       "checked": "2026-09-29"
     },

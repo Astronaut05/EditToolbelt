@@ -41,14 +41,6 @@ export function zipLimit(
   }`;
 }
 
-/** Whether this browser can rename files in a folder it opened. */
-export function canRenameInPlace(): boolean {
-  if (typeof window === 'undefined' || !('showDirectoryPicker' in window)) return false;
-  const proto = (globalThis as { FileSystemFileHandle?: { prototype: object } })
-    .FileSystemFileHandle?.prototype;
-  return Boolean(proto && 'move' in proto);
-}
-
 const tempName = (index: number, stamp: string) => `.etb-rename-${stamp}-${String(index)}.tmp`;
 
 /** Each `from` → `to`, in two steps; the list of what was done, or an error with everything put back. */
