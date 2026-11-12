@@ -1040,9 +1040,18 @@ export function ToolShell({
     [onEvent, tool.id],
   );
 
+  // Leaving the page ends the work, not only the files. A run and a preview
+  // are aborted, which cancels a job on our servers and gives its credits
+  // back: left running, it was charged and its result went nowhere. A search
+  // or a redo waiting on its timer doesn't start.
   useEffect(() => {
     const owned = urls.current;
     return () => {
+      // The run of the moment the page is left, not of when it was opened.
+      controller.current?.abort();
+      previewAbort.current?.abort();
+      if (rerunTimer.current) clearTimeout(rerunTimer.current);
+      if (detectTimer.current) clearTimeout(detectTimer.current);
       for (const url of owned) URL.revokeObjectURL(url);
     };
   }, []);
