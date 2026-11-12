@@ -16,4 +16,4 @@ nvidia-curand-cu12==10.3.9.90
 # cuFFT's own dependency, at PyTorch 2.10's version rather than the newest 12.x.
 nvidia-nvjitlink-cu12==12.8.93
 numpy==2.3.5
-pillow==12.3.0
+pillow==13.0.0
