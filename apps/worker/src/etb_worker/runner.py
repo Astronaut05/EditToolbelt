@@ -98,6 +98,11 @@ class _Heartbeat(threading.Thread):
         self._stop.set()
 
 
+#: How often a finished job is recorded before a held account row fails it
+#: (each try waits db.LOCK_TIMEOUT for the row: 15 s in all).
+SUCCEED_TRIES = 3
+
+
 def _time_limit(job: jobqueue.Job) -> float:
     """The job's time limit in seconds (``jobs.timeout_sec``, from the registry)."""
     return float(job.get("timeout_sec") or 900)
@@ -168,8 +173,7 @@ class JobRunner:
             self._settle_stale_call(job)
             self._drop_stale_output(job)
             output_key, output_meta = self._process(job, workdir, cancel, progress, deadline)
-            with self.connect() as conn:
-                done = jobqueue.succeed(conn, job, self.worker_id, output_key, output_meta)
+            done = self._succeed(job, output_key, output_meta)
             if done:
                 log.info("job.succeeded", bytes=output_meta.get("bytes"))
             else:
@@ -332,6 +336,22 @@ class JobRunner:
                 (job["id"], stale),
             )
 
+    def _succeed(self, job: jobqueue.Job, output_key: str, output_meta: dict[str, Any]) -> bool:
+        """Records the finished job; False when it was cancelled meanwhile.
+
+        Its ledger row needs the account's row, and a statement waits 5 s for
+        a row someone else holds (db.LOCK_TIMEOUT). Giving up there would fail
+        a finished job, an hour's work, for a moment's wait: it is asked again.
+        """
+        for _ in range(SUCCEED_TRIES - 1):
+            try:
+                with self.connect() as conn:
+                    return jobqueue.succeed(conn, job, self.worker_id, output_key, output_meta)
+            except psycopg.errors.LockNotAvailable:
+                get_logger(job_id=str(job["id"])).warning("job.account_row_held")
+        with self.connect() as conn:
+            return jobqueue.succeed(conn, job, self.worker_id, output_key, output_meta)
+
     def _fail(self, job: jobqueue.Job, code: str, detail: str) -> None:
         log = get_logger(job_id=str(job["id"]), tool_id=job["tool_id"])
         try:
@@ -362,7 +382,8 @@ class JobRunner:
             try:
                 self.storage.delete(key)
             except StorageError as error:
-                # The sweeper removes it within the hour; say so loudly.
+                # The scheduler tries it again every tick once the job has ended
+                # (jobqueue.ended_with_inputs); say so loudly all the same.
                 get_logger(job_id=str(job["id"])).warning(
                     "job.input_not_deleted", error_code=error.code
                 )

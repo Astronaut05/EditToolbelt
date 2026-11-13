@@ -45,7 +45,7 @@ The hybrid decision lives in the tool's `route()` function (see `02-tool-framewo
 - The `jobs` table **is** the queue. Workers claim with `SELECT … FOR UPDATE SKIP LOCKED` ordered by `priority DESC, created_at`. `LISTEN/NOTIFY` wakes idle workers; they also poll every 2 s as fallback.
 - States: `queued → running → succeeded | failed | cancelled | expired`. Running jobs write `heartbeat_at` every 5 s.
 - Reaper: `running` jobs with heartbeat older than 60 s go back to `queued` (max 2 retries, then `failed` + refund).
-- Per-tool concurrency caps and timeouts come from the registry (`limits.maxConcurrent`, `limits.timeoutSec`).
+- Per-tool concurrency caps and timeouts come from the registry (`limits.maxConcurrent`, `limits.timeoutSec`). The timeout is the job's, from the moment a worker takes it: the download, every run of its tool and the wait before the upload share it (`docs/decisions/2026-11-13-worker-review-fixes.md`).
 - Priority: paid credits > signed-in free. (Anonymous users can't create server jobs.)
 - `expired`: queued longer than 15 min (config) → cancelled + refund, user told to retry.
 
@@ -116,7 +116,7 @@ The site runs at its real domain. Until Go public it sat behind Cloudflare Acces
 
 - **Railway**, region EU West (Amsterdam), Hobby plan with a hard usage limit of $30 a month (Workspace → Usage). Three services from this repo:
   - **web**: the Next.js server build (`ETB_TARGET=server`), serving every page, the API and the admin. It sets the same security headers, CSP and COOP/COEP as the `_headers` file the static export uses, and CI checks them on the live site.
-  - **worker**: `apps/worker`. It reaches Postgres over Railway's private network and storage over HTTPS. Its disk holds one job's input and output at a time per job slot, sized against the largest upload allowed (`config/business.ts`), with a volume where the container's own disk is too small.
+  - **worker**: `apps/worker`. It reaches Postgres over Railway's private network and storage over HTTPS. Its disk holds one job's input and output at a time per job slot, plus the one upload its probe loop is reading, sized against the largest upload allowed (`config/business.ts`), with a volume where the container's own disk is too small.
   - **Postgres 18** (UUIDv7 ids need 18, see `04`): Railway's template if it's 18, else the official `postgres:18` image with a volume. Private network only, with no public TCP proxy. One-off commands (`pnpm admin:promote`) run inside the web service with `railway ssh`.
   - **Deploys:** Railway builds and deploys every merge to `main` once CI has passed on it. Migrations run as the web service's pre-deploy command, so a failed migration stops the deploy, and migrations stay backward-compatible with the release before. The health check is `/readyz` (database and storage).
   - **After each deploy** CI waits for the new commit to answer, then smoke-tests the live site from outside: pages, headers, `/readyz`, and that `/admin` stays shut.

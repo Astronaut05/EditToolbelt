@@ -154,7 +154,10 @@ export const alerts = pgTable(
     /** What it's about: a tool id, a service instance, `postgres`; '' for the whole system. */
     subject: text('subject').notNull().default(''),
     message: text('message').notNull(),
-    /** Where it went: `telegram`, `email`; empty when neither is set up. */
+    /**
+     * Where it went: `telegram`, `email`; empty when neither is set up. `undelivered`
+     * when a channel is set up and none took it: the worker sends it again.
+     */
     channels: text('channels')
       .array()
       .notNull()

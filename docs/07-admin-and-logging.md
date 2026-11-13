@@ -61,6 +61,8 @@ Send to a private **Telegram bot** (outbound messages only; bot token in env) an
 - A GPU call whose worker died couldn't be cancelled on Modal (immediate; it is charged to its job's time limit meanwhile).
 - Tool margin < 2× for a week (daily digest, not a page).
 
+An alert no channel took (Telegram timed out and email is unset or failing) is kept as `undelivered` and sent again on the worker's next tick, oldest try first, until one takes it; a tick spends at most 20 s on sends that fail. The digest is tried again every 10 minutes.
+
 Plus a **daily digest** message at 09:00 Asia/Tashkent: yesterday's jobs, failures, revenue, GPU seconds and cost, new users, top tools, top failing tools.
 
 ## Health endpoints

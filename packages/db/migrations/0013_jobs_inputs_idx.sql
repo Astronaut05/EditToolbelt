@@ -1,0 +1,1 @@
+CREATE INDEX "jobs_inputs_idx" ON "jobs" USING btree ("heartbeat_at") WHERE "jobs"."input_key" is not null or "jobs"."extra_input_keys" <> '{}';
