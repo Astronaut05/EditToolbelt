@@ -12,6 +12,7 @@ import shutil
 import struct
 import subprocess
 import threading
+import tracemalloc
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,10 +32,11 @@ from etb_worker.processors.merge_videos import (
     drop_expression,
     family_of,
     priced_lengths,
+    read_clip,
     standard_fps,
     target,
 )
-from etb_worker.sandbox import Limits, ToolError
+from etb_worker.sandbox import MAX_ANSWER, Limits, ToolError
 
 # --- The plan, without ffmpeg ------------------------------------------------------------
 
@@ -645,3 +647,93 @@ def test_a_clip_that_starts_late_is_joined_by_its_length(tmp_path: Path) -> None
     # 0.5 s is 12.5 frames at 25 fps, rounded up to 13: 0.52 s. 51 + 50 frames less those 13
     # (the MP4's sound starts 0.023 s before its picture, which adds a frame).
     assert output.meta["notes"][0] == "2 clips joined with 0.52 s crossfades: 3.52 s"
+
+
+# --- ffprobe's answer, kept in the worker's own memory ------------------------------------
+
+MIB = 1024 * 1024
+
+
+def tags_file(path: Path, tags: str) -> Path:
+    """An ffmetadata file: tags too long for a command line."""
+    path.write_text(";FFMETADATA1\n" + tags)
+    return path
+
+
+def test_a_clips_long_tags_never_reach_the_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asked for everything, ffprobe prints every tag a clip carries, megabytes of them,
+    into the worker's own memory: the job asks only for the fields it reads."""
+    notes = tags_file(tmp_path / "notes.txt", f"comment={'x' * 4 * MIB}\n")
+    clips = [
+        make(
+            tmp_path / f"{name}.mkv",
+            *("-i", str(mkv_clip(tmp_path / f"{name}-plain.mkv", seconds)), "-i", str(notes)),
+            *("-map", "0", "-map_metadata", "1", "-c", "copy"),
+        )
+        for name, seconds in (("a", 2), ("b", 3))
+    ]
+    assert all(clip.stat().st_size > 4 * MIB for clip in clips)
+    answers: list[int] = []
+    real = sandbox.run
+
+    def spy(args: list[str], **kwargs: Any) -> str:
+        on_line, read = kwargs["on_line"], 0
+
+        def count(line: str) -> None:
+            nonlocal read
+            read += len(line)
+            on_line(line)
+
+        try:
+            return real(args, **{**kwargs, "on_line": count})
+        finally:
+            if "-show_data_hash" in args:
+                answers.append(read)
+
+    monkeypatch.setattr(processors, "run", spy)
+    output = merge(tmp_path, clips, {}, "video/x-matroska")
+    # Joined as before: the same camera's clips, copied, and none of their tags.
+    assert output.meta["notes"][0].startswith("2 clips joined: 5.0")
+    assert output.meta["notes"][1].startswith("The clips share their codec and settings")
+    assert output.path.stat().st_size < MIB
+    assert len(answers) == 2
+    assert max(answers) < 4096
+
+
+def test_a_clip_whose_answer_is_too_long_to_keep_fails_the_job(tmp_path: Path) -> None:
+    """The one tag read (``rotate``) is as long as the uploader likes, 8 MiB here. The probe
+    refuses such an upload; a job that met one all the same keeps no more of it."""
+    notes = tags_file(tmp_path / "notes.txt", f"[STREAM]\nXOTATE={'9' * 8 * MIB}\n")
+    made = make(
+        tmp_path / "made.mkv",
+        *("-f", "lavfi", "-i", "testsrc=size=64x48:rate=25:duration=1", "-i", str(notes)),
+        *("-map", "0", "-map_metadata:s:v:0", "1:s:0", "-c:v", "libx264"),
+    )
+    work = tmp_path / "work"
+    work.mkdir()
+    # ffmpeg won't write that name in Matroska: another of the same length is patched.
+    (work / "input").write_bytes(made.read_bytes().replace(b"XOTATE", b"rotate"))
+    with pytest.raises(ProbeRefused):
+        probe_json(work / "input")
+    ctx = JobContext(
+        job_id="test",
+        tool_id="merge-videos",
+        input_path=work / "input",
+        workdir=work,
+        options={},
+        meta={},
+        limits=Limits(timeout_sec=60),
+        cancel=threading.Event(),
+        progress=lambda _pct, _stage: None,
+    )
+    tracemalloc.start()
+    try:
+        with pytest.raises(JobFailed) as failed:
+            read_clip(ctx, "input", 1, 2.02)
+        _now, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert failed.value.code == "DECODE_FAILED"
+    assert peak < 2 * MAX_ANSWER

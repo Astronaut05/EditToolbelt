@@ -335,6 +335,9 @@ export async function runJob(
   let started: Job | null = null;
   for (let attempt = 1; !started; attempt += 1) {
     try {
+      // Not stopped by a cancel. One that landed while this request was on its way
+      // would end it here, but not on the server: the job would be made, charged and
+      // run with nobody left to cancel it. It is cancelled just below instead.
       started = await client.createJob(
         {
           tool_id: toolId,
@@ -344,7 +347,6 @@ export async function runJob(
           quote_funding: offer.funding,
         },
         crypto.randomUUID(),
-        ctx.signal,
       );
     } catch (error) {
       if (!quoteChanged(error) || attempt > 2) throw runError(error);
@@ -356,6 +358,11 @@ export async function runJob(
         throw aborted();
       }
     }
+  }
+  // Cancelled while the job was being made: `follow` only hears a cancel that comes after it.
+  if (ctx.signal.aborted) {
+    forget(`/api/v1/jobs/${started.id}/cancel`, 'POST');
+    throw aborted();
   }
   const job = await follow(started.id, ctx);
   if (job.status !== 'succeeded') {

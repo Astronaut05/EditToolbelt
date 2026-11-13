@@ -773,7 +773,9 @@ export async function stopJob(
   const keys = [...(job.inputKey ? [job.inputKey] : []), ...job.extraInputKeys];
   if (job.status === 'queued' && keys.length > 0) {
     // Each is tried, even after one fails: the job keeps the keys of any left, and the
-    // sweeper removes those within the hour.
+    // worker's scheduler tries those again on its next tick (ended jobs that still hold
+    // an input). A running job's inputs are its worker's to delete; if that worker is
+    // gone, the same tick finds them a minute after its last heartbeat.
     const gone: string[] = [];
     for (const key of keys) {
       try {

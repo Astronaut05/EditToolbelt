@@ -13,6 +13,10 @@
   dead worker left running is settled (its time so far goes on the job as
   cost) and handed back to be cancelled.
 - Expiry: a job queued for 15 min is expired and its credits come back.
+- Inputs: a runner deletes its job's inputs as the job ends. A job that ended
+  with no runner there to do it (expired, reaped for good, cancelled while its
+  worker was dead, or its runner killed just after marking it) is found from
+  its row by the scheduler's next tick (``ended_with_inputs``).
 
 Every status change and its ledger row happen in one transaction.
 """
@@ -36,6 +40,8 @@ HEARTBEAT_SEC = 5
 STALE_AFTER = timedelta(seconds=60)
 MAX_ATTEMPTS = 3  # the first run and 2 retries
 QUEUE_EXPIRY = timedelta(minutes=15)
+#: Ended jobs whose inputs one tick deletes at most; the rest wait for the next (30 s).
+INPUT_BATCH = 100
 
 Job = dict[str, Any]
 
@@ -328,7 +334,8 @@ def runs_elsewhere(conn: Conn, job_id: str, worker_id: str) -> bool:
 
 @dataclass(frozen=True)
 class Reaped:
-    #: Jobs that failed for good, so the caller can delete their input.
+    #: Jobs that failed for good. Their inputs go by their rows (``ended_with_inputs``),
+    #: not by this list: a tick that dies after the reaper's commit would lose it.
     failed: list[Job] = field(default_factory=list)
     #: GPU calls their dead workers left running, settled; the caller cancels them.
     calls: list[StaleCall] = field(default_factory=list)
@@ -413,6 +420,52 @@ def expire(conn: Conn) -> list[Job]:
     return expired
 
 
+def ended_with_inputs(conn: Conn, limit: int = INPUT_BATCH) -> list[str]:
+    """The ids of ended jobs that still hold an input and have no runner left to delete it.
+
+    A runner deletes its job's inputs as the job ends (runner.py). Nobody does
+    for a job that ended without one: expired in the queue, failed by the
+    reaper, cancelled while its worker was dead, or marked by a runner that
+    was killed before its cleanup. A heartbeat in the last 60 s means a runner
+    may still be at that cleanup, so the job is left to it.
+
+    Read from the rows on every tick, never kept in memory, so whatever
+    stopped the delete, the next tick finds the job again. In no order: one
+    object storage won't delete can't hold up the others, tick after tick.
+    """
+    rows = conn.execute(
+        """
+        select id from jobs
+        where status in ('succeeded', 'failed', 'cancelled', 'expired')
+          and (input_key is not null or extra_input_keys <> '{}')
+          and (heartbeat_at is null or heartbeat_at < now() - %s)
+        order by random()
+        limit %s
+        """,
+        (STALE_AFTER, limit),
+    ).fetchall()
+    return [str(row["id"]) for row in rows]
+
+
+def lock_ended(conn: Conn, job_id: str) -> Job | None:
+    """The ended job with its inputs, locked to the end of the transaction, or None.
+
+    An ended job can run again: an admin's retry queues it while its input is
+    still there (the web's retryJob). With the input deleted under this lock,
+    the retry either came first, and the job keeps its input (None here), or
+    waits, and then finds the input gone and refuses. None too while someone
+    else holds the row: the scheduler never waits on a lock, the next tick asks again.
+    """
+    return conn.execute(
+        """
+        select id, input_key, extra_input_keys from jobs
+        where id = %s and status in ('succeeded', 'failed', 'cancelled', 'expired')
+        for update skip locked
+        """,
+        (job_id,),
+    ).fetchone()
+
+
 def input_keys(job: Job) -> list[str]:
     """Every input a job holds in storage: the main one, then any extras (subtitles)."""
     keys = [str(job["input_key"])] if job.get("input_key") else []
@@ -421,8 +474,9 @@ def input_keys(job: Job) -> list[str]:
 
 def input_gone(conn: Conn, job: Job, gone: list[str] | None = None) -> None:
     """Records that the job's inputs are deleted (the job row and the upload rows): all of
-    them, or those in ``gone``. The job keeps the keys of any left, which the sweeper deletes
-    once their uploads expire (no running job holds them)."""
+    them, or those in ``gone``. The job keeps the keys of any left: once it has ended and
+    its runner is gone, the scheduler tries them again every tick (``ended_with_inputs``);
+    the sweeper's delete of expired uploads is the backstop."""
     keys = input_keys(job)
     deleted = keys if gone is None else [key for key in keys if key in gone]
     if not deleted:

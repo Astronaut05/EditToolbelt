@@ -139,7 +139,7 @@ Written by the store's `complete` in the transaction that credits the purchase. 
 | idempotency_key | text null | unique per (user_id, key) |
 | idempotency_hash | text null | SHA-256 of the canonical request body that first used the key; another body under the same key → 422. Null on rows from before migration 0009 |
 
-Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper); `(started_at)` where `gpu_rate_usd is not null` (today's GPU spend, read on every GPU claim); `(gpu_call_at)` where it is not null (calls in flight, for the reaper); `(gpu_put_expires_at)` where it is not null (the sweeper's GPU keys).
+Indexes: `(status, priority desc, created_at)` partial where status='queued'; `(user_id, created_at desc)`; `(tool_id, created_at)`; `(finished_at)` where `output_key is not null` (sweeper); `(started_at)` where `gpu_rate_usd is not null` (today's GPU spend, read on every GPU claim); `(gpu_call_at)` where it is not null (calls in flight, for the reaper); `(gpu_put_expires_at)` where it is not null (the sweeper's GPU keys); `(heartbeat_at)` where the job still holds an input (the scheduler's read, every tick, of ended jobs whose inputs no runner was left to delete).
 
 Job rows older than 90 days are aggregated into `tool_stats_daily` and deleted.
 

@@ -151,6 +151,12 @@ export const jobs = pgTable(
     index('jobs_gpu_keys_idx')
       .on(t.gpuPutExpiresAt)
       .where(sql`${t.gpuPutExpiresAt} is not null`),
+    // Ended jobs that still hold an input, which the worker's scheduler reads on every
+    // tick (jobqueue.ended_with_inputs). The predicate is that query's filter word for
+    // word: Postgres uses a partial index only while the two match.
+    index('jobs_inputs_idx')
+      .on(t.heartbeatAt)
+      .where(sql`${t.inputKey} is not null or ${t.extraInputKeys} <> '{}'`),
     uniqueIndex('jobs_idempotency_key')
       .on(t.userId, t.idempotencyKey)
       .where(sql`${t.idempotencyKey} is not null`),

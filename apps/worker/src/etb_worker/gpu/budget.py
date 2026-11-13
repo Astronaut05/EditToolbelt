@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from etb_worker.alerts import Alert
+from etb_worker.alerts import UNDELIVERED, Alert
 from etb_worker.db import Conn
 from etb_worker.gpu import MAX_IDLE_TAIL_SEC
 
@@ -95,8 +95,11 @@ def gpu_open(conn: Conn) -> bool:
 
 
 def _sent(conn: Conn, subject: str) -> bool:
+    """Whether someone was told: an alert no channel delivered is still owed."""
     row = conn.execute(
-        "select 1 from alerts where rule = 'gpu_budget' and subject = %s limit 1", (subject,)
+        "select 1 from alerts where rule = 'gpu_budget' and subject = %s and channels <> %s"
+        " limit 1",
+        (subject, UNDELIVERED),
     ).fetchone()
     return row is not None
 

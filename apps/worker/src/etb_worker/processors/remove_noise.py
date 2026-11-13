@@ -329,7 +329,7 @@ def denoise_delay(ctx: JobContext, rate: int) -> int:
     without anyone noticing.
     """
     if rate not in _DELAYS:
-        _DELAYS[rate] = _measure_delay(rate, ctx.workdir, min(60.0, ctx.limits.timeout_sec))
+        _DELAYS[rate] = _measure_delay(rate, ctx.workdir, min(60.0, ctx.time_left()))
     return _DELAYS[rate]
 
 

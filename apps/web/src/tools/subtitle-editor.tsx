@@ -118,6 +118,9 @@ const PRESET: ShellPreset = {
   subtitles: { cues: 'cues', media: 'media', rules },
   // Once saved, every edit is saved again, so the download is always what's on screen.
   rerun: true,
+  // With no cues there is nothing to save: the run, and the redo after an edit, wait for
+  // one. The editor stays, so deleting the last cue can still be undone.
+  blocked: (options) => (options.cues === '[]' ? 'Add a cue to save the file.' : undefined),
   runLabel: 'Save subtitles',
   outputExt: (options) => options.format ?? 'srt',
   outputSuffix: 'edited',

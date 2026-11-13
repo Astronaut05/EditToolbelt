@@ -53,9 +53,12 @@ def reading_fps(meta: dict[str, Any]) -> float:
 
     The probe's rate when it's 1 to 120 fps, 30 when it has none; otherwise
     (under 1 fps, or over 120) the function picks the header's other rate,
-    which the probe didn't keep, or 120 at most: 120.
+    which the probe didn't keep, or 120 at most: 120. The function reads the
+    header, so where the probe's rate is the packets' own, because the header
+    said too little, this goes by the header's (``header_fps``).
     """
-    fps = float((meta.get("video") or {}).get("fps") or 0)
+    video = meta.get("video") or {}
+    fps = float(video.get("header_fps", video.get("fps")) or 0)
     if fps <= 0:
         return 30.0
     return fps if 1 <= fps <= 120 else 120.0

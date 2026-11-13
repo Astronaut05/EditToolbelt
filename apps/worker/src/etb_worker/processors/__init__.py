@@ -20,13 +20,14 @@ GPU function, which writes the output straight to storage, and returns an
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
 from etb_worker.gpu.backend import GpuBackend
-from etb_worker.sandbox import Limits, run
+from etb_worker.sandbox import Limits, ToolError, run
 from etb_worker.storage import Storage
 
 
@@ -77,6 +78,9 @@ class JobContext:
     #: The tool's other inputs, in order (Burn Subtitles: the subtitle file; Merge Videos: the
     #: clips after the first), named extra-0, extra-1, ...
     extra_paths: list[Path] = field(default_factory=list)
+    #: When the job's time limit ends, on the monotonic clock. The runner sets it as the job
+    #: starts, so the job's runs share one limit. None outside a job: every run has it whole.
+    deadline: float | None = None
     #: Remote processors: the input's storage key, storage, the GPU backend and where GPU time goes.
     input_key: str | None = None
     storage: Storage | None = None
@@ -90,15 +94,50 @@ class JobContext:
     #: Remote processors: the other inputs' storage keys, in order (Object Eraser: the mask).
     extra_input_keys: list[str] = field(default_factory=list)
 
+    def time_left(self) -> float:
+        """Seconds left of the job's time limit; TIMEOUT when there are none.
+
+        The limit is the job's, not each run's. A tool makes several runs (Compress Video's
+        two passes, both again on an overshoot; Merge Videos reads every clip, and may copy,
+        then encode), and with the whole limit for each, a job held its slot for several
+        times its limit.
+        """
+        left = self.seconds_left()
+        if left is None:
+            return self.limits.timeout_sec
+        if left <= 0:
+            raise self._timed_out()
+        return left
+
+    def seconds_left(self) -> float | None:
+        """Seconds left of the job's time limit, below zero once it is past; None outside a
+        job, where no one limit runs down.
+
+        For a tool to see whether a step it can do without still fits (Compress Video's
+        second try at a size target). It fails nothing: ``time_left`` does.
+        """
+        return None if self.deadline is None else self.deadline - time.monotonic()
+
+    def _timed_out(self) -> ToolError:
+        return ToolError("TIMEOUT", f"stopped after {self.limits.timeout_sec:.0f} s")
+
     def run(self, args: list[str], on_line: Callable[[str], None] | None = None) -> str:
-        """Runs a tool in the sandbox, in the job's temp dir, under the job's time limit.
+        """Runs a tool in the sandbox, in the job's temp dir, in what is left of the job's
+        time limit (``time_left``).
 
         ffmpeg reads the input only as far as the job was priced (``cap_input``).
         """
         seconds = priced_seconds(self.meta)
         if seconds is not None and args and args[0] == "ffmpeg":
             args = cap_input(args, self.input_path.name, seconds)
-        return run(args, cwd=self.workdir, limits=self.limits, cancel=self.cancel, on_line=on_line)
+        limits = replace(self.limits, timeout_sec=self.time_left())
+        try:
+            return run(args, cwd=self.workdir, limits=limits, cancel=self.cancel, on_line=on_line)
+        except ToolError as error:
+            if error.code != "TIMEOUT":
+                raise
+            # The sandbox names the time this run had; what ran out is the job's limit.
+            raise self._timed_out() from None
 
 
 #: How far past the probed length ffmpeg may read. An honest file's streams can run a

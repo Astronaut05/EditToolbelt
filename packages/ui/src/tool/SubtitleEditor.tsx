@@ -25,17 +25,22 @@ import {
 import { cuesFromJson } from '@etb/engines';
 import { Minus, Plus, Redo2, Scissors, Trash2, Undo2 } from 'lucide-react';
 import {
+  memo,
+  useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
 
 import { cn } from '../cn';
 import { Select } from '../primitives/fields';
+import { createClock, cueAt, keptByJson, sameRow, type Clock } from './cues';
 import { formatTimecode, parseTimecode } from './format';
 
 /** Zoom steps: pixels a second on the timeline. */
@@ -64,7 +69,9 @@ function TimeInput({
   const [draft, setDraft] = useState<string | null>(null);
   const commit = () => {
     const seconds = draft === null ? null : parseTimecode(draft);
-    if (seconds !== null) onCommit(Math.round(seconds * 1000));
+    // A number too long to be a time (Infinity) is not one: the cue keeps the time it had.
+    const typed = seconds === null ? NaN : Math.round(seconds * 1000);
+    if (Number.isFinite(typed)) onCommit(typed);
     setDraft(null);
   };
   return (
@@ -94,6 +101,252 @@ const toolButton =
   'inline-flex min-h-11 items-center gap-1.5 rounded-control border border-border px-3 text-14 text-text hover:border-text disabled:opacity-38 disabled:hover:border-border';
 
 /**
+ * A function that stays the same at every render and calls the latest `fn`.
+ * The rows and blocks are memoised: what they call must not change when the
+ * editor around them renders, and must still act on the cues as they are now.
+ */
+function useStable<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
+  const latest = useRef(fn);
+  useLayoutEffect(() => {
+    latest.current = fn;
+  });
+  return useCallback((...args: A) => {
+    latest.current(...args);
+  }, []);
+}
+
+/** The playhead's time. Whatever reads it renders at every frame while the media plays. */
+const useTime = (clock: Clock) => useSyncExternalStore(clock.subscribe, clock.get, clock.get);
+
+/** The playhead on the timeline. It follows the clock by itself, so the cues don't render with it. */
+function Playhead({ clock, pxPerSec }: { clock: Clock; pxPerSec: number }) {
+  const time = useTime(clock);
+  return (
+    <div
+      aria-hidden="true"
+      className="absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-accent"
+      style={{ left: `${String(time * pxPerSec)}px` }}
+    />
+  );
+}
+
+/** The playhead's time, under the timeline. */
+function PlayheadTime({ clock }: { clock: Clock }) {
+  return <b className="font-medium text-text">{formatTimecode(useTime(clock))}</b>;
+}
+
+/** The cue under the playhead, over the video. It renders when another cue takes over, not at every frame. */
+function Caption({ clock, cues }: { clock: Clock; cues: Cue[] }) {
+  const at = () => cueAt(cues, Math.round(clock.get() * 1000));
+  const showing = useSyncExternalStore(clock.subscribe, at, at);
+  if (showing < 0) return null;
+  return (
+    <p
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-4 bottom-12 text-center text-16 leading-tight font-strong whitespace-pre-line text-media-text [text-shadow:0_1px_3px_#000]"
+    >
+      {cues[showing]?.text.replace(/<\/?[biu]>/g, '')}
+    </p>
+  );
+}
+
+/** For the cues with no issues: one empty list, the same at every render. */
+const NO_ISSUES: readonly Issue[] = [];
+
+interface CueRowProps {
+  index: number;
+  cue: Cue;
+  selected: boolean;
+  issues: readonly Issue[];
+  rowRef: (index: number, el: HTMLLIElement | null) => void;
+  onSelect: (index: number) => void;
+  onFocus: (index: number) => void;
+  onRetime: (index: number, cue: Cue, message: string) => void;
+  onType: (index: number, cue: Cue) => void;
+  onFix: (issue: Issue) => void;
+}
+
+/**
+ * A cue in the list. Memoised: a film has a thousand or two, and typing in
+ * one, or selecting another, must not render them all again.
+ */
+const CueRow = memo(
+  function CueRow({
+    index: i,
+    cue,
+    selected,
+    issues,
+    rowRef,
+    onSelect,
+    onFocus,
+    onRetime,
+    onType,
+    onFix,
+  }: CueRowProps) {
+    const cps = readingSpeed(cue);
+    return (
+      <li
+        ref={(el) => {
+          rowRef(i, el);
+        }}
+        className={cn(
+          'grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 border-b border-border py-3 lg:grid-cols-[3rem_auto_1fr_auto]',
+          selected && 'bg-surface',
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            onSelect(i);
+          }}
+          aria-label={`Play from cue ${String(i + 1)}`}
+          className="min-h-11 rounded-control px-2 text-left font-mono text-13 text-text-muted hover:text-text"
+        >
+          {i + 1}
+        </button>
+        <div className="flex flex-wrap items-center gap-1.5 lg:flex-col lg:items-stretch">
+          <TimeInput
+            label={`Cue ${String(i + 1)} start`}
+            ms={cue.start}
+            onCommit={(start) => {
+              onRetime(
+                i,
+                { ...cue, start: Math.min(start, cue.end - MIN_CUE) },
+                `Cue ${String(i + 1)} starts at ${tc(start)}`,
+              );
+            }}
+          />
+          <TimeInput
+            label={`Cue ${String(i + 1)} end`}
+            ms={cue.end}
+            onCommit={(end) => {
+              onRetime(
+                i,
+                { ...cue, end: Math.max(end, cue.start + MIN_CUE) },
+                `Cue ${String(i + 1)} ends at ${tc(end)}`,
+              );
+            }}
+          />
+        </div>
+        <textarea
+          aria-label={`Cue ${String(i + 1)} text`}
+          value={cue.text}
+          rows={2}
+          onFocus={() => {
+            onFocus(i);
+          }}
+          onChange={(event) => {
+            onType(i, editedCue({ ...cue, text: event.target.value }));
+          }}
+          className="col-span-2 min-h-16 w-full rounded-control border border-border-field bg-bg px-3 py-2 text-15 leading-snug hover:border-text focus-visible:border-text lg:col-span-1"
+        />
+        <div className="col-span-2 flex flex-col gap-1 text-13 lg:col-span-1 lg:w-56">
+          <span className="font-mono text-12 text-text-muted tabular-nums">
+            {((cue.end - cue.start) / 1000).toFixed(2)} s · {cps.toFixed(1)} cps
+          </span>
+          {issues.map((issue) => (
+            <span key={issue.kind} className="flex flex-wrap items-center gap-x-2 text-danger">
+              {issue.detail}
+              <button
+                type="button"
+                onClick={() => {
+                  onFix(issue);
+                }}
+                className="min-h-11 text-text underline-offset-2 hover:underline"
+              >
+                Fix<span className="sr-only">: {issue.detail}</span>
+              </button>
+            </span>
+          ))}
+        </div>
+      </li>
+    );
+  },
+  // The issues are new objects after every check: they compare by what they say.
+  sameRow,
+);
+
+interface CueBlockProps {
+  index: number;
+  /** The cue, or where a drag has it for now. */
+  cue: Cue;
+  selected: boolean;
+  bad: boolean;
+  pxPerSec: number;
+  onFocus: (index: number) => void;
+  onKeys: (event: KeyboardEvent<HTMLButtonElement>, index: number) => void;
+  onDragStart: (
+    event: PointerEvent<HTMLElement>,
+    index: number,
+    edge: 'move' | 'start' | 'end',
+  ) => void;
+  onDragMove: (event: PointerEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+}
+
+/** A cue's block on the timeline, memoised like its row. */
+const CueBlock = memo(function CueBlock({
+  index: i,
+  cue,
+  selected,
+  bad,
+  pxPerSec,
+  onFocus,
+  onKeys,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+}: CueBlockProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label={`Cue ${String(i + 1)}: ${tc(cue.start)} to ${tc(cue.end)}${bad ? ', has issues' : ''}`}
+      onPointerDown={(event) => {
+        onDragStart(event, i, 'move');
+      }}
+      onPointerMove={onDragMove}
+      onPointerUp={onDragEnd}
+      onKeyDown={(event) => {
+        onKeys(event, i);
+      }}
+      onFocus={() => {
+        onFocus(i);
+      }}
+      className={cn(
+        'absolute top-6 bottom-2 overflow-hidden rounded-control border px-1.5 text-left text-12 leading-tight',
+        selected
+          ? 'z-10 border-text bg-accent text-accent-contrast'
+          : bad
+            ? 'border-danger bg-bg text-text'
+            : 'border-border-strong bg-bg text-text',
+      )}
+      style={{
+        left: `${String((cue.start / 1000) * pxPerSec)}px`,
+        width: `${String(Math.max(4, ((cue.end - cue.start) / 1000) * pxPerSec))}px`,
+      }}
+    >
+      <span aria-hidden="true" className="line-clamp-3 whitespace-pre-line">
+        {cue.text.replace(/<\/?[biu]>/g, '')}
+      </span>
+      {(['start', 'end'] as const).map((edge) => (
+        <span
+          key={edge}
+          aria-hidden="true"
+          onPointerDown={(event) => {
+            onDragStart(event, i, edge);
+          }}
+          className={cn(
+            'absolute inset-y-0 w-2 cursor-ew-resize',
+            edge === 'start' ? 'left-0' : 'right-0',
+          )}
+        />
+      ))}
+    </button>
+  );
+});
+
+/**
  * The ToolShell's way in: the cues arrive as the option's JSON and go back as
  * JSON. The parsing loads here, with the editor, and not with the shell.
  */
@@ -107,12 +360,21 @@ export function SubtitleWorkspace({
   media?: File;
   rules: CheckRules;
 }) {
-  const list = useMemo(() => cuesFromJson(cues), [cues]);
+  // The cues as they last went out, with their JSON. When that JSON comes back
+  // it is those cues: nothing to parse, and every cue that wasn't edited is
+  // still the same object, so its row and its block stay as they are.
+  const [sent, setSent] = useState<{ json: string; list: Cue[] } | null>(null);
+  const list = useMemo(
+    () => (sent && sent.json === cues ? sent.list : cuesFromJson(cues)),
+    [cues, sent],
+  );
   return (
     <SubtitleEditor
       cues={list}
       onChange={(next) => {
-        onChange(JSON.stringify(next));
+        const json = JSON.stringify(next);
+        setSent(keptByJson(next) ? { json, list: next } : null);
+        onChange(json);
       }}
       {...rest}
     />
@@ -142,7 +404,8 @@ export function SubtitleEditor({
   rules: CheckRules;
 }) {
   const [selected, setSelected] = useState(0);
-  const [time, setTime] = useState(0);
+  // The playhead's time is not state here: see `Clock`.
+  const [clock] = useState(createClock);
   const [zoom, setZoom] = useState(2);
   const [mediaDuration, setMediaDuration] = useState(0);
   const [status, setStatus] = useState('');
@@ -182,8 +445,8 @@ export function SubtitleEditor({
   const pxPerSec = ZOOMS[zoom] ?? 40;
   const lastEnd = cues.reduce((max, c) => Math.max(max, c.end), 0) / 1000;
   const duration = Math.max(mediaDuration, lastEnd + 2, 10);
-  const ms = Math.round(time * 1000);
-  const showing = cues.findIndex((c) => c.start <= ms && ms < c.end);
+  /** Where the playhead is, in ms. */
+  const now = () => Math.round(clock.get() * 1000);
 
   const issues = useMemo(() => checkCues(cues, rules), [cues, rules]);
   const issuesOf = useMemo(() => {
@@ -238,7 +501,7 @@ export function SubtitleEditor({
 
   function seek(seconds: number) {
     const t = Math.max(0, Math.min(duration, seconds));
-    setTime(t);
+    clock.set(t);
     if (player.current) player.current.currentTime = t;
   }
 
@@ -255,14 +518,14 @@ export function SubtitleEditor({
     if (!el) return;
     let frame = 0;
     const tick = () => {
-      setTime(el.currentTime);
+      clock.set(el.currentTime);
       if (!el.paused) frame = requestAnimationFrame(tick);
     };
     const onPlay = () => {
       frame = requestAnimationFrame(tick);
     };
     const onSeeked = () => {
-      setTime(el.currentTime);
+      clock.set(el.currentTime);
     };
     const onMeta = () => {
       setMediaDuration(Number.isFinite(el.duration) ? el.duration : 0);
@@ -276,17 +539,21 @@ export function SubtitleEditor({
       el.removeEventListener('seeked', onSeeked);
       el.removeEventListener('loadedmetadata', onMeta);
     };
-  }, [url]);
+  }, [url, clock]);
 
   // The timeline scrolls to keep the playhead in view.
   useEffect(() => {
-    const el = strip.current;
-    if (!el) return;
-    const x = time * pxPerSec;
-    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 24) {
-      el.scrollLeft = Math.max(0, x - el.clientWidth / 3);
-    }
-  }, [time, pxPerSec]);
+    const follow = () => {
+      const el = strip.current;
+      if (!el) return;
+      const x = clock.get() * pxPerSec;
+      if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 24) {
+        el.scrollLeft = Math.max(0, x - el.clientWidth / 3);
+      }
+    };
+    follow();
+    return clock.subscribe(follow);
+  }, [clock, pxPerSec]);
 
   const current = cues[selected];
   const replaceCue = (index: number, cue: Cue) => cues.map((c, i) => (i === index ? cue : c));
@@ -298,6 +565,7 @@ export function SubtitleEditor({
   }
 
   function split() {
+    const ms = now();
     if (!current || ms <= current.start || ms >= current.end) {
       setStatus('Put the playhead inside the selected cue to split it');
       return;
@@ -337,6 +605,7 @@ export function SubtitleEditor({
 
   function add() {
     // At the playhead, 2 s long or up to the next cue.
+    const ms = now();
     const next = cues.find((c) => c.start > ms);
     const end = Math.min(ms + 2000, next ? next.start - rules.minGap : Infinity);
     if (end - ms < MIN_CUE || cues.some((c) => c.start <= ms && ms < c.end)) {
@@ -451,8 +720,45 @@ export function SubtitleEditor({
     retime(index, next, `Cue ${String(index + 1)}: ${tc(next.start)} to ${tc(next.end)}`);
   }
 
+  // What the memoised rows and blocks call: the same functions at every render.
+  const rowRef = useCallback((index: number, el: HTMLLIElement | null) => {
+    rows.current[index] = el;
+  }, []);
+  const onSelect = useStable(select);
+  const onRetime = useStable(retime);
+  const onType = useStable((index: number, cue: Cue) => {
+    commit(replaceCue(index, cue), '', index);
+  });
+  const onFix = useStable((issue: Issue) => {
+    const n = String(issue.index + 1);
+    fix(
+      fixIssue(cues, issue, rules),
+      `Cue ${n}: fixed`,
+      `Cue ${n}: no room to fix this without making a cue too short`,
+    );
+  });
+  const onKeys = useStable(cueKeys);
+  const onDragStart = useStable(startDrag);
+  const onDragMove = useStable(moveDrag);
+  const onDragEnd = useStable(endDrag);
+
   const step = tickStep(pxPerSec);
   const width = duration * pxPerSec;
+  // The time labels stay as they are while typing: made once for a length and a zoom.
+  const ticks = useMemo(
+    () =>
+      Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="absolute top-0 h-full border-l border-border pl-1 font-mono text-11 text-text-muted"
+          style={{ left: `${String(i * step * pxPerSec)}px` }}
+        >
+          {formatTimecode(i * step).slice(3, 8)}
+        </span>
+      )),
+    [duration, step, pxPerSec],
+  );
 
   return (
     <div className="flex flex-col gap-5 px-4 py-6 lg:px-10 lg:pt-8.5">
@@ -470,14 +776,7 @@ export function SubtitleEditor({
           ) : (
             <audio ref={player} src={url} controls aria-label="Audio" className="w-full" />
           )}
-          {isVideo && showing >= 0 && (
-            <p
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-x-4 bottom-12 text-center text-16 leading-tight font-strong whitespace-pre-line text-media-text [text-shadow:0_1px_3px_#000]"
-            >
-              {cues[showing]?.text.replace(/<\/?[biu]>/g, '')}
-            </p>
-          )}
+          {isVideo && <Caption clock={clock} cues={cues} />}
         </div>
       ) : (
         <p className="text-14 text-text-muted">
@@ -587,78 +886,27 @@ export function SubtitleEditor({
           className="relative h-28 touch-none bg-surface select-none"
           style={{ width: `${String(width)}px` }}
         >
-          {Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => (
-            <span
+          {ticks}
+          {cues.map((original, i) => (
+            <CueBlock
               key={i}
-              aria-hidden="true"
-              className="absolute top-0 h-full border-l border-border pl-1 font-mono text-11 text-text-muted"
-              style={{ left: `${String(i * step * pxPerSec)}px` }}
-            >
-              {formatTimecode(i * step).slice(3, 8)}
-            </span>
+              index={i}
+              cue={draft?.index === i ? draft.cue : original}
+              selected={i === selected}
+              bad={issuesOf.has(i)}
+              pxPerSec={pxPerSec}
+              onFocus={setSelected}
+              onKeys={onKeys}
+              onDragStart={onDragStart}
+              onDragMove={onDragMove}
+              onDragEnd={onDragEnd}
+            />
           ))}
-          {cues.map((original, i) => {
-            const cue = draft?.index === i ? draft.cue : original;
-            const bad = issuesOf.has(i);
-            return (
-              <button
-                key={i}
-                type="button"
-                aria-pressed={i === selected}
-                aria-label={`Cue ${String(i + 1)}: ${tc(cue.start)} to ${tc(cue.end)}${bad ? ', has issues' : ''}`}
-                onPointerDown={(event) => {
-                  startDrag(event, i, 'move');
-                }}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                onKeyDown={(event) => {
-                  cueKeys(event, i);
-                }}
-                onFocus={() => {
-                  setSelected(i);
-                }}
-                className={cn(
-                  'absolute top-6 bottom-2 overflow-hidden rounded-control border px-1.5 text-left text-12 leading-tight',
-                  i === selected
-                    ? 'z-10 border-text bg-accent text-accent-contrast'
-                    : bad
-                      ? 'border-danger bg-bg text-text'
-                      : 'border-border-strong bg-bg text-text',
-                )}
-                style={{
-                  left: `${String((cue.start / 1000) * pxPerSec)}px`,
-                  width: `${String(Math.max(4, ((cue.end - cue.start) / 1000) * pxPerSec))}px`,
-                }}
-              >
-                <span aria-hidden="true" className="line-clamp-3 whitespace-pre-line">
-                  {cue.text.replace(/<\/?[biu]>/g, '')}
-                </span>
-                {(['start', 'end'] as const).map((edge) => (
-                  <span
-                    key={edge}
-                    aria-hidden="true"
-                    onPointerDown={(event) => {
-                      startDrag(event, i, edge);
-                    }}
-                    className={cn(
-                      'absolute inset-y-0 w-2 cursor-ew-resize',
-                      edge === 'start' ? 'left-0' : 'right-0',
-                    )}
-                  />
-                ))}
-              </button>
-            );
-          })}
-          <div
-            aria-hidden="true"
-            className="absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-accent"
-            style={{ left: `${String(time * pxPerSec)}px` }}
-          />
+          <Playhead clock={clock} pxPerSec={pxPerSec} />
         </div>
       </div>
       <p className="-mt-3 font-mono text-12 tracking-meta text-text-muted uppercase">
-        Playhead <b className="font-medium text-text">{formatTimecode(time)}</b> · {cues.length}{' '}
-        cues
+        Playhead <PlayheadTime clock={clock} /> · {cues.length} cues
       </p>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -766,95 +1014,21 @@ export function SubtitleEditor({
         aria-label="Cues"
         className="flex flex-col border-t border-border lg:max-h-[70vh] lg:overflow-y-auto"
       >
-        {cues.map((cue, i) => {
-          const own = issuesOf.get(i) ?? [];
-          const cps = readingSpeed(cue);
-          return (
-            <li
-              key={i}
-              ref={(el) => {
-                rows.current[i] = el;
-              }}
-              className={cn(
-                'grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 border-b border-border py-3 lg:grid-cols-[3rem_auto_1fr_auto]',
-                i === selected && 'bg-surface',
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  select(i);
-                }}
-                aria-label={`Play from cue ${String(i + 1)}`}
-                className="min-h-11 rounded-control px-2 text-left font-mono text-13 text-text-muted hover:text-text"
-              >
-                {i + 1}
-              </button>
-              <div className="flex flex-wrap items-center gap-1.5 lg:flex-col lg:items-stretch">
-                <TimeInput
-                  label={`Cue ${String(i + 1)} start`}
-                  ms={cue.start}
-                  onCommit={(start) => {
-                    retime(
-                      i,
-                      { ...cue, start: Math.min(start, cue.end - MIN_CUE) },
-                      `Cue ${String(i + 1)} starts at ${tc(start)}`,
-                    );
-                  }}
-                />
-                <TimeInput
-                  label={`Cue ${String(i + 1)} end`}
-                  ms={cue.end}
-                  onCommit={(end) => {
-                    retime(
-                      i,
-                      { ...cue, end: Math.max(end, cue.start + MIN_CUE) },
-                      `Cue ${String(i + 1)} ends at ${tc(end)}`,
-                    );
-                  }}
-                />
-              </div>
-              <textarea
-                aria-label={`Cue ${String(i + 1)} text`}
-                value={cue.text}
-                rows={2}
-                onFocus={() => {
-                  setSelected(i);
-                }}
-                onChange={(event) => {
-                  commit(replaceCue(i, editedCue({ ...cue, text: event.target.value })), '', i);
-                }}
-                className="col-span-2 min-h-16 w-full rounded-control border border-border-field bg-bg px-3 py-2 text-15 leading-snug hover:border-text focus-visible:border-text lg:col-span-1"
-              />
-              <div className="col-span-2 flex flex-col gap-1 text-13 lg:col-span-1 lg:w-56">
-                <span className="font-mono text-12 text-text-muted tabular-nums">
-                  {((cue.end - cue.start) / 1000).toFixed(2)} s · {cps.toFixed(1)} cps
-                </span>
-                {own.map((issue) => (
-                  <span
-                    key={issue.kind}
-                    className="flex flex-wrap items-center gap-x-2 text-danger"
-                  >
-                    {issue.detail}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        fix(
-                          fixIssue(cues, issue, rules),
-                          `Cue ${String(i + 1)}: fixed`,
-                          `Cue ${String(i + 1)}: no room to fix this without making a cue too short`,
-                        );
-                      }}
-                      className="min-h-11 text-text underline-offset-2 hover:underline"
-                    >
-                      Fix<span className="sr-only">: {issue.detail}</span>
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </li>
-          );
-        })}
+        {cues.map((cue, i) => (
+          <CueRow
+            key={i}
+            index={i}
+            cue={cue}
+            selected={i === selected}
+            issues={issuesOf.get(i) ?? NO_ISSUES}
+            rowRef={rowRef}
+            onSelect={onSelect}
+            onFocus={setSelected}
+            onRetime={onRetime}
+            onType={onType}
+            onFix={onFix}
+          />
+        ))}
       </ol>
     </div>
   );

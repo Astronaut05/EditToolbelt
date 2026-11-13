@@ -57,9 +57,22 @@ function loadDialog() {
   return dialog;
 }
 
-/** Fetches the sheet before it's asked for, so the first open doesn't wait. */
+/** Puts the sheet on the page, closed, once its file is in (set by SearchOverlay). */
+let mount: ((sheet: typeof SearchDialog) => void) | undefined;
+
+/**
+ * Fetches the sheet before it's asked for and puts it on the page, closed. An
+ * open then happens in the same turn as the tap or the key that asked: a
+ * phone raises its keyboard only for a focus made while the tap is handled.
+ */
 function warm() {
-  loadDialog().catch(() => undefined);
+  loadDialog().then(
+    (loaded) => {
+      fetched = true;
+      mount?.(loaded.SearchDialog);
+    },
+    () => undefined,
+  );
 }
 
 /**
@@ -70,12 +83,20 @@ function warm() {
  */
 let early = '';
 let fetched = false;
+/** Takes the ask back (set while the sheet is on its way). */
+let withdraw: (() => void) | undefined;
 
 function keepKey(event: globalThis.KeyboardEvent) {
   if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
-  if (event.key.length === 1) early += event.key;
+  if (event.key === 'Escape') {
+    // Never mind. The key is the sheet's, not the page's, where Esc cancels a running tool.
+    stopKeeping();
+    withdraw?.();
+    event.stopImmediatePropagation();
+  } else if (event.key.length === 1) early += event.key;
   else if (event.key === 'Backspace') early = early.slice(0, -1);
-  else return;
+  // Enter is for the result that isn't listed yet, not for whatever button has focus.
+  else if (event.key !== 'Enter') return;
   event.preventDefault();
 }
 
@@ -92,15 +113,20 @@ export function stopKeeping() {
  * Search from any page: Ctrl+K (⌘K), the header button, or `/` from the
  * header opens the search sheet (SearchDialog). On the home page the shortcut
  * focuses the hero search instead. This part is in every page's first load,
- * so it only listens: the sheet loads when it's first asked for, and is
- * warmed up when the button is pointed at or focused and when Ctrl or ⌘ goes
- * down.
+ * so it only listens: the sheet's file is fetched at the first touch, click
+ * or key press on the page, or when it's first asked for, whichever is first.
  */
 export function SearchOverlay() {
   const [open, setOpen] = useState(false);
   const [Dialog, setDialog] = useState<typeof SearchDialog | null>(null);
 
   useEffect(() => {
+    mount = (sheet) => {
+      setDialog(() => sheet);
+    };
+    withdraw = () => {
+      setOpen(false);
+    };
     function show() {
       setOpen(true);
       if (!fetched) window.addEventListener('keydown', keepKey, true);
@@ -116,16 +142,22 @@ export function SearchOverlay() {
       );
     }
     function onKey(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Control' || event.key === 'Meta') warm();
       if (!isSearchShortcut(event) && !isHeaderSlash(event)) return;
       event.preventDefault();
       const hero = document.getElementById('home-search');
       if (hero instanceof HTMLInputElement) hero.focus();
       else show();
     }
+    // The first sign of someone there. Before `onKey`, so Ctrl is already fetching when K lands.
+    window.addEventListener('pointerdown', warm, { once: true, passive: true });
+    window.addEventListener('keydown', warm, { once: true });
     window.addEventListener('keydown', onKey);
     window.addEventListener(OPEN_SEARCH_EVENT, show);
     return () => {
+      mount = undefined;
+      withdraw = undefined;
+      window.removeEventListener('pointerdown', warm);
+      window.removeEventListener('keydown', warm);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener(OPEN_SEARCH_EVENT, show);
     };

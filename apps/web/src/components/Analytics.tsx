@@ -1,10 +1,9 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useReportWebVitals } from 'next/web-vitals';
-import { useEffect } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 
-import { analyticsEnabled, track, trackPageview } from '../lib/analytics';
+import { analyticsEnabled, trackPageview } from '../lib/analytics';
 
 /**
  * Page views on every route change, and Web Vitals (docs/10 → real-user
@@ -13,15 +12,21 @@ import { analyticsEnabled, track, trackPageview } from '../lib/analytics';
  */
 export function Analytics() {
   const pathname = usePathname();
+  // The measuring code is fetched only where analytics is on, and after the
+  // page: with analytics off every page carried it for nothing. Nothing is
+  // missed by starting late, the browser keeps what it measured before.
+  const [Vitals, setVitals] = useState<ComponentType | null>(null);
+
+  useEffect(() => {
+    if (!analyticsEnabled) return;
+    void import('./Vitals').then((loaded) => {
+      setVitals(() => loaded.Vitals);
+    });
+  }, []);
 
   useEffect(() => {
     if (analyticsEnabled) trackPageview();
   }, [pathname]);
 
-  useReportWebVitals((metric: { name: string; rating: string }) => {
-    if (!analyticsEnabled || !['LCP', 'INP', 'CLS', 'FCP', 'TTFB'].includes(metric.name)) return;
-    track('web_vital', { name: metric.name, rating: metric.rating, page: location.pathname });
-  });
-
-  return null;
+  return Vitals && <Vitals />;
 }

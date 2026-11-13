@@ -153,8 +153,8 @@ export interface ShellOption {
   /**
    * choice (default): a segmented control. select: a dropdown, for longer
    * lists. slider and number: a value with its unit. color: a swatch, value
-   * "#rrggbb". image: a second image to pick (a new background), value an
-   * object URL. text: typed in, such as a time ("00:01:02.500"). checklist:
+   * "#rrggbb". image: a second image to pick (a new background), held like
+   * a `file` option's (fileOptionValue). text: typed in, such as a time ("00:01:02.500"). checklist:
    * several choices at once, grouped (P13's sizes), value the picked values
    * comma-separated. grid: one of nine spots on a 3 × 3 grid (a watermark's
    * place), the choices in reading order. textarea: several lines pasted
@@ -230,7 +230,7 @@ export function optionSummary(option: ShellOption, value: string): string {
 const OPTION_FILES = new Map<string, File>();
 
 /**
- * A `file` option's value: an object URL with the file's name after `#`, so
+ * A `file` or `image` option's value: an object URL with the file's name after `#`, so
  * the name (and its extension) stays on the page with the file.
  */
 export function fileOptionValue(file: File): string {
@@ -264,17 +264,14 @@ function ImagePick({
   value: string;
   onChange: (value: string) => void;
   accept?: string;
-  /** The value carries the file's name (`file` options). */
+  /** Any file, not an image (`file` options): the button says so. */
   named?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState<string | null>(null);
   return (
     <span className="flex min-w-0 items-center gap-3">
       {value && (
-        <span className="max-w-40 truncate text-14 text-text-muted">
-          {named ? fileOptionName(value) : (name ?? 'Image chosen')}
-        </span>
+        <span className="max-w-40 truncate text-14 text-text-muted">{fileOptionName(value)}</span>
       )}
       <Button size="sm" onClick={() => input.current?.click()}>
         {value ? 'Change' : named ? 'Choose file' : 'Choose image'}
@@ -293,7 +290,6 @@ function ImagePick({
           if (!file) return;
           if (value.startsWith('blob:')) URL.revokeObjectURL(value.split('#')[0] ?? value);
           OPTION_FILES.delete(value);
-          setName(file.name);
           // Both kinds keep the file: the page's CSP lets nothing fetch an object URL.
           onChange(fileOptionValue(file));
         }}
@@ -1034,6 +1030,12 @@ export function ToolShell({
   const batchOutputs = useRef(new Map<string, { blob: Blob; name: string }>());
   /** U04: a batch that starts as soon as its files arrive (`preset.autoRun`). */
   const autoBatch = useRef(false);
+  /**
+   * A batch run has started on the rows as they are. The rows themselves say so
+   * only once they are drawn, 120 ms later: too late for a second setting changed
+   * in between, or a second press of Start.
+   */
+  const batchStarted = useRef(false);
   const [sheet, setSheet] = useState<number | null>(null);
   const controller = useRef<AbortController | null>(null);
   // Which file is in. A new file, Cancel and leaving the page end the session:
@@ -1275,8 +1277,11 @@ export function ToolShell({
    * progress, and the result downloaded back like a browser result.
    */
   const runOnServer = useCallback(
-    async (input: InputInfo, file: File) => {
+    async (dropped: InputInfo, file: File) => {
       if (!server) return;
+      // Named as a run in the browser names it: after the first file as they are ordered now.
+      const first = preset.combine && queue[0]?.file.name;
+      const input = first ? { ...dropped, name: first } : dropped;
       controller.current?.abort();
       const abort = new AbortController();
       controller.current = abort;
@@ -1311,6 +1316,16 @@ export function ToolShell({
           },
           confirm: (quote) =>
             new Promise<boolean>((resolve) => {
+              // Stopped while the price is asked (the page was left): the answer is no,
+              // so the run ends and its upload is deleted.
+              abort.signal.addEventListener(
+                'abort',
+                () => {
+                  setAsking(null);
+                  resolve(false);
+                },
+                { once: true },
+              );
               setAsking({
                 quote,
                 answer: (go) => {
@@ -1378,7 +1393,18 @@ export function ToolShell({
         });
       }
     },
-    [account, joined, media, options, preset.preview, server, serverPath, track],
+    [
+      account,
+      joined,
+      media,
+      options,
+      preset.combine,
+      preset.preview,
+      queue,
+      server,
+      serverPath,
+      track,
+    ],
   );
 
   /** The free preview: the page cuts and sends the snippet; the result plays A/B. */
@@ -1508,9 +1534,13 @@ export function ToolShell({
       void info
         .thumbnails?.(12)
         .then((frames) => {
-          // Kept either way, so they are let go with the rest.
+          if (stale()) {
+            // The page may be gone, and its list of files to let go with it: these go now.
+            for (const frame of frames) if (frame) URL.revokeObjectURL(frame);
+            return;
+          }
           urls.current.push(...frames.filter(Boolean));
-          if (!stale()) setThumbs(frames);
+          setThumbs(frames);
         })
         .catch(() => undefined);
       void info
@@ -1579,6 +1609,7 @@ export function ToolShell({
       // Batch tools, and form tools that take several files at once (T01).
       if (tool.ui === 'batch' || (preset.multiple && files.length > 1)) {
         batchOutputs.current.clear();
+        batchStarted.current = false;
         setBatchDone(false);
         setBatch(
           files.map((f, i) => ({
@@ -1642,6 +1673,7 @@ export function ToolShell({
 
   async function runBatch(files: File[]) {
     if (!engine) return;
+    batchStarted.current = true;
     const abort = new AbortController();
     controller.current = abort;
     track('tool_run_started', { path: 'client', files: String(files.length) });
@@ -1823,6 +1855,7 @@ export function ToolShell({
     setBatch([]);
     setQueue([]);
     setBatchDone(false);
+    batchStarted.current = false;
     batchOutputs.current.clear();
     setNamesPlan(null);
     setFolder(null);
@@ -1871,9 +1904,15 @@ export function ToolShell({
     // starts over (or waits for Start), so a download never carries what the panel
     // no longer says. Not where settings only shape the list (U04), nor in a folder
     // renamed in place.
-    if (!preset.batchList && !folder && batch.some((item) => item.status !== 'queued')) {
+    if (
+      !preset.batchList &&
+      !folder &&
+      batch.length > 0 &&
+      (batchStarted.current || batch.some((item) => item.status !== 'queued'))
+    ) {
       controller.current?.abort();
       batchOutputs.current.clear();
+      batchStarted.current = false;
       setBatchDone(false);
       setBatch((items) =>
         items.map(({ id, name, size }) => ({ id, name, size, status: 'queued' })),
@@ -2246,7 +2285,9 @@ export function ToolShell({
             className="flex-1"
             disabled={batchRunning || Boolean(blocked)}
             onClick={() => {
-              if (state.kind === 'ready' && state.files) void runBatch(state.files);
+              // Not twice: the rows show a run only once it has drawn them.
+              if (state.kind === 'ready' && state.files && !batchStarted.current)
+                void runBatch(state.files);
             }}
           >
             {preset.runLabel ?? 'Start'} · {plural(batch.length, 'file')}

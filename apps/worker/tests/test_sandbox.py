@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from etb_worker.processors import cap_input
-from etb_worker.sandbox import Limits, ToolError, ffmpeg, run
+from etb_worker.sandbox import MAX_LINE, Answer, Limits, ToolError, ffmpeg, run
 
 QUICK = Limits(timeout_sec=10)
 
@@ -26,6 +26,40 @@ def test_passes_stdout_lines_and_returns_the_stderr_tail(tmp_path: Path) -> None
     )
     assert lines == ["one", "two"]
     assert tail == "oops"
+
+
+def test_a_long_line_is_read_in_pieces(tmp_path: Path) -> None:
+    """A line's length is the file's to choose (a tag ffprobe prints): the worker reads it
+    a bounded piece at a time, on stdout and stderr alike, never whole."""
+    long = "head -c 300000 /dev/zero | tr '\\0' x"
+    lines: list[str] = []
+    tail = run(
+        ["sh", "-c", f"echo first; {long}; echo; echo last; ({long}; echo; echo oops) >&2"],
+        cwd=tmp_path,
+        limits=QUICK,
+        on_line=lines.append,
+    )
+    assert (lines[0], lines[-1]) == ("first", "last")
+    assert max(len(line) for line in lines) == MAX_LINE
+    assert "".join(lines[1:-1]) == "x" * 300_000
+    kept = tail.split("\n")
+    assert kept[-1] == "oops"
+    assert max(len(line) for line in kept) == MAX_LINE
+
+
+def test_an_answer_is_kept_up_to_its_limit(tmp_path: Path) -> None:
+    answer = Answer(limit=1000)
+    run(["sh", "-c", "echo '{'; echo '}'"], cwd=tmp_path, limits=QUICK, on_line=answer)
+    assert (answer.text(), answer.too_long.is_set()) == ("{\n}", False)
+    # Past the limit nothing more is kept, and as ``cancel`` it stops the tool.
+    endless = Answer(limit=1000)
+    started = time.monotonic()
+    with pytest.raises(ToolError) as caught:
+        run(["yes", "x" * 99], cwd=tmp_path, limits=QUICK, cancel=endless.too_long, on_line=endless)
+    assert caught.value.code == "CANCELLED"
+    assert time.monotonic() - started < 5
+    assert endless.too_long.is_set()
+    assert endless.text() == "\n".join(["x" * 99] * 10)
 
 
 def test_a_failing_tool_reports_its_exit_code(tmp_path: Path) -> None:

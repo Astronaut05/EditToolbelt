@@ -229,6 +229,15 @@ jobs:
           set -o pipefail
           docker compose run --rm -T worker python -m etb_worker --once | tee "$RUNNER_TEMP/worker.log"
           jq -e 'select(.event == "job.succeeded") | .service == "worker"' "$RUNNER_TEMP/worker.log"
+      # The worker's tests run on this runner's ffmpeg (Ubuntu's 6.x); the image
+      # carries Debian's (7.x). The probe names the sections and fields it wants
+      # and counts packets: a name the image's ffprobe didn't know would refuse
+      # every upload, so the same calls are made inside the image here.
+      - name: The worker image's own ffmpeg answers the worker's probes
+        run: >
+          docker compose run --rm -T
+          --volume "$PWD/apps/worker/scripts:/scripts:ro"
+          worker python /scripts/check_image_probe.py
       - name: Web dev server serves the home page, and is ready (database)
         run: |
           docker compose up --detach web
