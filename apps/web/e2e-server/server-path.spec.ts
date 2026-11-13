@@ -534,6 +534,7 @@ test('Merge Videos uploads every clip, in the order on the page, for one job', a
   await expect(page.getByText('2 clips joined with 1.00 s crossfades').first()).toBeAttached();
   const saved = page.waitForEvent('download');
   await download.click();
-  expect((await saved).suggestedFilename()).toBe('clip-h264-aac_merged.mp4');
+  // Named after the first clip as they were ordered, not as they were dropped.
+  expect((await saved).suggestedFilename()).toBe('clip-vfr_merged.mp4');
   await storage.fetch(objectUrl(outputKey), { method: 'DELETE' });
 });

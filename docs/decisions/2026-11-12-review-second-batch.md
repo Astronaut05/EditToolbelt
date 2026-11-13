@@ -19,3 +19,5 @@
 **Why:** these all come from one gap: the shell assumed nothing changes between a run's start and its end. Leaving the page left a paid server job running; a new file, a cancel or a changed setting let the older work land on top of the newer state.
 
 **Reverse:** each is a small, separate change in `packages/ui/src/tool/ToolShell.tsx` (the session counter, the `latest` settings, the `edits` counter, the batch reset in `changeOption`, the window drop guard, `drawGate`). The search split is undone by importing `SearchDialog` statically in `SearchOverlay.tsx`; the error page by deleting `apps/web/src/app/error.tsx`.
+
+Superseded in part by `2026-11-13-review-third-batch.md`: when the search sheet is fetched, and what the error page says.

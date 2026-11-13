@@ -12,7 +12,8 @@
  */
 export default function PageError() {
   return (
-    <main className="px-4 pt-10 pb-10 lg:px-10 lg:pt-15">
+    // An alert: the page was swapped for this under the person, and nothing else says so.
+    <main role="alert" className="px-4 pt-10 pb-10 lg:px-10 lg:pt-15">
       <p className="font-mono text-12 font-medium uppercase tracking-label text-text-muted">
         Error
       </p>
@@ -21,7 +22,7 @@ export default function PageError() {
       </h1>
       <p className="mt-4.5 max-w-xl text-16.5 text-text-muted">
         The site may have been updated while this tab was open, or the connection dropped. Reload to
-        get the current version. Files you added never left this device.
+        get the current version, then add your file again.
       </p>
       <div className="mt-7 flex flex-wrap items-center gap-5">
         <button
