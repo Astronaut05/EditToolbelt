@@ -226,8 +226,8 @@ importers:
         specifier: 1.60.0
         version: 1.60.0(mediabunny@1.61.3)
       '@mediabunny/mp3-encoder':
-        specifier: 1.61.0
-        version: 1.61.0(mediabunny@1.61.3)
+        specifier: 1.66.0
+        version: 1.66.0(mediabunny@1.61.3)
       fflate:
         specifier: 0.8.3
         version: 0.8.3
@@ -924,8 +924,8 @@ packages:
     peerDependencies:
       mediabunny: ^1.0.0
 
-  '@mediabunny/mp3-encoder@1.61.0':
-    resolution: {integrity: sha512-b9IFKx5Dm2+OZNqXd0of+jPPGiHCGzuD5B0oCbx73Z051KyRPbrg+yMZODKbKZeyPOlgJWh8CtZFw0l4DkLGWQ==}
+  '@mediabunny/mp3-encoder@1.66.0':
+    resolution: {integrity: sha512-Co1ChvNYWdjCAVCbbWRVu1PdpY8A7M85wVypc2rpKV3IFWzc/Y2C211BeAgMrk6rTi9DvluI0KuwxIEfAtFSlg==}
     peerDependencies:
       mediabunny: ^1.0.0
 
@@ -3606,7 +3606,7 @@ snapshots:
     dependencies:
       mediabunny: 1.61.3
 
-  '@mediabunny/mp3-encoder@1.61.0(mediabunny@1.61.3)':
+  '@mediabunny/mp3-encoder@1.66.0(mediabunny@1.61.3)':
     dependencies:
       mediabunny: 1.61.3
 
